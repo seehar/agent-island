@@ -48,7 +48,7 @@ struct ToolResultContent: View {
             case .generic(let r):
                 GenericResultContent(result: r)
             }
-        } else if tool.name == "Edit" {
+        } else if GenericToolResultBuilder.isEditLike(tool.name) {
             // Special fallback for Edit - show diff from input params
             EditInputDiffView(input: tool.input)
         } else if let result = tool.result {
@@ -113,6 +113,7 @@ struct ReadResultContent: View {
 struct EditResultContent: View {
     let result: EditResult
     var toolInput: [String: String] = [:]
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     /// Get old string - prefer result, fallback to input
     private var oldString: String {
@@ -138,7 +139,7 @@ struct EditResultContent: View {
             }
 
             if result.userModified {
-                Text("(User modified)")
+                Text(l10n.t("(User modified)"))
                     .font(.system(size: 10))
                     .foregroundColor(.orange.opacity(0.7))
             }
@@ -150,12 +151,13 @@ struct EditResultContent: View {
 
 struct WriteResultContent: View {
     let result: WriteResult
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             // Action and filename
             HStack(spacing: 4) {
-                Text(result.type == .create ? "Created" : "Wrote")
+                Text(result.type == .create ? l10n.t("Created") : l10n.t("Wrote"))
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(.white.opacity(0.5))
                 Text(result.filename)
@@ -177,6 +179,7 @@ struct WriteResultContent: View {
 
 struct BashResultContent: View {
     let result: BashResult
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -185,7 +188,7 @@ struct BashResultContent: View {
                 HStack(spacing: 4) {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 10))
-                    Text("Background task: \(bgId)")
+                    Text(l10n.t("Background task: %@", bgId))
                         .font(.system(size: 10, design: .monospaced))
                 }
                 .foregroundColor(.blue.opacity(0.7))
@@ -206,7 +209,7 @@ struct BashResultContent: View {
             // Stderr (shown in red)
             if !result.stderr.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("stderr:")
+                    Text(l10n.t("stderr:"))
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(.red.opacity(0.7))
                     Text(result.stderr)
@@ -218,7 +221,7 @@ struct BashResultContent: View {
 
             // Empty state
             if !result.hasOutput && result.backgroundTaskId == nil && result.returnCodeInterpretation == nil {
-                Text("(No content)")
+                Text(l10n.t("(No content)"))
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(.white.opacity(0.3))
             }
@@ -230,6 +233,7 @@ struct BashResultContent: View {
 
 struct GrepResultContent: View {
     let result: GrepResult
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -237,7 +241,7 @@ struct GrepResultContent: View {
             case .filesWithMatches:
                 // Show file list
                 if result.filenames.isEmpty {
-                    Text("No matches found")
+                    Text(l10n.t("No matches found"))
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(.white.opacity(0.3))
                 } else {
@@ -249,13 +253,13 @@ struct GrepResultContent: View {
                 if let content = result.content, !content.isEmpty {
                     CodePreview(content: content, maxLines: 15)
                 } else {
-                    Text("No matches found")
+                    Text(l10n.t("No matches found"))
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(.white.opacity(0.3))
                 }
 
             case .count:
-                Text("\(result.numFiles) files with matches")
+                Text(l10n.t("%lld files with matches", result.numFiles))
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(.white.opacity(0.5))
             }
@@ -267,18 +271,19 @@ struct GrepResultContent: View {
 
 struct GlobResultContent: View {
     let result: GlobResult
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if result.filenames.isEmpty {
-                Text("No files found")
+                Text(l10n.t("No files found"))
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(.white.opacity(0.3))
             } else {
                 FileListView(files: result.filenames, limit: 10)
 
                 if result.truncated {
-                    Text("... and more (truncated)")
+                    Text(l10n.t("... and more (truncated)"))
                         .font(.system(size: 10))
                         .foregroundColor(.white.opacity(0.3))
                 }
@@ -333,6 +338,7 @@ struct TodoWriteResultContent: View {
 
 struct TaskResultContent: View {
     let result: TaskResult
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -349,7 +355,7 @@ struct TaskResultContent: View {
                 }
 
                 if let tools = result.totalToolUseCount {
-                    Text("\(tools) tools")
+                    Text(l10n.t("%lld tools", tools))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(.white.opacity(0.4))
                 }
@@ -376,11 +382,11 @@ struct TaskResultContent: View {
 
     private func formatDuration(_ ms: Int) -> String {
         if ms >= 60000 {
-            return "\(ms / 60000)m \((ms % 60000) / 1000)s"
+            return l10n.t("%lldm %llds", ms / 60000, (ms % 60000) / 1000)
         } else if ms >= 1000 {
-            return "\(ms / 1000)s"
+            return l10n.t("%llds", ms / 1000)
         }
-        return "\(ms)ms"
+        return l10n.t("%lldms", ms)
     }
 }
 
@@ -425,11 +431,12 @@ struct WebFetchResultContent: View {
 
 struct WebSearchResultContent: View {
     let result: WebSearchResult
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if result.results.isEmpty {
-                Text("No results found")
+                Text(l10n.t("No results found"))
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(.white.opacity(0.3))
             } else {
@@ -450,7 +457,7 @@ struct WebSearchResultContent: View {
                 }
 
                 if result.results.count > 5 {
-                    Text("... and \(result.results.count - 5) more results")
+                    Text(l10n.t("... and %lld more results", result.results.count - 5))
                         .font(.system(size: 10))
                         .foregroundColor(.white.opacity(0.3))
                 }
@@ -493,17 +500,18 @@ struct AskUserQuestionResultContent: View {
 
 struct BashOutputResultContent: View {
     let result: BashOutputResult
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             // Status
             HStack(spacing: 6) {
-                Text("Status: \(result.status)")
+                Text(l10n.t("Status: %@", result.status))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundColor(.white.opacity(0.5))
 
                 if let exitCode = result.exitCode {
-                    Text("Exit: \(exitCode)")
+                    Text(l10n.t("Exit: %lld", exitCode))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(exitCode == 0 ? .green.opacity(0.6) : .red.opacity(0.6))
                 }
@@ -528,6 +536,7 @@ struct BashOutputResultContent: View {
 
 struct KillShellResultContent: View {
     let result: KillShellResult
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     var body: some View {
         HStack(spacing: 6) {
@@ -535,7 +544,7 @@ struct KillShellResultContent: View {
                 .font(.system(size: 11))
                 .foregroundColor(.red.opacity(0.6))
 
-            Text(result.message.isEmpty ? "Shell \(result.shellId) terminated" : result.message)
+            Text(result.message.isEmpty ? l10n.t("Shell %@ terminated", result.shellId) : result.message)
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(.white.opacity(0.5))
         }
@@ -605,12 +614,13 @@ struct MCPResultContent: View {
 
 struct GenericResultContent: View {
     let result: GenericResult
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     var body: some View {
         if let content = result.rawContent, !content.isEmpty {
             GenericTextContent(text: content)
         } else {
-            Text("Completed")
+            Text(l10n.t("Completed"))
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(.white.opacity(0.3))
         }
@@ -636,6 +646,7 @@ struct FileCodeView: View {
     let content: String
     let startLine: Int
     let totalLines: Int
+    @ObservedObject private var l10n = LocalizationManager.shared
     let maxLines: Int
 
     private var lines: [String] {
@@ -695,7 +706,7 @@ struct FileCodeView: View {
 
             // Bottom overflow indicator
             if hasMoreAfter {
-                Text("... (\(lines.count - maxLines) more lines)")
+                Text(l10n.t("... (%lld more lines)", lines.count - maxLines))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundColor(.white.opacity(0.3))
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -739,6 +750,7 @@ struct FileCodeView: View {
 struct CodePreview: View {
     let content: String
     let maxLines: Int
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     var body: some View {
         let lines = content.components(separatedBy: "\n")
@@ -753,7 +765,7 @@ struct CodePreview: View {
             }
 
             if hasMore {
-                Text("... (\(lines.count - maxLines) more lines)")
+                Text(l10n.t("... (%lld more lines)", lines.count - maxLines))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundColor(.white.opacity(0.3))
                     .padding(.top, 2)
@@ -765,6 +777,7 @@ struct CodePreview: View {
 struct FileListView: View {
     let files: [String]
     let limit: Int
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -781,7 +794,7 @@ struct FileListView: View {
             }
 
             if files.count > limit {
-                Text("... and \(files.count - limit) more files")
+                Text(l10n.t("... and %lld more files", files.count - limit))
                     .font(.system(size: 10))
                     .foregroundColor(.white.opacity(0.3))
             }
@@ -791,6 +804,7 @@ struct FileListView: View {
 
 struct DiffView: View {
     let patches: [PatchHunk]
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -807,7 +821,7 @@ struct DiffView: View {
                     }
 
                     if patch.lines.count > 10 {
-                        Text("... (\(patch.lines.count - 10) more lines)")
+                        Text(l10n.t("... (%lld more lines)", patch.lines.count - 10))
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundColor(.white.opacity(0.3))
                     }
@@ -815,7 +829,7 @@ struct DiffView: View {
             }
 
             if patches.count > 3 {
-                Text("... and \(patches.count - 3) more hunks")
+                Text(l10n.t("... and %lld more hunks", patches.count - 3))
                     .font(.system(size: 10))
                     .foregroundColor(.white.opacity(0.3))
             }

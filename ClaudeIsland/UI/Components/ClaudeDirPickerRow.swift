@@ -13,6 +13,7 @@ import SwiftUI
 
 struct ClaudeDirPickerRow: View {
     @ObservedObject private var selector = ClaudeDirSelector.shared
+    @ObservedObject private var l10n = LocalizationManager.shared
     @State private var currentValue: String = AppSettings.claudeDirectoryName
     @State private var isHovered: Bool = false
 
@@ -32,7 +33,7 @@ struct ClaudeDirPickerRow: View {
                         .foregroundColor(textColor)
                         .frame(width: 16)
 
-                    Text("Claude Directory")
+                    Text(l10n.t("Claude Directory"))
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(textColor)
 
@@ -62,7 +63,7 @@ struct ClaudeDirPickerRow: View {
             if isExpanded {
                 VStack(spacing: 2) {
                     ClaudeDirOptionRow(
-                        label: "Auto-detect",
+                        label: l10n.t("Auto-detect"),
                         sublabel: isCustom ? nil : resolvedAutoDetectPath,
                         isSelected: !isCustom
                     ) {
@@ -70,7 +71,7 @@ struct ClaudeDirPickerRow: View {
                     }
 
                     ClaudeDirOptionRow(
-                        label: "Choose folder…",
+                        label: l10n.t("Choose folder…"),
                         sublabel: isCustom ? displayValue : nil,
                         isSelected: isCustom
                     ) {
@@ -96,7 +97,7 @@ struct ClaudeDirPickerRow: View {
 
     /// Short display string for the main row's right side.
     private var displayValue: String {
-        isCustom ? shortenedPath(currentValue) : "Auto-detect"
+        isCustom ? shortenedPath(currentValue) : l10n.t("Auto-detect")
     }
 
     /// What `Auto-detect` actually resolves to right now (for the sublabel).
@@ -118,8 +119,8 @@ struct ClaudeDirPickerRow: View {
 
     private func openFolderPicker() {
         let panel = NSOpenPanel()
-        panel.title = "Choose Claude Config Directory"
-        panel.message = "Select the folder Claude Code uses (typically ~/.claude or ~/.config/claude)."
+        panel.title = l10n.t("Choose Claude Config Directory")
+        panel.message = l10n.t("Select the folder Claude Code uses (typically ~/.claude or ~/.config/claude).")
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false

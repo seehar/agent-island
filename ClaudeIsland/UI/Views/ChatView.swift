@@ -753,11 +753,11 @@ struct ToolCallView: View {
 
  /// Whether the tool can be expanded (has result, NOT a subagent container, NOT Edit).
  private var canExpand: Bool {
-  !tool.isSubagentContainer && tool.name != "Edit" && hasResult
+  !tool.isSubagentContainer && !GenericToolResultBuilder.isEditLike(tool.name) && hasResult
  }
 
  private var showContent: Bool {
-  tool.name == "Edit" || isExpanded
+  GenericToolResultBuilder.isEditLike(tool.name) || isExpanded
  }
 
  private var agentDescription: String? {
@@ -851,7 +851,7 @@ struct ToolCallView: View {
    }
 
    // Edit tools show diff from input even while running
-   if tool.name == "Edit" && tool.status == .running {
+   if GenericToolResultBuilder.isEditLike(tool.name) && tool.status == .running {
     EditInputDiffView(input: tool.input)
      .padding(.leading, 12)
      .padding(.top, 4)

@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ScreenPickerRow: View {
     @ObservedObject var screenSelector: ScreenSelector
+    @ObservedObject private var l10n = LocalizationManager.shared
     @State private var isHovered = false
 
     private var isExpanded: Bool {
@@ -33,7 +34,7 @@ struct ScreenPickerRow: View {
                         .foregroundColor(textColor)
                         .frame(width: 16)
 
-                    Text("Screen")
+                    Text(l10n.t("Screen"))
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(textColor)
 
@@ -63,8 +64,8 @@ struct ScreenPickerRow: View {
                 VStack(spacing: 2) {
                     // Automatic option
                     ScreenOptionRow(
-                        label: "Automatic",
-                        sublabel: "Built-in or Main",
+                        label: l10n.t("Automatic"),
+                        sublabel: l10n.t("Built-in or Main"),
                         isSelected: screenSelector.selectionMode == .automatic
                     ) {
                         screenSelector.selectAutomatic()
@@ -95,12 +96,12 @@ struct ScreenPickerRow: View {
     private var currentSelectionLabel: String {
         switch screenSelector.selectionMode {
         case .automatic:
-            return "Auto"
+            return l10n.t("Auto")
         case .specificScreen:
             if let screen = screenSelector.selectedScreen {
                 return screen.localizedName
             }
-            return "Auto"
+            return l10n.t("Auto")
         }
     }
 
@@ -111,10 +112,10 @@ struct ScreenPickerRow: View {
     private func screenSublabel(for screen: NSScreen) -> String? {
         var parts: [String] = []
         if screen.isBuiltinDisplay {
-            parts.append("Built-in")
+            parts.append(l10n.t("Built-in"))
         }
         if screen == NSScreen.main {
-            parts.append("Main")
+            parts.append(l10n.t("Main"))
         }
         return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }

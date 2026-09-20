@@ -10,6 +10,7 @@ import SwiftUI
 
 struct SoundPickerRow: View {
     @ObservedObject var soundSelector: SoundSelector
+    @ObservedObject private var l10n = LocalizationManager.shared
     @State private var isHovered = false
     @State private var selectedSound: NotificationSound = AppSettings.notificationSound
 
@@ -35,7 +36,7 @@ struct SoundPickerRow: View {
                         .foregroundColor(textColor)
                         .frame(width: 16)
 
-                    Text("Notification Sound")
+                    Text(l10n.t("Notification Sound"))
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(textColor)
 

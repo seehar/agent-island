@@ -36,6 +36,9 @@ enum UpdateState: Equatable {
 class UpdateManager: NSObject, ObservableObject {
     static let shared = UpdateManager()
 
+    /// 本地化查找入口（面向用户的更新状态文案）。
+    private static let l10n = LocalizationManager.shared
+
     @Published var state: UpdateState = .idle
     @Published var hasUnseenUpdate: Bool = false
     private var hasSeenUpdateThisSession: Bool = false
@@ -59,7 +62,7 @@ class UpdateManager: NSObject, ObservableObject {
         if let updater = AppDelegate.shared?.updater {
             updater.checkForUpdates()
         } else {
-            state = .error(message: "Updater not initialized")
+            state = .error(message: Self.l10n.t("Updater not initialized"))
         }
     }
 

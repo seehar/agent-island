@@ -9,21 +9,24 @@ import Foundation
 
 struct MCPToolFormatter {
 
-    /// Tool aliases for friendlier display names
-    private static let toolAliases: [String: String] = [
-        "AgentOutputTool": "Await Agent",
-        "AskUserQuestion": "Question",
-        "TodoWrite": "Todo",
-        "TodoRead": "Todo",
-        "WebFetch": "Fetch",
-        "WebSearch": "Search",
-        "NotebookEdit": "Notebook",
-        "BashOutput": "Bash",
-        "KillShell": "Shell",
-        "EnterPlanMode": "Plan",
-        "ExitPlanMode": "Plan",
-        "SlashCommand": "Command",
-    ]
+    private static let l10n = LocalizationManager.shared
+
+    /// 更友好的展示名。按工具 ID 分支而不是查表，避免每次渲染都构造字典。
+    private static func toolAlias(for toolId: String) -> String? {
+        switch toolId {
+        case "AgentOutputTool": return l10n.t("Await Agent")
+        case "AskUserQuestion": return l10n.t("Question")
+        case "TodoWrite", "TodoRead": return l10n.t("Todo")
+        case "WebFetch": return l10n.t("Fetch")
+        case "WebSearch": return l10n.t("Search")
+        case "NotebookEdit": return l10n.t("Notebook")
+        case "BashOutput": return l10n.t("Bash")
+        case "KillShell": return l10n.t("Shell")
+        case "EnterPlanMode", "ExitPlanMode": return l10n.t("Plan")
+        case "SlashCommand": return l10n.t("Command")
+        default: return nil
+        }
+    }
 
     /// Checks if tool name is in MCP format (e.g., "mcp__deepwiki__ask_question")
     static func isMCPTool(_ name: String) -> Bool {
@@ -39,12 +42,12 @@ struct MCPToolFormatter {
             .joined(separator: " ")
     }
 
-    /// Formats MCP tool ID to human-readable format
-    /// e.g., "mcp__deepwiki__ask_question" → "Deepwiki - Ask Question"
-    /// Returns alias if available, otherwise original name
+    /// 把 MCP 工具 ID 转成可读名称
+    /// 例如 "mcp__deepwiki__ask_question" → "Deepwiki - Ask Question"
+    /// 有别名时返回别名，否则返回原名称
     static func formatToolName(_ toolId: String) -> String {
-        // Check for alias first
-        if let alias = toolAliases[toolId] {
+        // 优先使用别名
+        if let alias = toolAlias(for: toolId) {
             return alias
         }
 

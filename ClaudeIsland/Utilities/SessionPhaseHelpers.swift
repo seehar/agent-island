@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct SessionPhaseHelpers {
+    private static let l10n = LocalizationManager.shared
+
     /// Get color for session phase
     static func phaseColor(for phase: SessionPhase) -> Color {
         switch phase {
@@ -24,31 +26,31 @@ struct SessionPhaseHelpers {
         }
     }
 
-    /// Get description for session phase
+    /// 取得会话阶段对应的展示文案
     static func phaseDescription(for phase: SessionPhase) -> String {
         switch phase {
         case .waitingForApproval(let ctx):
-            return "Waiting for approval: \(ctx.toolName)"
+            return l10n.t("Waiting for approval: %@", ctx.toolName)
         case .waitingForInput:
-            return "Ready for input"
+            return l10n.t("Ready for input")
         case .processing:
-            return "Processing..."
+            return l10n.t("Processing...")
         case .compacting:
-            return "Compacting context..."
+            return l10n.t("Compacting context...")
         case .idle:
-            return "Idle"
+            return l10n.t("Idle")
         case .ended:
-            return "Ended"
+            return l10n.t("Ended")
         }
     }
 
-    /// Format time ago string
+    /// 格式化“多久以前”的文案
     static func timeAgo(_ date: Date, now: Date = Date()) -> String {
         let seconds = Int(now.timeIntervalSince(date))
-        if seconds < 5 { return "now" }
-        if seconds < 60 { return "\(seconds)s" }
-        if seconds < 3600 { return "\(seconds / 60)m" }
-        if seconds < 86400 { return "\(seconds / 3600)h" }
-        return "\(seconds / 86400)d"
+        if seconds < 5 { return l10n.t("now") }
+        if seconds < 60 { return l10n.t("%llds", seconds) }
+        if seconds < 3600 { return l10n.t("%lldm", seconds / 60) }
+        if seconds < 86400 { return l10n.t("%lldh", seconds / 3600) }
+        return l10n.t("%lldd", seconds / 86400)
     }
 }
