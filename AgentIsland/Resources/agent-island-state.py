@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Claude Island Hook
+AgentIsland Hook
 - Sends session state to AgentIsland.app via Unix socket
 - For PermissionRequest: waits for user decision from the app
 """

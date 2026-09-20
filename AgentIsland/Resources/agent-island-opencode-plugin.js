@@ -1,4 +1,4 @@
-// agent-island-opencode-plugin.js —— 由 AgentIsland（Claude Island）安装的 OpenCode 插件
+// agent-island-opencode-plugin.js —— 由 AgentIsland 安装的 OpenCode 插件
 //
 // 作用：把会话生命周期、工具执行与「等待用户确认」实时上报给 notch 应用
 // （unix socket）。OpenCode 的插件加载器只认纯 JS（不转译 TS），因此本文件用 JS。

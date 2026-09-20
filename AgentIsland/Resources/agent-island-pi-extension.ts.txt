@@ -1,4 +1,4 @@
-// agent-island-pi-extension.ts —— 由 AgentIsland（Claude Island）安装的 pi / Oh My Pi 扩展
+// agent-island-pi-extension.ts —— 由 AgentIsland 安装的 pi / Oh My Pi 扩展
 //
 // 作用：把会话生命周期与工具调用实时上报给 notch 应用（unix socket），
 // 让 pi/omp 拥有和 Claude Code hooks 同等的实时状态，而不必轮询记录文件。

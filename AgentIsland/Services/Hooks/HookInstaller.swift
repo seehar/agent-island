@@ -68,7 +68,7 @@ nonisolated struct HookInstaller {
 
         var hooks = json["hooks"] as? [String: Any] ?? [:]
 
-        // Strip any existing Claude Island hooks from ALL event types first — even
+        // Strip any existing AgentIsland hooks from ALL event types first — even
         // events we no longer register. Fixes users who installed v1.3 on an older
         // Claude Code and now have invalid keys like PermissionDenied sitting in
         // their settings.json (issue #85).
