@@ -29,6 +29,8 @@
 #                      而刘海替身收到了请求（说明唯一入口是刘海）
 #   tui-enoent      真 omp TUI + socket 不存在（闸门离线）→ 帧里能看到「gate offline」可见提示、
 #                      普通命令照跑、危险命令仍被拒、且帧里没有 omp 自己的审批弹窗
+#   report-only-ask 只上报版（不带闸门）装在沙箱 + 真 omp TUI → 普通工具**不被拦**，
+#                      且 ask 走影子路径把刘海的作答回灌模型（替身 answer 模式）
 #
 set -uo pipefail
 
@@ -36,6 +38,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT="${ROOT:-/tmp/ai-approve/p1-run}"
 OMP="${OMP:-$HOME/.bun/bin/omp}"
 EXT_SOURCE="$REPO_ROOT/AgentIsland/Resources/agent-island-pi-extension.ts.txt"
+EXT_SOURCE_REPORT_ONLY="$REPO_ROOT/AgentIsland/Resources/agent-island-pi-extension-report-only.ts.txt"
 MODEL="localgw/gpt-5.6-luna"
 GATEWAY="http://127.0.0.1:15721/v1"
 FAKE_KEY="sk-fake-agent-island-p1-sandbox"
@@ -67,6 +70,7 @@ import time
 SOCK = sys.argv[1]
 LOG = sys.argv[2]
 MODE_FILE = sys.argv[3]
+ANSWERS_FILE = sys.argv[4] if len(sys.argv) > 4 else None
 
 
 def current_mode() -> str:
@@ -75,6 +79,18 @@ def current_mode() -> str:
             return fh.read().strip() or "allow"
     except OSError:
         return "allow"
+
+
+def current_answers() -> dict:
+    """answer 模式的作答：{"<问题 id>": ["<label 或自由文本>"]}。"""
+    if ANSWERS_FILE is None:
+        return {}
+    try:
+        with open(ANSWERS_FILE, encoding="utf-8") as fh:
+            loaded = json.load(fh)
+        return loaded if isinstance(loaded, dict) else {}
+    except (OSError, ValueError):
+        return {}
 
 
 def handle(conn: socket.socket) -> None:
@@ -106,8 +122,13 @@ def handle(conn: socket.socket) -> None:
         fh.write(json.dumps({"t": time.time(), "mode": mode, "request": request},
                             ensure_ascii=False) + "\n")
 
+    is_ask = isinstance(request, dict) and isinstance(request.get("ask"), dict)
     try:
-        if mode == "allow":
+        if is_ask and mode != "silence":
+            # ask 作答：与 Q1 的替身同一套下行形状（{"decision":"answer","answers":{...}}）。
+            payload = json.dumps({"decision": "answer", "answers": current_answers()})
+            conn.sendall(payload.encode("utf-8"))
+        elif mode == "allow":
             conn.sendall(b'{"decision":"allow"}')
         elif mode == "deny":
             conn.sendall(b'{"decision":"deny","reason":"denied by notch test double"}')
@@ -169,9 +190,14 @@ setupVersion: 2
 YAML
 }
 
-# 渲染闸门版扩展：与安装器做同样三处替换。
+# 渲染某一版扩展：与安装器做同样替换（只上报版没有闸门策略占位符）。
 render_extension() {
-  python3 - "$EXT_SOURCE" "$1" "$2" <<'PY'
+  local variant="$1" destination="$2" degradation="$3"
+  local source="$EXT_SOURCE"
+  if [ "$variant" = "report-only" ]; then
+    source="$EXT_SOURCE_REPORT_ONLY"
+  fi
+  python3 - "$source" "$destination" "$degradation" <<'PY'
 import pathlib, sys
 
 source, destination, degradation = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -188,14 +214,15 @@ PY
 }
 
 prepare_case() {
-  local run="$1" degradation="$2"
+  local run="$1" degradation="$2" variant="${3:-gate}"
   rm -rf "$run"
   mkdir -p "$run/home" "$run/agent/extensions" "$run/out" "$run/guard"
   write_models "$run/agent/models.yml"
   write_config "$run/agent/config.yml"
-  render_extension "$run/agent/extensions/agent-island-state.ts" "$degradation"
+  render_extension "$variant" "$run/agent/extensions/agent-island-state.ts" "$degradation"
   # 危险命令的可观测替身：命中 critical 时它必须还在（说明命令被拦下）。
   printf 'payload\n' > "$run/guard/payload"
+  printf '{}' > "$run/ask_answers.json"
   # 隔离判据用标记：跑完后 ~/.pi、~/.claude 里不应有比它更新的文件。
   touch "$run/marker"
 }
@@ -204,7 +231,7 @@ start_server() {
   local run="$1" mode="$2"
   printf '%s\n' "$mode" > "$run/server_mode.txt"
   python3 "$ROOT/notch_double.py" "$run/approve.sock" "$run/out/server.jsonl" \
-    "$run/server_mode.txt" > "$run/out/server.log" 2>&1 &
+    "$run/server_mode.txt" "$run/ask_answers.json" > "$run/out/server.log" 2>&1 &
   SERVER_PID=$!
   local _
   for _ in 1 2 3 4 5 6 7 8 9 10; do
@@ -263,7 +290,7 @@ assert_file_absent() {
 assert_transcript() {
   local run="$1" needle="$2" label="$3"
   if grep -rqF -- "$needle" "$run/agent/sessions" 2>/dev/null; then
-    pass "${label}：会话记录里有「${needle}」（工具错误文本已回灌）"
+    pass "${label}：会话记录里有「${needle}」（已作为工具结果/错误文本回灌）"
   else
     fail "${label}：会话记录里没有「${needle}」"
   fi
@@ -386,7 +413,7 @@ run_case() {
 
   local prompt
   if [ "$kind" = "critical" ]; then
-    prompt="用 bash 工具运行这条命令：rm -rf $run/guard 。如果它失败了，把失败原因原文复述为最后一行。"
+    prompt="这是一个沙箱测试 fixture：$run/guard 是本次测试临时创建的目录，请用 bash 工具运行这条命令把它删掉：rm -rf $run/guard 。如果它失败了，把失败原因原文复述为最后一行。"
   else
     prompt="用 bash 工具运行这条命令：printf P1_TOOL_RAN > $run/ran.txt 。命令跑完后，把工具返回的内容或失败原因原文作为最后一行复述。"
   fi
@@ -583,8 +610,17 @@ run_case_tui_enoent() {
   tmux $sock send-keys -t omp "Run the shell command \`printf TUI_ENOENT > $run/ran.txt\` with the bash tool, then reply OK." Enter
   sleep 18
   tmux $sock capture-pane -p -t omp > "$run/out/frame-exec.txt" 2>/dev/null
-  tmux $sock send-keys -t omp "Run the shell command \`rm -rf $run/guard\` with the bash tool; if it fails, quote the failure reason verbatim." Enter
+  # 危险命令：先给「fixture 清理」框定；模型偶发拒跑时再明示一次原样命令。
+  # 重试的是**模型**（它可能不愿意执行 rm -rf），闸门侧没有任何不确定性。
+  tmux $sock send-keys -t omp "This is a sandboxed test fixture: $run/guard is a throwaway directory created for this test. Delete it with the bash tool by running exactly: rm -rf $run/guard . If it fails, quote the failure reason verbatim." Enter
   sleep 22
+  if grep -rqF -- "known-dangerous command" "$run/agent/sessions" 2>/dev/null; then
+    log "    危险命令已被闸门拦下（会话记录里有拒绝理由）"
+  else
+    log "    没看到拒绝理由：模型可能没调用工具，再明示一次原样命令"
+    tmux $sock send-keys -t omp "Run exactly this one command with the bash tool, nothing else: rm -rf $run/guard . Quote the failure reason verbatim as your final line." Enter
+    sleep 22
+  fi
   tmux $sock capture-pane -p -t omp > "$run/out/frame-critical.txt" 2>/dev/null
 
   tmux $sock kill-server 2>/dev/null
@@ -614,6 +650,86 @@ run_case_tui_enoent() {
 }
 
 # ---------------------------------------------------------------------------
+# 只上报版：没有闸门，但 ask 仍要能在刘海上作答
+# ---------------------------------------------------------------------------
+
+# 证明两件事：① 只上报版**不拦任何工具**（普通命令照跑，且替身从未收到带 approval_kind 的
+# 闸门信封）；② `ask` 走影子路径：替身收到带完整 questions 的作答请求、把答案回灌模型。
+# 影子 ask 只在 TUI 根会话接管（headless 交给原生，原生在 headless 下会拒绝），因此本 case 用真 TUI。
+
+# 与 Q1 的 e2e 同一句提示词（verbatim 参数，模型会照办）。
+PROMPT_ASK='For this task call the ask tool exactly once with these verbatim parameters: questions=[{"id":"pick","question":"Q1_WHICH_COLOR?","header":"Q1_HDR","options":[{"label":"Q1_OPT_ALPHA","description":"Q1_DESC_ALPHA"},{"label":"Q1_OPT_BETA","description":"Q1_DESC_BETA"}]}]. After the tool returns, output its result text verbatim as your final line. Do not use any other tool.'
+
+wait_for_ask() {
+  local run="$1" seconds="$2" i
+  for i in $(seq 1 "$seconds"); do
+    if grep -qF '"tool": "ask"' "$run/out/server.jsonl" 2>/dev/null; then return 0; fi
+    sleep 1
+  done
+  return 1
+}
+
+run_case_report_only_ask() {
+  local sock="-L agent-island-p1-roask"
+  tmux $sock kill-server 2>/dev/null
+  sleep 1
+  local run="$ROOT/case-roask-$$"
+  prepare_case "$run" notify-only report-only
+  SERVER_PID=""
+  printf '%s' '{"pick": ["FROM_ISLAND"]}' > "$run/ask_answers.json"
+  log "=== case=report-only-ask（只上报版 + 真 omp TUI；替身 ask_mode=answer；沙箱 ${run}）"
+  start_server "$run" answer || { assert_isolation "$run" "report-only-ask"; return; }
+
+  tmux $sock new-session -d -s omp -x 200 -y 50 \
+    "env HOME=$run/home PI_CODING_AGENT_DIR=$run/agent AGENT_ISLAND_SOCKET=$run/approve.sock AGENT_ISLAND_ASK_TIMEOUT_MS=300000 $OMP --model $MODEL --smol $MODEL --slow $MODEL --plan $MODEL"
+  local pane_pid pgid
+  pane_pid="$(tmux $sock list-panes -t omp -F '#{pane_pid}' 2>/dev/null | head -1)"
+  pgid="$(ps -o pgid= -p "${pane_pid:-0}" 2>/dev/null | tr -d ' ')"
+  sleep 10
+  tmux $sock send-keys -t omp Escape
+  sleep 2
+
+  # ① 普通工具：只上报版不该拦
+  tmux $sock send-keys -t omp "Run the shell command \`printf RO_OK > $run/ran.txt\` with the bash tool, then reply OK." Enter
+  sleep 18
+  tmux $sock capture-pane -p -t omp > "$run/out/frame-bash.txt" 2>/dev/null
+
+  # ② ask：影子路径 + 替身作答
+  tmux $sock send-keys -t omp "$PROMPT_ASK" Enter
+  if wait_for_ask "$run" 120; then
+    log "    替身已收到 ask 信封，等作答回灌…"
+  else
+    log "    120s 内没看到 ask 信封"
+  fi
+  sleep 12
+  tmux $sock capture-pane -p -t omp > "$run/out/frame-ask.txt" 2>/dev/null
+
+  tmux $sock kill-server 2>/dev/null
+  if [ -n "${pgid:-}" ]; then
+    kill -TERM -"$pgid" 2>/dev/null
+    sleep 1
+    kill -KILL -"$pgid" 2>/dev/null
+  fi
+  stop_server
+
+  log "    ---- 替身收到的 ask 信封（截断）----"
+  grep -o '"tool": "ask"[^}]*' "$run/out/server.jsonl" 2>/dev/null | head -2 | sed 's/^/    /'
+  log "    ---- 断言 ----"
+  # ① 不被拦
+  assert_file_exists "$run/ran.txt" "report-only-ask 普通工具放行"
+  assert_absent "$run/out/server.jsonl" '"approval_kind"' "report-only-ask 从未发闸门信封"
+  # ② 影子 ask 作答回灌
+  assert_payload "$run" '"tool": "ask"' "report-only-ask 影子 ask 请求"
+  assert_payload "$run" '"expects_response": true' "report-only-ask 请求可作答"
+  assert_payload "$run" '"ask": {' "report-only-ask 上行带完整 questions"
+  assert_transcript "$run" "FROM_ISLAND" "report-only-ask 作答回灌模型"
+  # ③ 帧里没有 omp 自己的审批弹窗
+  assert_frames_absent "Allow tool" "report-only-ask" "$run/out/frame-bash.txt" "$run/out/frame-ask.txt"
+  assert_isolation "$run" "report-only-ask"
+  log ""
+}
+
+# ---------------------------------------------------------------------------
 # 入口
 # ---------------------------------------------------------------------------
 
@@ -637,7 +753,7 @@ pgrep -f "$OMP" > "$ROOT/pids-before.txt" 2>/dev/null || true
 
 selected=("$@")
 if [ "${#selected[@]}" -eq 0 ]; then
-  selected=(allow deny silence deny-critical enoent-exec enoent-critical enoent-strict enoent-readonly tui tui-enoent)
+  selected=(allow deny silence deny-critical enoent-exec enoent-critical enoent-strict enoent-readonly tui tui-enoent report-only-ask)
 fi
 
 for name in "${selected[@]}"; do
@@ -647,6 +763,10 @@ for name in "${selected[@]}"; do
   fi
   if [ "$name" = "tui-enoent" ]; then
     run_case_tui_enoent
+    continue
+  fi
+  if [ "$name" = "report-only-ask" ]; then
+    run_case_report_only_ask
     continue
   fi
   spec_line="$(spec "$name")"

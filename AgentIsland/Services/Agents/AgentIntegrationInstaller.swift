@@ -32,7 +32,7 @@ nonisolated enum AgentIntegrationInstaller {
 
   /// 当前应用期望的扩展版本戳：改 pi/omp 扩展时必须同步 +1。
   /// `isInstalled` 按它比对（不再只看「文件在不在」），用户手改过或升级未重写都能被发现。
-  static let piFamilyExtensionVersion = 2
+  static let piFamilyExtensionVersion = 3
 
   /// 扩展源码里声明版本 / 变体 / 降级档的三行注释标记。
   private static let versionMarkerPrefix = "// agent-island-extension-version:"

@@ -1,5 +1,5 @@
 // agent-island-pi-extension.ts —— 由 AgentIsland 安装的 pi / Oh My Pi 扩展
-// agent-island-extension-version: 2
+// agent-island-extension-version: 3
 // agent-island-extension-kind: report-only
 // 本文件由 AgentIsland 安装并管理，勿手改：开关切换、档位变更或应用升级都会整体重写。
 //
@@ -50,6 +50,10 @@ interface IslandEvent {
   subagent_task?: string;
   parent_tool_call_id?: string;
   subagent_session_file?: string;
+  /** 声明「请回传决定」（影子 `ask` 的作答请求用它；缺省/ false = 纯展示）。 */
+  expects_response?: boolean;
+  /** `ask` 工具的完整问题集；只有交互式提问带它（应用据此把卡片换成作答界面）。 */
+  ask?: { questions: AskWireQuestion[] };
   /** 「OMP 自己在问」让位信号：应用据此撤下自己的 Allow/Deny。 */
   omp_owns_approval?: boolean;
 }
@@ -83,8 +87,64 @@ interface EventBusLike {
 interface ExtensionApi {
   on(event: string, handler: (event: unknown, ctx?: ExtensionContextLike) => void | Promise<void>): void;
   events?: EventBusLike;
+  /** omptype 的 zod 兼容面（`ConcreteExtensionAPI.zod`，loader.ts:183）。 */
+  zod?: ExtensionZodLike;
+  /** 注册 LLM 可调用工具（影子 `ask` 用它顶掉内置实现，见下方「影子 `ask`」段）。 */
+  registerTool?(definition: ShadowAskToolDefinition): void;
 }
 
+/**
+ * omptype 的 zod 兼容面：本文件只用到下面这些方法。
+ *
+ * 之所以自己声明：本文件刻意不 import omp 内部模块（那会随包结构与导出变化而崩），
+ * 运行时由 omp 注入真实实现（`pi.zod`）。`ExtensionZodSchema` 的泛型参数只用于形状
+ * 推导——schema 本身以 `unknown` 交给注册接口。
+ */
+interface ExtensionZodSchema<Output = unknown> {
+  optional(): ExtensionZodSchema<Output | undefined>;
+  min(bound: number): ExtensionZodSchema<Output>;
+  max(bound: number): ExtensionZodSchema<Output>;
+  describe(text: string): ExtensionZodSchema<Output>;
+  /** 幻影字段：只用于类型推导，运行时不存在。 */
+  readonly __output?: Output;
+}
+
+/** zod 面上的对象形状：值是任意 schema。 */
+type ExtensionZodShape = Record<string, ExtensionZodSchema<any>>;
+
+interface ExtensionZodLike {
+  string(): ExtensionZodSchema<string>;
+  number(): ExtensionZodSchema<number>;
+  boolean(): ExtensionZodSchema<boolean>;
+  array<Element>(element: ExtensionZodSchema<Element>): ExtensionZodSchema<Element[]>;
+  object<Shape extends ExtensionZodShape>(shape: Shape): ExtensionZodSchema<Record<string, unknown>>;
+}
+
+/** 传给 `pi.registerTool` 的工具定义：只声明本文件用到的字段（omp 侧字段更多）。 */
+interface ShadowAskToolDefinition {
+  name: string;
+  label: string;
+  description: string;
+  parameters: unknown;
+  approval?: "read" | "write" | "exec";
+  strict?: boolean;
+  loadMode?: "discoverable" | "essential";
+  /** 原生 ask 的独占用语义（ask.ts:799）；omp 会把定义对象上的字段透传到注册表项。 */
+  concurrency?: "shared" | "exclusive";
+  execute(
+    toolCallId: string,
+    params: ShadowAskParams,
+    signal?: AbortSignal,
+    onUpdate?: unknown,
+    ctx?: ShadowAskContextLike,
+  ): Promise<AskToolResultLike>;
+}
+
+/** 取一个正整数；非法取值返回 undefined。 */
+function readPositiveInt(raw: unknown): number | undefined {
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : undefined;
+}
 /** 从未知值里取布尔字段。 */
 function readBool(source: unknown, key: string): boolean {
   if (typeof source !== "object" || source === null || !(key in source)) {
@@ -158,6 +218,16 @@ function currentSessionFilePath(ctx: ExtensionContextLike | undefined): string |
   try {
     const file = ctx?.sessionManager?.getSessionFile?.();
     return typeof file === "string" && file.startsWith("/") ? file : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 读上下文里的会话 id（只读，不写模块级状态）。 */
+function readSessionIdFrom(ctx: ExtensionContextLike | undefined): string | undefined {
+  try {
+    const id = ctx?.sessionManager?.getSessionId?.();
+    return typeof id === "string" && id.length > 0 ? id : undefined;
   } catch {
     return undefined;
   }
@@ -283,6 +353,109 @@ function deliver(body: Record<string, unknown>): Promise<boolean> {
   return promise;
 }
 
+/** 一次询问的结果。 */
+interface ApprovalOutcome {
+  kind: "decision" | "timeout" | "unreachable" | "aborted";
+  decision?: string;
+  reason?: string;
+  /** `ask` 作答（`decision === "answer"`）；其余决定不带这个键。 */
+  answers?: AskAnswers;
+}
+
+/**
+ * 可取消的阻塞询问：`outcome` 是结局，`cancel()` 主动收掉 socket。
+ * 影子 `ask` 在「原生先答」时用它把刘海那条撤干净（连接一关，应用就把卡片当
+ * 外部已裁决：应用侧 ClaudeSessionMonitor 在 PostToolUse 上清待批）。
+ */
+interface DecisionRequest {
+  outcome: Promise<ApprovalOutcome>;
+  cancel: () => void;
+}
+
+/** 归一化下行 `answers`：只保留「问题 id → 非空字符串数组」，其余一律丢掉。 */
+function parseAskAnswers(raw: unknown): AskAnswers | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return undefined;
+  }
+  const answers: AskAnswers = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (key.length === 0 || !Array.isArray(value)) {
+      continue;
+    }
+    const labels = value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+    if (labels.length > 0) {
+      answers[key] = labels;
+    }
+  }
+  return Object.keys(answers).length > 0 ? answers : undefined;
+}
+
+/**
+ * 阻塞询问刘海：写一个 JSON，然后等应答。
+ *
+ * 与 send() 的差别（§5.2/§5.6）：独立 Promise、不复用 chain、写完后不 end()，
+ * 累积 data 直到能 JSON.parse，决策 / 超时 / 断开后 destroy() 释放 fd。
+ * 返回可取消形态（只上报版只给影子 `ask` 用）：`cancel()` 用于「原生先答」时把这条关掉。
+ */
+function startDecisionRequest(body: Record<string, unknown>, timeoutMs: number): DecisionRequest {
+  const { promise, resolve } = Promise.withResolvers<ApprovalOutcome>();
+  let buffer = "";
+  let connected = false;
+  let settled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let socket: NodeSocket | undefined;
+  const done = (outcome: ApprovalOutcome) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+    try {
+      socket?.destroy();
+    } catch {
+      // 忽略：连接可能已经断开。
+    }
+    resolve(outcome);
+  };
+  try {
+    socket = net.createConnection(SOCKET_PATH, () => {
+      connected = true;
+      try {
+        socket?.write(JSON.stringify(body));
+      } catch {
+        done({ kind: "aborted" });
+      }
+    });
+    timer = setTimeout(() => done({ kind: "timeout" }), timeoutMs);
+    socket.on("data", (chunk: Buffer | string) => {
+      buffer += chunk.toString("utf8");
+      const text = buffer.trim();
+      if (text.length === 0) {
+        return;
+      }
+      try {
+        const parsed = JSON.parse(text) as { decision?: unknown; reason?: unknown; answers?: unknown };
+        const answers = parseAskAnswers(parsed.answers);
+        done({
+          kind: "decision",
+          decision: typeof parsed.decision === "string" ? parsed.decision : undefined,
+          reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
+          ...(answers === undefined ? {} : { answers }),
+        });
+      } catch {
+        // 数据还没收全：继续累积，直到超时。
+      }
+    });
+    socket.on("error", () => done(connected ? { kind: "aborted" } : { kind: "unreachable" }));
+    socket.on("close", () => done(connected ? { kind: "aborted" } : { kind: "unreachable" }));
+  } catch {
+    done({ kind: "unreachable" });
+  }
+  return { outcome: promise, cancel: () => done({ kind: "aborted" }) };
+}
+
 /** 发送一条事件；永不抛错，永不阻塞调用方。 */
 function send(
   payload: IslandEvent,
@@ -370,7 +543,525 @@ function subscribeSubagentBus(pi: ExtensionApi): void {
   });
 }
 
+// ---------------------------------------------------------------------------
+// 影子 `ask`：让 omp 的交互式提问能在刘海上「选择并回复」
+//
+// 为什么必须是同名影子工具：原生 `ask` 的提问界面属于 omp 自己的 UI 上下文
+// （`AskTool.execute` 走 `context.ui.askDialog`，ask.ts:824-1165），扩展没有「从外部
+// 作答」的入口；`tool_approval_requested/resolved` 则只是 observability（wrapper.ts
+// 只 emit、丢弃返回值）。而 omp 的工具注册表是**后写覆盖**：扩展注册同名 `ask` 会顶掉
+// 内置实现（sdk.ts:2945-2950），内置实现仍留在 nativeToolsByName 里供 `ctx.invokeTool`
+// 委托（sdk.ts:2952-2956；文档 docs/extensions.md「Delegating to a native built-in」）。
+//
+// execute 并发两条路，先答者胜：
+//   ① 刘海：阻塞询问（与普通上报同一套 socket 写法），上行带完整 questions 与
+//      expects_response:true；
+//   ② 原生：`ctx.invokeTool(params, { signal })` —— 保留终端作答能力。
+// ①先答 → abort ②的 signal：原生 `untilAborted` 立刻抛 AbortError，被 ask.ts:1034-1036
+// 折成 `ToolAbortError("Ask input was cancelled")`（**不会** context.abort()，本轮不终止），
+// 同时 `#presentDialog` 的 abort 监听把对话框 dispose、编辑器还回来
+// （extension-ui-controller.ts:1272-1330）。②先答 → 关掉 ①的 socket。
+//
+// 不退化：拿不到会话身份、非 TUI 根会话、原生不存在、应用不可达/超时 → 一律原生独占。
+// 纪律：与普通上报一致，永不抛错；唯一例外是「用户取消」——那是**按原生语义**主动抛
+// `ToolAbortError`（ask.ts:1016 / 1125：原生取消 = `context.abort()` 后抛 `ToolAbortError`）。
+// ---------------------------------------------------------------------------
+
+/** 影子工具是否已注册（只有 omp 系才有原生 `ask` 可以委托，pi 0.85.1 没有 `ask`）。 */
+let shadowAskRegistered = false;
+
+/**
+ * ask 作答预算：比审批的一次决定长得多——读题、权衡、点选比「许可/拒绝」慢得多，
+ * 而原生询问本身没有超时（`ask.timeout` 默认 0 = 关闭，settings-schema.ts:2281-2297）。
+ * 可用 AGENT_ISLAND_ASK_TIMEOUT_MS 覆盖（验收靠它把超时改小）。
+ */
+const ASK_TIMEOUT_MS = readPositiveInt(process.env.AGENT_ISLAND_ASK_TIMEOUT_MS) ?? 300000;
+
+/** 上行给刘海的一个选项：原生选项去掉 `preview`（刘海不渲染富预览）。 */
+interface AskWireOption {
+  label: string;
+  description?: string;
+}
+
+/** 上行给刘海的一个问题；字段名与应用侧 `AskQuestion` 的 CodingKeys 逐字对齐。 */
+interface AskWireQuestion {
+  id: string;
+  question: string;
+  header?: string;
+  multi_select: boolean;
+  free_text: boolean;
+  options: AskWireOption[];
+}
+
+/** 下行作答：键为问题 id，值为选中的 label（自由文本则是原文）。 */
+type AskAnswers = Record<string, string[]>;
+
+/** 工具结果的最小形状（原生 `AgentToolResult` 的可见字段）。 */
+interface AskToolResultLike {
+  content: Array<{ type: "text"; text: string }>;
+  details?: unknown;
+}
+
+/** 影子工具的上下文：普通上报只用到 ui/会话字段，这里补上委托与中止。 */
+interface ShadowAskContextLike extends ExtensionContextLike {
+  invokeTool?(
+    params: Record<string, unknown>,
+    options?: { signal?: AbortSignal; onUpdate?: unknown },
+  ): Promise<AskToolResultLike>;
+  abort?(): unknown;
+}
+
+/** 从入参里取数组字段（`readObject` 会把数组也当对象返回，故另开一个）。 */
+function readArray(source: unknown, key: string): unknown[] | undefined {
+  if (typeof source !== "object" || source === null || !(key in source)) {
+    return undefined;
+  }
+  const value = (source as Record<string, unknown>)[key];
+  return Array.isArray(value) ? value : undefined;
+}
+
+/**
+ * 把工具入参归一成上行形状；任何一题缺 `id`/`question` 就返回 undefined（退回原生）。
+ *
+ * 字段语义逐条对齐原生 schema（ask.ts:51-71）：`id`/`question` 必有、`header` 可选、
+ * `options[].label` 必有而 `description` 可选、`multi` 缺省按单选。
+ * `free_text` **恒为 true**：原生每个问题都由 UI 自动补一行「Other (type your own)」
+ * （ask.ts:42 的 OTHER_OPTION 与 prompts/tools/ask.md 的 critical 段），所以「能不能
+ * 自由文本」在原生里恒真；上报成 false 会凭空砍掉一个原生有的入口。
+ */
+function normalizeAskQuestions(input: unknown): AskWireQuestion[] | undefined {
+  const rawQuestions = readArray(input, "questions");
+  if (rawQuestions === undefined || rawQuestions.length === 0) {
+    return undefined;
+  }
+  const questions: AskWireQuestion[] = [];
+  for (const rawQuestion of rawQuestions) {
+    const id = readString(rawQuestion, "id");
+    const question = readString(rawQuestion, "question");
+    if (id === undefined || question === undefined) {
+      return undefined;
+    }
+    const options: AskWireOption[] = [];
+    for (const rawOption of readArray(rawQuestion, "options") ?? []) {
+      const label = readString(rawOption, "label");
+      if (label === undefined) {
+        continue;
+      }
+      const description = readString(rawOption, "description");
+      options.push(description === undefined ? { label } : { label, description });
+    }
+    const header = readString(rawQuestion, "header");
+    questions.push({
+      id,
+      question,
+      ...(header === undefined ? {} : { header }),
+      multi_select: readBool(rawQuestion, "multi"),
+      free_text: true,
+      options,
+    });
+  }
+  return questions;
+}
+
+/** 原生保留行标签（ask.ts:42-50）：命中说明这次调用只该由原生校验去拒绝。 */
+const RESERVED_ASK_LABELS = new Set(["Other (type your own)", "Chat about this", "Next →"]);
+
+/**
+ * 这次调用是否该交给原生做校验。
+ *
+ * 原生 execute 内置三类 fail-closed 校验（保留标签冲突、问题 id 重复、同题选项重复，
+ * ask.ts:844-921），影子路径不做这些校验就会把「居然被接受了的畸形调用」答出去，
+ * 语义与终端不一致。判据命中即退回原生独占，由原生给出它自己那句错误文本——
+ * 校验只有一处实现，不抄第二遍。
+ */
+function needsNativeAskValidation(questions: AskWireQuestion[]): boolean {
+  const seenIds = new Set<string>();
+  for (const question of questions) {
+    if (seenIds.has(question.id)) {
+      return true;
+    }
+    seenIds.add(question.id);
+    const seenLabels = new Set<string>();
+    for (const option of question.options) {
+      if (RESERVED_ASK_LABELS.has(option.label) || seenLabels.has(option.label)) {
+        return true;
+      }
+      seenLabels.add(option.label);
+    }
+  }
+  return false;
+}
+
+/** 一题的作答：原生 `QuestionResult` 的形状（选中项与自由文本分开）。 */
+interface AskAnswerItem {
+  id: string;
+  question: string;
+  options: string[];
+  multi: boolean;
+  selectedOptions: string[];
+  customInput?: string;
+}
+
+/**
+ * 把刘海的作答折成原生形状：命中原生选项 label 的值进 `selectedOptions`，
+ * 其余算自由文本（原生的 `customInput`，等价终端里的「Other」行）。
+ */
+function toAskAnswers(questions: AskWireQuestion[], answers: AskAnswers): AskAnswerItem[] {
+  const items: AskAnswerItem[] = [];
+  for (const question of questions) {
+    const labels = question.options.map((option) => option.label);
+    const chosen = (answers[question.id] ?? []).filter((value) => typeof value === "string" && value.length > 0);
+    const selectedOptions = chosen.filter((value) => labels.includes(value));
+    const customValues = chosen.filter((value) => !labels.includes(value));
+    items.push({
+      id: question.id,
+      question: question.question,
+      options: labels,
+      multi: question.multi_select,
+      selectedOptions,
+      ...(customValues.length === 0 ? {} : { customInput: customValues.join("\n") }),
+    });
+  }
+  return items;
+}
+
+/** 多题作答里的一行；文案对齐原生 `formatQuestionResult`（ask.ts:682-696）。 */
+function formatAskAnswerLine(item: AskAnswerItem): string {
+  if (item.customInput === undefined) {
+    if (item.selectedOptions.length > 0) {
+      return item.multi ? `${item.id}: [${item.selectedOptions.join(", ")}]` : `${item.id}: ${item.selectedOptions[0]}`;
+    }
+    return item.multi ? `${item.id}: []` : `${item.id}: (cancelled)`;
+  }
+  return `${item.id}: "${item.customInput}"`;
+}
+
+/** 单题作答的正文；文案对齐原生 `formatSingleQuestionResponse`（ask.ts:696-733）。 */
+function formatSingleAskAnswer(item: AskAnswerItem): string {
+  const parts: string[] = [];
+  if (item.selectedOptions.length > 0) {
+    parts.push(
+      item.multi
+        ? `User selected: ${item.selectedOptions.join(", ")}`
+        : `User selected: ${item.selectedOptions[0]}`,
+    );
+  }
+  if (item.customInput !== undefined) {
+    const indented = item.customInput
+      .split("\n")
+      .map((line) => `  ${line}`)
+      .join("\n");
+    parts.push(
+      item.customInput.includes("\n")
+        ? `User provided custom input:\n${indented}`
+        : `User provided custom input: ${item.customInput}`,
+    );
+  }
+  if (parts.length > 0) {
+    return parts.join("\n");
+  }
+  return item.multi ? "User did not select any options" : "User cancelled the selection";
+}
+
+/**
+ * 组装刘海作答的工具结果。
+ *
+ * `content` 是模型看到的东西（与原生同一套文案），`details` 沿用原生
+ * `AskToolDetails` 的形状（单题是扁平字段、多题是 `results`），TUI 渲染因此与
+ * 终端作答一致。
+ */
+function buildIslandAskResult(questions: AskWireQuestion[], answers: AskAnswers): AskToolResultLike {
+  const items = toAskAnswers(questions, answers);
+  if (items.length === 1) {
+    const item = items[0] as AskAnswerItem;
+    return {
+      content: [{ type: "text", text: formatSingleAskAnswer(item) }],
+      details: {
+        question: item.question,
+        options: item.options,
+        multi: item.multi,
+        selectedOptions: item.selectedOptions,
+        ...(item.customInput === undefined ? {} : { customInput: item.customInput }),
+      },
+    };
+  }
+  return {
+    content: [
+      {
+        type: "text",
+        text: `User answers:\n${items.map(formatAskAnswerLine).join("\n")}`,
+      },
+    ],
+    details: {
+      results: items.map((item) => ({
+        id: item.id,
+        question: item.question,
+        options: item.options,
+        multi: item.multi,
+        selectedOptions: item.selectedOptions,
+        ...(item.customInput === undefined ? {} : { customInput: item.customInput }),
+      })),
+    },
+  };
+}
+
+/** 抛一个与 omp `ToolAbortError` 同名同文案的错误（扩展不 import omp 内部模块）。 */
+function throwAbortError(message: string): never {
+  const error = new Error(message);
+  error.name = "ToolAbortError";
+  throw error;
+}
+
+/** 原生 headless 拒绝：`context.abort()` 后抛错，逐字对齐 ask.ts:832-834。 */
+function refuseAskWithoutUI(context: ExtensionContextLike | undefined): never {
+  try {
+    (context as ShadowAskContextLike | undefined)?.abort?.();
+  } catch {
+    // 忽略：拿不到 abort 不影响「拒绝」这个结论。
+  }
+  throwAbortError("Ask tool requires interactive mode");
+}
+
+/** 用户放弃作答：撤下终端询问后，按原生取消语义终止本轮（ask.ts:1016 / 1125）。 */
+function cancelAskFromIsland(context: ExtensionContextLike | undefined): never {
+  try {
+    (context as ShadowAskContextLike | undefined)?.abort?.();
+  } catch {
+    // 忽略：与原生一致——abort 拿不到也照抛，只是本轮不会提前结束。
+  }
+  throwAbortError("Ask tool was cancelled by the user");
+}
+
+/** 走原生一条路（终端的提问界面），结果原样返回。 */
+async function takeNativeAskResult(
+  native: NonNullable<ShadowAskContextLike["invokeTool"]>,
+  params: Record<string, unknown>,
+  options: { signal?: AbortSignal; onUpdate?: unknown },
+): Promise<AskToolResultLike> {
+  return await native(params, options);
+}
+
+/** 影子 ask 的入参形状（未解析的原始对象）。 */
+type ShadowAskParams = Record<string, unknown>;
+
+/**
+ * 并发执行两条路并取先答者；返回值**就是**要交给模型的结果。
+ *
+ * - 刘海先答：abort 原生那条（撤下终端对话框），返回刘海作答；
+ * - 刘海明确放弃（`deny`）：撤下终端对话框，按原生取消语义终止本轮；
+ * - 原生先答：关掉刘海那条 socket（应用据此把卡片当外部已裁决），返回原生结果；
+ * - 刘海超时 / 应用不可达 / 连接中断：不碰终端那条，等原生（功能不退化）。
+ */
+async function raceIslandAndNativeAsk(args: {
+  toolCallId: string;
+  params: ShadowAskParams;
+  questions: AskWireQuestion[];
+  native: NonNullable<ShadowAskContextLike["invokeTool"]>;
+  signal?: AbortSignal;
+  onUpdate?: unknown;
+  context: ShadowAskContextLike;
+}): Promise<AskToolResultLike> {
+  const { toolCallId, params, questions, native, signal, onUpdate, context } = args;
+  const body = buildBody(
+    {
+      event: "ToolApproval",
+      status: "waiting_for_approval",
+      expects_response: true,
+      tool: "ask",
+      tool_use_id: toolCallId,
+      message: questions[0]?.question,
+      ask: { questions },
+    },
+    { sessionId: readSessionIdFrom(context), sessionFile: currentSessionFilePath(context) },
+  );
+  // 拿不到会话身份就发不出可回答的卡片：退回原生独占（与应用侧「没有 tool_use_id 不登记待批」一致）。
+  if (body === undefined) {
+    return await takeNativeAskResult(native, params, { signal, onUpdate });
+  }
+
+  const island = startDecisionRequest(body, ASK_TIMEOUT_MS);
+  // 本轮被中断（用户 Esc / 上层取消）时收掉 socket，别把 fd 吊在那儿。
+  const onAbort = () => island.cancel();
+  signal?.addEventListener("abort", onAbort);
+  const nativeController = new AbortController();
+  // 两条路都先折成「结局对象」：原生那条必须就地 catch，否则败者会变成未处理拒绝。
+  const nativeRace = native(params, { signal: nativeController.signal, onUpdate })
+    .then((result) => ({ from: "native" as const, result }))
+    .catch((error: unknown) => ({ from: "native-error" as const, error }));
+  const settleNative = async (): Promise<AskToolResultLike> => {
+    const settled = await nativeRace;
+    if (settled.from === "native-error") {
+      throw settled.error;
+    }
+    return settled.result;
+  };
+  try {
+    const first = await Promise.race([
+      nativeRace,
+      island.outcome.then((outcome) => ({ from: "island" as const, outcome })),
+    ]);
+    if (first.from !== "island") {
+      // 原生先答：关掉刘海那条 socket，让应用把卡片当「外部已裁决」处理。
+      island.cancel();
+      return await settleNative();
+    }
+    const answers =
+      first.outcome.kind === "decision" && first.outcome.decision === "answer"
+        ? first.outcome.answers
+        : undefined;
+    if (answers !== undefined && Object.keys(answers).length > 0) {
+      nativeController.abort();
+      return buildIslandAskResult(questions, answers);
+    }
+    if (first.outcome.kind === "decision") {
+      nativeController.abort();
+      cancelAskFromIsland(context);
+    }
+    // 超时 / 应用不可达 / 连接中断：用户还可能就在终端前，等原生那条给答案。
+    return await settleNative();
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+  }
+}
+
+/** 影子 `ask` 的 zod 参数 schema；与原生 arkType schema 同形（ask.ts:51-74）。 */
+function buildAskShadowSchema(zod: ExtensionZodLike): unknown {
+  const option = zod.object({
+    label: zod.string().describe("display label"),
+    description: zod.string().optional().describe("optional explanatory text displayed below the label"),
+    preview: zod.string().optional().describe("optional rich preview content for interactive ask dialogs"),
+  });
+  const question = zod.object({
+    id: zod.string().describe("question id"),
+    question: zod.string().describe("question text"),
+    header: zod.string().optional().describe("optional short display chip for rich ask dialogs"),
+    options: zod.array(option).describe("available options"),
+    multi: zod.boolean().optional().describe("allow multiple selections"),
+    recommended: zod.number().optional().describe("recommended option index"),
+  });
+  return zod.object({ questions: zod.array(question).min(1).describe("questions to ask") });
+}
+
+/** 影子 `ask` 给模型看的描述：与原生 prompts/tools/ask.md 同一套规则（浓缩）。 */
+const SHADOW_ASK_DESCRIPTION = [
+  "Ask user for clarification/input during task execution.",
+  "",
+  "<conditions>",
+  "- Multiple approaches with significantly different tradeoffs user should weigh.",
+  "</conditions>",
+  "",
+  "<instruction>",
+  "- `recommended: <index>` marks default (0-indexed); \" (Recommended)\" added automatically.",
+  "- Use `questions` for related questions, not one at a time.",
+  "- Set `multi: true` on a question to allow multiple selections.",
+  "- Short option labels; explanatory tradeoffs in `description`, not labels.",
+  "</instruction>",
+  "",
+  "<caution>",
+  "- Provide 2-5 concise, distinct options.",
+  "</caution>",
+  "",
+  "<critical>",
+  "- Default to action. Resolve ambiguity via repo conventions, existing patterns, reasonable defaults.",
+  "- If multiple choices acceptable: pick most conservative/standard option; proceed; state choice.",
+  "- Do NOT include \"Other\"; the UI adds \"Other (type your own)\" to every question automatically.",
+  "</critical>",
+].join("\n");
+
+/**
+ * 注册影子 `ask`（只在 omp 且用户没关掉 ask 时）。
+ *
+ * `approval: "read"` 与原生一致（ask.ts:748），`strict` 与 `label`/`name` 也照抄原生：
+ * 本变体不做任何拦截，`ask` 的档位只影响 omp 自己的策略判定。
+ * `concurrency: "exclusive"` 与原生一致（ask.ts:799）：交互提问独占用一批，
+ * 否则两条 ask 会同时抢刘海卡片与终端对话框。该字段不在 `ToolDefinition` 的公开
+ * 形状里，但 omp 会把它从定义对象上按原型链透传到注册表项（applyToolProxy，
+ * tool-proxy.ts:5-35；调度处 agent-loop.ts:3338-3356）。
+ */
+function registerShadowAsk(pi: ExtensionApi): void {
+  if (AGENT !== "omp") {
+    // pi 0.85.1 没有 `ask` 工具（dist/core/tools 只有 bash/edit/find/grep/ls/read/write/powershell），
+    // 注册同名影子只会给模型凭空多出一个永远失败的 ask。
+    return;
+  }
+  const register = pi.registerTool;
+  const zod = pi.zod;
+  if (typeof register !== "function" || !zod) {
+    return;
+  }
+  if (readAskEnabled(pi) === false) {
+    // 用户显式关了 ask（settings `ask.enabled`，默认 true）：不把它加回来。
+    return;
+  }
+  try {
+    register.call(pi, {
+      name: "ask",
+      label: "Ask",
+      description: SHADOW_ASK_DESCRIPTION,
+      parameters: buildAskShadowSchema(zod),
+      approval: "read",
+      strict: true,
+      loadMode: "discoverable",
+      concurrency: "exclusive",
+      async execute(
+        toolCallId: string,
+        params: ShadowAskParams,
+        signal?: AbortSignal,
+        onUpdate?: unknown,
+        ctx?: ShadowAskContextLike,
+      ): Promise<AskToolResultLike> {
+        const native = ctx?.invokeTool;
+        const questions = normalizeAskQuestions(params);
+        // 没有原生可委托：headless、子会话、老版 omp 没有 ask、或用户关了 ask.enabled。
+        // 按原生语义拒绝（abort + ToolAbortError），绝不假装问过。
+        if (typeof native !== "function") {
+          refuseAskWithoutUI(ctx);
+        }
+        // 只有「TUI 根会话」才走刘海：headless 与子 Agent 交给原生（原生自己会拒绝），
+        // 免得在没有人看的会话里发一张点不动的卡片。
+        if (
+          questions === undefined ||
+          needsNativeAskValidation(questions) ||
+          ctx?.hasUI !== true ||
+          !isRootSession(ctx)
+        ) {
+          return await takeNativeAskResult(native, params, { signal, onUpdate });
+        }
+        return await raceIslandAndNativeAsk({
+          toolCallId,
+          params,
+          questions,
+          native,
+          signal,
+          onUpdate,
+          context: ctx,
+        });
+      },
+    });
+    shadowAskRegistered = true;
+  } catch {
+    // 注册失败（老版 omp 没有 registerTool）：保持只上报行为，绝不因此抛错。
+  }
+}
+
+/** 读 settings 里的 `ask.enabled`；读不到返回 undefined（按原生默认 true 处理）。 */
+function readAskEnabled(pi: ExtensionApi): boolean | undefined {
+  try {
+    const settings = (pi as { pi?: { settings?: { get?(key: string): unknown } } }).pi?.settings;
+    if (!settings || typeof settings.get !== "function") {
+      return undefined;
+    }
+    const value = settings.get("ask.enabled");
+    return typeof value === "boolean" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export default function (pi: ExtensionApi) {
+  // 影子 `ask`：把 omp 的交互式提问接到刘海（只在 omp 且用户没关 ask 时注册）。
+  registerShadowAsk(pi);
+
   /** 只有根会话才绑定身份并上报会话事件；子代理上下文只读不写（见模块级变量注释）。 */
   function activateRootSession(ctx: ExtensionContextLike | undefined): boolean {
     if (!isRootSession(ctx)) {
@@ -504,6 +1195,12 @@ export default function (pi: ExtensionApi) {
   // `ask` 工具会阻塞等待用户回答，同样属于「等待输入」。
   pi.on("tool_execution_start", (event, ctx) => {
     if (readString(event, "toolName") !== "ask" || !isRootSession(ctx)) {
+      return;
+    }
+    // 影子工具在场时，可作答的卡片由它自己在**真的去问刘海**那一刻发出（带
+    // expects_response 与完整 questions）；这里再发一条会在应用侧留下「只展示、
+    // 点不动」的重复卡，并把可作答的那张挤掉。
+    if (shadowAskRegistered) {
       return;
     }
     const args = typeof event === "object" && event !== null ? (event as Record<string, unknown>).args : undefined;
