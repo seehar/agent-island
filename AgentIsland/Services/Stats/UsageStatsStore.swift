@@ -177,14 +177,6 @@ nonisolated final class UsageStatsStore {
     }.first ?? 0
   }
 
-  func lastIndexedAt() throws -> Date? {
-    let value =
-      try query("SELECT MAX(updated_at) FROM indexed_source;", values: []) { statement in
-        sqlite3_column_double(statement, 0)
-      }.first ?? 0
-    return value > 0 ? Date(timeIntervalSince1970: value) : nil
-  }
-
   // MARK: - 写入
 
   /// 增量写入：把 `deltas` 累加进已有桶，并推进读取进度。
@@ -285,12 +277,15 @@ nonisolated final class UsageStatsStore {
   // MARK: - 查询
 
   /// 取某个窗口的快照。`isIndexing` 由索引器给出（库本身不知道索引状态）。
+  /// `isIndexing` 与 `indexedAt` 都由索引器给出：库本身不知道「上一轮扫描什么时候跑完」，
+  /// 而用 `MAX(updated_at)` 代替会显示成「最后一次有记录发生变化的时间」——没有新记录时
+  /// 这个时间会一直冻结在几小时前，看起来像索引停了。
   func snapshot(
-    range: StatsRange, calendar: Calendar, now: Date, isIndexing: Bool
+    range: StatsRange, calendar: Calendar, now: Date, isIndexing: Bool, indexedAt: Date? = nil
   ) throws -> UsageStatsSnapshot {
     var snapshot = UsageStatsSnapshot(range: range)
     snapshot.isIndexing = isIndexing
-    snapshot.indexedAt = try lastIndexedAt()
+    snapshot.indexedAt = indexedAt
 
     let startKey = range.start(now: now, calendar: calendar).map {
       UsageStatsKey.hour(for: $0, calendar: calendar)

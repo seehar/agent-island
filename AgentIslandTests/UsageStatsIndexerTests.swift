@@ -149,7 +149,7 @@ struct UsageStatsIndexerTests {
     let root = try makeFixtureTree()
     let store = try makeStore(in: root)
     let pass = pass(store)
-    try pass.ingest(sources: sources(root: root))
+    pass.ingest(sources: sources(root: root))
 
     let today = try store.snapshot(
       range: .today, calendar: calendar, now: Date(), isIndexing: false)
@@ -186,9 +186,9 @@ struct UsageStatsIndexerTests {
     let pass = pass(store)
     let discovered = sources(root: root)
 
-    try pass.ingest(sources: discovered)
+    pass.ingest(sources: discovered)
     let first = try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
-    try pass.ingest(sources: discovered)
+    pass.ingest(sources: discovered)
     let second = try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
 
     #expect(comparable(first) == comparable(second))
@@ -205,7 +205,7 @@ struct UsageStatsIndexerTests {
 
     let store = try makeStore(in: root)
     let pass = pass(store)
-    try pass.ingest(sources: sources(root: root))
+    pass.ingest(sources: sources(root: root))
     #expect(
       try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
         .totals.input == 10)
@@ -218,7 +218,7 @@ struct UsageStatsIndexerTests {
     try handle.write(contentsOf: Data(appended.utf8))
     try handle.close()
 
-    try pass.ingest(sources: sources(root: root))
+    pass.ingest(sources: sources(root: root))
     #expect(
       try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
         .totals.input == 10)
@@ -229,8 +229,8 @@ struct UsageStatsIndexerTests {
     try tail.write(contentsOf: Data("\n".utf8))
     try tail.close()
 
-    try pass.ingest(sources: sources(root: root))
-    try pass.ingest(sources: sources(root: root))
+    pass.ingest(sources: sources(root: root))
+    pass.ingest(sources: sources(root: root))
     #expect(
       try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
         .totals.input == 35)
@@ -249,7 +249,7 @@ struct UsageStatsIndexerTests {
 
     let store = try makeStore(in: root)
     let pass = pass(store)
-    try pass.ingest(sources: sources(root: root))
+    pass.ingest(sources: sources(root: root))
     #expect(
       try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
         .totals.total == 460)
@@ -259,7 +259,7 @@ struct UsageStatsIndexerTests {
       piLine(date: todayBase, input: 3, output: 1, cacheRead: 0, cacheWrite: 0, tools: ["grep"])
         + "\n",
       to: file)
-    try pass.ingest(sources: sources(root: root))
+    pass.ingest(sources: sources(root: root))
 
     let snapshot = try store.snapshot(
       range: .all, calendar: calendar, now: Date(), isIndexing: false)
@@ -281,6 +281,26 @@ struct UsageStatsIndexerTests {
 
     let after = try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
     #expect(comparable(before) == comparable(after))
+  }
+
+  @Test("单个记录文件消失不影响其余文件的索引")
+  func vanishedSourceDoesNotBlockTheRest() throws {
+    let root = try makeFixtureTree()
+    let store = try makeStore(in: root)
+    let discovered = sources(root: root)
+
+    // 发现之后、索引之前文件被删掉（真实场景：应用清理旧会话）。
+    let vanished = root.appendingPathComponent("claude/proj/sess-1.jsonl")
+    try FileManager.default.removeItem(at: vanished)
+
+    let pass = pass(store)
+    let failures = pass.ingest(sources: discovered)
+    #expect(failures == 0)
+
+    // 其余记录的用量照常入库：omp 根会话 + 子代理（不含被删掉的 Claude 会话）。
+    let snapshot = try store.snapshot(range: .today, calendar: calendar, now: Date(), isIndexing: false)
+    #expect(snapshot.totals.input == 150)
+    #expect(snapshot.totals.sessions == 1)
   }
 
   @Test("源发现：识别根会话、子代理与 Claude 的 subagents 目录")

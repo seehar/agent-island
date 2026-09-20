@@ -41,6 +41,9 @@ nonisolated struct UsageScanRoots: Sendable {
 
 /// 一轮索引的具体执行体。同步接口，由索引器在后台任务里驱动，测试可直接调用。
 nonisolated final class UsageStatsPass {
+  private static let logger = Logger(
+    subsystem: "com.celestial.AgentIsland", category: "UsageStats")
+
   private let store: UsageStatsStore
   private let calendar: Calendar
   private var openCodeReader: OpenCodeUsageReader?
@@ -54,29 +57,43 @@ nonisolated final class UsageStatsPass {
     self.openCodeBatchLimit = openCodeBatchLimit
   }
 
-  /// 索引一批 JSONL 记录。
-  func ingest(sources: [UsageSourceFile]) throws {
+  /// 索引一批 JSONL 记录，返回失败的源数量。
+  ///
+  /// 单源失败（库忙、磁盘满、文件读到一半消失）只跳过它自己：否则一次失败会中断整轮，
+  /// 它后面的所有文件永远排不上队——页面会长期显示一份看起来正常、实则不全、且此后不再
+  /// 长大的数字。
+  @discardableResult
+  func ingest(sources: [UsageSourceFile]) -> Int {
+    var failures = 0
     for source in sources {
-      let previous = try store.state(ofSource: source.path)
-      let result = TranscriptUsageScanner.read(
-        source: source, previous: previous?.state, calendar: calendar)
+      do {
+        let previous = try store.state(ofSource: source.path)
+        let result = TranscriptUsageScanner.read(
+          source: source, previous: previous?.state, calendar: calendar)
 
-      if result.needsReplace {
-        try store.replace(
+        if result.needsReplace {
+          try store.replace(
+            result.deltas, sourceId: source.path, agent: source.agent, state: result.state)
+          continue
+        }
+
+        // 没有任何变化就不写：避免每轮扫描都产生一次事务。
+        let unchanged =
+          result.deltas.isEmpty
+          && previous?.state.readOffset == result.state.readOffset
+          && previous?.state.mtime == result.state.mtime
+        if unchanged { continue }
+
+        try store.append(
           result.deltas, sourceId: source.path, agent: source.agent, state: result.state)
-        continue
+      } catch {
+        failures += 1
+        Self.logger.error(
+          "用量统计：跳过 \(source.path, privacy: .public)（\(String(describing: error), privacy: .public)）"
+        )
       }
-
-      // 没有任何变化就不写：避免每轮扫描都产生一次事务。
-      let unchanged =
-        result.deltas.isEmpty
-        && previous?.state.readOffset == result.state.readOffset
-        && previous?.state.mtime == result.state.mtime
-      if unchanged { continue }
-
-      try store.append(
-        result.deltas, sourceId: source.path, agent: source.agent, state: result.state)
     }
+    return failures
   }
 
   /// 索引 OpenCode 的历史（按消息增量）。
@@ -177,8 +194,6 @@ actor UsageStatsIndexer {
   private var periodicTask: Task<Void, Never>?
   private var pendingRefresh = false
   private var lastPassFinishedAt: Date?
-  private var scannedSources = 0
-  private var totalSources = 0
   private(set) var isIndexing = false
 
   private nonisolated let updatesSubject = CurrentValueSubject<Void, Never>(())
@@ -239,16 +254,12 @@ actor UsageStatsIndexer {
     do {
       let store = try reader()
       return try store.snapshot(
-        range: range, calendar: .current, now: Date(), isIndexing: isIndexing)
+        range: range, calendar: .current, now: Date(), isIndexing: isIndexing,
+        indexedAt: lastPassFinishedAt)
     } catch {
       Self.logger.error("读取用量统计失败：\(String(describing: error), privacy: .public)")
       return UsageStatsSnapshot(range: range)
     }
-  }
-
-  /// 索引进度（UI 用于显示「索引中…」）。
-  func progress() -> (scanned: Int, total: Int, isIndexing: Bool) {
-    (scannedSources, totalSources, isIndexing)
   }
 
   // MARK: - 扫描
@@ -259,7 +270,6 @@ actor UsageStatsIndexer {
       return
     }
     isIndexing = true
-    scannedSources = 0
     updatesSubject.send(())
 
     let databaseURL = databaseURL
@@ -277,25 +287,40 @@ actor UsageStatsIndexer {
         for (kind, kindRoots) in roots.jsonlRoots {
           sources.append(contentsOf: TranscriptUsageScanner.sources(for: kind, roots: kindRoots))
         }
-        await self?.beginPass(total: sources.count)
 
+        var failures = 0
         var scanned = 0
         while scanned < sources.count {
           if Task.isCancelled { break }
           let end = min(scanned + chunkLimit, sources.count)
-          try pass.ingest(sources: Array(sources[scanned..<end]))
+          failures += pass.ingest(sources: Array(sources[scanned..<end]))
           scanned = end
-          await self?.reportProgress(scanned: scanned)
+          await self?.notifyProgress()
           try? await Task.sleep(nanoseconds: chunkPause)
         }
 
         // 已经不存在于磁盘上的记录：清掉进度行（历史用量保留）。
-        for sourceId in Self.missingSourceIds(store: store, sources: sources) {
-          try store.forgetCursor(sourceId: sourceId)
+        do {
+          for sourceId in try Self.missingSourceIds(store: store, sources: sources) {
+            try store.forgetCursor(sourceId: sourceId)
+          }
+        } catch {
+          failures += 1
+          Self.logger.error("清理用量统计进度失败：\(String(describing: error), privacy: .public)")
         }
 
         if let database = roots.openCodeDatabase {
-          try pass.ingestOpenCode(databaseURL: database)
+          do {
+            try pass.ingestOpenCode(databaseURL: database)
+          } catch {
+            failures += 1
+            Self.logger.error(
+              "OpenCode 用量索引失败：\(String(describing: error), privacy: .public)")
+          }
+        }
+
+        if failures > 0 {
+          Self.logger.error("用量统计本轮跳过 \(failures) 个数据源（详见上面各条日志）")
         }
       } catch {
         Self.logger.error("用量统计索引失败：\(String(describing: error), privacy: .public)")
@@ -307,7 +332,7 @@ actor UsageStatsIndexer {
   /// 找出库里登记、但磁盘上已经不存在的记录文件。
   private static func missingSourceIds(
     store: UsageStatsStore, sources: [UsageSourceFile]
-  ) -> Set<String> {
+  ) throws -> Set<String> {
     let discovered = Set(sources.map { $0.path })
     var dead: Set<String> = []
     for kind in AgentKind.allCases {
@@ -318,12 +343,8 @@ actor UsageStatsIndexer {
     return dead
   }
 
-  fileprivate func beginPass(total count: Int) {
-    totalSources = count
-  }
-
-  fileprivate func reportProgress(scanned: Int) {
-    scannedSources = scanned
+  /// 通知 UI「索引有更新」：页面收到后重新取快照（回填期间数字会长出来）。
+  fileprivate func notifyProgress() {
     updatesSubject.send(())
   }
 
