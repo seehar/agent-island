@@ -55,6 +55,7 @@ class NotchViewModel: ObservableObject {
     private let claudeDirSelector = ClaudeDirSelector.shared
     private let languageSelector = LanguageSelector.shared
     private let heightSelector = NotchHeightSelector.shared
+    private let widthSelector = NotchWidthSelector.shared
     private let textSizeSelector = TextSizeSelector.shared
 
     // MARK: - Geometry
@@ -123,10 +124,11 @@ class NotchViewModel: ObservableObject {
     private func expandedPickerHeight(for section: NotchMenuSection) -> CGFloat {
         switch section {
         case .general:
-            // 通用页有五个可展开的选择器：语言、屏幕、胶囊高度、内容字号、通知音效。
+            // 通用页有六个可展开的选择器：语言、屏幕、胶囊高度、胶囊宽度、内容字号、通知音效。
             return languageSelector.expandedPickerHeight
                 + screenSelector.expandedPickerHeight
                 + heightSelector.expandedPickerHeight
+                + widthSelector.expandedPickerHeight
                 + textSizeSelector.expandedPickerHeight
                 + soundSelector.expandedPickerHeight
         case .agents:

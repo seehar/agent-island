@@ -1956,6 +1956,22 @@
         }
       }
     },
+    "Notch Width" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notch Width"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "胶囊宽度"
+          }
+        }
+      }
+    },
     "Notebook" : {
       "localizations" : {
         "en" : {

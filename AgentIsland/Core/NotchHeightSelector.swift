@@ -128,11 +128,11 @@ final class NotchHeightSelector: ObservableObject {
         UserDefaults.standard.set(mode.rawValue, forKey: modeKey)
         UserDefaults.standard.set(Double(customHeight), forKey: customHeightKey)
         // 高度变化不需要重建窗口，只要换掉关闭态矩形：面板可以一直开着，边调边看。
-        NotificationCenter.default.post(name: .notchHeightPreferenceChanged, object: nil)
+        NotificationCenter.default.post(name: .notchGeometryPreferenceChanged, object: nil)
     }
 }
 
 extension Notification.Name {
-    /// 胶囊高度设置变化：窗口控制器据此把关闭态矩形换成新高度。
-    static let notchHeightPreferenceChanged = Notification.Name("NotchHeightPreferenceChanged")
+    /// 关闭态胶囊的几何设置（高度或宽度）变化：窗口控制器据此换掉关闭态矩形。
+    static let notchGeometryPreferenceChanged = Notification.Name("NotchGeometryPreferenceChanged")
 }

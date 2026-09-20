@@ -499,6 +499,12 @@ struct SettingsCompactButtonStyle: ButtonStyle {
     }
 }
 
+/// 把长度写成设置行里的短标签（整数 + pt）。数值与单位都不需要翻译，
+/// 因此不走 `t(_:)`；胶囊高度行与宽度行共用，避免两处格式化各写一套。
+func settingsLengthLabel(_ value: CGFloat) -> String {
+    "\(Int(value.rounded())) pt"
+}
+
 extension View {
     /// 在行的底边画分隔线。用 overlay 而不是插一行，行高因此保持整数，
     /// 面板高度的解析式不必为每条线再加 1。

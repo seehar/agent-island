@@ -77,9 +77,9 @@ class NotchWindowController: NSWindowController {
         // Start with ignoring mouse events (closed state)
         notchWindow.ignoresMouseEvents = true
 
-        // 高度设置变化：只换关闭态胶囊矩形，不重建窗口。面板因此能一直开着，
-        // 用户微调时胶囊高度实时跟手。
-        NotificationCenter.default.publisher(for: .notchHeightPreferenceChanged)
+        // 胶囊几何设置（高度或宽度）变化：只换关闭态胶囊矩形，不重建窗口。
+        // 面板因此能一直开着，用户微调时胶囊实时跟手。
+        NotificationCenter.default.publisher(for: .notchGeometryPreferenceChanged)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
@@ -99,10 +99,10 @@ class NotchWindowController: NSWindowController {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// 关闭态胶囊矩形：宽度取屏幕的刘海宽度，高度按高度设置解析
-    /// （自动模式在有刘海的屏幕上取刘海高度，外接屏取菜单栏高度）。
+    /// 关闭态胶囊矩形：宽度与高度各按自己的设置解析（宽度默认取屏幕的刘海宽度，
+    /// 高度自动模式在有刘海的屏幕上取刘海高度、外接屏取菜单栏高度）。
     private static func closedNotchRect(for screen: NSScreen) -> CGRect {
-        let width = screen.notchWidth
+        let width = NotchWidthSelector.shared.resolvedWidth(for: screen)
         let height = NotchHeightSelector.shared.resolvedHeight(for: screen)
         return CGRect(
             x: (screen.frame.width - width) / 2,

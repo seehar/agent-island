@@ -32,6 +32,7 @@ struct GeneralSettingsPage: View {
                 LanguagePickerRow()
                 ScreenPickerRow(screenSelector: screenSelector)
                 NotchHeightPickerRow()
+                NotchWidthPickerRow()
                 TextSizePickerRow()
                 SoundPickerRow(soundSelector: soundSelector, showsSeparator: false)
             }
