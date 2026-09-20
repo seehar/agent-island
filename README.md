@@ -1,6 +1,6 @@
 <div align="center">
-  <img src="ClaudeIsland/Assets.xcassets/AppIcon.appiconset/icon_128x128.png" alt="Logo" width="100" height="100">
-  <h3 align="center">Vibe Notch (previously Claude Island)</h3>
+  <img src="AgentIsland/Assets.xcassets/AppIcon.appiconset/icon_128x128.png" alt="Logo" width="100" height="100">
+  <h3 align="center">AgentIsland (previously Vibe Notch, Claude Island)</h3>
   <p align="center">
     A macOS menu bar app that brings Dynamic Island-style notifications to Claude Code, Oh My Pi, Pi and OpenCode CLI sessions.
     <br />
@@ -38,7 +38,7 @@
 
 | Agent | Session records | Live integration | Approve from notch |
 |---|---|---|---|
-| Claude Code | `~/.claude/projects/**/*.jsonl` | `hooks/claude-island-state.py` + `settings.json` | yes |
+| Claude Code | `~/.claude/projects/**/*.jsonl` | `hooks/agent-island-state.py` + `settings.json` | yes |
 | Oh My Pi (`omp`) | `~/.omp/agent/sessions/**/*.jsonl` | `~/.omp/agent/extensions/agent-island-state.ts` | no (status only) |
 | Pi | `~/.pi/agent/sessions/**/*.jsonl` | `~/.pi/agent/extensions/agent-island-state.ts` | no (status only) |
 | OpenCode | `~/.local/share/opencode/opencode.db` | `~/.config/opencode/plugins/agent-island-state.js` | no (status only) |
@@ -53,18 +53,18 @@ database) and their status is inferred from the transcript.
 Download the latest release or build from source:
 
 ```bash
-xcodebuild -scheme ClaudeIsland -configuration Release build
+xcodebuild -scheme AgentIsland -configuration Release build
 ```
 
 ## How It Works
 
-Vibe Notch installs a small integration per agent that reports session state over a Unix socket
-(`/tmp/claude-island.sock`). The app listens for those events, parses the agent's own session
+AgentIsland installs a small integration per agent that reports session state over a Unix socket
+(`/tmp/agent-island.sock`). The app listens for those events, parses the agent's own session
 records for conversation history, and displays everything in the notch overlay.
 
 For Claude Code the integration is a hook script in `~/.claude/hooks/`; for `omp`/`pi` it is a
 TypeScript extension; for OpenCode it is a plugin. The integrations are the only agent-side files
-Vibe Notch writes, and each is removed when its agent is disabled in the notch menu.
+AgentIsland writes, and each is removed when its agent is disabled in the notch menu.
 
 When Claude needs permission to run a tool, the notch expands with approve/deny buttons—no need to
 switch to the terminal. Other agents keep their own approval UI; the notch only shows that they are
@@ -72,7 +72,7 @@ waiting.
 
 ## Analytics
 
-Vibe Notch uses Mixpanel to collect anonymous usage data:
+AgentIsland uses Mixpanel to collect anonymous usage data:
 
 - **App Launched** — App version, build number, macOS version
 - **Session Started** — When a new session is detected

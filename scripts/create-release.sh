@@ -13,12 +13,12 @@ KEYS_DIR="$PROJECT_DIR/.sparkle-keys"
 GITHUB_REPO="seehar/agent-island"
 
 # Website repo for auto-updating appcast
-WEBSITE_DIR="${CLAUDE_ISLAND_WEBSITE:-$PROJECT_DIR/../ClaudeIsland-website}"
+WEBSITE_DIR="${AGENT_ISLAND_WEBSITE:-$PROJECT_DIR/../AgentIsland-website}"
 WEBSITE_PUBLIC="$WEBSITE_DIR/public"
 
-APP_PATH="$EXPORT_PATH/Vibe Notch.app"
-APP_NAME="VibeNotch"
-KEYCHAIN_PROFILE="ClaudeIsland"
+APP_PATH="$EXPORT_PATH/AgentIsland.app"
+APP_NAME="AgentIsland"
+KEYCHAIN_PROFILE="AgentIsland"
 
 echo "=== Creating Release ==="
 echo ""
@@ -100,17 +100,17 @@ fi
 if command -v create-dmg &> /dev/null; then
     echo "Using create-dmg for prettier output..."
     create-dmg \
-        --volname "Vibe Notch" \
+        --volname "AgentIsland" \
         --window-size 600 400 \
         --icon-size 100 \
-        --icon "Vibe Notch.app" 150 200 \
+        --icon "AgentIsland.app" 150 200 \
         --app-drop-link 450 200 \
-        --hide-extension "Vibe Notch.app" \
+        --hide-extension "AgentIsland.app" \
         "$DMG_PATH" \
         "$APP_PATH"
 else
     echo "Using hdiutil (install create-dmg for prettier DMG: brew install create-dmg)"
-    hdiutil create -volname "Vibe Notch" \
+    hdiutil create -volname "AgentIsland" \
         -srcfolder "$APP_PATH" \
         -ov -format UDZO \
         "$DMG_PATH"
@@ -144,7 +144,7 @@ SPARKLE_SIGN=""
 GENERATE_APPCAST=""
 
 POSSIBLE_PATHS=(
-    "$HOME/Library/Developer/Xcode/DerivedData/ClaudeIsland-*/SourcePackages/artifacts/sparkle/Sparkle/bin"
+    "$HOME/Library/Developer/Xcode/DerivedData/AgentIsland-*/SourcePackages/artifacts/sparkle/Sparkle/bin"
 )
 
 for path_pattern in "${POSSIBLE_PATHS[@]}"; do
@@ -215,16 +215,16 @@ else
         echo "Creating release v$VERSION..."
         gh release create "v$VERSION" "$DMG_PATH" \
             --repo "$GITHUB_REPO" \
-            --title "Vibe Notch v$VERSION" \
-            --notes "## Vibe Notch v$VERSION
+            --title "AgentIsland v$VERSION" \
+            --notes "## AgentIsland v$VERSION
 
 ### Installation
 1. Download \`$APP_NAME-$VERSION.dmg\`
-2. Open the DMG and drag Vibe Notch to Applications
-3. Launch Vibe Notch from Applications
+2. Open the DMG and drag AgentIsland to Applications
+3. Launch AgentIsland from Applications
 
 ### Auto-updates
-After installation, Vibe Notch will automatically check for updates."
+After installation, AgentIsland will automatically check for updates."
     fi
 
     GITHUB_DOWNLOAD_URL="https://github.com/$GITHUB_REPO/releases/download/v$VERSION/$APP_NAME-$VERSION.dmg"

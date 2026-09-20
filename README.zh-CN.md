@@ -1,6 +1,6 @@
 <div align="center">
-  <img src="ClaudeIsland/Assets.xcassets/AppIcon.appiconset/icon_128x128.png" alt="Logo" width="100" height="100">
-  <h3 align="center">Vibe Notch（原 Claude Island）</h3>
+  <img src="AgentIsland/Assets.xcassets/AppIcon.appiconset/icon_128x128.png" alt="Logo" width="100" height="100">
+  <h3 align="center">AgentIsland（原 Vibe Notch，更早叫 Claude Island）</h3>
   <p align="center">
     一款 macOS 菜单栏应用，为 Claude Code、Oh My Pi、Pi 与 OpenCode 的 CLI 会话带来「灵动岛」风格的通知。
     <br />
@@ -38,7 +38,7 @@
 
 | Agent | 会话记录 | 实时集成 | 刘海审批 |
 |---|---|---|---|
-| Claude Code | `~/.claude/projects/**/*.jsonl` | `hooks/claude-island-state.py` + `settings.json` | 支持 |
+| Claude Code | `~/.claude/projects/**/*.jsonl` | `hooks/agent-island-state.py` + `settings.json` | 支持 |
 | Oh My Pi (`omp`) | `~/.omp/agent/sessions/**/*.jsonl` | `~/.omp/agent/extensions/agent-island-state.ts` | 不支持（仅状态） |
 | Pi | `~/.pi/agent/sessions/**/*.jsonl` | `~/.pi/agent/extensions/agent-island-state.ts` | 不支持（仅状态） |
 | OpenCode | `~/.local/share/opencode/opencode.db` | `~/.config/opencode/plugins/agent-island-state.js` | 不支持（仅状态） |
@@ -51,23 +51,23 @@
 下载最新发布版本，或从源码构建：
 
 ```bash
-xcodebuild -scheme ClaudeIsland -configuration Release build
+xcodebuild -scheme AgentIsland -configuration Release build
 ```
 
 ## 工作原理
 
-Vibe Notch 会为每个 Agent 安装一个小型集成，通过 Unix socket（`/tmp/claude-island.sock`）上报会话状态。
+AgentIsland 会为每个 Agent 安装一个小型集成，通过 Unix socket（`/tmp/agent-island.sock`）上报会话状态。
 应用监听这些事件，解析 Agent 自身的会话记录以获取对话历史，并把全部内容展示在刘海浮层中。
 
 对 Claude Code 而言，集成是 `~/.claude/hooks/` 下的一个 hook 脚本；对 `omp`/`pi` 而言是一个 TypeScript 扩展；对 OpenCode 而言是一个插件。
-这些集成是 Vibe Notch 唯一写入的 Agent 侧文件，且在对应 Agent 于刘海菜单中被停用时都会被移除。
+这些集成是 AgentIsland 唯一写入的 Agent 侧文件，且在对应 Agent 于刘海菜单中被停用时都会被移除。
 
 当 Claude 需要运行某个工具的权限时，刘海会展开并提供批准/拒绝按钮——无需切换到终端。
 其他 Agent 保留各自的审批界面，刘海只提示它们正在等待。
 
 ## 数据统计
 
-Vibe Notch 使用 Mixpanel 收集匿名使用数据：
+AgentIsland 使用 Mixpanel 收集匿名使用数据：
 
 - **App Launched** — 应用版本、构建号、macOS 版本
 - **Session Started** — 检测到新会话时

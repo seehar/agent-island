@@ -34,7 +34,7 @@ ROOT = (
     if _positional
     else pathlib.Path(__file__).resolve().parent.parent
 )
-CODE = ROOT / "ClaudeIsland"
+CODE = ROOT / "AgentIsland"
 CATALOG = CODE / "Resources/Localizable.xcstrings"
 LOCALIZATION_CORE = "Core/Localization.swift"
 

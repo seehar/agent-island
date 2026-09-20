@@ -18,9 +18,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
-APP_NAME="Vibe Notch"
+APP_NAME="AgentIsland"
 BUILD_DIR="$PROJECT_DIR/build"
-ARCHIVE_PATH="$BUILD_DIR/ClaudeIsland.xcarchive"
+ARCHIVE_PATH="$BUILD_DIR/AgentIsland.xcarchive"
 EXPORT_DIR="$BUILD_DIR/export"
 ARCHIVED_APP="$ARCHIVE_PATH/Products/Applications/$APP_NAME.app"
 STAGED_APP="$EXPORT_DIR/$APP_NAME.app"
@@ -57,7 +57,7 @@ if [ "$BUILD_ONLY" = false ]; then
     fi
 fi
 
-echo "=== 构建并安装 Vibe Notch ==="
+echo "=== 构建并安装 AgentIsland ==="
 echo "项目目录: $PROJECT_DIR"
 echo "源码状态: $(cd "$PROJECT_DIR" && git rev-parse --short HEAD 2>/dev/null || echo '非 git 仓库')$( [ -n "$(cd "$PROJECT_DIR" && git status --porcelain 2>/dev/null)" ] && echo ' (含未提交改动)')"
 echo ""
@@ -79,7 +79,7 @@ mkdir -p "$BUILD_DIR"
 LOG="$BUILD_DIR/archive.log"
 set +e
 xcodebuild archive \
-    -scheme ClaudeIsland \
+    -scheme AgentIsland \
     -configuration Release \
     -archivePath "$ARCHIVE_PATH" \
     -destination "generic/platform=macOS" \
@@ -136,7 +136,7 @@ if [ "$MAKE_DMG" = true ]; then
     echo ""
     echo "=== 步骤 4: 生成 DMG ==="
     mkdir -p "$RELEASE_DIR"
-    DMG_PATH="$RELEASE_DIR/VibeNotch-$VERSION.dmg"
+    DMG_PATH="$RELEASE_DIR/AgentIsland-$VERSION.dmg"
     rm -f "$DMG_PATH"
 
     # create-dmg 能做出带背景和拖拽布局的 DMG，没有就退回 hdiutil

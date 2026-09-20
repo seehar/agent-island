@@ -1,14 +1,14 @@
 #!/bin/bash
-# Build Vibe Notch for release
+# Build AgentIsland for release
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_DIR/build"
-ARCHIVE_PATH="$BUILD_DIR/ClaudeIsland.xcarchive"
+ARCHIVE_PATH="$BUILD_DIR/AgentIsland.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
 
-echo "=== Building Vibe Notch ==="
+echo "=== Building AgentIsland ==="
 echo ""
 
 # Clean previous builds
@@ -27,7 +27,7 @@ echo ""
 echo "Archiving..."
 set +e
 xcodebuild archive \
-    -scheme ClaudeIsland \
+    -scheme AgentIsland \
     -configuration Release \
     -archivePath "$ARCHIVE_PATH" \
     -destination "generic/platform=macOS" \
@@ -40,7 +40,7 @@ set -e
 if [ "$ARCHIVE_EXIT" -ne 0 ]; then
     echo "ERROR: Archive failed. Re-running with full output..."
     xcodebuild archive \
-        -scheme ClaudeIsland \
+        -scheme AgentIsland \
         -configuration Release \
         -archivePath "$ARCHIVE_PATH" \
         -destination "generic/platform=macOS" \
@@ -89,6 +89,6 @@ fi
 
 echo ""
 echo "=== Build Complete ==="
-echo "App exported to: $EXPORT_PATH/Vibe Notch.app"
+echo "App exported to: $EXPORT_PATH/AgentIsland.app"
 echo ""
 echo "Next: Run ./scripts/create-release.sh to notarize and create DMG"

@@ -4,7 +4,7 @@
 矢量源在 `scripts/`：`appicon.svg` 是主设计（留白与圆角按 Apple 的 macOS 图标网格，
 内容 824/1024），`appicon-16.svg` / `appicon-32.svg` 是两个小尺寸专用变体（几何同源，
 但描边按 2px 视觉宽度反算、峰数收成两个——原稿的 16/512 描边在 16pt 档只有 0.5px，
-会糊掉）。产物是 `ClaudeIsland/Assets.xcassets/AppIcon.appiconset/` 里的十个 PNG 槽位。
+会糊掉）。产物是 `AgentIsland/Assets.xcassets/AppIcon.appiconset/` 里的十个 PNG 槽位。
 形状改动只改源文件，然后重跑本脚本，不要在 PNG 上手工修图。
 
 每一档都是**按矢量原生光栅化**，不是从大图缩下来的：把源 SVG 的根 `width`/`height`
@@ -28,7 +28,7 @@ SOURCES = ROOT / "scripts"
 MAIN = SOURCES / "appicon.svg"
 # 小尺寸专用源；没有对应文件时回退到主设计。
 SMALL = {16: SOURCES / "appicon-16.svg", 32: SOURCES / "appicon-32.svg"}
-DEFAULT_OUT = ROOT / "ClaudeIsland/Assets.xcassets/AppIcon.appiconset"
+DEFAULT_OUT = ROOT / "AgentIsland/Assets.xcassets/AppIcon.appiconset"
 
 # 像素尺寸与文件名一一对应 Contents.json 里已登记的十个槽位。两个 2x 槽位
 # （16x16 的 2x、32x32 的 2x）与相邻的 1x 同尺寸，因此内容相同、文件名不同。
