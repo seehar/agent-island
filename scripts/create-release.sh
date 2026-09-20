@@ -12,6 +12,9 @@ KEYS_DIR="$PROJECT_DIR/.sparkle-keys"
 # GitHub repository (owner/repo format)
 GITHUB_REPO="seehar/agent-island"
 
+# GitHub Pages 上的更新 feed（Pages 源选 gh-pages 分支根目录）
+PAGES_FEED_URL="https://seehar.github.io/agent-island/appcast.xml"
+
 # Website repo for auto-updating appcast
 WEBSITE_DIR="${AGENT_ISLAND_WEBSITE:-$PROJECT_DIR/../AgentIsland-website}"
 WEBSITE_PUBLIC="$WEBSITE_DIR/public"
@@ -235,18 +238,68 @@ fi
 echo ""
 
 # ============================================
-# Step 6: Update website appcast and deploy
+# Step 6: Publish appcast to GitHub Pages
 # ============================================
-echo "=== Step 6: Updating Website ==="
+echo "=== Step 6: Publishing appcast to GitHub Pages ==="
 
-if [ -d "$WEBSITE_PUBLIC" ] && [ -f "$RELEASE_DIR/appcast/appcast.xml" ]; then
+APPCAST_FILE="$RELEASE_DIR/appcast/appcast.xml"
+PAGES_BRANCH="gh-pages"
+
+if [ ! -f "$APPCAST_FILE" ]; then
+    echo "WARNING: Appcast not generated; skipping Pages publish."
+else
+    # DMG 不随 Pages 发布：appcast 里的下载地址指回 GitHub Release 附件
+    if [ -n "$GITHUB_DOWNLOAD_URL" ]; then
+        sed -i '' "s|url=\"[^\"]*$APP_NAME-$VERSION.dmg\"|url=\"$GITHUB_DOWNLOAD_URL\"|g" "$APPCAST_FILE"
+        echo "Updated appcast.xml with GitHub download URL"
+    fi
+
+    PAGES_WORKTREE="$(mktemp -d)/agent-island-$PAGES_BRANCH"
+
+    if git ls-remote --exit-code --heads origin "$PAGES_BRANCH" >/dev/null 2>&1; then
+        git fetch --quiet origin "+refs/heads/$PAGES_BRANCH:refs/heads/$PAGES_BRANCH"
+        git worktree add --quiet "$PAGES_WORKTREE" "$PAGES_BRANCH"
+    else
+        echo "Branch $PAGES_BRANCH does not exist yet; creating it."
+        git worktree add --quiet --detach "$PAGES_WORKTREE" HEAD
+    fi
+
+    cp "$APPCAST_FILE" "$PAGES_WORKTREE/appcast.xml"
+
+    (
+        cd "$PAGES_WORKTREE" || exit 1
+        if ! git rev-parse --verify --quiet "refs/heads/$PAGES_BRANCH" >/dev/null; then
+            # 首次发布：以孤儿分支起底，只提交 appcast.xml
+            git checkout --quiet --orphan "$PAGES_BRANCH"
+            git rm -r --quiet --cached .
+        fi
+        git add appcast.xml
+        git commit --quiet -m "appcast: v$VERSION"
+        git push --quiet origin "HEAD:refs/heads/$PAGES_BRANCH"
+    )
+
+    # 临时 worktree 用完即删，避免在主工作树里留下改动
+    git worktree remove --force "$PAGES_WORKTREE"
+
+    echo "Feed published: $PAGES_FEED_URL"
+    echo "首次使用需在仓库 Settings → Pages 选 branch：$PAGES_BRANCH /（root）"
+fi
+
+echo ""
+
+# ============================================
+# Step 7: (legacy) 同步外部站点
+# ============================================
+if [ -d "$WEBSITE_PUBLIC" ] && [ -f "$APPCAST_FILE" ]; then
+    echo "=== Step 7: Updating Website ==="
+
     # Copy appcast to website
-    cp "$RELEASE_DIR/appcast/appcast.xml" "$WEBSITE_PUBLIC/appcast.xml"
+    cp "$APPCAST_FILE" "$WEBSITE_PUBLIC/appcast.xml"
 
     # Update the download URL in appcast to point to GitHub releases
     if [ -n "$GITHUB_DOWNLOAD_URL" ]; then
         sed -i '' "s|url=\"[^\"]*$APP_NAME-$VERSION.dmg\"|url=\"$GITHUB_DOWNLOAD_URL\"|g" "$WEBSITE_PUBLIC/appcast.xml"
-        echo "Updated appcast.xml with GitHub download URL"
+        echo "Updated website appcast.xml with GitHub download URL"
     fi
 
     # Update src/config.ts with latest version and download URL (preserve other content)
@@ -293,12 +346,12 @@ EOF
     fi
 
     cd "$PROJECT_DIR"
-else
-    echo "Website directory not found or appcast not generated"
-    echo "Skipping website update."
+elif [ ! -d "$WEBSITE_PUBLIC" ]; then
+    echo "Website directory not found; skipping website update."
 fi
 
 echo ""
+
 
 echo "=== Release Complete ==="
 echo ""
@@ -310,6 +363,6 @@ fi
 if [ -n "$GITHUB_DOWNLOAD_URL" ]; then
     echo "  - GitHub: https://github.com/$GITHUB_REPO/releases/tag/v$VERSION"
 fi
-if [ -f "$WEBSITE_PUBLIC/appcast.xml" ]; then
-    echo "  - Website: $WEBSITE_PUBLIC/appcast.xml"
+if [ -f "$APPCAST_FILE" ]; then
+    echo "  - Feed: $PAGES_FEED_URL"
 fi

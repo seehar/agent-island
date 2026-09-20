@@ -19,9 +19,9 @@
 
     <!-- Sparkle Update Configuration -->
     <key>SUFeedURL</key>
-    <string>https://vibenotch.app/appcast.xml</string>
+    <string>https://seehar.github.io/agent-island/appcast.xml</string>
     <key>SUPublicEDKey</key>
-    <string>w5NwH5KRfE7LfeZ09J8lWx3UQrWTqUbfH4HHBa1OPRk=</string>
+    <string>Fqdp0AeNQzN9NmzwTzt9d0i+FtHCN+Muohnm1B83fQg=</string>
     <key>SUEnableAutomaticChecks</key>
     <true/>
 </dict>

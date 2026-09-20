@@ -63,9 +63,17 @@ fi
 echo "Using generate_keys from: $GENERATE_KEYS"
 echo ""
 
-# Generate the key pair (stores in Keychain, prints public key)
+# 默认模式：Keychain 里没有密钥时生成一对并打印公钥用法；已有时直接打印既有公钥
+# （-p 只查公钥、-x 导出私钥，首次运行必须先跑默认模式，否则两者都取不到东西）
 echo "Generating EdDSA key pair..."
-PUBLIC_KEY=$("$GENERATE_KEYS" -p 2>/dev/null | grep -oE '[A-Za-z0-9+/=]{40,}')
+KEYGEN_OUTPUT=$("$GENERATE_KEYS" 2>&1)
+PUBLIC_KEY=$(printf '%s\n' "$KEYGEN_OUTPUT" | grep -oE '[A-Za-z0-9+/]{43}=' | head -1)
+
+if [ -z "$PUBLIC_KEY" ]; then
+    echo "ERROR: 没能从 generate_keys 输出里解析出公钥："
+    echo "$KEYGEN_OUTPUT"
+    exit 1
+fi
 
 # Export the private key from Keychain to file (same key pair as above)
 echo "Exporting private key to file..."
