@@ -11,7 +11,7 @@ import Foundation
 import os.log
 
 /// 会话的 token 用量。
-struct UsageInfo: Equatable {
+nonisolated struct UsageInfo: Equatable {
     var inputTokens: Int = 0
     var outputTokens: Int = 0
     var cacheReadTokens: Int = 0
@@ -34,7 +34,7 @@ struct UsageInfo: Equatable {
 }
 
 /// 会话的概要信息，用于列表与标题展示。
-struct ConversationInfo: Equatable {
+nonisolated struct ConversationInfo: Equatable {
     let summary: String?
     let lastMessage: String?
     let lastMessageRole: String?  // "user"、"assistant" 或 "tool"
@@ -45,7 +45,7 @@ struct ConversationInfo: Equatable {
 }
 
 /// 各 Agent 的 schema 单例。
-enum AgentTranscriptSchemaRegistry {
+nonisolated enum AgentTranscriptSchemaRegistry {
     private static let schemas: [AgentKind: any AgentTranscriptSchema] = [
         .claudeCode: ClaudeTranscriptSchema(),
         .ohMyPi: PiTranscriptSchema(kind: .ohMyPi),

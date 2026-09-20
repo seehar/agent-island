@@ -15,7 +15,7 @@ import os.log
 ///
 /// `user` 与 `assistant` 消息都以 `msg_...` 为 id；角色、token 用量、结束
 /// 原因等都在消息 JSON 里（数据库的 `data` 列或旧版 JSON 文件内容）。
-struct OpenCodeMessageRecord {
+nonisolated struct OpenCodeMessageRecord {
     let id: String
     /// `user` 或 `assistant`。
     let role: String
@@ -32,7 +32,7 @@ struct OpenCodeMessageRecord {
 }
 
 /// OpenCode 的一条消息分片（part）记录。
-struct OpenCodePartRecord {
+nonisolated struct OpenCodePartRecord {
     /// 分片 id（`prt_...`）。
     let id: String
     /// 所属消息 id。
@@ -73,7 +73,7 @@ struct OpenCodePartRecord {
 /// 权威来源是 SQLite 数据库；数据库缺失或打不开时退回到已冻结的旧版 JSON
 /// 目录。所有查询都用独立短连接执行：打开 → 查 → 关闭，避免长期持锁。
 /// 参数一律走绑定值，SQL 文本里不出现任何外部数据。
-enum OpenCodeSessionStore {
+nonisolated enum OpenCodeSessionStore {
     private static let logger = Logger(subsystem: "com.claudeisland", category: "OpenCode")
 
     /// 数据库拿不到锁时的等待上限；宁可返回空结果也不长时间阻塞调用方。
@@ -488,7 +488,7 @@ enum OpenCodeSessionStore {
 }
 
 /// 从 OpenCode 自己的数据库/旧版目录枚举会话的发现来源。
-struct OpenCodeSessionDiscovery: AgentSessionDiscoverySource {
+nonisolated struct OpenCodeSessionDiscovery: AgentSessionDiscoverySource {
     var kind: AgentKind { .opencode }
 
     func recentSessions(since: Date, limit: Int) -> [DiscoveredAgentSession] {

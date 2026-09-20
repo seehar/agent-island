@@ -9,7 +9,7 @@
 import Foundation
 
 /// OpenCode 会话记录的解析器。
-final class OpenCodeTranscriptSchema: AgentTranscriptSchema {
+nonisolated final class OpenCodeTranscriptSchema: AgentTranscriptSchema {
     var agent: AgentKind { .opencode }
 
     /// 一次读取最多处理的消息条数。OpenCode 的会话可能非常长，先取一段，
@@ -270,7 +270,7 @@ final class OpenCodeTranscriptSchema: AgentTranscriptSchema {
 /// 消息 id 用来做 id 差集；`finish` 是消息写完后才补上的，所以「本轮结束」
 /// 需要独立去重，否则每次重扫都会重复上报。OpenCode 的消息 id 前缀就是创建
 /// 时间，因此同格式下字典序与创建顺序一致。
-private struct OpenCodeProgress {
+nonisolated private struct OpenCodeProgress {
     var createdAt: Date?
     var messageId: String?
     var finishedTurnId: String?
