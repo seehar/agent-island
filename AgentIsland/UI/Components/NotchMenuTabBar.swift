@@ -80,6 +80,7 @@ struct NotchMenuTabBar: View {
     private func title(for section: NotchMenuSection) -> String {
         switch section {
         case .general: return l10n.t("General")
+        case .behavior: return l10n.t("Behavior")
         case .agents: return l10n.t("Agents")
         case .about: return l10n.t("About")
         }

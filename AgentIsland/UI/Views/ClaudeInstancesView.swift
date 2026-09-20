@@ -12,12 +12,27 @@ struct ClaudeInstancesView: View {
     @ObservedObject var sessionMonitor: ClaudeSessionMonitor
     @ObservedObject var viewModel: NotchViewModel
     @ObservedObject private var l10n = LocalizationManager.shared
+    /// 已结束会话的保留档位（变化时重新过滤列表）
+    @ObservedObject private var retention = SessionRetentionSelector.shared
 
     var body: some View {
-        if sessionMonitor.instances.isEmpty {
+        if visibleInstances.isEmpty {
             emptyState
         } else {
             instancesList
+        }
+    }
+
+    /// 列表里要显示的会话：「已结束的会话」档位为立即档时过滤掉结束的，
+    /// 其余档保留到各自窗口结束（窗口按最后活动时间算）。
+    private var visibleInstances: [SessionState] {
+        let retention = retention.option
+        guard retention.keepsEndedSessions else {
+            return sessionMonitor.instances.filter { $0.phase != .ended }
+        }
+        let cutoff = Date().addingTimeInterval(-retention.window)
+        return sessionMonitor.instances.filter { session in
+            session.phase != .ended || session.lastActivity >= cutoff
         }
     }
 
@@ -42,7 +57,7 @@ struct ClaudeInstancesView: View {
     /// Secondary sort: by last user message date (stable - doesn't change when agent responds)
     /// Note: approval requests stay in their date-based position to avoid layout shift
     private var sortedInstances: [SessionState] {
-        sessionMonitor.instances.sorted { a, b in
+        visibleInstances.sorted { a, b in
             let priorityA = phasePriority(a.phase)
             let priorityB = phasePriority(b.phase)
             if priorityA != priorityB {
@@ -127,6 +142,9 @@ struct InstanceRow: View {
     let onApprove: () -> Void
     let onReject: () -> Void
     @ObservedObject private var l10n = LocalizationManager.shared
+    /// 列表内容密度与单击动作
+    @ObservedObject private var density = SessionRowDensitySelector.shared
+    @ObservedObject private var clickAction = SessionRowClickActionSelector.shared
 
     @State private var isHovered = false
     @State private var isYabaiAvailable = false
@@ -147,6 +165,23 @@ struct InstanceRow: View {
         AgentRegistry.enabled.count > 1
     }
 
+    /// 单击的动作。默认什么都不做——列表行的单击不做事，双击才进聊天。
+    private func handleSingleTap() {
+        switch clickAction.option {
+        case .none:
+            return
+        case .openChat:
+            onChat()
+        case .focusTerminal:
+            // 只有 tmux 会话能定位终端；其余退回打开聊天，避免点了没反应
+            if session.isInTmux {
+                onFocus()
+            } else {
+                onChat()
+            }
+        }
+    }
+
     /// Status text based on session phase (fallback when no other content)
     private var phaseStatusText: String {
         switch session.phase {
@@ -165,6 +200,81 @@ struct InstanceRow: View {
         }
     }
 
+    /// 活动行：等待审批时显示工具与入参，否则显示最后一条消息；
+    /// 「列表信息密度」为紧凑档时整行不画（只留标题）。
+    @ViewBuilder
+    private var activityLine: some View {
+        // Show tool call when waiting for approval, otherwise last activity
+        if isWaitingForApproval, let toolName = session.pendingToolName {
+            // Show tool name in amber + input on same line
+            HStack(spacing: 4) {
+                Text(MCPToolFormatter.formatToolName(toolName))
+                    .appFont(11, weight: .medium, design: .monospaced)
+                    .foregroundColor(AppPalette.warning)
+                if isInteractiveTool {
+                    Text(l10n.t("Needs your input"))
+                        .appFont(11)
+                        .foregroundColor(AppPalette.secondaryText)
+                        .lineLimit(1)
+                } else if let input = session.pendingToolInput {
+                    Text(input)
+                        .appFont(11)
+                        .foregroundColor(AppPalette.secondaryText)
+                        .lineLimit(1)
+                }
+            }
+        } else if let role = session.lastMessageRole {
+            switch role {
+            case "tool":
+                // Tool call - show tool name + input
+                HStack(spacing: 4) {
+                    if let toolName = session.lastToolName {
+                        Text(MCPToolFormatter.formatToolName(toolName))
+                            .appFont(11, weight: .medium, design: .monospaced)
+                            .foregroundColor(AppPalette.secondaryText)
+                    }
+                    if let input = session.lastMessage {
+                        Text(input)
+                            .appFont(11)
+                            .foregroundColor(AppPalette.tertiaryText)
+                            .lineLimit(1)
+                    }
+                }
+            case "user":
+                // User message - prefix with "You:"
+                HStack(spacing: 4) {
+                    Text(l10n.t("You:"))
+                        .appFont(11, weight: .medium)
+                        .foregroundColor(AppPalette.secondaryText)
+                    if let msg = session.lastMessage {
+                        Text(msg)
+                            .appFont(11)
+                            .foregroundColor(AppPalette.tertiaryText)
+                            .lineLimit(1)
+                    }
+                }
+            default:
+                // Assistant message - just show text
+                if let msg = session.lastMessage {
+                    Text(msg)
+                        .appFont(11)
+                        .foregroundColor(AppPalette.tertiaryText)
+                        .lineLimit(1)
+                }
+            }
+        } else if let lastMsg = session.lastMessage {
+            Text(lastMsg)
+                .appFont(11)
+                .foregroundColor(AppPalette.tertiaryText)
+                .lineLimit(1)
+        } else {
+            // Fallback: show phase-based status when no other content
+            Text(phaseStatusText)
+                .appFont(11)
+                .foregroundColor(AppPalette.tertiaryText)
+                .lineLimit(1)
+        }
+    }
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
             // 行首状态指示：形状区分相位，颜色只表状态
@@ -185,83 +295,25 @@ struct InstanceRow: View {
                         AgentBadge(agent: session.agent)
                     }
 
-                    // Token usage indicator
-                    if session.usage.totalTokens > 0 {
+                    // Token usage indicator（紧凑档不显示）
+                    if density.option.showsTokenUsage && session.usage.totalTokens > 0 {
                         Text(session.usage.formattedTotal)
                             .appFont(10, weight: .medium, design: .monospaced)
                             .foregroundColor(AppPalette.subtleText)
                     }
                 }
 
-                // Show tool call when waiting for approval, otherwise last activity
-                if isWaitingForApproval, let toolName = session.pendingToolName {
-                    // Show tool name in amber + input on same line
-                    HStack(spacing: 4) {
-                        Text(MCPToolFormatter.formatToolName(toolName))
-                            .appFont(11, weight: .medium, design: .monospaced)
-                            .foregroundColor(AppPalette.warning)
-                        if isInteractiveTool {
-                            Text(l10n.t("Needs your input"))
-                                .appFont(11)
-                                .foregroundColor(AppPalette.secondaryText)
-                                .lineLimit(1)
-                        } else if let input = session.pendingToolInput {
-                            Text(input)
-                                .appFont(11)
-                                .foregroundColor(AppPalette.secondaryText)
-                                .lineLimit(1)
-                        }
-                    }
-                } else if let role = session.lastMessageRole {
-                    switch role {
-                    case "tool":
-                        // Tool call - show tool name + input
-                        HStack(spacing: 4) {
-                            if let toolName = session.lastToolName {
-                                Text(MCPToolFormatter.formatToolName(toolName))
-                                    .appFont(11, weight: .medium, design: .monospaced)
-                                    .foregroundColor(AppPalette.secondaryText)
-                            }
-                            if let input = session.lastMessage {
-                                Text(input)
-                                    .appFont(11)
-                                    .foregroundColor(AppPalette.tertiaryText)
-                                    .lineLimit(1)
-                            }
-                        }
-                    case "user":
-                        // User message - prefix with "You:"
-                        HStack(spacing: 4) {
-                            Text(l10n.t("You:"))
-                                .appFont(11, weight: .medium)
-                                .foregroundColor(AppPalette.secondaryText)
-                            if let msg = session.lastMessage {
-                                Text(msg)
-                                    .appFont(11)
-                                    .foregroundColor(AppPalette.tertiaryText)
-                                    .lineLimit(1)
-                            }
-                        }
-                    default:
-                        // Assistant message - just show text
-                        if let msg = session.lastMessage {
-                            Text(msg)
-                                .appFont(11)
-                                .foregroundColor(AppPalette.tertiaryText)
-                                .lineLimit(1)
-                        }
-                    }
-                } else if let lastMsg = session.lastMessage {
-                    Text(lastMsg)
-                        .appFont(11)
-                        .foregroundColor(AppPalette.tertiaryText)
+                if density.option.showsActivityLine {
+                    activityLine
+                }
+
+                // 详细档：再补一行工作目录
+                if density.option.showsWorkingDirectory {
+                    Text(session.cwd)
+                        .appFont(10)
+                        .foregroundColor(AppPalette.subtleText)
                         .lineLimit(1)
-                } else {
-                    // Fallback: show phase-based status when no other content
-                    Text(phaseStatusText)
-                        .appFont(11)
-                        .foregroundColor(AppPalette.tertiaryText)
-                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
             }
 
@@ -328,6 +380,11 @@ struct InstanceRow: View {
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             onChat()
+        }
+        // 单击的动作按设置；默认「无」——列表行的单击不做事，双击才进聊天。
+        // 双击手势在单击之前声明，SwiftUI 会先等双击窗口过去再触发单击。
+        .onTapGesture(count: 1) {
+            handleSingleTap()
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isWaitingForApproval)
         .background(

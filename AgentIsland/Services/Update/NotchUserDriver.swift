@@ -41,6 +41,9 @@ class UpdateManager: NSObject, ObservableObject {
 
     @Published var state: UpdateState = .idle
     @Published var hasUnseenUpdate: Bool = false
+    /// 是否自动检查更新。Sparkle 自己的属性不是 `@Published`，这里镜像一份给界面；
+    /// 真实值仍以 Sparkle 的偏好为准（见 `refreshAutomaticChecks`）。
+    @Published var automaticallyChecksForUpdates: Bool
     private var hasSeenUpdateThisSession: Bool = false
 
     private var downloadedBytes: Int64 = 0
@@ -52,6 +55,8 @@ class UpdateManager: NSObject, ObservableObject {
     private var cancellationHandler: (() -> Void)?
 
     override init() {
+        automaticallyChecksForUpdates =
+            AppDelegate.shared?.updater.automaticallyChecksForUpdates ?? true
         super.init()
     }
 
@@ -64,6 +69,18 @@ class UpdateManager: NSObject, ObservableObject {
         } else {
             state = .error(message: Self.l10n.t("Updater not initialized"))
         }
+    }
+
+    /// 从 Sparkle 重新读一次自动检查开关（应用启动后 Sparkle 才就位）。
+    func refreshAutomaticChecks() {
+        automaticallyChecksForUpdates =
+            AppDelegate.shared?.updater.automaticallyChecksForUpdates ?? true
+    }
+
+    /// 开/关自动检查更新。Sparkle 自己会把这个偏好写进应用偏好域。
+    func setAutomaticallyChecksForUpdates(_ enabled: Bool) {
+        AppDelegate.shared?.updater.automaticallyChecksForUpdates = enabled
+        automaticallyChecksForUpdates = enabled
     }
 
     func downloadAndInstall() {

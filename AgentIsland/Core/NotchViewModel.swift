@@ -86,19 +86,23 @@ class NotchViewModel: ObservableObject {
     }
 
     /// Dynamic opened size based on content type
+    ///
+    /// 尺寸取基准值乘「面板尺寸」档位的比例；宽度不越过屏幕，高度不越过窗口。
+    /// 设置面板的高度例外：它由 `NotchMenuMetrics` 的解析式给出，缩放会裁掉内容，
+    /// 因此那一档只影响面板宽度（宽度与行高无关，解析式仍然成立）。
     var openedSize: CGSize {
         switch contentType {
         case .chat:
             // Large size for chat view
             return CGSize(
-                width: min(screenRect.width * 0.5, 600),
-                height: 580
+                width: scaledPanelWidth(min(screenRect.width * 0.5, 600)),
+                height: scaledPanelHeight(580)
             )
         case .menu:
             // 只按当前分组算高度：固定开销 + 该分组的设置行 + 该分组里展开的
             // 选择器增量（见 NotchMenuMetrics）。分组越短，面板越矮。
             return CGSize(
-                width: min(screenRect.width * 0.4, 480),
+                width: scaledPanelWidth(min(screenRect.width * 0.4, 480)),
                 height: NotchMenuMetrics.panelHeight(
                     for: menuSection,
                     expandedPickerHeight: expandedPickerHeight(for: menuSection),
@@ -107,10 +111,20 @@ class NotchViewModel: ObservableObject {
             )
         case .instances:
             return CGSize(
-                width: min(screenRect.width * 0.4, 480),
-                height: 320
+                width: scaledPanelWidth(min(screenRect.width * 0.4, 480)),
+                height: scaledPanelHeight(320)
             )
         }
+    }
+
+    /// 按「面板尺寸」档位缩放面板宽度，并留出屏幕边缘。
+    private func scaledPanelWidth(_ base: CGFloat) -> CGFloat {
+        min(base * PanelSizeSelector.shared.option.scale, screenRect.width - 40)
+    }
+
+    /// 按「面板尺寸」档位缩放面板高度，并留出窗口顶部与底部。
+    private func scaledPanelHeight(_ base: CGFloat) -> CGFloat {
+        min(base * PanelSizeSelector.shared.option.scale, windowHeight - 20)
     }
 
     /// 面板中菜单之外的固定高度：头部行（物理刘海高度，非刘海屏至少 24）
@@ -131,6 +145,19 @@ class NotchViewModel: ObservableObject {
                 + widthSelector.expandedPickerHeight
                 + textSizeSelector.expandedPickerHeight
                 + soundSelector.expandedPickerHeight
+        case .behavior:
+            // 行为页的选择器都是同一个骨架，逐个累加各自的展开高度
+            return [
+                HoverExpandSelector.shared.expandedPickerHeight,
+                IdleNotchVisibilitySelector.shared.expandedPickerHeight,
+                CompletionBadgeSelector.shared.expandedPickerHeight,
+                PanelSizeSelector.shared.expandedPickerHeight,
+                SessionRetentionSelector.shared.expandedPickerHeight,
+                SessionRowDensitySelector.shared.expandedPickerHeight,
+                SessionRowClickActionSelector.shared.expandedPickerHeight,
+                RefreshCadenceSelector.shared.expandedPickerHeight,
+                NotificationScopeSelector.shared.expandedPickerHeight,
+            ].reduce(0, +)
         case .agents:
             return claudeDirSelector.expandedPickerHeight
         case .about:
@@ -181,6 +208,34 @@ class NotchViewModel: ObservableObject {
         heightSelector.$isPickerExpanded
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
+
+        // 字号与宽度选择器也要订阅：它们的展开态同样算进面板高度
+        textSizeSelector.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        widthSelector.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        // 行为类偏好：展开态影响面板高度，取值影响面板尺寸等派生值，
+        // 因此统一按「任一变化即重发布」订阅。
+        observe(PanelSizeSelector.shared)
+        observe(HoverExpandSelector.shared)
+        observe(IdleNotchVisibilitySelector.shared)
+        observe(CompletionBadgeSelector.shared)
+        observe(SessionRetentionSelector.shared)
+        observe(SessionRowDensitySelector.shared)
+        observe(RefreshCadenceSelector.shared)
+        observe(NotificationScopeSelector.shared)
+        observe(SessionRowClickActionSelector.shared)
+    }
+
+    /// 订阅一个枚举偏好的任何变化（取值或展开态），让读到它的视图重算。
+    private func observe<P: PreferenceOption>(_ selector: EnumPreference<P>) {
+        selector.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
     }
 
     // MARK: - Event Handling
@@ -225,14 +280,17 @@ class NotchViewModel: ObservableObject {
         hoverTimer?.cancel()
         hoverTimer = nil
 
-        // Start hover timer to auto-expand after 1 second
-        if isHovering && (status == .closed || status == .popping) {
+        // 悬停自动展开：延时按「悬停展开」档位；该档位为「从不」时不自动展开，
+        // 点击刘海仍然可以展开（通知触发的自动展开也不受影响）。
+        if isHovering, status == .closed || status == .popping,
+            let delay = HoverExpandSelector.shared.option.delay
+        {
             let workItem = DispatchWorkItem { [weak self] in
                 guard let self = self, self.isHovering else { return }
                 self.notchOpen(reason: .hover)
             }
             hoverTimer = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: workItem)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
         }
     }
 

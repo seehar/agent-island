@@ -15,6 +15,8 @@ import Foundation
 nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable {
     /// 应用级偏好：语言、屏幕、胶囊高度、通知音效、登录时启动、辅助功能。
     case general
+    /// 行为类偏好：悬停展开、空闲可见性、完成提示、面板尺寸、会话保留与刷新频率。
+    case behavior
     /// 各 Agent CLI 的监控开关、集成状态与 Claude 配置目录。
     case agents
     /// 版本与更新、GitHub、退出。
@@ -26,6 +28,7 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
     var symbolName: String {
         switch self {
         case .general: return "slider.horizontal.3"
+        case .behavior: return "switch.2"
         case .agents: return "cpu"
         case .about: return "info.circle"
         }
@@ -67,6 +70,8 @@ nonisolated enum NotchMenuMetrics {
     /// 两行设置行（标题 + 副标题）：比图标块高，行高在视图里固定成这个值，
     /// 有无副标题都不改变面板高度。
     static let twoLineRowHeight: CGFloat = 48
+    /// 单行开关行：开关控件 24 比图标块 22 高，行高因此比普通行多 2。
+    static let toggleRowHeight: CGFloat = 42
     /// 展开的选择器选项行（含微调行）。
     static let optionRowHeight: CGFloat = 32
     /// 选项列表的上下留白：选项块总高 = 选项数 × 行高 + 这个值。
@@ -98,8 +103,10 @@ nonisolated enum NotchMenuMetrics {
     static let appIdentityHeight: CGFloat = 99
     /// 面板高度上限：分组内容超出时由页内滚动接管，面板不再继续变长。
     /// 上限取 728 是为了保证「展开的东西看得见」：通用页最高的单个展开是音效
-    /// （6 行选项，718），再覆盖「语言 + 屏幕」这对常见组合（正好 728）。再多一起
-    /// 展开就交给页内滚动——没有哪个上限能容下所有组合。
+    /// （6 行选项，718）；行为页内容更高（536），最高的单个展开 4 档（138），
+    /// 在刘海屏（固定开销 50）上是 724，仍在上限内。再多一起展开就交给页内滚动——
+    /// 没有哪个上限能容下所有组合。**行为页的单个选择器档位不要超过 4 档**：
+    /// 5 档（170）会顶到 +750 窗口留出的可用高度（738）。
     static let maxPanelHeight: CGFloat = 728
 
     // MARK: - 推导
@@ -168,6 +175,15 @@ nonisolated enum NotchMenuMetrics {
                 Block(rows: [rowHeight, rowHeight, rowHeight, rowHeight, rowHeight, rowHeight]),
                 // 系统：登录时启动（开关行，带副标题）/ 辅助功能
                 Block(rows: [twoLineRowHeight, rowHeight]),
+            ]
+        case .behavior:
+            return [
+                // 胶囊：悬停展开 / 空闲可见性 / 完成提示 / 面板尺寸
+                Block(rows: Array(repeating: rowHeight, count: 4)),
+                // 会话：保留已结束的会话 / 列表信息密度 / 单击动作 / 刷新频率
+                Block(rows: Array(repeating: rowHeight, count: 4)),
+                // 通知：提示音覆盖哪些事件
+                Block(rows: [rowHeight]),
             ]
         case .agents:
             return [

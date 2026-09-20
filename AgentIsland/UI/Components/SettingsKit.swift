@@ -505,6 +505,19 @@ func settingsLengthLabel(_ value: CGFloat) -> String {
     "\(Int(value.rounded())) pt"
 }
 
+/// 把秒数写成短标签（0.3 s / 1 s / 1.5 s）。整数不带小数点。
+func settingsSecondsLabel(_ seconds: TimeInterval) -> String {
+    let value =
+        seconds.truncatingRemainder(dividingBy: 1) == 0
+        ? String(Int(seconds)) : String(format: "%.1f", seconds)
+    return "\(value) s"
+}
+
+/// 把比例写成百分数标签（88%）。百分号各语言写法一致，不需要翻译。
+func settingsPercentLabel(_ ratio: CGFloat) -> String {
+    "\(Int((ratio * 100).rounded()))%"
+}
+
 extension View {
     /// 在行的底边画分隔线。用 overlay 而不是插一行，行高因此保持整数，
     /// 面板高度的解析式不必为每条线再加 1。

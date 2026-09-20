@@ -109,6 +109,185 @@ struct AgentsSettingsPage: View {
     }
 }
 
+// MARK: - 行为
+
+/// 「行为」页：胶囊的交互与空闲表现、会话列表的内容与刷新频率、提示音的覆盖范围。
+/// 每行都是一个枚举档位；选项文案在本文件里按字面量取键，本地化守卫才能审计到。
+struct BehaviorSettingsPage: View {
+    @ObservedObject private var l10n = LocalizationManager.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: NotchMenuMetrics.groupSpacing) {
+            SettingsGroup(title: l10n.t("Notch")) {
+                PreferencePickerRow(
+                    badge: SettingsBadge(
+                        source: .symbol(name: "cursorarrow.motionlines", tint: AppPalette.accent)),
+                    title: l10n.t("Hover Expand"),
+                    selector: HoverExpandSelector.shared,
+                    label: hoverExpandLabel,
+                    detail: hoverExpandDetail
+                )
+                PreferencePickerRow(
+                    badge: SettingsBadge(
+                        source: .symbol(name: "eye", tint: AppPalette.accent)),
+                    title: l10n.t("Idle Notch"),
+                    selector: IdleNotchVisibilitySelector.shared,
+                    label: idleNotchLabel
+                )
+                PreferencePickerRow(
+                    badge: SettingsBadge(
+                        source: .symbol(name: "checkmark.circle", tint: AppPalette.accent)),
+                    title: l10n.t("Completion Badge"),
+                    selector: CompletionBadgeSelector.shared,
+                    label: completionBadgeLabel
+                )
+                PreferencePickerRow(
+                    badge: SettingsBadge(
+                        source: .symbol(
+                            name: "arrow.up.left.and.arrow.down.right", tint: AppPalette.accent)),
+                    title: l10n.t("Panel Size"),
+                    selector: PanelSizeSelector.shared,
+                    label: panelSizeLabel,
+                    detail: panelSizeDetail,
+                    showsSeparator: false
+                )
+            }
+
+            SettingsGroup(title: l10n.t("Sessions")) {
+                PreferencePickerRow(
+                    badge: SettingsBadge(
+                        source: .symbol(name: "archivebox", tint: AppPalette.accent)),
+                    title: l10n.t("Ended Sessions"),
+                    selector: SessionRetentionSelector.shared,
+                    label: sessionRetentionLabel
+                )
+                PreferencePickerRow(
+                    badge: SettingsBadge(
+                        source: .symbol(name: "list.bullet", tint: AppPalette.accent)),
+                    title: l10n.t("Row Density"),
+                    selector: SessionRowDensitySelector.shared,
+                    label: rowDensityLabel
+                )
+                PreferencePickerRow(
+                    badge: SettingsBadge(
+                        source: .symbol(name: "cursorarrow.click", tint: AppPalette.accent)),
+                    title: l10n.t("Click Action"),
+                    selector: SessionRowClickActionSelector.shared,
+                    label: clickActionLabel
+                )
+                PreferencePickerRow(
+                    badge: SettingsBadge(
+                        source: .symbol(name: "clock.arrow.circlepath", tint: AppPalette.accent)),
+                    title: l10n.t("Refresh Rate"),
+                    selector: RefreshCadenceSelector.shared,
+                    label: refreshCadenceLabel,
+                    detail: refreshCadenceDetail,
+                    showsSeparator: false
+                )
+            }
+
+            SettingsGroup(title: l10n.t("Notifications")) {
+                PreferencePickerRow(
+                    badge: SettingsBadge(
+                        source: .symbol(name: "bell", tint: AppPalette.accent)),
+                    title: l10n.t("Sound Scope"),
+                    selector: NotificationScopeSelector.shared,
+                    label: notificationScopeLabel,
+                    showsSeparator: false
+                )
+            }
+        }
+    }
+
+    // MARK: - 文案
+
+    private func hoverExpandLabel(_ option: HoverExpand) -> String {
+        switch option {
+        case .off: return l10n.t("Never")
+        case .fast: return l10n.t("Fast")
+        case .standard: return l10n.t("Standard")
+        case .slow: return l10n.t("Slow")
+        }
+    }
+
+    private func hoverExpandDetail(_ option: HoverExpand) -> String? {
+        option.delay.map(settingsSecondsLabel)
+    }
+
+    private func idleNotchLabel(_ option: IdleNotchVisibility) -> String {
+        switch option {
+        case .always: return l10n.t("Always")
+        case .whenActive: return l10n.t("When Active")
+        case .linger: return l10n.t("Keep 3 Seconds")
+        }
+    }
+
+    private func completionBadgeLabel(_ option: CompletionBadge) -> String {
+        switch option {
+        case .short: return l10n.t("10 Seconds")
+        case .standard: return l10n.t("30 Seconds")
+        case .long: return l10n.t("1 Minute")
+        case .persistent: return l10n.t("Always")
+        }
+    }
+
+    private func panelSizeLabel(_ option: PanelSize) -> String {
+        switch option {
+        case .compact: return l10n.t("Compact")
+        case .standard: return l10n.t("Standard")
+        case .wide: return l10n.t("Wide")
+        }
+    }
+
+    private func panelSizeDetail(_ option: PanelSize) -> String? {
+        settingsPercentLabel(option.scale)
+    }
+
+    private func sessionRetentionLabel(_ option: SessionRetention) -> String {
+        switch option {
+        case .immediate: return l10n.t("Immediately")
+        case .minute: return l10n.t("1 Minute")
+        case .tenMinutes: return l10n.t("10 Minutes")
+        case .hour: return l10n.t("1 Hour")
+        }
+    }
+
+    private func rowDensityLabel(_ option: SessionRowDensity) -> String {
+        switch option {
+        case .compact: return l10n.t("Compact")
+        case .standard: return l10n.t("Standard")
+        case .detailed: return l10n.t("Detailed")
+        }
+    }
+
+    private func clickActionLabel(_ option: SessionRowClickAction) -> String {
+        switch option {
+        case .none: return l10n.t("None")
+        case .openChat: return l10n.t("Open Chat")
+        case .focusTerminal: return l10n.t("Focus Terminal")
+        }
+    }
+
+    private func refreshCadenceLabel(_ option: RefreshCadence) -> String {
+        switch option {
+        case .fast: return l10n.t("Fast")
+        case .standard: return l10n.t("Standard")
+        case .relaxed: return l10n.t("Relaxed")
+        }
+    }
+
+    private func refreshCadenceDetail(_ option: RefreshCadence) -> String? {
+        settingsSecondsLabel(TimeInterval(option.statusSeconds))
+    }
+
+    private func notificationScopeLabel(_ option: NotificationScope) -> String {
+        switch option {
+        case .readyOnly: return l10n.t("Ready Only")
+        case .readyAndApprovals: return l10n.t("Ready and Approvals")
+        }
+    }
+}
+
 // MARK: - 关于
 
 /// 「关于」页：应用标识、版本与更新、GitHub、退出。
@@ -123,6 +302,19 @@ struct AboutSettingsPage: View {
             // 更新与链接是同一类「关于这个应用」的条目
             SettingsGroup {
                 UpdateRow(updateManager: updateManager)
+
+                SettingsToggleRow(
+                    badge: SettingsBadge(
+                        source: .symbol(
+                            name: "arrow.triangle.2.circlepath", tint: AppPalette.accent)),
+                    title: l10n.t("Automatically Check for Updates"),
+                    isOn: updateManager.automaticallyChecksForUpdates,
+                    onToggle: {
+                        let isOn = updateManager.automaticallyChecksForUpdates
+                        updateManager.setAutomaticallyChecksForUpdates(isOn ? false : true)
+                    }
+                )
+                .frame(height: NotchMenuMetrics.toggleRowHeight)
 
                 SettingsButtonRow(
                     badge: SettingsBadge(
@@ -145,6 +337,8 @@ struct AboutSettingsPage: View {
                 )
             }
         }
+        // Sparkle 在应用启动之后才就位，进入这一页时重新读一次自动检查开关
+        .onAppear { updateManager.refreshAutomaticChecks() }
     }
 
     // MARK: - 标识块

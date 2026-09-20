@@ -53,9 +53,9 @@ struct TextSizePickerRow: View {
         }
     }
 
-    /// 档位对应的比例；百分号各语言写法一致，因此不需要翻译。
+    /// 档位对应的比例。
     private func percentLabel(_ option: TextSizeOption) -> String {
-        "\(Int((option.scale * 100).rounded()))%"
+        settingsPercentLabel(option.scale)
     }
 
     // MARK: - 交互

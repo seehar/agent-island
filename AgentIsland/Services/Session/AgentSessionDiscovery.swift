@@ -24,8 +24,6 @@ final class AgentSessionDiscovery {
     /// 已经登记过的会话，避免重复发送 SessionStart。
     private var knownKeys: Set<SessionKey> = []
 
-    /// 轮询间隔（秒）。
-    private let tickInterval: UInt64 = 4
     /// 记录在这么久内被写过，就认为会话还活着。
     private let liveWindow: TimeInterval = 120
     /// 只回看这么久内有过活动的会话。
@@ -39,11 +37,12 @@ final class AgentSessionDiscovery {
 
     func start() {
         guard task == nil else { return }
-        let interval = tickInterval
         task = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.tick()
-                try? await Task.sleep(nanoseconds: interval * 1_000_000_000)
+                // 「刷新频率」档位每轮读一次（扫描会起 `ps`，因此比状态复核更慢）
+                let seconds = PreferenceStore.read(RefreshCadence.self).discoverySeconds
+                try? await Task.sleep(nanoseconds: seconds * 1_000_000_000)
             }
         }
         Self.logger.info("Started agent session discovery")

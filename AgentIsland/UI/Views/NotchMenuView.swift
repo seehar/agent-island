@@ -86,6 +86,8 @@ struct NotchMenuView: View {
         switch viewModel.menuSection {
         case .general:
             GeneralSettingsPage(screenSelector: screenSelector, soundSelector: soundSelector)
+        case .behavior:
+            BehaviorSettingsPage()
         case .agents:
             AgentsSettingsPage()
         case .about:

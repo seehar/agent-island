@@ -32,8 +32,6 @@ actor SessionStore {
     /// Periodic status check task
     private var statusCheckTask: Task<Void, Never>?
 
-    /// Status check interval (3 seconds)
-    private let statusCheckIntervalSeconds: UInt64 = 3
 
     // MARK: - Published State (for UI)
 
@@ -1186,15 +1184,18 @@ actor SessionStore {
     func startPeriodicStatusCheck() {
         guard statusCheckTask == nil else { return }
 
-        let intervalSeconds = statusCheckIntervalSeconds
         statusCheckTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: intervalSeconds * 1_000_000_000)
+                // 「刷新频率」档位每轮读一次：改档位在下一轮生效，不必重启。
+                // 读取走 nonisolated 的 PreferenceStore（actor 里也能直接调用）。
+                let seconds = PreferenceStore.read(RefreshCadence.self).statusSeconds
+                try? await Task.sleep(nanoseconds: seconds * 1_000_000_000)
                 guard !Task.isCancelled else { break }
                 await self?.recheckAllSessions()
             }
         }
-        Self.logger.info("Started periodic status check (every \(intervalSeconds)s)")
+        Self.logger.info(
+            "Started periodic status check (every \(PreferenceStore.read(RefreshCadence.self).statusSeconds)s)")
     }
 
     /// Stop periodic status checking
@@ -1207,10 +1208,18 @@ actor SessionStore {
     /// 重新检查所有活跃会话
     private func recheckAllSessions() {
         var removedSession = false
-        let staleCutoff = Date().addingTimeInterval(-Self.staleSessionIdleTimeout)
+        let now = Date()
+        let staleCutoff = now.addingTimeInterval(-Self.staleSessionIdleTimeout)
+        // 「已结束的会话」档位：立即档等于结束就移除，其余档按窗口保留
+        let retention = PreferenceStore.read(SessionRetention.self)
 
         for (key, session) in Array(sessions) {
             if session.phase == .ended {
+                guard
+                    Self.shouldDropEndedSession(
+                        phase: session.phase, lastActivity: session.lastActivity,
+                        retention: retention, now: now)
+                else { continue }
                 sessions.removeValue(forKey: key)
                 cancelPendingSync(key: key)
                 removedSession = true
@@ -1254,6 +1263,15 @@ actor SessionStore {
 
     /// 无实时集成会话的空闲回收阈值（秒）。
     private static let staleSessionIdleTimeout: TimeInterval = 30 * 60
+
+    /// 结束的会话该不该从列表移除：按「已结束的会话」档位的保留窗口判断。
+    /// 纯函数（可单测）；立即档窗口为 0，等于结束就移除——这是默认行为。
+    nonisolated static func shouldDropEndedSession(
+        phase: SessionPhase, lastActivity: Date, retention: SessionRetention, now: Date
+    ) -> Bool {
+        guard phase == .ended else { return false }
+        return now.timeIntervalSince(lastActivity) >= retention.window
+    }
 
     /// Check if a process is still running
     private nonisolated func isProcessRunning(pid: Int) -> Bool {

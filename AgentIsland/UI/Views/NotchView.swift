@@ -21,6 +21,10 @@ struct NotchView: View {
  @StateObject private var activityCoordinator = NotchActivityCoordinator.shared
  @ObservedObject private var updateManager = UpdateManager.shared
  @ObservedObject private var textSizeSelector = TextSizeSelector.shared
+ /// 行为偏好里被视图直接读的三项：完成提示窗口、空闲可见性、提示音覆盖范围
+ @ObservedObject private var completionBadge = CompletionBadgeSelector.shared
+ @ObservedObject private var idleVisibility = IdleNotchVisibilitySelector.shared
+ @ObservedObject private var notificationScope = NotificationScopeSelector.shared
  @ObservedObject private var l10n = LocalizationManager.shared
  @State private var previousPendingIds: Set<String> = []
  @State private var previousWaitingForInputIds: Set<String> = []
@@ -43,18 +47,17 @@ struct NotchView: View {
   sessionMonitor.instances.contains { $0.phase.isWaitingForApproval }
  }
 
- /// 是否有任意 Agent 的会话处于等待输入（完成/就绪）状态且还在展示窗口内
+ /// 是否有任意 Agent 的会话处于等待输入（完成/就绪）状态且还在展示窗口内。
+ /// 窗口长度取「完成提示」档位；「一直显示」档位没有窗口，会留到会话状态变化。
  private var hasWaitingForInput: Bool {
   let now = Date()
-  let displayDuration: TimeInterval = 30  // Show checkmark for 30 seconds
+  let displayWindow = completionBadge.option.window
 
   return sessionMonitor.instances.contains { session in
    guard session.phase == .waitingForInput else { return false }
-   // Only show if within the 30-second display window
-   if let enteredAt = waitingForInputTimestamps[session.stableId] {
-    return now.timeIntervalSince(enteredAt) < displayDuration
-   }
-   return false
+   guard let displayWindow else { return true }
+   guard let enteredAt = waitingForInputTimestamps[session.stableId] else { return false }
+   return now.timeIntervalSince(enteredAt) < displayWindow
   }
  }
 
@@ -223,7 +226,7 @@ struct NotchView: View {
   .onAppear {
    sessionMonitor.startMonitoring()
    // On non-notched devices, keep visible so users have a target to interact with
-   if !viewModel.hasPhysicalNotch {
+   if !viewModel.hasPhysicalNotch || !idleVisibility.option.hidesWhenIdle {
     isVisible = true
    }
   }
@@ -493,19 +496,23 @@ struct NotchView: View {
    activityCoordinator.hideActivity()
    isVisible = true
   } else {
-   // Hide activity when done
    activityCoordinator.hideActivity()
+   scheduleIdleHide()
+  }
+ }
 
-   // Delay hiding the notch until animation completes
-   // Don't hide on non-notched devices - users need a visible target
-   if viewModel.status == .closed && viewModel.hasPhysicalNotch {
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-     if !isAnyProcessing && !hasPendingPermission && !hasWaitingForInput
-      && viewModel.status == .closed
-     {
-      isVisible = false
-     }
-    }
+ /// 无活动时是否收起胶囊：按「空闲时的胶囊」档位——「一直显示」档不隐藏，
+ /// 其余档在档位给的延时后隐藏；非刘海屏始终保留（用户需要一个可点的目标）。
+ private func scheduleIdleHide() {
+  let visibility = idleVisibility.option
+  guard visibility.hidesWhenIdle, viewModel.status == .closed, viewModel.hasPhysicalNotch else {
+   return
+  }
+  DispatchQueue.main.asyncAfter(deadline: .now() + visibility.lingerWindow) {
+   if !isAnyProcessing && !hasPendingPermission && !hasWaitingForInput
+    && viewModel.status == .closed
+   {
+    isVisible = false
    }
   }
  }
@@ -521,7 +528,9 @@ struct NotchView: View {
   case .closed:
    // Don't hide on non-notched devices - users need a visible target
    guard viewModel.hasPhysicalNotch else { return }
-   DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+   // 「空闲时的胶囊」为「一直显示」时不隐藏
+   guard idleVisibility.option.hidesWhenIdle else { return }
+   DispatchQueue.main.asyncAfter(deadline: .now() + idleVisibility.option.lingerWindow) {
     if viewModel.status == .closed && !isAnyProcessing && !hasPendingPermission
      && !hasWaitingForInput && !activityCoordinator.expandingActivity.show
     {
@@ -539,6 +548,11 @@ struct NotchView: View {
    && !TerminalVisibilityDetector.isTerminalVisibleOnCurrentSpace()
   {
    viewModel.notchOpen(reason: .notification)
+  }
+
+  // 「提示音范围」包含审批时，新出现的待审批会话也响一声
+  if !newPendingIds.isEmpty, notificationScope.option.coversApprovals {
+   playNotificationSound(for: sessions.filter { newPendingIds.contains($0.stableId) })
   }
 
   previousPendingIds = currentIds
@@ -567,19 +581,7 @@ struct NotchView: View {
    // Get the sessions that just entered waitingForInput
    let newlyWaitingSessions = waitingForInputSessions.filter { newWaitingIds.contains($0.stableId) }
 
-   // Play notification sound if the session is not actively focused
-   if let soundName = AppSettings.notificationSound.soundName {
-    // Check if we should play sound (async check for tmux pane focus)
-    Task {
-     let shouldPlaySound = await shouldPlayNotificationSound(for: newlyWaitingSessions)
-     if shouldPlaySound {
-      await MainActor.run {
-       // `play()` 经可选链后返回 `Void?`，显式丢弃以免闭包返回非 Void 值
-       _ = NSSound(named: soundName)?.play()
-      }
-     }
-    }
-   }
+   playNotificationSound(for: newlyWaitingSessions)
 
    // Trigger bounce animation to get user's attention
    DispatchQueue.main.async {
@@ -590,14 +592,28 @@ struct NotchView: View {
     }
    }
 
-   // Schedule hiding the checkmark after 30 seconds
-   DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [self] in
-    // Trigger a UI update to re-evaluate hasWaitingForInput
-    handleProcessingChange()
+   // 展示窗口到期后刷新一次，让勾与活动态按「完成提示」档位退场；
+   // 「一直显示」档位没有窗口，因此不需要这个定时。
+   if let displayWindow = completionBadge.option.window {
+    DispatchQueue.main.asyncAfter(deadline: .now() + displayWindow) { [self] in
+     handleProcessingChange()
+    }
    }
   }
 
   previousWaitingForInputIds = currentIds
+ }
+
+ /// 按设置播一声提示音：音效本身取「通知音效」，且只在该会话不在前台时响。
+ private func playNotificationSound(for sessions: [SessionState]) {
+  guard let soundName = AppSettings.notificationSound.soundName else { return }
+  Task {
+   guard await shouldPlayNotificationSound(for: sessions) else { return }
+   await MainActor.run {
+    // `play()` 经可选链后返回 `Void?`，显式丢弃以免闭包返回非 Void 值
+    _ = NSSound(named: soundName)?.play()
+   }
+  }
  }
 
  /// Determine if notification sound should play for the given sessions
