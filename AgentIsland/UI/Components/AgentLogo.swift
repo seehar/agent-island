@@ -22,8 +22,9 @@ struct AgentLogo: View {
     /// 覆盖标记配色；nil 表示用该 Agent 的品牌色（见 AgentPalette）。
     var color: Color? = nil
 
-    /// 当前活动状态。默认空闲（只呼吸），由调用方按会话阶段传入。
-    var activity: AgentLogoActivity = .idle
+    /// 当前活动状态，由调用方按会话阶段传入。
+    /// nil 表示这枚标记只画一帧：角标、设置行这类密集场合不需要各自的时钟。
+    var activity: AgentLogoActivity? = nil
 
     var body: some View {
         AgentLogoFrames(agent: agent, size: size, color: tint, activity: activity)
@@ -35,29 +36,34 @@ struct AgentLogo: View {
 
 // MARK: - 逐帧渲染
 
-/// 只负责「按 AgentMotion 给出的这一帧把标记画出来」，把时间来源交给外面：
-/// 刘海里用 TimelineView 推进，设置面板/角标等静态场合只画一帧。
+/// 只负责「按 AgentMotion 给出的这一帧把标记画出来」，时间来源交给外面：
+/// 有活动状态的场合用 TimelineView 推进，其余（探针定帧、角标、设置行）只画一帧。
 private struct AgentLogoFrames: View {
     let agent: AgentKind
     let size: CGFloat
     let color: Color
-    let activity: AgentLogoActivity
+    let activity: AgentLogoActivity?
 
     @Environment(\.agentLogoStaticTime) private var staticTime
 
     var body: some View {
-        if let staticTime {
-            // 探针定帧：不建时间线，画指定的一刻
-            frame(at: staticTime)
-        } else {
+        if let t = frozenTime {
+            frame(at: t, activity: activity ?? .idle)
+        } else if let activity {
             TimelineView(.periodic(from: AgentMotion.epoch, by: activity.frameInterval)) {
                 context in
-                frame(at: context.date.timeIntervalSince(AgentMotion.epoch))
+                frame(at: context.date.timeIntervalSince(AgentMotion.epoch), activity: activity)
             }
         }
     }
 
-    private func frame(at t: Double) -> some View {
+    /// 需要定格的时间点：探针指定的时刻优先，其次是「这枚标记不需要动」的场合。
+    private var frozenTime: Double? {
+        if let staticTime { return staticTime }
+        return activity == nil ? 0 : nil
+    }
+
+    private func frame(at t: Double, activity: AgentLogoActivity) -> some View {
         let motion = AgentMotion.motion(for: agent, activity: activity, at: t, size: size)
         return Glyph(agent: agent, size: size, color: color, motion: motion)
             .offset(y: motion.dy)
