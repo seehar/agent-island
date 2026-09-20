@@ -59,6 +59,8 @@ nonisolated struct TranscriptParseState {
   var emittedMessageIds: Set<String> = []
   var seenToolIds: Set<String> = []
   var toolIdToName: [String: String] = [:]
+  /// 工具调用的入参（按 toolCallId 记录），供工具结果到达时推断结构化结果。
+  var toolInputs: [String: [String: String]] = [:]
   var completedToolIds: Set<String> = []
   var toolResults: [String: ToolResultPayload] = [:]
   var structuredResults: [String: ToolResultData] = [:]
@@ -99,6 +101,7 @@ nonisolated struct TranscriptParseState {
     emittedMessageIds = []
     seenToolIds = []
     toolIdToName = [:]
+    toolInputs = [:]
     completedToolIds = []
     toolResults = [:]
     structuredResults = [:]

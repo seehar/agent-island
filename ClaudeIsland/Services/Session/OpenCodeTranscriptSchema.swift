@@ -223,10 +223,18 @@ nonisolated final class OpenCodeTranscriptSchema: AgentTranscriptSchema {
             let isError = part.toolStatus == "error"
             // 结果只登记一次；重扫时只补「本次新看到的完成状态」。
             if state.toolResults[callId] == nil {
+                let output = part.toolOutput ?? part.toolError
                 state.toolResults[callId] = ToolResultPayload(
-                    content: part.toolOutput ?? part.toolError,
+                    content: output,
                     stdout: nil,
                     stderr: nil,
+                    isError: isError
+                )
+                // OpenCode 同样只给文本结果，按工具名推断统一的结构化结果
+                state.structuredResults[callId] = GenericToolResultBuilder.build(
+                    toolName: name,
+                    input: input,
+                    output: output,
                     isError: isError
                 )
             }

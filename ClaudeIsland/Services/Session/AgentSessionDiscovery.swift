@@ -32,6 +32,8 @@ final class AgentSessionDiscovery {
     private let lookbackWindow: TimeInterval = 15 * 60
     /// 每个 Agent 每轮最多补登的会话数。
     private let perAgentLimit = 6
+    /// 无实时集成的会话：记录超过这么久没有写入就回收（分钟级由日志体现）。
+    private let discoveredSessionIdleTimeout: TimeInterval = 60 * 60
 
     // MARK: - 生命周期
 
@@ -104,7 +106,25 @@ final class AgentSessionDiscovery {
             }
             // 带 pid 的会话由 SessionStore 的周期检查按进程存活回收
             if session.pid != nil { continue }
+
             if !hasProcesses, session.lastActivity < now.addingTimeInterval(-liveWindow) {
+                knownKeys.remove(key)
+                await SessionStore.shared.process(.sessionEnded(key: key))
+                continue
+            }
+
+            // 没有实时集成的会话拿不到进程存活信号：记录长时间没有新写入就视为结束，
+            // 否则「CLI 一直开着、会话早已闲置」会让列表无限累积。
+            // 用户下次继续该会话时记录会再次增长，会话会被重新发现。
+            let lastWrite =
+                session.transcriptPath
+                .flatMap { TranscriptFileReader.modificationDate(of: URL(fileURLWithPath: $0)) }
+                ?? session.lastActivity
+            let idleMinutes = Int(discoveredSessionIdleTimeout / 60)
+            if lastWrite < now.addingTimeInterval(-discoveredSessionIdleTimeout) {
+                Self.logger.info(
+                    "Session \(key.rawValue, privacy: .public) has no writes for \(idleMinutes)m, ending"
+                )
                 knownKeys.remove(key)
                 await SessionStore.shared.process(.sessionEnded(key: key))
             }

@@ -192,6 +192,7 @@ final class PiTranscriptSchema: JSONLTranscriptSchema {
         for tool in toolCalls where !state.seenToolIds.contains(tool.id) {
             state.seenToolIds.insert(tool.id)
             state.toolIdToName[tool.id] = tool.name
+            state.toolInputs[tool.id] = tool.input
             result.activity.append(.toolStarted(id: tool.id, name: tool.name, input: tool.input))
         }
 
@@ -227,10 +228,18 @@ final class PiTranscriptSchema: JSONLTranscriptSchema {
         let isError = message["isError"] as? Bool ?? false
         let toolName = message["toolName"] as? String ?? state.toolIdToName[toolCallId]
 
+        let output = Self.joinedText(message["content"])
         state.toolResults[toolCallId] = ToolResultPayload(
-            content: Self.joinedText(message["content"]),
+            content: output,
             stdout: nil,
             stderr: nil,
+            isError: isError
+        )
+        // pi/omp 只给文本结果，这里按工具名推断出统一的结构化结果，聊天视图即可复用 Claude 的渲染
+        state.structuredResults[toolCallId] = GenericToolResultBuilder.build(
+            toolName: toolName ?? state.toolIdToName[toolCallId] ?? "",
+            input: state.toolInputs[toolCallId] ?? [:],
+            output: output,
             isError: isError
         )
         state.completedToolIds.insert(toolCallId)
