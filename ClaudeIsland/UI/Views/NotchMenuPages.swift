@@ -97,7 +97,7 @@ struct AboutSettingsPage: View {
                 icon: "star",
                 label: l10n.t("Star on GitHub")
             ) {
-                if let url = URL(string: "https://github.com/farouqaldori/vibe-notch") {
+                if let url = URL(string: "https://github.com/seehar/agent-island") {
                     NSWorkspace.shared.open(url)
                 }
             }
