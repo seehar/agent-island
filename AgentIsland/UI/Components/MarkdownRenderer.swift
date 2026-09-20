@@ -44,6 +44,11 @@ struct MarkdownText: View {
 
     private let document: Markdown.Document
 
+    /// 内容面字号比例（用户在设置里选的档位）。Markdown 的内联渲染只造 `Text`
+    /// 不给字体，段落文字靠容器字体承接，所以缩放必须在容器的 `.font` 上做一次，
+    /// 再把解析后的字号传给下面显式写字号的几处（列表符号、行内代码）。
+    @Environment(\.appTextScale) private var textScale
+
     init(_ text: String, color: Color = .white.opacity(0.9), fontSize: CGFloat = 13) {
         self.text = text
         self.baseColor = color
@@ -52,18 +57,20 @@ struct MarkdownText: View {
     }
 
     var body: some View {
+        let resolvedSize = fontSize * textScale
         let children = Array(document.children)
         if children.isEmpty {
             // Fallback for empty parse result
             SwiftUI.Text(text)
                 .foregroundColor(baseColor)
-                .font(.system(size: fontSize))
+                .font(.system(size: resolvedSize))
         } else {
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(Array(children.enumerated()), id: \.offset) { _, child in
-                    BlockRenderer(markup: child, baseColor: baseColor, fontSize: fontSize)
+                    BlockRenderer(markup: child, baseColor: baseColor, fontSize: resolvedSize)
                 }
             }
+            .font(.system(size: resolvedSize))
         }
     }
 }
@@ -250,12 +257,15 @@ private struct InlineRenderer: View {
 // MARK: - Code Block View
 
 private struct CodeBlockView: View {
+    /// 内容面字号比例；代码块基准 11 号，与正文一起缩放。
+    @Environment(\.appTextScale) private var textScale
+
     let code: String
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             SwiftUI.Text(code)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: 11 * textScale, design: .monospaced))
                 .foregroundColor(.white.opacity(0.85))
                 .padding(10)
         }

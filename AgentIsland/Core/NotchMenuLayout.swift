@@ -97,10 +97,10 @@ nonisolated enum NotchMenuMetrics {
     /// 关于页的标识块（图标 + 名称 + 版本）的高度。
     static let appIdentityHeight: CGFloat = 99
     /// 面板高度上限：分组内容超出时由页内滚动接管，面板不再继续变长。
-    /// 上限取 648 是为了保证「展开的东西看得见」：通用页最高的单个展开是音效
-    /// （6 行选项，632），再覆盖「语言 + 屏幕」这对常见组合（642）。再多一起展开
-    /// 就交给页内滚动——没有哪个上限能容下所有组合。
-    static let maxPanelHeight: CGFloat = 648
+    /// 上限取 688 是为了保证「展开的东西看得见」：通用页最高的单个展开是音效
+    /// （6 行选项，678），再覆盖「语言 + 屏幕」这对常见组合（正好 688）。再多一起
+    /// 展开就交给页内滚动——没有哪个上限能容下所有组合。
+    static let maxPanelHeight: CGFloat = 688
 
     // MARK: - 推导
 
@@ -164,8 +164,8 @@ nonisolated enum NotchMenuMetrics {
         switch section {
         case .general:
             return [
-                // 界面：语言 / 屏幕 / 胶囊高度 / 通知音效
-                Block(rows: [rowHeight, rowHeight, rowHeight, rowHeight]),
+                // 界面：语言 / 屏幕 / 胶囊高度 / 内容字号 / 通知音效
+                Block(rows: [rowHeight, rowHeight, rowHeight, rowHeight, rowHeight]),
                 // 系统：登录时启动（开关行，带副标题）/ 辅助功能
                 Block(rows: [twoLineRowHeight, rowHeight]),
             ]

@@ -26,11 +26,11 @@ struct ClaudeInstancesView: View {
     private var emptyState: some View {
         VStack(spacing: 8) {
             Text(l10n.t("No sessions"))
-                .font(.system(size: 13, weight: .medium))
+                .appFont(13, weight: .medium)
                 .foregroundColor(AppPalette.tertiaryText)
 
             Text(l10n.t("Sessions appear here when you run an agent in a terminal."))
-                .font(.system(size: 11))
+                .appFont(11)
                 .foregroundColor(AppPalette.subtleText)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -176,7 +176,7 @@ struct InstanceRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(session.displayTitle)
-                        .font(.system(size: 13, weight: .medium))
+                        .appFont(13, weight: .medium)
                         .foregroundColor(AppPalette.primaryText)
                         .lineLimit(1)
 
@@ -188,7 +188,7 @@ struct InstanceRow: View {
                     // Token usage indicator
                     if session.usage.totalTokens > 0 {
                         Text(session.usage.formattedTotal)
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .appFont(10, weight: .medium, design: .monospaced)
                             .foregroundColor(AppPalette.subtleText)
                     }
                 }
@@ -198,16 +198,16 @@ struct InstanceRow: View {
                     // Show tool name in amber + input on same line
                     HStack(spacing: 4) {
                         Text(MCPToolFormatter.formatToolName(toolName))
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .appFont(11, weight: .medium, design: .monospaced)
                             .foregroundColor(AppPalette.warning)
                         if isInteractiveTool {
                             Text(l10n.t("Needs your input"))
-                                .font(.system(size: 11))
+                                .appFont(11)
                                 .foregroundColor(AppPalette.secondaryText)
                                 .lineLimit(1)
                         } else if let input = session.pendingToolInput {
                             Text(input)
-                                .font(.system(size: 11))
+                                .appFont(11)
                                 .foregroundColor(AppPalette.secondaryText)
                                 .lineLimit(1)
                         }
@@ -219,12 +219,12 @@ struct InstanceRow: View {
                         HStack(spacing: 4) {
                             if let toolName = session.lastToolName {
                                 Text(MCPToolFormatter.formatToolName(toolName))
-                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .appFont(11, weight: .medium, design: .monospaced)
                                     .foregroundColor(AppPalette.secondaryText)
                             }
                             if let input = session.lastMessage {
                                 Text(input)
-                                    .font(.system(size: 11))
+                                    .appFont(11)
                                     .foregroundColor(AppPalette.tertiaryText)
                                     .lineLimit(1)
                             }
@@ -233,11 +233,11 @@ struct InstanceRow: View {
                         // User message - prefix with "You:"
                         HStack(spacing: 4) {
                             Text(l10n.t("You:"))
-                                .font(.system(size: 11, weight: .medium))
+                                .appFont(11, weight: .medium)
                                 .foregroundColor(AppPalette.secondaryText)
                             if let msg = session.lastMessage {
                                 Text(msg)
-                                    .font(.system(size: 11))
+                                    .appFont(11)
                                     .foregroundColor(AppPalette.tertiaryText)
                                     .lineLimit(1)
                             }
@@ -246,20 +246,20 @@ struct InstanceRow: View {
                         // Assistant message - just show text
                         if let msg = session.lastMessage {
                             Text(msg)
-                                .font(.system(size: 11))
+                                .appFont(11)
                                 .foregroundColor(AppPalette.tertiaryText)
                                 .lineLimit(1)
                         }
                     }
                 } else if let lastMsg = session.lastMessage {
                     Text(lastMsg)
-                        .font(.system(size: 11))
+                        .appFont(11)
                         .foregroundColor(AppPalette.tertiaryText)
                         .lineLimit(1)
                 } else {
                     // Fallback: show phase-based status when no other content
                     Text(phaseStatusText)
-                        .font(.system(size: 11))
+                        .appFont(11)
                         .foregroundColor(AppPalette.tertiaryText)
                         .lineLimit(1)
                 }
@@ -271,7 +271,7 @@ struct InstanceRow: View {
             if isWaitingForApproval && !session.agent.supportsPermissionControl {
                 // 该 Agent 的审批只能在其自身 CLI 里完成，notch 仅提示
                 Text(l10n.t("Waiting for approval in terminal"))
-                    .font(.system(size: 11))
+                    .appFont(11)
                     .foregroundColor(AppPalette.secondaryText)
                     .lineLimit(1)
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
@@ -362,7 +362,7 @@ struct InstanceRow: View {
     /// 相位符号：占位宽度与转轮一致，行首列宽不随相位跳动。
     private func phaseGlyph(_ symbol: String, color: Color) -> some View {
         Image(systemName: symbol)
-            .font(.system(size: 11, weight: .medium))
+            .appFont(11, weight: .medium)
             .foregroundColor(color)
             .frame(width: 12)
     }
@@ -394,7 +394,7 @@ struct InlineApprovalButtons: View {
                 onReject()
             } label: {
                 Text(l10n.t("Deny"))
-                    .font(.system(size: 11, weight: .medium))
+                    .appFont(11, weight: .medium)
                     .foregroundColor(AppPalette.secondaryText)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
@@ -409,7 +409,7 @@ struct InlineApprovalButtons: View {
                 onApprove()
             } label: {
                 Text(l10n.t("Allow"))
-                    .font(.system(size: 11, weight: .medium))
+                    .appFont(11, weight: .medium)
                     .foregroundColor(.black)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
@@ -447,7 +447,7 @@ struct IconButton: View {
             action()
         } label: {
             Image(systemName: icon)
-                .font(.system(size: 11, weight: .medium))
+                .appFont(11, weight: .medium)
                 .foregroundColor(isHovered ? AppPalette.primaryText : AppPalette.tertiaryText)
                 .frame(width: 24, height: 24)
                 .background(
@@ -475,9 +475,9 @@ struct CompactTerminalButton: View {
         } label: {
             HStack(spacing: 2) {
                 Image(systemName: "terminal")
-                    .font(.system(size: 8, weight: .medium))
+                    .appFont(8, weight: .medium)
                 Text(l10n.t("Go to Terminal"))
-                    .font(.system(size: 10, weight: .medium))
+                    .appFont(10, weight: .medium)
             }
             .foregroundColor(isEnabled ? AppPalette.primaryText : AppPalette.subtleText)
             .padding(.horizontal, 6)
@@ -504,9 +504,9 @@ struct TerminalButton: View {
         } label: {
             HStack(spacing: 3) {
                 Image(systemName: "terminal")
-                    .font(.system(size: 9, weight: .medium))
+                    .appFont(9, weight: .medium)
                 Text(l10n.t("Terminal"))
-                    .font(.system(size: 11, weight: .medium))
+                    .appFont(11, weight: .medium)
             }
             .foregroundColor(isEnabled ? .black : AppPalette.tertiaryText)
             .padding(.horizontal, 10)

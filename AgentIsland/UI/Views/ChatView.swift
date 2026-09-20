@@ -202,12 +202,12 @@ struct ChatView: View {
   } label: {
    HStack(spacing: 8) {
     Image(systemName: "chevron.left")
-     .font(.system(size: 14, weight: .semibold))
+     .appFont(14, weight: .semibold)
      .foregroundColor(.white.opacity(isHeaderHovered ? 1.0 : 0.6))
      .frame(width: 24, height: 24)
 
     Text(session.displayTitle)
-     .font(.system(size: 14, weight: .semibold))
+     .appFont(14, weight: .semibold)
      .foregroundColor(.white.opacity(isHeaderHovered ? 1.0 : 0.85))
      .lineLimit(1)
 
@@ -266,7 +266,7 @@ struct ChatView: View {
     .progressViewStyle(CircularProgressViewStyle(tint: .white.opacity(0.4)))
     .scaleEffect(0.8)
    Text(l10n.t("Loading messages..."))
-    .font(.system(size: 13, weight: .medium))
+    .appFont(13, weight: .medium)
     .foregroundColor(.white.opacity(0.4))
   }
   .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -277,10 +277,10 @@ struct ChatView: View {
  private var emptyState: some View {
   VStack(spacing: 8) {
    Image(systemName: "bubble.left.and.bubble.right")
-    .font(.system(size: 24))
+    .appFont(24)
     .foregroundColor(.white.opacity(0.2))
    Text(l10n.t("No messages yet"))
-    .font(.system(size: 13, weight: .medium))
+    .appFont(13, weight: .medium)
     .foregroundColor(.white.opacity(0.4))
   }
   .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -392,7 +392,7 @@ struct ChatView: View {
     text: $inputText
    )
    .textFieldStyle(.plain)
-   .font(.system(size: 13))
+   .appFont(13)
    .foregroundColor(canSendMessages ? .white : .white.opacity(0.4))
    .focused($isInputFocused)
    .disabled(!canSendMessages)
@@ -414,7 +414,7 @@ struct ChatView: View {
     sendMessage()
    } label: {
     Image(systemName: "arrow.up.circle.fill")
-     .font(.system(size: 28))
+     .appFont(28)
      .foregroundColor(
       !canSendMessages || inputText.isEmpty ? .white.opacity(0.2) : .white.opacity(0.9))
    }
@@ -617,9 +617,9 @@ struct ImageMessageView: View {
     // Decode failed — show a labelled placeholder rather than silently dropping
     HStack(spacing: 6) {
      Image(systemName: "photo")
-      .font(.system(size: 12))
+      .appFont(12)
      Text(l10n.t("Image (%@)", image.mediaType))
-      .font(.system(size: 12))
+      .appFont(12)
     }
     .foregroundColor(.white.opacity(0.5))
     .padding(.horizontal, 12)
@@ -727,7 +727,7 @@ struct ProcessingIndicatorView: View {
     .frame(width: 6)
 
    Text(baseText + dots)
-    .font(.system(size: 13))
+    .appFont(13)
     .foregroundColor(color)
 
    Spacer()
@@ -816,7 +816,7 @@ struct ToolCallView: View {
 
     // Tool name (formatted for MCP tools)
     Text(MCPToolFormatter.formatToolName(tool.name))
-     .font(.system(size: 12, weight: .medium))
+     .appFont(12, weight: .medium)
      .foregroundColor(textColor)
      .fixedSize()
 
@@ -825,13 +825,13 @@ struct ToolCallView: View {
      if !tool.subagentTools.isEmpty {
       let taskDesc = tool.input["description"] ?? l10n.t("Running agent...")
       Text(l10n.t("%@ (%lld tools)", taskDesc, tool.subagentTools.count))
-       .font(.system(size: 11))
+       .appFont(11)
        .foregroundColor(textColor.opacity(0.7))
        .lineLimit(1)
        .truncationMode(.tail)
      } else {
       Text(l10n.t("%lld agents", tool.subagentRuns.count))
-       .font(.system(size: 11))
+       .appFont(11)
        .foregroundColor(textColor.opacity(0.7))
        .lineLimit(1)
        .truncationMode(.tail)
@@ -839,19 +839,19 @@ struct ToolCallView: View {
     } else if tool.name == "AgentOutputTool", let desc = agentDescription {
      let blocking = tool.input["block"] == "true"
      Text(blocking ? l10n.t("Waiting: %@", desc) : desc)
-      .font(.system(size: 11))
+      .appFont(11)
       .foregroundColor(textColor.opacity(0.7))
       .lineLimit(1)
       .truncationMode(.tail)
     } else if MCPToolFormatter.isMCPTool(tool.name) && !tool.input.isEmpty {
      Text(MCPToolFormatter.formatArgs(tool.input))
-      .font(.system(size: 11))
+      .appFont(11)
       .foregroundColor(textColor.opacity(0.7))
       .lineLimit(1)
       .truncationMode(.tail)
     } else {
      Text(tool.statusDisplay.text)
-      .font(.system(size: 11))
+      .appFont(11)
       .foregroundColor(textColor.opacity(0.7))
       .lineLimit(1)
       .truncationMode(.tail)
@@ -862,7 +862,7 @@ struct ToolCallView: View {
     // Expand indicator (only for expandable tools)
     if canExpand && tool.status != .running && tool.status != .waitingForApproval {
      Image(systemName: "chevron.right")
-      .font(.system(size: 9, weight: .medium))
+      .appFont(9, weight: .medium)
       .foregroundColor(.white.opacity(0.3))
       .rotationEffect(.degrees(isExpanded ? 90 : 0))
       .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isExpanded)
@@ -990,23 +990,23 @@ struct SubagentRunRow: View {
 
    // 实例名（omp 的 job 名，与它自己的产物页一致）
    Text(run.id)
-    .font(.system(size: 10, weight: .medium))
+    .appFont(10, weight: .medium)
     .foregroundColor(.white.opacity(0.6))
 
    if let agent = run.agent, !agent.isEmpty {
     Text(agent)
-     .font(.system(size: 10))
+     .appFont(10)
      .foregroundColor(.white.opacity(0.35))
    }
 
    if let tool = run.currentTool, run.status.isRunning {
     Text(tool)
-     .font(.system(size: 10, design: .monospaced))
+     .appFont(10, design: .monospaced)
      .foregroundColor(.white.opacity(0.4))
    }
 
    Text(statusText)
-    .font(.system(size: 10))
+    .appFont(10)
     .foregroundColor(.white.opacity(0.5))
     .lineLimit(1)
     .truncationMode(.middle)
@@ -1035,7 +1035,7 @@ struct SubagentToolsList: View {
    // Show count of older hidden tools at top
    if hiddenCount > 0 {
     Text(l10n.t("+%lld more tool uses", hiddenCount))
-     .font(.system(size: 10))
+     .appFont(10)
      .foregroundColor(.white.opacity(0.4))
    }
 
@@ -1092,12 +1092,12 @@ struct SubagentToolRow: View {
 
    // Tool name
    Text(tool.name)
-    .font(.system(size: 10, weight: .medium))
+    .appFont(10, weight: .medium)
     .foregroundColor(.white.opacity(0.6))
 
    // Status text (same format as regular tools)
    Text(statusText)
-    .font(.system(size: 10))
+    .appFont(10)
     .foregroundColor(.white.opacity(0.5))
     .lineLimit(1)
     .truncationMode(.middle)
@@ -1121,17 +1121,17 @@ struct SubagentToolsSummary: View {
  var body: some View {
   VStack(alignment: .leading, spacing: 4) {
    Text(l10n.t("Subagent used %lld tools:", tools.count))
-    .font(.system(size: 10, weight: .medium))
+    .appFont(10, weight: .medium)
     .foregroundColor(.white.opacity(0.5))
 
    HStack(spacing: 8) {
     ForEach(toolCounts.prefix(5), id: \.0) { name, count in
      HStack(spacing: 2) {
       Text(name)
-       .font(.system(size: 10, design: .monospaced))
+       .appFont(10, design: .monospaced)
        .foregroundColor(.white.opacity(0.4))
       Text("×\(count)")
-       .font(.system(size: 9, design: .monospaced))
+       .appFont(9, design: .monospaced)
        .foregroundColor(.white.opacity(0.3))
      }
     }
@@ -1170,9 +1170,9 @@ struct ThinkingView: View {
      .padding(.top, 4)
 
     Text(isExpanded ? text : String(text.prefix(80)) + (canExpand ? "..." : ""))
-     .font(.system(size: 11))
-     .foregroundColor(.gray)
      .italic()
+     .appFont(11)
+     .foregroundColor(.gray)
      .lineLimit(isExpanded ? nil : 1)
      .multilineTextAlignment(.leading)
 
@@ -1180,7 +1180,7 @@ struct ThinkingView: View {
 
     if canExpand {
      Image(systemName: "chevron.right")
-      .font(.system(size: 9, weight: .medium))
+      .appFont(9, weight: .medium)
       .foregroundColor(.gray.opacity(0.5))
       .rotationEffect(.degrees(isExpanded ? 90 : 0))
       .padding(.top, 3)
@@ -1207,7 +1207,7 @@ struct InterruptedMessageView: View {
  var body: some View {
   HStack {
    Text(l10n.t("Interrupted"))
-    .font(.system(size: 13))
+    .appFont(13)
     .foregroundColor(.red)
    Spacer()
   }
@@ -1231,10 +1231,10 @@ struct ChatInteractivePromptBar: View {
    // Tool info - same style as approval bar
    VStack(alignment: .leading, spacing: 2) {
     Text(MCPToolFormatter.formatToolName("AskUserQuestion"))
-     .font(.system(size: 12, weight: .medium, design: .monospaced))
+     .appFont(12, weight: .medium, design: .monospaced)
      .foregroundColor(TerminalColors.amber)
     Text(l10n.t("%@ needs your input", agent.displayName))
-     .font(.system(size: 11))
+     .appFont(11)
      .foregroundColor(.white.opacity(0.5))
      .lineLimit(1)
    }
@@ -1251,9 +1251,9 @@ struct ChatInteractivePromptBar: View {
    } label: {
     HStack(spacing: 4) {
      Image(systemName: "terminal")
-      .font(.system(size: 11, weight: .medium))
+      .appFont(11, weight: .medium)
      Text(l10n.t("Terminal"))
-      .font(.system(size: 13, weight: .medium))
+      .appFont(13, weight: .medium)
     }
     .foregroundColor(isInTmux ? .black : .white.opacity(0.4))
     .padding(.horizontal, 16)
@@ -1299,11 +1299,11 @@ struct ChatApprovalBar: View {
    // Tool info
    VStack(alignment: .leading, spacing: 2) {
     Text(MCPToolFormatter.formatToolName(tool))
-     .font(.system(size: 12, weight: .medium, design: .monospaced))
+     .appFont(12, weight: .medium, design: .monospaced)
      .foregroundColor(TerminalColors.amber)
     if let input = toolInput {
      Text(input)
-      .font(.system(size: 11))
+      .appFont(11)
       .foregroundColor(.white.opacity(0.5))
       .lineLimit(1)
     }
@@ -1318,7 +1318,7 @@ struct ChatApprovalBar: View {
     onDeny()
    } label: {
     Text(l10n.t("Deny"))
-     .font(.system(size: 13, weight: .medium))
+     .appFont(13, weight: .medium)
      .foregroundColor(.white.opacity(0.7))
      .padding(.horizontal, 16)
      .padding(.vertical, 8)
@@ -1334,7 +1334,7 @@ struct ChatApprovalBar: View {
     onApprove()
    } label: {
     Text(l10n.t("Allow"))
-     .font(.system(size: 13, weight: .medium))
+     .appFont(13, weight: .medium)
      .foregroundColor(.black)
      .padding(.horizontal, 16)
      .padding(.vertical, 8)
@@ -1379,10 +1379,10 @@ struct NewMessagesIndicator: View {
   Button(action: onTap) {
    HStack(spacing: 6) {
     Image(systemName: "chevron.down")
-     .font(.system(size: 10, weight: .bold))
+     .appFont(10, weight: .bold)
 
     Text(l10n.t("%lld new messages", count))
-     .font(.system(size: 12, weight: .medium))
+     .appFont(12, weight: .medium)
    }
    .foregroundColor(.white)
    .padding(.horizontal, 14)

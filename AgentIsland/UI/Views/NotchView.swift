@@ -20,6 +20,7 @@ struct NotchView: View {
  @StateObject private var sessionMonitor = ClaudeSessionMonitor()
  @StateObject private var activityCoordinator = NotchActivityCoordinator.shared
  @ObservedObject private var updateManager = UpdateManager.shared
+ @ObservedObject private var textSizeSelector = TextSizeSelector.shared
  @ObservedObject private var l10n = LocalizationManager.shared
  @State private var previousPendingIds: Set<String> = []
  @State private var previousWaitingForInputIds: Set<String> = []
@@ -457,6 +458,8 @@ struct NotchView: View {
      sessionMonitor: sessionMonitor,
      viewModel: viewModel
     )
+    // 内容面按用户的字号档位缩放；设置面板（.menu）不注入，保持解析式高度
+    .environment(\.appTextScale, textSizeSelector.scale)
    case .menu:
     NotchMenuView(viewModel: viewModel)
    case .chat(let session):
@@ -472,6 +475,7 @@ struct NotchView: View {
     // 只用会话键作为 identity（不用整个 SessionState），
     // 这样逐事件更新时仍复用同一个视图。
     .id(session.sessionKey.rawValue)
+    .environment(\.appTextScale, textSizeSelector.scale)
    }
   }
   .frame(width: notchSize.width - 24)  // Fixed width to prevent text reflow
