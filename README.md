@@ -1,6 +1,6 @@
 <div align="center">
   <img src="AgentIsland/Assets.xcassets/AppIcon.appiconset/icon_128x128.png" alt="Logo" width="100" height="100">
-  <h3 align="center">AgentIsland (previously Vibe Notch, Claude Island)</h3>
+  <h3 align="center">AgentIsland</h3>
   <p align="center">
     A macOS menu bar app that brings Dynamic Island-style notifications to Claude Code, Oh My Pi, Pi and OpenCode CLI sessions.
     <br />
@@ -15,10 +15,6 @@
 </div>
 
 **English** | [简体中文](README.zh-CN.md)
-
-> **🟢 Actively maintained**
->
-> Launched v1.2 in December 2025, then took a 4-month break. v1.3 (April 2026) works through the backlog of contributor PRs and bug reports and kicks off a regular cadence again. Open PRs and issues are being reviewed — thanks for your patience.
 
 ## Features
 

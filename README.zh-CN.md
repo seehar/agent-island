@@ -1,6 +1,6 @@
 <div align="center">
   <img src="AgentIsland/Assets.xcassets/AppIcon.appiconset/icon_128x128.png" alt="Logo" width="100" height="100">
-  <h3 align="center">AgentIsland（原 Vibe Notch，更早叫 Claude Island）</h3>
+  <h3 align="center">AgentIsland</h3>
   <p align="center">
     一款 macOS 菜单栏应用，为 Claude Code、Oh My Pi、Pi 与 OpenCode 的 CLI 会话带来「灵动岛」风格的通知。
     <br />
@@ -15,10 +15,6 @@
 </div>
 
 [English](README.md) | **简体中文**
-
-> **🟢 持续维护中**
->
-> 2025 年 12 月发布 v1.2 后休整了 4 个月。v1.3（2026 年 4 月）集中处理积压的贡献者 PR 与缺陷报告，并重新回到固定的发布节奏。开放的 PR 与 issue 都在陆续审阅中——感谢耐心等待。
 
 ## 功能特性
 
