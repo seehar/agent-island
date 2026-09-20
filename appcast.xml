@@ -2,6 +2,13 @@
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>AgentIsland</title>
-        <!-- 发版时由 scripts/create-release.sh 用 Sparkle 的 generate_appcast 覆盖 -->
+        <item>
+            <title>1.3.2</title>
+            <pubDate>Sun, 20 Sep 2026 16:40:52 +0800</pubDate>
+            <sparkle:version>6</sparkle:version>
+            <sparkle:shortVersionString>1.3.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/seehar/agent-island/releases/download/v1.3.2/AgentIsland-1.3.2.dmg" length="3778955" type="application/octet-stream" sparkle:edSignature="wh3BJVZ2tWtYTUjiYcT6ECGH2fy5rkC84Im/FxB5cWfszmqK3Yyx5iQm6L22S8oAJTyX80qUsAVWktGYTgr8AQ=="/>
+        </item>
     </channel>
 </rss>
