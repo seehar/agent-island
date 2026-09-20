@@ -141,10 +141,19 @@ nonisolated struct ToolCallItem: Equatable, Sendable {
         Self.isSubagentContainerName(name)
     }
 
+    /// 是否按「子 Agent 容器」呈现：只有真的收到嵌套工具时才折叠成容器。
+    /// omp/pi/opencode 不上报子 Agent 内部调用，它们的派生工具行因此与普通工具行
+    /// 一致，结果内容照常可展开查看。
+    var presentsAsSubagentContainer: Bool {
+        isSubagentContainer && !subagentTools.isEmpty
+    }
+
     /// Same check by raw tool-name string (used when we don't have a
     /// ToolCallItem — e.g. when matching against `HookEvent.tool`).
+    /// 各 Agent 的派生工具名收敛在 `AgentKind.subagentToolNames`。
     static func isSubagentContainerName(_ name: String?) -> Bool {
-        name == "Task" || name == "Agent"
+        guard let name else { return false }
+        return AgentKind.allSubagentToolNames.contains(name)
     }
 
     /// 面向用户的文案统一走本地化入口；这里用非隔离的静态入口，

@@ -67,4 +67,25 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
         case .opencode: return false
         }
     }
+
+    /// 该 Agent 用来派生 subAgent 的工具名：
+    /// - Claude Code：`Agent`（新名）/ `Task`（旧名）
+    /// - omp / pi / opencode：`task`
+    var subagentToolNames: [String] {
+        switch self {
+        case .claudeCode: return ["Agent", "Task"]
+        case .ohMyPi, .pi, .opencode: return ["task"]
+        }
+    }
+
+    /// 全部 Agent 的 subAgent 派生工具名并集。实时事件只带工具名、不带 Agent
+    /// 归属，因此按并集判定；各 Agent 之间名称互不冲突。
+    static let allSubagentToolNames: Set<String> = Set(allCases.flatMap(\.subagentToolNames))
+
+    /// 该 Agent 的集成是否会**上报子 Agent 内部的工具调用**。只有 Claude Code
+    /// 具备这条通道（hook + 子 Agent 记录）；omp/pi 的扩展与 opencode 插件只上报
+    /// 根会话，因此对它们不能把「Task 运行期间到达的其它工具」当成子 Agent 内部调用。
+    var reportsSubagentInnerTools: Bool {
+        self == .claudeCode
+    }
 }
