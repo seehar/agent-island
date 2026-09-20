@@ -20,6 +20,7 @@ struct NotchView: View {
  @StateObject private var sessionMonitor = ClaudeSessionMonitor()
  @StateObject private var activityCoordinator = NotchActivityCoordinator.shared
  @ObservedObject private var updateManager = UpdateManager.shared
+ @ObservedObject private var l10n = LocalizationManager.shared
  @State private var previousPendingIds: Set<String> = []
  @State private var previousWaitingForInputIds: Set<String> = []
  @State private var waitingForInputTimestamps: [String: Date] = [:]  // sessionId -> when it entered waitingForInput
@@ -52,6 +53,25 @@ struct NotchView: View {
    }
    return false
   }
+ }
+
+ /// 处理中（含压缩上下文）的会话数：关闭态计数徽标的分子
+ private var activeSessionCount: Int {
+  sessionMonitor.instances.filter { $0.phase.isActive }.count
+ }
+
+ /// 当前纳管的会话总数：关闭态计数徽标的分母
+ private var totalSessionCount: Int {
+  sessionMonitor.instances.count
+ }
+
+ /// 计数徽标的取色：复用各阶段既有的语义色，让「处理中 / 待审批 / 等待输入」
+ /// 在关闭态也能一眼分辨
+ private var sessionCountColor: Color {
+  if hasPendingPermission { return TerminalColors.amber }
+  if isAnyProcessing { return TerminalColors.prompt }
+  if hasWaitingForInput { return TerminalColors.green }
+  return TerminalColors.dim
  }
 
  // MARK: - Sizing
@@ -325,20 +345,11 @@ struct NotchView: View {
      .frame(width: closedNotchSize.width - cornerRadiusInsets.closed.top + (isBouncing ? 16 : 0))
    }
 
-   // Right side - spinner when processing/pending, checkmark when waiting for input
+   // Right side - 关闭态展示「活跃数/总数」，状态由计数取色与左侧 logo 表达
    if showClosedActivity {
-    if isProcessing || hasPendingPermission {
-     ProcessingSpinner()
-      .matchedGeometryEffect(id: "spinner", in: activityNamespace, isSource: showClosedActivity)
-      .frame(width: viewModel.status == .opened ? 20 : sideWidth)
-      .padding(.trailing, viewModel.status == .opened ? 0 : 4)
-    } else if hasWaitingForInput {
-     // Checkmark for waiting-for-input on the right side
-     ReadyForInputIndicatorIcon(size: 14, color: TerminalColors.green)
-      .matchedGeometryEffect(id: "spinner", in: activityNamespace, isSource: showClosedActivity)
-      .frame(width: viewModel.status == .opened ? 20 : sideWidth)
-      .padding(.trailing, viewModel.status == .opened ? 0 : 4)
-    }
+    sessionCountBadge
+     .frame(width: viewModel.status == .opened ? nil : sideWidth)
+     .padding(.trailing, viewModel.status == .opened ? 0 : 4)
    }
   }
   .frame(height: closedNotchSize.height)
@@ -346,6 +357,21 @@ struct NotchView: View {
 
  private var sideWidth: CGFloat {
   max(0, closedNotchSize.height - 12) + 10
+ }
+
+ /// 关闭态右侧的会话计数：`活跃/总数`。活跃数取状态色、总数弱化，
+ /// 数字等宽以免计数刷新时宽度抖动
+ private var sessionCountBadge: some View {
+  (
+   Text("\(activeSessionCount)").foregroundColor(sessionCountColor)
+    + Text("/\(totalSessionCount)").foregroundColor(TerminalColors.dim)
+  )
+  .font(.system(size: 11, weight: .semibold, design: .rounded))
+  .monospacedDigit()
+  .lineLimit(1)
+  .minimumScaleFactor(0.75)  // 会话很多时缩字而非溢出 36pt 的关闭态槽位
+  .accessibilityLabel(
+   Text(l10n.t("Active sessions %lld of %lld", activeSessionCount, totalSessionCount)))
  }
 
  // MARK: - Opened Header Content
