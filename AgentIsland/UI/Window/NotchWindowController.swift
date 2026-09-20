@@ -18,7 +18,6 @@ class NotchWindowController: NSWindowController {
         self.screen = screen
 
         let screenFrame = screen.frame
-        let notchSize = screen.notchSize
 
         // Window covers full width at top, tall enough for largest content (chat view)
         let windowHeight: CGFloat = 750
@@ -29,20 +28,12 @@ class NotchWindowController: NSWindowController {
             height: windowHeight
         )
 
-        // Device notch rect - positioned at center
-        let deviceNotchRect = CGRect(
-            x: (screenFrame.width - notchSize.width) / 2,
-            y: 0,
-            width: notchSize.width,
-            height: notchSize.height
-        )
-
         // Create view model
         self.viewModel = NotchViewModel(
-            deviceNotchRect: deviceNotchRect,
+            deviceNotchRect: Self.closedNotchRect(for: screen),
             screenRect: screenFrame,
             windowHeight: windowHeight,
-            hasPhysicalNotch: screen.hasPhysicalNotch
+            hasPhysicalNotch: screen.physicalNotchHeight > 0
         )
 
         // Create the window
@@ -86,6 +77,16 @@ class NotchWindowController: NSWindowController {
         // Start with ignoring mouse events (closed state)
         notchWindow.ignoresMouseEvents = true
 
+        // 高度设置变化：只换关闭态胶囊矩形，不重建窗口。面板因此能一直开着，
+        // 用户微调时胶囊高度实时跟手。
+        NotificationCenter.default.publisher(for: .notchHeightPreferenceChanged)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.viewModel.updateDeviceNotchRect(Self.closedNotchRect(for: self.screen))
+            }
+            .store(in: &cancellables)
+
         // Perform boot animation after a brief delay (only on initial launch)
         if animateOnLaunch {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
@@ -96,5 +97,18 @@ class NotchWindowController: NSWindowController {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    /// 关闭态胶囊矩形：宽度取屏幕的刘海宽度，高度按高度设置解析
+    /// （自动模式在有刘海的屏幕上取刘海高度，外接屏取菜单栏高度）。
+    private static func closedNotchRect(for screen: NSScreen) -> CGRect {
+        let width = screen.notchWidth
+        let height = NotchHeightSelector.shared.resolvedHeight(for: screen)
+        return CGRect(
+            x: (screen.frame.width - width) / 2,
+            y: 0,
+            width: width,
+            height: height
+        )
     }
 }

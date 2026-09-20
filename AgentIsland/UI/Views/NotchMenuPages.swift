@@ -15,7 +15,7 @@ import SwiftUI
 
 // MARK: - 通用
 
-/// 「通用」页：语言、notch 显示屏幕、通知音效、登录时启动与辅助功能授权。
+/// 「通用」页：语言、notch 显示屏幕、胶囊高度、通知音效、登录时启动与辅助功能授权。
 struct GeneralSettingsPage: View {
     @ObservedObject var screenSelector: ScreenSelector
     @ObservedObject var soundSelector: SoundSelector
@@ -28,6 +28,7 @@ struct GeneralSettingsPage: View {
         VStack(spacing: NotchMenuMetrics.rowSpacing) {
             LanguagePickerRow()
             ScreenPickerRow(screenSelector: screenSelector)
+            NotchHeightPickerRow()
             SoundPickerRow(soundSelector: soundSelector)
 
             MenuToggleRow(

@@ -13,7 +13,7 @@ import Foundation
 /// 设置面板的分组。设置项按用途拆开，面板只按当前分组撑高，
 /// 因此每个分组都保持在一屏之内，不再随设置项增加而越拉越长。
 nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable {
-    /// 应用级偏好：语言、屏幕、通知音效、登录时启动、辅助功能。
+    /// 应用级偏好：语言、屏幕、胶囊高度、通知音效、登录时启动、辅助功能。
     case general
     /// 各 Agent CLI 的监控开关、集成状态与 Claude 配置目录。
     case agents
@@ -83,7 +83,10 @@ nonisolated enum NotchMenuMetrics {
     private static func rows(for section: NotchMenuSection) -> [CGFloat] {
         switch section {
         case .general:
-            return [rowHeight, rowHeight, rowHeight, rowHeight, rowHeight, rowHeight]
+            // 返回行 + 语言 / 屏幕 / 胶囊高度 / 通知音效 / 登录时启动 / 辅助功能。
+            return [
+                rowHeight, rowHeight, rowHeight, rowHeight, rowHeight, rowHeight, rowHeight,
+            ]
         case .agents:
             return [rowHeight, agentSectionHeight, rowHeight]
         case .about:

@@ -54,16 +54,34 @@ class NotchViewModel: ObservableObject {
     private let soundSelector = SoundSelector.shared
     private let claudeDirSelector = ClaudeDirSelector.shared
     private let languageSelector = LanguageSelector.shared
+    private let heightSelector = NotchHeightSelector.shared
 
     // MARK: - Geometry
 
-    let geometry: NotchGeometry
     let spacing: CGFloat = 12
     let hasPhysicalNotch: Bool
 
-    var deviceNotchRect: CGRect { geometry.deviceNotchRect }
-    var screenRect: CGRect { geometry.screenRect }
-    var windowHeight: CGFloat { geometry.windowHeight }
+    /// 窗口覆盖的屏幕区域（整块屏幕的 frame）。
+    let screenRect: CGRect
+    let windowHeight: CGFloat
+
+    /// 关闭态胶囊的矩形。屏幕或高度设置变化时由 NotchWindowController 更新，
+    /// 关闭态尺寸、命中区与面板的固定开销都从它派生，所以换高度不必重建窗口。
+    @Published private(set) var deviceNotchRect: CGRect
+
+    /// 命中区与面板位置用的几何，由 `deviceNotchRect` 与屏幕尺寸推导。
+    var geometry: NotchGeometry {
+        NotchGeometry(
+            deviceNotchRect: deviceNotchRect,
+            screenRect: screenRect,
+            windowHeight: windowHeight
+        )
+    }
+
+    /// 换一个关闭态胶囊矩形（宽度跟着屏幕走，高度跟着高度设置走）。
+    func updateDeviceNotchRect(_ rect: CGRect) {
+        deviceNotchRect = rect
+    }
 
     /// Dynamic opened size based on content type
     var openedSize: CGSize {
@@ -104,9 +122,10 @@ class NotchViewModel: ObservableObject {
     private func expandedPickerHeight(for section: NotchMenuSection) -> CGFloat {
         switch section {
         case .general:
-            // 通用页有三个可展开的选择器：语言、屏幕、通知音效。
+            // 通用页有四个可展开的选择器：语言、屏幕、胶囊高度、通知音效。
             return languageSelector.expandedPickerHeight
                 + screenSelector.expandedPickerHeight
+                + heightSelector.expandedPickerHeight
                 + soundSelector.expandedPickerHeight
         case .agents:
             return claudeDirSelector.expandedPickerHeight
@@ -130,11 +149,9 @@ class NotchViewModel: ObservableObject {
     // MARK: - Initialization
 
     init(deviceNotchRect: CGRect, screenRect: CGRect, windowHeight: CGFloat, hasPhysicalNotch: Bool) {
-        self.geometry = NotchGeometry(
-            deviceNotchRect: deviceNotchRect,
-            screenRect: screenRect,
-            windowHeight: windowHeight
-        )
+        self.deviceNotchRect = deviceNotchRect
+        self.screenRect = screenRect
+        self.windowHeight = windowHeight
         self.hasPhysicalNotch = hasPhysicalNotch
         setupEventHandlers()
         observeSelectors()
@@ -154,6 +171,10 @@ class NotchViewModel: ObservableObject {
             .store(in: &cancellables)
 
         languageSelector.$isPickerExpanded
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        heightSelector.$isPickerExpanded
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
     }
