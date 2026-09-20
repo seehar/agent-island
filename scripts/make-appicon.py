@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """应用图标生成器。
 
-矢量源是 `scripts/appicon.svg`（设计稿），产物是
-`ClaudeIsland/Assets.xcassets/AppIcon.appiconset/` 里的十个 PNG 槽位。形状改动只改
-源文件，然后重跑本脚本，不要在 PNG 上手工修图。
+矢量源在 `scripts/`：`appicon.svg` 是主设计（留白与圆角按 Apple 的 macOS 图标网格，
+内容 824/1024），`appicon-16.svg` / `appicon-32.svg` 是两个小尺寸专用变体（几何同源，
+但描边按 2px 视觉宽度反算、峰数收成两个——原稿的 16/512 描边在 16pt 档只有 0.5px，
+会糊掉）。产物是 `ClaudeIsland/Assets.xcassets/AppIcon.appiconset/` 里的十个 PNG 槽位。
+形状改动只改源文件，然后重跑本脚本，不要在 PNG 上手工修图。
 
 每一档都是**按矢量原生光栅化**，不是从大图缩下来的：把源 SVG 的根 `width`/`height`
 改成目标像素后再交给 `sips`（macOS 自带的 ImageIO，能直接读 SVG）。同时用 `qlmanage`
@@ -22,7 +24,10 @@ import sys
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SOURCE = ROOT / "scripts/appicon.svg"
+SOURCES = ROOT / "scripts"
+MAIN = SOURCES / "appicon.svg"
+# 小尺寸专用源；没有对应文件时回退到主设计。
+SMALL = {16: SOURCES / "appicon-16.svg", 32: SOURCES / "appicon-32.svg"}
 DEFAULT_OUT = ROOT / "ClaudeIsland/Assets.xcassets/AppIcon.appiconset"
 
 # 像素尺寸与文件名一一对应 Contents.json 里已登记的十个槽位。两个 2x 槽位
@@ -40,7 +45,7 @@ SLOTS = [
     (1024, "icon_1024x1024.png"),
 ]
 
-SIZE_ATTR = re.compile(r'width="\d+"\s+height="\d+"')
+SIZE_ATTR = re.compile(r'width="(\d+)"\s+height="(\d+)"')
 
 
 def png_size(path):
@@ -51,13 +56,20 @@ def png_size(path):
     return int.from_bytes(header[16:20], "big"), int.from_bytes(header[20:24], "big")
 
 
-def render(source_text, size, dest):
+def source_for(size):
+    """按目标尺寸选源；小尺寸档优先用专用源，其 viewBox 与主设计一致。"""
+    candidate = SMALL.get(size)
+    return candidate if candidate and candidate.exists() else MAIN
+
+
+def render(source, size, dest):
     """按目标尺寸光栅化源 SVG。sips 认 SVG 根元素的宽高，因此先把它们改成 size。"""
-    scaled, count = SIZE_ATTR.subn(f'width="{size}" height="{size}"', source_text, count=1)
+    text = source.read_text(encoding="utf-8")
+    scaled, count = SIZE_ATTR.subn(f'width="{size}" height="{size}"', text, count=1)
     if count != 1:
-        raise SystemExit("源 SVG 缺少 `width=\"…\" height=\"…\"`，无法按目标尺寸渲染")
+        raise SystemExit(f"{source.name} 缺少 `width=\"…\" height=\"…\"`，无法按目标尺寸渲染")
     with tempfile.TemporaryDirectory() as tmp:
-        staged = pathlib.Path(tmp) / "appicon.svg"
+        staged = pathlib.Path(tmp) / source.name
         staged.write_text(scaled, encoding="utf-8")
         subprocess.run(
             ["sips", "-s", "format", "png", str(staged), "--out", str(dest)],
@@ -71,19 +83,18 @@ def render(source_text, size, dest):
 
 def main():
     out_dir = pathlib.Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else DEFAULT_OUT
-    if not SOURCE.exists():
-        raise SystemExit(f"缺少矢量源 {SOURCE}")
+    if not MAIN.exists():
+        raise SystemExit(f"缺少主设计 {MAIN}")
     out_dir.mkdir(parents=True, exist_ok=True)
-    source_text = SOURCE.read_text(encoding="utf-8")
 
     written = {}
     for size, name in SLOTS:
-        dest = out_dir / name
-        render(source_text, size, dest)
-        written.setdefault(size, []).append(name)
+        source = source_for(size)
+        render(source, size, out_dir / name)
+        written.setdefault((size, source.name), []).append(name)
 
-    for size in sorted(written):
-        print(f"{size}x{size}: {', '.join(written[size])}")
+    for (size, source_name), names in sorted(written.items()):
+        print(f"{size}x{size} <- {source_name}: {', '.join(names)}")
     print(f"{len(SLOTS)} 个槽位 -> {out_dir}")
 
 

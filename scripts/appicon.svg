@@ -1,16 +1,19 @@
-<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect x="16" y="16" width="480" height="480" rx="108" fill="#17191D"/>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- 应用图标：深色底板 + 生命体征波形（表示持续监控各 Agent 的运行状态）。
+       底板的留白与圆角按 Apple 的 macOS 图标网格：内容 824/1024、圆角 185.4，因此在
+       Dock 里与系统图标视觉重量齐平。由 scripts/make-appicon.py 生成各档 PNG。 -->
+  <rect x="100" y="100" width="824" height="824" rx="185.4" fill="#17191D"/>
   <path
-    d="M112 264
-       H158
-       L181 214
-       L211 310
-       L241 232
-       L270 290
-       L292 264
-       H400"
+    d="M 264.8 525.7
+       H 343.8
+       L 383.3 439.9
+       L 434.8 604.7
+       L 486.3 470.8
+       L 536.1 570.4
+       L 573.8 525.7
+       H 759.2"
     stroke="#F2F3F5"
-    stroke-width="16"
+    stroke-width="27.47"
     stroke-linecap="round"
     stroke-linejoin="round"
   />

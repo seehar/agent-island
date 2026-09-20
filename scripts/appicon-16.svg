@@ -1,0 +1,17 @@
+<svg width="16" height="16" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- 16pt 档专用：几何与 appicon.svg 同源，但描边按 2px 视觉宽度反算（128 单位），
+       并把波形收成两个峰——原稿在这一档会把 0.5px 的线糊掉。底板不变。 -->
+  <rect x="100" y="100" width="824" height="824" rx="185.4" fill="#17191D"/>
+  <path
+    d="M 264.8 525.7
+       H 368.3
+       L 402 390
+       L 450 661
+       L 508 525.7
+       H 759.2"
+    stroke="#F2F3F5"
+    stroke-width="128"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>
