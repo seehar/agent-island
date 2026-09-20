@@ -337,6 +337,22 @@
         }
       }
     },
+    "About" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于"
+          }
+        }
+      }
+    },
     "Accessibility" : {
       "localizations" : {
         "en" : {
@@ -365,6 +381,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "活跃会话 %lld 个，共 %lld 个"
+          }
+        }
+      }
+    },
+    "Agents" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agents"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "智能体"
           }
         }
       }
@@ -1169,6 +1201,22 @@
         }
       }
     },
+    "General" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "General"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通用"
+          }
+        }
+      }
+    },
     "Go to Terminal" : {
       "localizations" : {
         "en" : {
@@ -1181,22 +1229,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "前往终端"
-          }
-        }
-      }
-    },
-    "Hooks" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hooks"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hooks"
           }
         }
       }

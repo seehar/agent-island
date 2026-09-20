@@ -44,6 +44,8 @@ class NotchViewModel: ObservableObject {
     @Published var status: NotchStatus = .closed
     @Published var openReason: NotchOpenReason = .unknown
     @Published var contentType: NotchContentType = .instances
+    /// 设置面板当前所在的分组。设置项按分组分页，面板只按当前分组撑高。
+    @Published var menuSection: NotchMenuSection = .general
     @Published var isHovering: Bool = false
 
     // MARK: - Dependencies
@@ -73,23 +75,43 @@ class NotchViewModel: ObservableObject {
                 height: 580
             )
         case .menu:
-            // 基础高度覆盖所有固定行（返回、4 个选择行、4 行 Agent 设置、
-            // 3 个开关、辅助功能、更新、GitHub、退出 + 4 条分隔线 + 内边距）。
-            // Agent 设置每行 36（上下各 10 内边距 + 16 行高）+ 4 间距，共 4 行。
-            // 选择器展开时，再叠加各自的展开高度增量。
+            // 只按当前分组算高度：固定开销 + 该分组的设置行 + 该分组里展开的
+            // 选择器增量（见 NotchMenuMetrics）。分组越短，面板越矮。
             return CGSize(
                 width: min(screenRect.width * 0.4, 480),
-                height: 744
-                    + screenSelector.expandedPickerHeight
-                    + soundSelector.expandedPickerHeight
-                    + languageSelector.expandedPickerHeight
-                    + claudeDirSelector.expandedPickerHeight
+                height: NotchMenuMetrics.panelHeight(
+                    for: menuSection,
+                    expandedPickerHeight: expandedPickerHeight(for: menuSection),
+                    chromeHeight: panelChromeHeight
+                )
             )
         case .instances:
             return CGSize(
                 width: min(screenRect.width * 0.4, 480),
                 height: 320
             )
+        }
+    }
+
+    /// 面板中菜单之外的固定高度：头部行（物理刘海高度，非刘海屏至少 24）
+    /// 加上 NotchView 给面板留的 12pt 底部内边距。
+    private var panelChromeHeight: CGFloat {
+        max(24, deviceNotchRect.height) + 12
+    }
+
+    /// 当前分组里展开的选择器带来的额外高度。只有该分组自己的选择器算数，
+    /// 其它分组留着的展开态不会把面板撑高。
+    private func expandedPickerHeight(for section: NotchMenuSection) -> CGFloat {
+        switch section {
+        case .general:
+            // 通用页有三个可展开的选择器：语言、屏幕、通知音效。
+            return languageSelector.expandedPickerHeight
+                + screenSelector.expandedPickerHeight
+                + soundSelector.expandedPickerHeight
+        case .agents:
+            return claudeDirSelector.expandedPickerHeight
+        case .about:
+            return 0
         }
     }
 
