@@ -66,15 +66,6 @@ When Claude needs permission to run a tool, the notch expands with approve/deny 
 switch to the terminal. Other agents keep their own approval UI; the notch only shows that they are
 waiting.
 
-## Analytics
-
-AgentIsland uses Mixpanel to collect anonymous usage data:
-
-- **App Launched** — App version, build number, macOS version
-- **Session Started** — When a new session is detected
-
-No personal data or conversation content is collected.
-
 ## License
 
 Apache 2.0

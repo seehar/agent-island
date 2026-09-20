@@ -61,15 +61,6 @@ AgentIsland 会为每个 Agent 安装一个小型集成，通过 Unix socket（`
 当 Claude 需要运行某个工具的权限时，刘海会展开并提供批准/拒绝按钮——无需切换到终端。
 其他 Agent 保留各自的审批界面，刘海只提示它们正在等待。
 
-## 数据统计
-
-AgentIsland 使用 Mixpanel 收集匿名使用数据：
-
-- **App Launched** — 应用版本、构建号、macOS 版本
-- **Session Started** — 检测到新会话时
-
-不收集任何个人数据或对话内容。
-
 ## 许可证
 
 Apache 2.0
