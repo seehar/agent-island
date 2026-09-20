@@ -13,7 +13,7 @@ import os.log
 private let logger = Logger(subsystem: "com.claudeisland", category: "Interrupt")
 
 protocol JSONLInterruptWatcherDelegate: AnyObject {
-    func didDetectInterrupt(sessionId: String)
+    func didDetectInterrupt(key: SessionKey)
 }
 
 /// Watches a session's JSONL file for interrupt patterns in real-time
@@ -22,7 +22,7 @@ class JSONLInterruptWatcher {
     private var fileHandle: FileHandle?
     private var source: DispatchSourceFileSystemObject?
     private var lastOffset: UInt64 = 0
-    private let sessionId: String
+    private let key: SessionKey
     private let filePath: String
     private let queue = DispatchQueue(label: "com.claudeisland.interruptwatcher", qos: .userInteractive)
 
@@ -37,11 +37,13 @@ class JSONLInterruptWatcher {
         "[Request interrupted by user"
     ]
 
-    init(sessionId: String, cwd: String) {
-        self.sessionId = sessionId
-        let projectDir = cwd.replacingOccurrences(of: "/", with: "-")
-                            .replacingOccurrences(of: ".", with: "-")
-        self.filePath = ClaudePaths.projectsDir.path + "/" + projectDir + "/" + sessionId + ".jsonl"
+    /// `transcriptPath` 由调用方（会话状态）提供；缺省时按 Agent 的目录规则推导。
+    init(key: SessionKey, cwd: String, transcriptPath: String?) {
+        self.key = key
+        let resolved = transcriptPath ?? AgentRegistry.provider(for: key.agent)
+            .transcriptFile(sessionId: key.sessionId, cwd: cwd)?
+            .path
+        self.filePath = resolved ?? ""
     }
 
     /// Start watching the JSONL file for interrupts
@@ -88,7 +90,7 @@ class JSONLInterruptWatcher {
         source = newSource
         newSource.resume()
 
-        logger.debug("Started watching: \(self.sessionId.prefix(8), privacy: .public)...")
+        logger.debug("Started watching: \(self.key.rawValue, privacy: .public)")
     }
 
     private func checkForInterrupt() {
@@ -119,10 +121,10 @@ class JSONLInterruptWatcher {
         let lines = newContent.components(separatedBy: "\n")
         for line in lines where !line.isEmpty {
             if isInterruptLine(line) {
-                logger.info("Detected interrupt in session: \(self.sessionId.prefix(8), privacy: .public)")
+                logger.info("Detected interrupt in session: \(self.key.rawValue, privacy: .public)")
                 DispatchQueue.main.async { [weak self] in
                     guard let self = self else { return }
-                    self.delegate?.didDetectInterrupt(sessionId: self.sessionId)
+                    self.delegate?.didDetectInterrupt(key: self.key)
                 }
                 return
             }
@@ -161,7 +163,7 @@ class JSONLInterruptWatcher {
 
     private func stopInternal() {
         if source != nil {
-            logger.debug("Stopped watching: \(self.sessionId.prefix(8), privacy: .public)...")
+            logger.debug("Stopped watching: \(self.key.rawValue, privacy: .public)")
         }
         source?.cancel()
         source = nil
@@ -180,24 +182,24 @@ class JSONLInterruptWatcher {
 class InterruptWatcherManager {
     static let shared = InterruptWatcherManager()
 
-    private var watchers: [String: JSONLInterruptWatcher] = [:]
+    private var watchers: [SessionKey: JSONLInterruptWatcher] = [:]
     weak var delegate: JSONLInterruptWatcherDelegate?
 
     private init() {}
 
-    func startWatching(sessionId: String, cwd: String) {
-        guard watchers[sessionId] == nil else { return }
+    func startWatching(key: SessionKey, cwd: String, transcriptPath: String?) {
+        guard watchers[key] == nil else { return }
 
-        let watcher = JSONLInterruptWatcher(sessionId: sessionId, cwd: cwd)
+        let watcher = JSONLInterruptWatcher(key: key, cwd: cwd, transcriptPath: transcriptPath)
         watcher.delegate = delegate
         watcher.start()
-        watchers[sessionId] = watcher
+        watchers[key] = watcher
     }
 
     /// Stop watching a specific session
-    func stopWatching(sessionId: String) {
-        watchers[sessionId]?.stop()
-        watchers.removeValue(forKey: sessionId)
+    func stopWatching(key: SessionKey) {
+        watchers[key]?.stop()
+        watchers.removeValue(forKey: key)
     }
 
     /// Stop all watchers
@@ -209,7 +211,7 @@ class InterruptWatcherManager {
     }
 
     /// Check if we're watching a session
-    func isWatching(sessionId: String) -> Bool {
-        watchers[sessionId] != nil
+    func isWatching(key: SessionKey) -> Bool {
+        watchers[key] != nil
     }
 }

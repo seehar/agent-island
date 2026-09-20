@@ -10,14 +10,12 @@ import Foundation
 class ChatHistoryManager: ObservableObject {
     static let shared = ChatHistoryManager()
 
-    @Published private(set) var histories: [String: [ChatHistoryItem]] = [:]
-    @Published private(set) var agentDescriptions: [String: [String: String]] = [:]
+    @Published private(set) var histories: [SessionKey: [ChatHistoryItem]] = [:]
+    @Published private(set) var agentDescriptions: [SessionKey: [String: String]] = [:]
 
-    /// Sessions whose JSONL file we've asked SessionStore to parse in this
-    /// app session. Only populated by `loadFromFile` — NOT by session
-    /// discovery via hooks. (Hook events only give tool calls, not the
-    /// full user/assistant text conversation.)
-    private var jsonlParsedSessions: Set<String> = []
+    /// 本次运行中已经让 SessionStore 读过记录的会话。只由 `loadFromFile`
+    /// 标记：实时事件只带来工具调用，没有完整的用户/助手文本对话。
+    private var transcriptLoadedSessions: Set<SessionKey> = []
     private var cancellables = Set<AnyCancellable>()
 
     private init() {
@@ -31,37 +29,37 @@ class ChatHistoryManager: ObservableObject {
 
     // MARK: - Public API
 
-    func history(for sessionId: String) -> [ChatHistoryItem] {
-        histories[sessionId] ?? []
+    func history(for key: SessionKey) -> [ChatHistoryItem] {
+        histories[key] ?? []
     }
 
-    /// Whether we've parsed the session's JSONL file in this app session.
-    /// Hook-driven session discovery does NOT mark a session as loaded —
-    /// only an explicit `loadFromFile` call does.
-    func isLoaded(sessionId: String) -> Bool {
-        jsonlParsedSessions.contains(sessionId)
+    /// 本次运行中是否已经读过该会话的记录。实时事件不会把它标记为已加载，
+    /// 只有显式调用 `loadFromFile` 才会。
+    func isLoaded(key: SessionKey) -> Bool {
+        transcriptLoadedSessions.contains(key)
     }
 
-    func loadFromFile(sessionId: String, cwd: String) async {
-        guard !jsonlParsedSessions.contains(sessionId) else { return }
-        jsonlParsedSessions.insert(sessionId)
-        await SessionStore.shared.process(.loadHistory(sessionId: sessionId, cwd: cwd))
+    func loadFromFile(key: SessionKey, cwd: String) async {
+        guard !transcriptLoadedSessions.contains(key) else { return }
+        transcriptLoadedSessions.insert(key)
+        await SessionStore.shared.process(.loadHistory(key: key, cwd: cwd))
     }
 
-    func syncFromFile(sessionId: String, cwd: String) async {
+    func syncFromFile(key: SessionKey, cwd: String) async {
         let messages = await ConversationParser.shared.parseFullConversation(
-            sessionId: sessionId,
+            sessionId: key.sessionId,
+            agent: key.agent,
             cwd: cwd
         )
-        let completedTools = await ConversationParser.shared.completedToolIds(for: sessionId)
-        let toolResults = await ConversationParser.shared.toolResults(for: sessionId)
-        let structuredResults = await ConversationParser.shared.structuredResults(for: sessionId)
+        let completedTools = await ConversationParser.shared.completedToolIds(sessionId: key.sessionId, agent: key.agent)
+        let toolResults = await ConversationParser.shared.toolResults(sessionId: key.sessionId, agent: key.agent)
+        let structuredResults = await ConversationParser.shared.structuredResults(sessionId: key.sessionId, agent: key.agent)
 
         let payload = FileUpdatePayload(
-            sessionId: sessionId,
+            key: key,
             cwd: cwd,
             messages: messages,
-            isIncremental: false,  // Full sync
+            isIncremental: false,  // 全量同步
             completedToolIds: completedTools,
             toolResults: toolResults,
             structuredResults: structuredResults
@@ -70,23 +68,23 @@ class ChatHistoryManager: ObservableObject {
         await SessionStore.shared.process(.fileUpdated(payload))
     }
 
-    func clearHistory(for sessionId: String) {
-        jsonlParsedSessions.remove(sessionId)
-        histories.removeValue(forKey: sessionId)
+    func clearHistory(for key: SessionKey) {
+        transcriptLoadedSessions.remove(key)
+        histories.removeValue(forKey: key)
         Task {
-            await SessionStore.shared.process(.sessionEnded(sessionId: sessionId))
+            await SessionStore.shared.process(.sessionEnded(key: key))
         }
     }
 
     // MARK: - State Updates
 
     private func updateFromSessions(_ sessions: [SessionState]) {
-        var newHistories: [String: [ChatHistoryItem]] = [:]
-        var newAgentDescriptions: [String: [String: String]] = [:]
+        var newHistories: [SessionKey: [ChatHistoryItem]] = [:]
+        var newAgentDescriptions: [SessionKey: [String: String]] = [:]
         for session in sessions {
             let filteredItems = filterOutSubagentTools(session.chatItems)
-            newHistories[session.sessionId] = filteredItems
-            newAgentDescriptions[session.sessionId] = session.subagentState.agentDescriptions
+            newHistories[session.sessionKey] = filteredItems
+            newAgentDescriptions[session.sessionKey] = session.subagentState.agentDescriptions
         }
         histories = newHistories
         agentDescriptions = newAgentDescriptions
@@ -149,6 +147,9 @@ struct ToolCallItem: Equatable, Sendable {
         name == "Task" || name == "Agent"
     }
 
+    /// 面向用户的文案统一走本地化管理器。
+    private static let l10n = LocalizationManager.shared
+
     /// Preview text for the tool (input-based)
     var inputPreview: String {
         if let filePath = input["file_path"] ?? input["path"] {
@@ -169,7 +170,9 @@ struct ToolCallItem: Equatable, Sendable {
         }
         if let agentId = input["agentId"] {
             let blocking = input["block"] == "true"
-            return blocking ? "Waiting..." : "Checking \(agentId.prefix(8))..."
+            return blocking
+                ? Self.l10n.t("Waiting...")
+                : Self.l10n.t("Checking %@...", String(agentId.prefix(8)))
         }
         return input.values.first.map { String($0.prefix(60)) } ?? ""
     }
@@ -180,10 +183,11 @@ struct ToolCallItem: Equatable, Sendable {
             return ToolStatusDisplay.running(for: name, input: input)
         }
         if status == .waitingForApproval {
-            return ToolStatusDisplay(text: "Waiting for approval...", isRunning: true)
+            return ToolStatusDisplay(
+                text: Self.l10n.t("Waiting for approval..."), isRunning: true)
         }
         if status == .interrupted {
-            return ToolStatusDisplay(text: "Interrupted", isRunning: false)
+            return ToolStatusDisplay(text: Self.l10n.t("Interrupted"), isRunning: false)
         }
         return ToolStatusDisplay.completed(for: name, result: structuredResult)
     }
@@ -241,6 +245,9 @@ struct SubagentToolCall: Equatable, Identifiable, Sendable {
     var status: ToolStatus
     let timestamp: Date
 
+    /// 面向用户的文案统一走本地化管理器。
+    private static let l10n = LocalizationManager.shared
+
     /// Short description for display
     var displayText: String {
         switch name {
@@ -248,17 +255,17 @@ struct SubagentToolCall: Equatable, Identifiable, Sendable {
             if let path = input["file_path"] {
                 return URL(fileURLWithPath: path).lastPathComponent
             }
-            return "Reading..."
+            return Self.l10n.t("Reading...")
         case "Grep":
             if let pattern = input["pattern"] {
-                return "grep: \(pattern)"
+                return Self.l10n.t("grep: %@", pattern)
             }
-            return "Searching..."
+            return Self.l10n.t("Searching...")
         case "Glob":
             if let pattern = input["pattern"] {
-                return "glob: \(pattern)"
+                return Self.l10n.t("glob: %@", pattern)
             }
-            return "Finding files..."
+            return Self.l10n.t("Finding files...")
         case "Bash":
             if let desc = input["description"] {
                 return desc
@@ -267,27 +274,29 @@ struct SubagentToolCall: Equatable, Identifiable, Sendable {
                 let firstLine = cmd.components(separatedBy: "\n").first ?? cmd
                 return String(firstLine.prefix(40))
             }
-            return "Running command..."
+            return Self.l10n.t("Running command...")
         case "Edit":
             if let path = input["file_path"] {
-                return "Edit: \(URL(fileURLWithPath: path).lastPathComponent)"
+                return Self.l10n.t(
+                    "Edit: %@", URL(fileURLWithPath: path).lastPathComponent)
             }
-            return "Editing..."
+            return Self.l10n.t("Editing...")
         case "Write":
             if let path = input["file_path"] {
-                return "Write: \(URL(fileURLWithPath: path).lastPathComponent)"
+                return Self.l10n.t(
+                    "Write: %@", URL(fileURLWithPath: path).lastPathComponent)
             }
-            return "Writing..."
+            return Self.l10n.t("Writing...")
         case "WebFetch":
             if let url = input["url"] {
-                return "Fetching: \(url.prefix(30))..."
+                return Self.l10n.t("Fetching: %@...", String(url.prefix(30)))
             }
-            return "Fetching..."
+            return Self.l10n.t("Fetching...")
         case "WebSearch":
             if let query = input["query"] {
-                return "Search: \(query.prefix(30))"
+                return Self.l10n.t("Search: %@", String(query.prefix(30)))
             }
-            return "Searching web..."
+            return Self.l10n.t("Searching web...")
         default:
             return name
         }

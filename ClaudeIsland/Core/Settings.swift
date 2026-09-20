@@ -40,6 +40,7 @@ nonisolated enum AppSettings {
     static let notificationSound = "notificationSound"
     static let claudeDirectoryName = "claudeDirectoryName"
     static let language = "language"
+    static let disabledAgents = "disabledAgents"
   }
 
   // MARK: - Notification Sound
@@ -74,6 +75,29 @@ nonisolated enum AppSettings {
     set {
       defaults.set(newValue.rawValue, forKey: Keys.language)
     }
+  }
+
+  // MARK: - Agents
+
+  /// notch 是否监控某个 Agent CLI。默认全部启用，新装应用即可自动接管
+  /// 用户已在使用的那一个。
+  static func isAgentEnabled(_ kind: AgentKind) -> Bool {
+    !disabledAgents.contains(kind.rawValue)
+  }
+
+  static func setAgent(_ kind: AgentKind, enabled: Bool) {
+    var disabled = disabledAgents
+    if enabled {
+      disabled.remove(kind.rawValue)
+    } else {
+      disabled.insert(kind.rawValue)
+    }
+    disabledAgents = disabled
+  }
+
+  private static var disabledAgents: Set<String> {
+    get { Set(defaults.stringArray(forKey: Keys.disabledAgents) ?? []) }
+    set { defaults.set(Array(newValue).sorted(), forKey: Keys.disabledAgents) }
   }
 
   // MARK: - Claude Directory

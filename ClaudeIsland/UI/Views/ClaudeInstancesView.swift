@@ -11,6 +11,7 @@ import SwiftUI
 struct ClaudeInstancesView: View {
     @ObservedObject var sessionMonitor: ClaudeSessionMonitor
     @ObservedObject var viewModel: NotchViewModel
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     var body: some View {
         if sessionMonitor.instances.isEmpty {
@@ -24,11 +25,11 @@ struct ClaudeInstancesView: View {
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            Text("No sessions")
+            Text(l10n.t("No sessions"))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(.white.opacity(0.4))
 
-            Text("Run claude in terminal")
+            Text(l10n.t("Run claude in terminal"))
                 .font(.system(size: 11))
                 .foregroundColor(.white.opacity(0.25))
         }
@@ -104,15 +105,15 @@ struct ClaudeInstancesView: View {
     }
 
     private func approveSession(_ session: SessionState) {
-        sessionMonitor.approvePermission(sessionId: session.sessionId)
+        sessionMonitor.approvePermission(key: session.sessionKey)
     }
 
     private func rejectSession(_ session: SessionState) {
-        sessionMonitor.denyPermission(sessionId: session.sessionId, reason: nil)
+        sessionMonitor.denyPermission(key: session.sessionKey, reason: nil)
     }
 
     private func archiveSession(_ session: SessionState) {
-        sessionMonitor.archiveSession(sessionId: session.sessionId)
+        sessionMonitor.archiveSession(key: session.sessionKey)
     }
 }
 
@@ -125,6 +126,7 @@ struct InstanceRow: View {
     let onArchive: () -> Void
     let onApprove: () -> Void
     let onReject: () -> Void
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     @State private var isHovered = false
     @State private var spinnerPhase = 0
@@ -145,21 +147,26 @@ struct InstanceRow: View {
         return toolName == "AskUserQuestion"
     }
 
+    /// 是否在该 Agent 行显示归属角标：只有用户启用了多个 Agent 时才需要区分
+    private var showsAgentBadge: Bool {
+        AgentRegistry.enabled.count > 1
+    }
+
     /// Status text based on session phase (fallback when no other content)
     private var phaseStatusText: String {
         switch session.phase {
         case .processing:
-            return "Processing..."
+            return l10n.t("Processing...")
         case .compacting:
-            return "Compacting..."
+            return l10n.t("Compacting...")
         case .waitingForInput:
-            return "Ready"
+            return l10n.t("Ready")
         case .waitingForApproval:
-            return "Waiting for approval"
+            return l10n.t("Waiting for approval")
         case .idle:
-            return "Idle"
+            return l10n.t("Idle")
         case .ended:
-            return "Ended"
+            return l10n.t("Ended")
         }
     }
 
@@ -177,6 +184,11 @@ struct InstanceRow: View {
                         .foregroundColor(.white)
                         .lineLimit(1)
 
+                    // 多 Agent 时标注会话归属；单 Agent 用户保持原样
+                    if showsAgentBadge {
+                        AgentBadge(agent: session.agent)
+                    }
+
                     // Token usage indicator
                     if session.usage.totalTokens > 0 {
                         Text(session.usage.formattedTotal)
@@ -193,7 +205,7 @@ struct InstanceRow: View {
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
                             .foregroundColor(TerminalColors.amber.opacity(0.9))
                         if isInteractiveTool {
-                            Text("Needs your input")
+                            Text(l10n.t("Needs your input"))
                                 .font(.system(size: 11))
                                 .foregroundColor(.white.opacity(0.5))
                                 .lineLimit(1)
@@ -224,7 +236,7 @@ struct InstanceRow: View {
                     case "user":
                         // User message - prefix with "You:"
                         HStack(spacing: 4) {
-                            Text("You:")
+                            Text(l10n.t("You:"))
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundColor(.white.opacity(0.5))
                             if let msg = session.lastMessage {
@@ -260,7 +272,14 @@ struct InstanceRow: View {
             Spacer(minLength: 0)
 
             // Action icons or approval buttons
-            if isWaitingForApproval && isInteractiveTool {
+            if isWaitingForApproval && !session.agent.supportsPermissionControl {
+                // 该 Agent 的审批只能在其自身 CLI 里完成，notch 仅提示
+                Text(l10n.t("Waiting for approval in terminal"))
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.5))
+                    .lineLimit(1)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            } else if isWaitingForApproval && isInteractiveTool {
                 // Interactive tools like AskUserQuestion - show chat + terminal buttons
                 HStack(spacing: 8) {
                     IconButton(icon: "bubble.left") {
@@ -362,6 +381,7 @@ struct InlineApprovalButtons: View {
     let onChat: () -> Void
     let onApprove: () -> Void
     let onReject: () -> Void
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     @State private var showChatButton = false
     @State private var showDenyButton = false
@@ -379,7 +399,7 @@ struct InlineApprovalButtons: View {
             Button {
                 onReject()
             } label: {
-                Text("Deny")
+                Text(l10n.t("Deny"))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.white.opacity(0.6))
                     .padding(.horizontal, 10)
@@ -394,7 +414,7 @@ struct InlineApprovalButtons: View {
             Button {
                 onApprove()
             } label: {
-                Text("Allow")
+                Text(l10n.t("Allow"))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.black)
                     .padding(.horizontal, 10)
@@ -451,6 +471,7 @@ struct IconButton: View {
 struct CompactTerminalButton: View {
     let isEnabled: Bool
     let onTap: () -> Void
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     var body: some View {
         Button {
@@ -461,7 +482,7 @@ struct CompactTerminalButton: View {
             HStack(spacing: 2) {
                 Image(systemName: "terminal")
                     .font(.system(size: 8, weight: .medium))
-                Text("Go to Terminal")
+                Text(l10n.t("Go to Terminal"))
                     .font(.system(size: 10, weight: .medium))
             }
             .foregroundColor(isEnabled ? .white.opacity(0.9) : .white.opacity(0.3))
@@ -479,6 +500,7 @@ struct CompactTerminalButton: View {
 struct TerminalButton: View {
     let isEnabled: Bool
     let onTap: () -> Void
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     var body: some View {
         Button {
@@ -489,7 +511,7 @@ struct TerminalButton: View {
             HStack(spacing: 3) {
                 Image(systemName: "terminal")
                     .font(.system(size: 9, weight: .medium))
-                Text("Terminal")
+                Text(l10n.t("Terminal"))
                     .font(.system(size: 11, weight: .medium))
             }
             .foregroundColor(isEnabled ? .black : .white.opacity(0.4))

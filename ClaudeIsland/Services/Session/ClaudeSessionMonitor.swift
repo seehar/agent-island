@@ -36,6 +36,9 @@ class ClaudeSessionMonitor: ObservableObject {
             await SessionStore.shared.startPeriodicStatusCheck()
         }
 
+        // 扫描各 Agent 的记录目录，补上应用启动前就在跑的会话
+        AgentSessionDiscovery.shared.start()
+
         HookSocketServer.shared.start(
             onEvent: { event in
                 Task {
@@ -43,17 +46,21 @@ class ClaudeSessionMonitor: ObservableObject {
                 }
 
                 if event.sessionPhase == .processing {
+                    let key = event.sessionKey
+                    let transcriptPath = event.sessionFile
                     Task { @MainActor in
                         InterruptWatcherManager.shared.startWatching(
-                            sessionId: event.sessionId,
-                            cwd: event.cwd
+                            key: key,
+                            cwd: event.cwd,
+                            transcriptPath: transcriptPath
                         )
                     }
                 }
 
                 if event.status == "ended" {
+                    let key = event.sessionKey
                     Task { @MainActor in
-                        InterruptWatcherManager.shared.stopWatching(sessionId: event.sessionId)
+                        InterruptWatcherManager.shared.stopWatching(key: key)
                     }
                 }
 
@@ -66,9 +73,11 @@ class ClaudeSessionMonitor: ObservableObject {
                 }
             },
             onPermissionFailure: { sessionId, toolUseId in
+                // 审批应答只来自 Claude Code 的 hook 通道
+                let key = SessionKey(agent: .claudeCode, sessionId: sessionId)
                 Task {
                     await SessionStore.shared.process(
-                        .permissionSocketFailed(sessionId: sessionId, toolUseId: toolUseId)
+                        .permissionSocketFailed(key: key, toolUseId: toolUseId)
                     )
                 }
             }
@@ -76,6 +85,7 @@ class ClaudeSessionMonitor: ObservableObject {
     }
 
     func stopMonitoring() {
+        AgentSessionDiscovery.shared.stop()
         HookSocketServer.shared.stop()
         Task {
             await SessionStore.shared.stopPeriodicStatusCheck()
@@ -84,47 +94,52 @@ class ClaudeSessionMonitor: ObservableObject {
 
     // MARK: - Permission Handling
 
-    func approvePermission(sessionId: String) {
+    func approvePermission(key: SessionKey) {
         Task {
-            guard let session = await SessionStore.shared.session(for: sessionId),
+            guard let session = await SessionStore.shared.session(for: key),
                   let permission = session.activePermission else {
                 return
             }
 
-            HookSocketServer.shared.respondToPermission(
-                toolUseId: permission.toolUseId,
-                decision: "allow"
-            )
+            // 只有能回传决定的 Agent（Claude Code）才需要应答 hook
+            if key.agent.supportsPermissionControl {
+                HookSocketServer.shared.respondToPermission(
+                    toolUseId: permission.toolUseId,
+                    decision: "allow"
+                )
+            }
 
             await SessionStore.shared.process(
-                .permissionApproved(sessionId: sessionId, toolUseId: permission.toolUseId)
+                .permissionApproved(key: key, toolUseId: permission.toolUseId)
             )
         }
     }
 
-    func denyPermission(sessionId: String, reason: String?) {
+    func denyPermission(key: SessionKey, reason: String?) {
         Task {
-            guard let session = await SessionStore.shared.session(for: sessionId),
+            guard let session = await SessionStore.shared.session(for: key),
                   let permission = session.activePermission else {
                 return
             }
 
-            HookSocketServer.shared.respondToPermission(
-                toolUseId: permission.toolUseId,
-                decision: "deny",
-                reason: reason
-            )
+            if key.agent.supportsPermissionControl {
+                HookSocketServer.shared.respondToPermission(
+                    toolUseId: permission.toolUseId,
+                    decision: "deny",
+                    reason: reason
+                )
+            }
 
             await SessionStore.shared.process(
-                .permissionDenied(sessionId: sessionId, toolUseId: permission.toolUseId, reason: reason)
+                .permissionDenied(key: key, toolUseId: permission.toolUseId, reason: reason)
             )
         }
     }
 
     /// Archive (remove) a session from the instances list
-    func archiveSession(sessionId: String) {
+    func archiveSession(key: SessionKey) {
         Task {
-            await SessionStore.shared.process(.sessionEnded(sessionId: sessionId))
+            await SessionStore.shared.process(.sessionEnded(key: key))
         }
     }
 
@@ -138,9 +153,9 @@ class ClaudeSessionMonitor: ObservableObject {
     // MARK: - History Loading (for UI)
 
     /// Request history load for a session
-    func loadHistory(sessionId: String, cwd: String) {
+    func loadHistory(key: SessionKey, cwd: String) {
         Task {
-            await SessionStore.shared.process(.loadHistory(sessionId: sessionId, cwd: cwd))
+            await SessionStore.shared.process(.loadHistory(key: key, cwd: cwd))
         }
     }
 }
@@ -148,13 +163,13 @@ class ClaudeSessionMonitor: ObservableObject {
 // MARK: - Interrupt Watcher Delegate
 
 extension ClaudeSessionMonitor: JSONLInterruptWatcherDelegate {
-    nonisolated func didDetectInterrupt(sessionId: String) {
+    nonisolated func didDetectInterrupt(key: SessionKey) {
         Task {
-            await SessionStore.shared.process(.interruptDetected(sessionId: sessionId))
+            await SessionStore.shared.process(.interruptDetected(key: key))
         }
 
         Task { @MainActor in
-            InterruptWatcherManager.shared.stopWatching(sessionId: sessionId)
+            InterruptWatcherManager.shared.stopWatching(key: key)
         }
     }
 }

@@ -18,6 +18,7 @@ struct NotchMenuView: View {
     @ObservedObject private var updateManager = UpdateManager.shared
     @ObservedObject private var screenSelector = ScreenSelector.shared
     @ObservedObject private var soundSelector = SoundSelector.shared
+    @ObservedObject private var l10n = LocalizationManager.shared
     @State private var hooksInstalled: Bool = false
     @State private var launchAtLogin: Bool = false
 
@@ -29,7 +30,7 @@ struct NotchMenuView: View {
                 // Back button
                 MenuRow(
                     icon: "chevron.left",
-                    label: "Back"
+                    label: l10n.t("Back")
                 ) {
                     viewModel.toggleMenu()
                 }
@@ -41,7 +42,9 @@ struct NotchMenuView: View {
                 // Appearance settings
                 ScreenPickerRow(screenSelector: screenSelector)
                 SoundPickerRow(soundSelector: soundSelector)
+                LanguagePickerRow()
                 ClaudeDirPickerRow()
+                AgentSettingsSection()
 
                 Divider()
                     .background(Color.white.opacity(0.08))
@@ -50,7 +53,7 @@ struct NotchMenuView: View {
                 // System settings
                 MenuToggleRow(
                     icon: "power",
-                    label: "Launch at Login",
+                    label: l10n.t("Launch at Login"),
                     isOn: launchAtLogin
                 ) {
                     do {
@@ -68,7 +71,7 @@ struct NotchMenuView: View {
 
                 MenuToggleRow(
                     icon: "arrow.triangle.2.circlepath",
-                    label: "Hooks",
+                    label: l10n.t("Hooks"),
                     isOn: hooksInstalled
                 ) {
                     if hooksInstalled {
@@ -91,7 +94,7 @@ struct NotchMenuView: View {
 
                 MenuRow(
                     icon: "star",
-                    label: "Star on GitHub"
+                    label: l10n.t("Star on GitHub")
                 ) {
                     if let url = URL(string: "https://github.com/farouqaldori/vibe-notch") {
                         NSWorkspace.shared.open(url)
@@ -104,7 +107,7 @@ struct NotchMenuView: View {
 
                 MenuRow(
                     icon: "xmark.circle",
-                    label: "Quit",
+                    label: l10n.t("Quit"),
                     isDestructive: true
                 ) {
                     NSApplication.shared.terminate(nil)
@@ -135,6 +138,7 @@ struct NotchMenuView: View {
 
 struct UpdateRow: View {
     @ObservedObject var updateManager: UpdateManager
+    @ObservedObject private var l10n = LocalizationManager.shared
     @State private var isHovered = false
     @State private var isSpinning = false
 
@@ -204,7 +208,7 @@ struct UpdateRow: View {
                 Image(systemName: "checkmark")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundColor(TerminalColors.green)
-                Text("Up to date")
+                Text(l10n.t("Up to date"))
                     .font(.system(size: 11))
                     .foregroundColor(TerminalColors.green)
             }
@@ -257,7 +261,7 @@ struct UpdateRow: View {
             }
 
         case .error:
-            Text("Retry")
+            Text(l10n.t("Retry"))
                 .font(.system(size: 11))
                 .foregroundColor(.white.opacity(0.5))
         }
@@ -312,23 +316,23 @@ struct UpdateRow: View {
     private var label: String {
         switch updateManager.state {
         case .idle:
-            return "Check for Updates"
+            return l10n.t("Check for Updates")
         case .checking:
-            return "Checking..."
+            return l10n.t("Checking...")
         case .upToDate:
-            return "Check for Updates"
+            return l10n.t("Check for Updates")
         case .found:
-            return "Download Update"
+            return l10n.t("Download Update")
         case .downloading:
-            return "Downloading..."
+            return l10n.t("Downloading...")
         case .extracting:
-            return "Extracting..."
+            return l10n.t("Extracting...")
         case .readyToInstall:
-            return "Install & Relaunch"
+            return l10n.t("Install & Relaunch")
         case .installing:
-            return "Installing..."
+            return l10n.t("Installing...")
         case .error:
-            return "Update failed"
+            return l10n.t("Update failed")
         }
     }
 
@@ -374,6 +378,7 @@ struct UpdateRow: View {
 
 struct AccessibilityRow: View {
     let isEnabled: Bool
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     @State private var isHovered = false
     @State private var refreshTrigger = false
@@ -391,7 +396,7 @@ struct AccessibilityRow: View {
                 .foregroundColor(textColor)
                 .frame(width: 16)
 
-            Text("Accessibility")
+            Text(l10n.t("Accessibility"))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(textColor)
 
@@ -402,12 +407,12 @@ struct AccessibilityRow: View {
                     .fill(TerminalColors.green)
                     .frame(width: 6, height: 6)
 
-                Text("On")
+                Text(l10n.t("On"))
                     .font(.system(size: 11))
                     .foregroundColor(.white.opacity(0.4))
             } else {
                 Button(action: openAccessibilitySettings) {
-                    Text("Enable")
+                    Text(l10n.t("Enable"))
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.black)
                         .padding(.horizontal, 10)
@@ -489,6 +494,7 @@ struct MenuToggleRow: View {
     let icon: String
     let label: String
     let isOn: Bool
+    @ObservedObject private var l10n = LocalizationManager.shared
     let action: () -> Void
 
     @State private var isHovered = false
@@ -511,7 +517,7 @@ struct MenuToggleRow: View {
                     .fill(isOn ? TerminalColors.green : Color.white.opacity(0.3))
                     .frame(width: 6, height: 6)
 
-                Text(isOn ? "On" : "Off")
+                Text(isOn ? l10n.t("On") : l10n.t("Off"))
                     .font(.system(size: 11))
                     .foregroundColor(.white.opacity(0.4))
             }

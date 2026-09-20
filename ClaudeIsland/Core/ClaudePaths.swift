@@ -9,7 +9,7 @@
 
 import Foundation
 
-enum ClaudePaths {
+nonisolated enum ClaudePaths {
 
     /// Cached resolved directory to avoid filesystem checks on every access
     private static var _cachedDir: URL?

@@ -360,7 +360,7 @@ struct NotchView: View {
                 NotchMenuView(viewModel: viewModel)
             case .chat(let session):
                 ChatView(
-                    sessionId: session.sessionId,
+                    key: session.sessionKey,
                     initialSession: session,
                     sessionMonitor: sessionMonitor,
                     viewModel: viewModel
@@ -368,9 +368,9 @@ struct NotchView: View {
                 // Force a fresh ChatView when switching sessions — otherwise
                 // @State (history, session, scroll position) leaks from the
                 // previous session and the view shows the wrong conversation.
-                // Keyed on sessionId only (not the whole SessionState) so
-                // per-event updates still reuse the view.
-                .id(session.sessionId)
+                // 只用会话键作为 identity（不用整个 SessionState），
+                // 这样逐事件更新时仍复用同一个视图。
+                .id(session.sessionKey.rawValue)
             }
         }
         .frame(width: notchSize.width - 24) // Fixed width to prevent text reflow

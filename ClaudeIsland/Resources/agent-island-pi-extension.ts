@@ -1,0 +1,296 @@
+// agent-island-pi-extension.ts —— 由 Vibe Notch（Claude Island）安装的 pi / Oh My Pi 扩展
+//
+// 作用：把会话生命周期与工具调用实时上报给 notch 应用（unix socket），
+// 让 pi/omp 拥有和 Claude Code hooks 同等的实时状态，而不必轮询记录文件。
+//
+// 安装位置：
+//   ~/.omp/agent/extensions/agent-island-state.ts   （Oh My Pi）
+//   ~/.pi/agent/extensions/agent-island-state.ts    （Pi）
+// 安装时会把 __AGENT_ISLAND_AGENT__ 替换成 "omp" 或 "pi"。
+//
+// 协议：连接 /tmp/claude-island.sock（可用 AGENT_ISLAND_SOCKET 覆盖），
+// 发送一个 JSON 对象即断开。应用不可用时静默失败，绝不阻塞 Agent。
+
+import { execSync } from "node:child_process";
+import net from "node:net";
+
+// 上报方标识：安装器会替换成具体 Agent 名（omp / pi）。
+const AGENT = "__AGENT_ISLAND_AGENT__";
+const SOCKET_PATH = process.env.AGENT_ISLAND_SOCKET || "/tmp/claude-island.sock";
+
+/** 事件名与 Claude Code hook 事件同名，应用侧因此只需一套状态机。 */
+interface IslandEvent {
+  event: string;
+  status: string;
+  tool?: string;
+  tool_input?: unknown;
+  tool_use_id?: string;
+  message?: string;
+}
+
+/** 扩展可见的最小上下文接口（pi / omp 运行时提供，此处只声明用到的部分）。 */
+interface SessionManagerLike {
+  getSessionFile?(): unknown;
+  getSessionId?(): unknown;
+}
+
+interface ExtensionContextLike {
+  hasUI?: unknown;
+  mode?: unknown;
+  cwd?: unknown;
+  isIdle?(): unknown;
+  sessionManager?: SessionManagerLike;
+}
+
+/** 扩展注册接口。 */
+interface ExtensionApi {
+  on(event: string, handler: (event: unknown, ctx?: ExtensionContextLike) => void | Promise<void>): void;
+}
+
+/** 从未知值里取布尔字段。 */
+function readBool(source: unknown, key: string): boolean {
+  if (typeof source !== "object" || source === null || !(key in source)) {
+    return false;
+  }
+  return (source as Record<string, unknown>)[key] === true;
+}
+
+/** 从未知值里取字符串字段，取不到时返回 undefined。 */
+function readString(source: unknown, key: string): string | undefined {
+  if (typeof source !== "object" || source === null || !(key in source)) {
+    return undefined;
+  }
+  const value = (source as Record<string, unknown>)[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+let currentSessionFile: string | undefined;
+let currentSessionId: string | undefined;
+let reportedSessionId: string | undefined;
+let pid: number | undefined;
+let tty: string | undefined;
+
+// 串行发送，保证事件顺序；应用不在时也不会堆积。
+let chain: Promise<void> = Promise.resolve();
+
+/** 取当前进程所在 tty，用于从 notch 聚焦终端。 */
+function detectTty(): string | undefined {
+  try {
+    const out = execSync(`ps -p ${process.pid} -o tty=`, { encoding: "utf8", timeout: 800 }).trim();
+    // 无 tty 时 ps 会给出 `?` / `??` / `-`，这些都不是可聚焦的终端名
+    if (/^\/?[a-z]+[0-9]+$/.test(out) || /^\/?ttys[0-9]+$/.test(out)) {
+      return out.startsWith("/dev/") ? out.slice("/dev/".length) : out;
+    }
+  } catch {
+    // 忽略：拿不到 tty 只是无法从 notch 聚焦终端。
+  }
+  return undefined;
+}
+
+/** 从扩展上下文里刷新会话文件与会话 id。 */
+function updateSessionRef(ctx: ExtensionContextLike | undefined): void {
+  try {
+    const file = ctx?.sessionManager?.getSessionFile?.();
+    currentSessionFile = typeof file === "string" && file.startsWith("/") ? file : undefined;
+  } catch {
+    currentSessionFile = undefined;
+  }
+  try {
+    const id = ctx?.sessionManager?.getSessionId?.();
+    currentSessionId = typeof id === "string" && id.length > 0 ? id : undefined;
+  } catch {
+    currentSessionId = undefined;
+  }
+}
+
+/** 发送一条事件；永不抛错，永不阻塞调用方。 */
+function send(payload: IslandEvent): Promise<void> {
+  if (!currentSessionId && !currentSessionFile) {
+    return Promise.resolve();
+  }
+
+  const body = {
+    session_id: currentSessionId ?? reportedSessionId ?? "unknown",
+    cwd: typeof process.cwd === "function" ? process.cwd() : undefined,
+    pid,
+    tty,
+    agent: AGENT,
+    session_file: currentSessionFile,
+    ...payload,
+  };
+
+  const attempt = () => {
+    const { promise, resolve } = Promise.withResolvers<void>();
+    const socket = net.createConnection(SOCKET_PATH, () => {
+      socket.write(JSON.stringify(body));
+      socket.end();
+    });
+    const finish = () => {
+      socket.destroy();
+      resolve();
+    };
+    socket.setTimeout(400, finish);
+    socket.on("data", finish);
+    socket.on("error", finish);
+    socket.on("end", finish);
+    socket.on("close", resolve);
+    return promise;
+  };
+
+  chain = chain.then(attempt).catch(() => {});
+  return chain;
+}
+
+/** 只有根会话（用户眼前的那个）才代表 notch 要展示的会话，子 Agent 事件不上报。 */
+function isRootSession(ctx: ExtensionContextLike | undefined): boolean {
+  return ctx?.hasUI === true || ctx?.mode === "tui";
+}
+
+export default function (pi: ExtensionApi) {
+  function activateRootSession(ctx: ExtensionContextLike | undefined): boolean {
+    if (!isRootSession(ctx)) {
+      return false;
+    }
+    updateSessionRef(ctx);
+    reportedSessionId = currentSessionId ?? reportedSessionId;
+    return true;
+  }
+
+  pi.on("session_start", (_event, ctx) => {
+    if (!activateRootSession(ctx)) {
+      return;
+    }
+    if (pid === undefined) {
+      pid = process.pid;
+      tty = detectTty();
+    }
+    // 扩展可能在会话中途被加载：按上下文判断是否正在跑。
+    const busy = ctx?.isIdle?.() === false;
+    void send({ event: "SessionStart", status: busy ? "processing" : "idle" });
+  });
+
+  pi.on("session_switch", (_event, ctx) => {
+    if (!activateRootSession(ctx)) {
+      return;
+    }
+    void send({ event: "SessionStart", status: "idle" });
+  });
+
+  pi.on("agent_start", (_event, ctx) => {
+    if (!activateRootSession(ctx)) {
+      return;
+    }
+    void send({ event: "UserPromptSubmit", status: "processing" });
+  });
+
+  pi.on("agent_end", (event, ctx) => {
+    if (ctx !== undefined && !isRootSession(ctx)) {
+      return;
+    }
+    // willContinue 表示还会继续（自动重试/续跑），此时不算一轮结束。
+    if (readBool(event, "willContinue")) {
+      return;
+    }
+    void send({ event: "Stop", status: "waiting_for_input" });
+  });
+
+  // Pi 侧的生命周期事件名（与 omp 的 agent_end 等价）；不支持时忽略。
+  try {
+    pi.on("agent_settled", (_event, ctx) => {
+      if (ctx?.isIdle?.() !== true) {
+        return;
+      }
+      void send({ event: "Stop", status: "waiting_for_input" });
+    });
+  } catch {
+    // 该事件在部分版本不存在。
+  }
+
+  pi.on("tool_call", (event, ctx) => {
+    if (!isRootSession(ctx)) {
+      return;
+    }
+    void send({
+      event: "PreToolUse",
+      status: "running_tool",
+      tool: readString(event, "toolName"),
+      tool_input: typeof event === "object" && event !== null ? (event as Record<string, unknown>).input : undefined,
+      tool_use_id: readString(event, "toolCallId"),
+    });
+  });
+
+  pi.on("tool_result", (event, ctx) => {
+    if (!isRootSession(ctx)) {
+      return;
+    }
+    const failed = readBool(event, "isError");
+    void send({
+      event: failed ? "PostToolUseFailure" : "PostToolUse",
+      status: "processing",
+      tool: readString(event, "toolName"),
+      tool_use_id: readString(event, "toolCallId"),
+    });
+  });
+
+  // 需要用户确认（omp 的审批门）；应用只展示状态，批准仍在终端里完成。
+  pi.on("tool_approval_requested", (event, ctx) => {
+    if (!isRootSession(ctx)) {
+      return;
+    }
+    void send({
+      event: "ToolApproval",
+      status: "waiting_for_approval",
+      tool: readString(event, "toolName"),
+      tool_use_id: readString(event, "toolCallId"),
+      message: readString(event, "reason"),
+    });
+  });
+
+  pi.on("tool_approval_resolved", (event, ctx) => {
+    if (!isRootSession(ctx)) {
+      return;
+    }
+    void send({
+      event: "PostToolUse",
+      status: "processing",
+      tool: readString(event, "toolName"),
+      tool_use_id: readString(event, "toolCallId"),
+    });
+  });
+
+  // `ask` 工具会阻塞等待用户回答，同样属于「等待输入」。
+  pi.on("tool_execution_start", (event, ctx) => {
+    if (readString(event, "toolName") !== "ask" || !isRootSession(ctx)) {
+      return;
+    }
+    const args = typeof event === "object" && event !== null ? (event as Record<string, unknown>).args : undefined;
+    const questions =
+      typeof args === "object" && args !== null && Array.isArray((args as Record<string, unknown>).questions)
+        ? ((args as Record<string, unknown>).questions as unknown[])
+        : [];
+    const first = questions.find((q) => typeof readString(q, "question") === "string");
+    void send({
+      event: "ToolApproval",
+      status: "waiting_for_approval",
+      tool: "ask",
+      tool_use_id: readString(event, "toolCallId"),
+      message: readString(first, "question"),
+    });
+  });
+
+  pi.on("tool_execution_end", (event, ctx) => {
+    if (readString(event, "toolName") !== "ask" || !isRootSession(ctx)) {
+      return;
+    }
+    void send({
+      event: "PostToolUse",
+      status: "processing",
+      tool: "ask",
+      tool_use_id: readString(event, "toolCallId"),
+    });
+  });
+
+  pi.on("session_shutdown", () => {
+    void send({ event: "SessionEnd", status: "ended" });
+  });
+}

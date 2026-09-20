@@ -13,9 +13,15 @@ import Foundation
 struct SessionState: Equatable, Identifiable, Sendable {
     // MARK: - Identity
 
+    /// 该会话属于哪个 Agent CLI。
+    let agent: AgentKind
+
     let sessionId: String
     let cwd: String
     let projectName: String
+
+    /// 记录文件路径；由实时集成上报，或用记录目录推导。结构化存储的 Agent 为 nil。
+    var transcriptPath: String?
 
     // MARK: - Instance Metadata
 
@@ -60,14 +66,19 @@ struct SessionState: Equatable, Identifiable, Sendable {
 
     // MARK: - Identifiable
 
-    var id: String { sessionId }
+    var id: String { sessionKey.rawValue }
+
+    /// 应用内的唯一键：不同 Agent 的会话 id 可能相同，必须带 Agent 前缀。
+    var sessionKey: SessionKey { SessionKey(agent: agent, sessionId: sessionId) }
 
     // MARK: - Initialization
 
     nonisolated init(
+        agent: AgentKind = .claudeCode,
         sessionId: String,
         cwd: String,
         projectName: String? = nil,
+        transcriptPath: String? = nil,
         pid: Int? = nil,
         tty: String? = nil,
         isInTmux: Bool = false,
@@ -83,9 +94,11 @@ struct SessionState: Equatable, Identifiable, Sendable {
         lastActivity: Date = Date(),
         createdAt: Date = Date()
     ) {
+        self.agent = agent
         self.sessionId = sessionId
         self.cwd = cwd
         self.projectName = projectName ?? URL(fileURLWithPath: cwd).lastPathComponent
+        self.transcriptPath = transcriptPath
         self.pid = pid
         self.tty = tty
         self.isInTmux = isInTmux
@@ -116,15 +129,15 @@ struct SessionState: Equatable, Identifiable, Sendable {
 
     // MARK: - UI Convenience Properties
 
-    /// Stable identity for SwiftUI (combines PID and sessionId for animation stability)
+    /// 稳定的 SwiftUI 标识（pid + Agent + 会话 id），保证动画期间不跳变。
     var stableId: String {
         if let pid = pid {
-            return "\(pid)-\(sessionId)"
+            return "\(pid)-\(sessionKey.rawValue)"
         }
-        return sessionId
+        return sessionKey.rawValue
     }
 
-    /// Display title: summary > first user message > project name
+    /// 展示标题：摘要 > 首条用户消息 > 项目名
     var displayTitle: String {
         conversationInfo.summary ?? conversationInfo.firstUserMessage ?? projectName
     }
@@ -274,7 +287,10 @@ struct SubagentState: Equatable, Sendable {
     /// Mapping of agentId to Task description (for AgentOutputTool display)
     var agentDescriptions: [String: String]
 
-    nonisolated init(activeTasks: [String: TaskContext] = [:], taskStack: [String] = [], agentDescriptions: [String: String] = [:]) {
+    nonisolated init(
+        activeTasks: [String: TaskContext] = [:], taskStack: [String] = [],
+        agentDescriptions: [String: String] = [:]
+    ) {
         self.activeTasks = activeTasks
         self.taskStack = taskStack
         self.agentDescriptions = agentDescriptions
@@ -322,9 +338,12 @@ struct SubagentState: Equatable, Sendable {
     /// Add a subagent tool to the most recent active Task
     nonisolated mutating func addSubagentTool(_ tool: SubagentToolCall) {
         // Find most recent active task (for parallel Task support)
-        guard let mostRecentTaskId = activeTasks.keys.max(by: {
-            (activeTasks[$0]?.startTime ?? .distantPast) < (activeTasks[$1]?.startTime ?? .distantPast)
-        }) else { return }
+        guard
+            let mostRecentTaskId = activeTasks.keys.max(by: {
+                (activeTasks[$0]?.startTime ?? .distantPast)
+                    < (activeTasks[$1]?.startTime ?? .distantPast)
+            })
+        else { return }
 
         activeTasks[mostRecentTaskId]?.subagentTools.append(tool)
     }
@@ -332,7 +351,8 @@ struct SubagentState: Equatable, Sendable {
     /// Update the status of a subagent tool across all active Tasks
     nonisolated mutating func updateSubagentToolStatus(toolId: String, status: ToolStatus) {
         for taskId in activeTasks.keys {
-            if let index = activeTasks[taskId]?.subagentTools.firstIndex(where: { $0.id == toolId }) {
+            if let index = activeTasks[taskId]?.subagentTools.firstIndex(where: { $0.id == toolId })
+            {
                 activeTasks[taskId]?.subagentTools[index].status = status
                 return
             }

@@ -21,11 +21,11 @@ actor SessionStore {
 
     // MARK: - State
 
-    /// All sessions keyed by sessionId
-    private var sessions: [String: SessionState] = [:]
+    /// 全部会话，按 (Agent, 会话 id) 索引
+    private var sessions: [SessionKey: SessionState] = [:]
 
-    /// Pending file syncs (debounced)
-    private var pendingSyncs: [String: Task<Void, Never>] = [:]
+    /// 待同步的记录读取任务（按会话键去抖）
+    private var pendingSyncs: [SessionKey: Task<Void, Never>] = [:]
 
     /// Sync debounce interval (100ms)
     private let syncDebounceNs: UInt64 = 100_000_000
@@ -60,33 +60,33 @@ actor SessionStore {
         case .hookReceived(let hookEvent):
             await processHookEvent(hookEvent)
 
-        case .permissionApproved(let sessionId, let toolUseId):
-            await processPermissionApproved(sessionId: sessionId, toolUseId: toolUseId)
+        case .permissionApproved(let key, let toolUseId):
+            await processPermissionApproved(key: key, toolUseId: toolUseId)
 
-        case .permissionDenied(let sessionId, let toolUseId, let reason):
-            await processPermissionDenied(sessionId: sessionId, toolUseId: toolUseId, reason: reason)
+        case .permissionDenied(let key, let toolUseId, let reason):
+            await processPermissionDenied(key: key, toolUseId: toolUseId, reason: reason)
 
-        case .permissionSocketFailed(let sessionId, let toolUseId):
-            await processSocketFailure(sessionId: sessionId, toolUseId: toolUseId)
+        case .permissionSocketFailed(let key, let toolUseId):
+            await processSocketFailure(key: key, toolUseId: toolUseId)
 
         case .fileUpdated(let payload):
             await processFileUpdate(payload)
 
-        case .interruptDetected(let sessionId):
-            await processInterrupt(sessionId: sessionId)
+        case .interruptDetected(let key):
+            await processInterrupt(key: key)
 
-        case .clearDetected(let sessionId):
-            await processClearDetected(sessionId: sessionId)
+        case .clearDetected(let key):
+            await processClearDetected(key: key)
 
-        case .sessionEnded(let sessionId):
-            await processSessionEnd(sessionId: sessionId)
+        case .sessionEnded(let key):
+            await processSessionEnd(key: key)
 
-        case .loadHistory(let sessionId, let cwd):
-            await loadHistoryFromFile(sessionId: sessionId, cwd: cwd)
+        case .loadHistory(let key, let cwd):
+            await loadHistoryFromFile(key: key, cwd: cwd)
 
-        case .historyLoaded(let sessionId, let messages, let completedTools, let toolResults, let structuredResults, let conversationInfo):
+        case .historyLoaded(let key, let messages, let completedTools, let toolResults, let structuredResults, let conversationInfo):
             await processHistoryLoaded(
-                sessionId: sessionId,
+                key: key,
                 messages: messages,
                 completedTools: completedTools,
                 toolResults: toolResults,
@@ -94,22 +94,22 @@ actor SessionStore {
                 conversationInfo: conversationInfo
             )
 
-        case .toolCompleted(let sessionId, let toolUseId, let result):
-            await processToolCompleted(sessionId: sessionId, toolUseId: toolUseId, result: result)
+        case .toolCompleted(let key, let toolUseId, let result):
+            await processToolCompleted(key: key, toolUseId: toolUseId, result: result)
 
         // MARK: - Subagent Events
 
-        case .subagentStarted(let sessionId, let taskToolId):
-            processSubagentStarted(sessionId: sessionId, taskToolId: taskToolId)
+        case .subagentStarted(let key, let taskToolId):
+            processSubagentStarted(key: key, taskToolId: taskToolId)
 
-        case .subagentToolExecuted(let sessionId, let tool):
-            processSubagentToolExecuted(sessionId: sessionId, tool: tool)
+        case .subagentToolExecuted(let key, let tool):
+            processSubagentToolExecuted(key: key, tool: tool)
 
-        case .subagentToolCompleted(let sessionId, let toolId, let status):
-            processSubagentToolCompleted(sessionId: sessionId, toolId: toolId, status: status)
+        case .subagentToolCompleted(let key, let toolId, let status):
+            processSubagentToolCompleted(key: key, toolId: toolId, status: status)
 
-        case .subagentStopped(let sessionId, let taskToolId):
-            processSubagentStopped(sessionId: sessionId, taskToolId: taskToolId)
+        case .subagentStopped(let key, let taskToolId):
+            processSubagentStopped(key: key, taskToolId: taskToolId)
 
         case .agentFileUpdated:
             // No longer used - subagent tools are populated from JSONL completion
@@ -122,9 +122,9 @@ actor SessionStore {
     // MARK: - Hook Event Processing
 
     private func processHookEvent(_ event: HookEvent) async {
-        let sessionId = event.sessionId
-        let isNewSession = sessions[sessionId] == nil
-        var session = sessions[sessionId] ?? createSession(from: event)
+        let key = event.sessionKey
+        let isNewSession = sessions[key] == nil
+        var session = sessions[key] ?? createSession(from: event)
 
         // Track new session in Mixpanel
         if isNewSession {
@@ -139,11 +139,14 @@ actor SessionStore {
         if let tty = event.tty {
             session.tty = tty.replacingOccurrences(of: "/dev/", with: "")
         }
+        if let sessionFile = event.sessionFile {
+            session.transcriptPath = sessionFile
+        }
         session.lastActivity = Date()
 
         if event.status == "ended" {
-            sessions.removeValue(forKey: sessionId)
-            cancelPendingSync(sessionId: sessionId)
+            sessions.removeValue(forKey: key)
+            cancelPendingSync(key: key)
             return
         }
 
@@ -167,22 +170,24 @@ actor SessionStore {
             session.subagentState = SubagentState()
         }
 
-        sessions[sessionId] = session
+        sessions[key] = session
         publishState()
 
         if event.shouldSyncFile {
-            scheduleFileSync(sessionId: sessionId, cwd: event.cwd)
+            scheduleFileSync(key: key, cwd: event.cwd)
         }
     }
 
     private func createSession(from event: HookEvent) -> SessionState {
         SessionState(
+            agent: event.agentKind,
             sessionId: event.sessionId,
             cwd: event.cwd,
             projectName: URL(fileURLWithPath: event.cwd).lastPathComponent,
+            transcriptPath: event.sessionFile,
             pid: event.pid,
             tty: event.tty?.replacingOccurrences(of: "/dev/", with: ""),
-            isInTmux: false,  // Will be updated
+            isInTmux: false,  // 稍后根据进程树更新
             phase: .idle
         )
     }
@@ -341,31 +346,31 @@ actor SessionStore {
     // MARK: - Subagent Event Handlers
 
     /// Handle subagent started event
-    private func processSubagentStarted(sessionId: String, taskToolId: String) {
-        guard var session = sessions[sessionId] else { return }
+    private func processSubagentStarted(key: SessionKey, taskToolId: String) {
+        guard var session = sessions[key] else { return }
         session.subagentState.startTask(taskToolId: taskToolId)
-        sessions[sessionId] = session
+        sessions[key] = session
     }
 
     /// Handle subagent tool executed event
-    private func processSubagentToolExecuted(sessionId: String, tool: SubagentToolCall) {
-        guard var session = sessions[sessionId] else { return }
+    private func processSubagentToolExecuted(key: SessionKey, tool: SubagentToolCall) {
+        guard var session = sessions[key] else { return }
         session.subagentState.addSubagentTool(tool)
-        sessions[sessionId] = session
+        sessions[key] = session
     }
 
     /// Handle subagent tool completed event
-    private func processSubagentToolCompleted(sessionId: String, toolId: String, status: ToolStatus) {
-        guard var session = sessions[sessionId] else { return }
+    private func processSubagentToolCompleted(key: SessionKey, toolId: String, status: ToolStatus) {
+        guard var session = sessions[key] else { return }
         session.subagentState.updateSubagentToolStatus(toolId: toolId, status: status)
-        sessions[sessionId] = session
+        sessions[key] = session
     }
 
     /// Handle subagent stopped event
-    private func processSubagentStopped(sessionId: String, taskToolId: String) {
-        guard var session = sessions[sessionId] else { return }
+    private func processSubagentStopped(key: SessionKey, taskToolId: String) {
+        guard var session = sessions[key] else { return }
         session.subagentState.stopTask(taskToolId: taskToolId)
-        sessions[sessionId] = session
+        sessions[key] = session
         // Subagent tools will be populated from agent file in processFileUpdated
     }
 
@@ -379,8 +384,8 @@ actor SessionStore {
 
     // MARK: - Permission Processing
 
-    private func processPermissionApproved(sessionId: String, toolUseId: String) async {
-        guard var session = sessions[sessionId] else { return }
+    private func processPermissionApproved(key: SessionKey, toolUseId: String) async {
+        guard var session = sessions[key] else { return }
 
         // Update tool status in chat history first
         updateToolStatus(in: &session, toolId: toolUseId, status: .running)
@@ -413,15 +418,15 @@ actor SessionStore {
             }
         }
 
-        sessions[sessionId] = session
+        sessions[key] = session
     }
 
     // MARK: - Tool Completion Processing
 
     /// Process a tool completion event (from JSONL detection)
     /// This is the authoritative handler for tool completions - ensures consistent state updates
-    private func processToolCompleted(sessionId: String, toolUseId: String, result: ToolCompletionResult) async {
-        guard var session = sessions[sessionId] else { return }
+    private func processToolCompleted(key: SessionKey, toolUseId: String, result: ToolCompletionResult) async {
+        guard var session = sessions[key] else { return }
 
         // Check if this tool is already completed (avoid duplicate processing)
         if let existingItem = session.chatItems.first(where: { $0.id == toolUseId }),
@@ -467,7 +472,7 @@ actor SessionStore {
             }
         }
 
-        sessions[sessionId] = session
+        sessions[key] = session
     }
 
     /// Find the next tool waiting for approval (excluding a specific tool ID)
@@ -481,8 +486,8 @@ actor SessionStore {
         return nil
     }
 
-    private func processPermissionDenied(sessionId: String, toolUseId: String, reason: String?) async {
-        guard var session = sessions[sessionId] else { return }
+    private func processPermissionDenied(key: SessionKey, toolUseId: String, reason: String?) async {
+        guard var session = sessions[key] else { return }
 
         // Update tool status in chat history first
         updateToolStatus(in: &session, toolId: toolUseId, status: .error)
@@ -514,11 +519,11 @@ actor SessionStore {
             }
         }
 
-        sessions[sessionId] = session
+        sessions[key] = session
     }
 
-    private func processSocketFailure(sessionId: String, toolUseId: String) async {
-        guard var session = sessions[sessionId] else { return }
+    private func processSocketFailure(key: SessionKey, toolUseId: String) async {
+        guard var session = sessions[key] else { return }
 
         // Mark the failed tool's status as error
         updateToolStatus(in: &session, toolId: toolUseId, status: .error)
@@ -546,17 +551,18 @@ actor SessionStore {
             }
         }
 
-        sessions[sessionId] = session
+        sessions[key] = session
     }
 
     // MARK: - File Update Processing
 
     private func processFileUpdate(_ payload: FileUpdatePayload) async {
-        guard var session = sessions[payload.sessionId] else { return }
+        guard var session = sessions[payload.key] else { return }
 
-        // Update conversationInfo from JSONL (summary, lastMessage, etc.)
+        // 用记录里的信息刷新会话概要（摘要、最后一条消息等）
         let conversationInfo = await ConversationParser.shared.parse(
-            sessionId: payload.sessionId,
+            sessionId: payload.key.sessionId,
+            agent: payload.key.agent,
             cwd: session.cwd
         )
         session.conversationInfo = conversationInfo
@@ -682,16 +688,15 @@ actor SessionStore {
         session.toolTracker.lastSyncTime = Date()
 
         await populateSubagentToolsFromAgentFiles(
-            sessionId: payload.sessionId,
+            key: payload.key,
             session: &session,
-            cwd: payload.cwd,
             structuredResults: payload.structuredResults
         )
 
-        sessions[payload.sessionId] = session
+        sessions[payload.key] = session
 
         await emitToolCompletionEvents(
-            sessionId: payload.sessionId,
+            key: payload.key,
             session: session,
             completedToolIds: payload.completedToolIds,
             toolResults: payload.toolResults,
@@ -699,11 +704,10 @@ actor SessionStore {
         )
     }
 
-    /// Populate subagent tools for Task/Agent tools using their agent JSONL files
+    /// 用子 Agent 自己的记录补齐 Task/Agent 工具内部的工具调用列表
     private func populateSubagentToolsFromAgentFiles(
-        sessionId: String,
+        key: SessionKey,
         session: inout SessionState,
-        cwd: String,
         structuredResults: [String: ToolResultData]
     ) async {
         for i in 0..<session.chatItems.count {
@@ -722,10 +726,11 @@ actor SessionStore {
                 session.subagentState.agentDescriptions[taskResult.agentId] = description
             }
 
-            let subagentToolInfos = await ConversationParser.shared.parseSubagentTools(
-                sessionId: sessionId,
+            let subagentToolInfos = await ConversationParser.shared.subagentTools(
+                sessionId: key.sessionId,
+                agent: key.agent,
                 agentId: taskResult.agentId,
-                cwd: cwd
+                cwd: session.cwd
             )
 
             guard !subagentToolInfos.isEmpty else { continue }
@@ -752,10 +757,10 @@ actor SessionStore {
 
     /// Emit toolCompleted events for tools that have results in JSONL but aren't marked complete yet
     private func emitToolCompletionEvents(
-        sessionId: String,
+        key: SessionKey,
         session: SessionState,
         completedToolIds: Set<String>,
-        toolResults: [String: ConversationParser.ToolResult],
+        toolResults: [String: ToolResultPayload],
         structuredResults: [String: ToolResultData]
     ) async {
         for item in session.chatItems {
@@ -771,7 +776,7 @@ actor SessionStore {
             )
 
             // Process the completion event (this will update state and phase consistently)
-            await process(.toolCompleted(sessionId: sessionId, toolUseId: item.id, result: result))
+            await process(.toolCompleted(key: key, toolUseId: item.id, result: result))
         }
     }
 
@@ -782,7 +787,7 @@ actor SessionStore {
         blockIndex: Int,
         existingIds: Set<String>,
         completedTools: Set<String>,
-        toolResults: [String: ConversationParser.ToolResult],
+        toolResults: [String: ToolResultPayload],
         structuredResults: [String: ToolResultData],
         toolTracker: inout ToolTracker
     ) -> ChatHistoryItem? {
@@ -881,8 +886,8 @@ actor SessionStore {
 
     // MARK: - Interrupt Processing
 
-    private func processInterrupt(sessionId: String) async {
-        guard var session = sessions[sessionId] else { return }
+    private func processInterrupt(key: SessionKey) async {
+        guard var session = sessions[key] else { return }
 
         // Clear subagent state
         session.subagentState = SubagentState()
@@ -905,52 +910,54 @@ actor SessionStore {
             session.phase = .idle
         }
 
-        sessions[sessionId] = session
+        sessions[key] = session
     }
 
     // MARK: - Clear Processing
 
-    private func processClearDetected(sessionId: String) async {
-        guard var session = sessions[sessionId] else { return }
+    private func processClearDetected(key: SessionKey) async {
+        guard var session = sessions[key] else { return }
 
-        Self.logger.info("Processing /clear for session \(sessionId.prefix(8), privacy: .public)")
+        Self.logger.info("Processing /clear for session \(key.rawValue, privacy: .public)")
 
         // Mark that a clear happened - the next fileUpdated will reconcile
         // by removing items that no longer exist in the parser's state
         session.needsClearReconciliation = true
-        sessions[sessionId] = session
+        sessions[key] = session
 
-        Self.logger.info("/clear processed for session \(sessionId.prefix(8), privacy: .public) - marked for reconciliation")
+        Self.logger.info("/clear processed for session \(key.rawValue, privacy: .public) - marked for reconciliation")
     }
 
     // MARK: - Session End Processing
 
-    private func processSessionEnd(sessionId: String) async {
-        sessions.removeValue(forKey: sessionId)
-        cancelPendingSync(sessionId: sessionId)
+    private func processSessionEnd(key: SessionKey) async {
+        sessions.removeValue(forKey: key)
+        cancelPendingSync(key: key)
     }
 
     // MARK: - History Loading
 
-    private func loadHistoryFromFile(sessionId: String, cwd: String) async {
-        // Parse file asynchronously
+    private func loadHistoryFromFile(key: SessionKey, cwd: String) async {
+        // 异步读取记录
         let messages = await ConversationParser.shared.parseFullConversation(
-            sessionId: sessionId,
+            sessionId: key.sessionId,
+            agent: key.agent,
             cwd: cwd
         )
-        let completedTools = await ConversationParser.shared.completedToolIds(for: sessionId)
-        let toolResults = await ConversationParser.shared.toolResults(for: sessionId)
-        let structuredResults = await ConversationParser.shared.structuredResults(for: sessionId)
+        let completedTools = await ConversationParser.shared.completedToolIds(sessionId: key.sessionId, agent: key.agent)
+        let toolResults = await ConversationParser.shared.toolResults(sessionId: key.sessionId, agent: key.agent)
+        let structuredResults = await ConversationParser.shared.structuredResults(sessionId: key.sessionId, agent: key.agent)
 
-        // Also parse conversationInfo (summary, lastMessage, etc.)
+        // 同时刷新会话概要（摘要、最后一条消息等）
         let conversationInfo = await ConversationParser.shared.parse(
-            sessionId: sessionId,
+            sessionId: key.sessionId,
+            agent: key.agent,
             cwd: cwd
         )
 
-        // Process loaded history
+        // 处理已加载的历史
         await process(.historyLoaded(
-            sessionId: sessionId,
+            key: key,
             messages: messages,
             completedTools: completedTools,
             toolResults: toolResults,
@@ -960,19 +967,19 @@ actor SessionStore {
     }
 
     private func processHistoryLoaded(
-        sessionId: String,
+        key: SessionKey,
         messages: [ChatMessage],
         completedTools: Set<String>,
-        toolResults: [String: ConversationParser.ToolResult],
+        toolResults: [String: ToolResultPayload],
         structuredResults: [String: ToolResultData],
         conversationInfo: ConversationInfo
     ) async {
-        guard var session = sessions[sessionId] else { return }
+        guard var session = sessions[key] else { return }
 
-        // Update conversationInfo (summary, lastMessage, etc.)
+        // 刷新会话概要（摘要、最后一条消息等）
         session.conversationInfo = conversationInfo
 
-        // Convert messages to chat items
+        // 把消息转换成聊天条目
         let existingIds = Set(session.chatItems.map { $0.id })
 
         for message in messages {
@@ -994,31 +1001,39 @@ actor SessionStore {
             }
         }
 
-        // Sort by timestamp
+        // 按时间排序
         session.chatItems.sort { $0.timestamp < $1.timestamp }
 
-        sessions[sessionId] = session
+        sessions[key] = session
     }
 
     // MARK: - File Sync Scheduling
 
-    private func scheduleFileSync(sessionId: String, cwd: String) {
-        // Cancel existing sync
-        cancelPendingSync(sessionId: sessionId)
+    private func scheduleFileSync(key: SessionKey, cwd: String) {
+        // 取消上一次尚未执行的同步
+        cancelPendingSync(key: key)
 
-        // Schedule new debounced sync
-        pendingSyncs[sessionId] = Task { [weak self, syncDebounceNs] in
+        // 安排新的去抖读取
+        pendingSyncs[key] = Task { [weak self, syncDebounceNs] in
             try? await Task.sleep(nanoseconds: syncDebounceNs)
             guard !Task.isCancelled else { return }
 
-            // Parse incrementally - only get NEW messages since last call
+            // 增量读取：只取上次之后新增的内容
             let result = await ConversationParser.shared.parseIncremental(
-                sessionId: sessionId,
+                sessionId: key.sessionId,
+                agent: key.agent,
                 cwd: cwd
             )
 
             if result.clearDetected {
-                await self?.process(.clearDetected(sessionId: sessionId))
+                await self?.process(.clearDetected(key: key))
+            }
+
+            // 未安装实时集成的 Agent：由记录内容推断状态与工具事件
+            if !result.activity.isEmpty,
+               !AgentRegistry.integrationInstalled(key.agent),
+               let session = await self?.session(for: key) {
+                await self?.applyTranscriptActivity(result.activity, key: key, cwd: cwd, session: session)
             }
 
             guard !result.newMessages.isEmpty || result.clearDetected else {
@@ -1026,7 +1041,7 @@ actor SessionStore {
             }
 
             let payload = FileUpdatePayload(
-                sessionId: sessionId,
+                key: key,
                 cwd: cwd,
                 messages: result.newMessages,
                 isIncremental: !result.clearDetected,
@@ -1039,9 +1054,71 @@ actor SessionStore {
         }
     }
 
-    private func cancelPendingSync(sessionId: String) {
-        pendingSyncs[sessionId]?.cancel()
-        pendingSyncs.removeValue(forKey: sessionId)
+    private func cancelPendingSync(key: SessionKey) {
+        pendingSyncs[key]?.cancel()
+        pendingSyncs.removeValue(forKey: key)
+    }
+
+    // MARK: - 记录驱动的状态推断
+
+    /// 轮询某个会话的记录（去抖后与 hook 触发的同步共用同一条路径）。
+    func pollSession(key: SessionKey, cwd: String) {
+        scheduleFileSync(key: key, cwd: cwd)
+    }
+
+    /// 把记录里观察到的活动转换成与 hook 同名的事件，喂给同一个状态机。
+    /// 只在 Agent 没有安装实时集成时调用，以免与实时事件重复。
+    private func applyTranscriptActivity(
+        _ activity: [AgentActivityEvent],
+        key: SessionKey,
+        cwd: String,
+        session: SessionState
+    ) async {
+        for item in activity {
+            guard let event = Self.hookEvent(for: item, key: key, cwd: cwd, session: session) else { continue }
+            await process(.hookReceived(event))
+        }
+    }
+
+    /// 活动 → HookEvent 的映射（事件名与 Claude Code hook 保持一致）。
+    private static func hookEvent(
+        for activity: AgentActivityEvent,
+        key: SessionKey,
+        cwd: String,
+        session: SessionState
+    ) -> HookEvent? {
+        let agent = key.agent.rawValue
+        switch activity {
+        case .promptSubmitted:
+            return HookEvent(
+                sessionId: key.sessionId, cwd: cwd, event: "UserPromptSubmit", status: "processing",
+                pid: session.pid, tty: session.tty, tool: nil, toolInput: nil, toolUseId: nil,
+                notificationType: nil, message: nil, agent: agent, sessionFile: session.transcriptPath
+            )
+        case .toolStarted(let id, let name, let input):
+            return HookEvent(
+                sessionId: key.sessionId, cwd: cwd, event: "PreToolUse", status: "running_tool",
+                pid: session.pid, tty: session.tty, tool: name,
+                toolInput: input.mapValues { AnyCodable($0) }, toolUseId: id,
+                notificationType: nil, message: nil, agent: agent, sessionFile: session.transcriptPath
+            )
+        case .toolFinished(let id, let name, let isError):
+            return HookEvent(
+                sessionId: key.sessionId, cwd: cwd,
+                event: isError ? "PostToolUseFailure" : "PostToolUse", status: "processing",
+                pid: session.pid, tty: session.tty, tool: name, toolInput: nil, toolUseId: id,
+                notificationType: nil, message: nil, agent: agent, sessionFile: session.transcriptPath
+            )
+        case .turnFinished:
+            return HookEvent(
+                sessionId: key.sessionId, cwd: cwd, event: "Stop", status: "waiting_for_input",
+                pid: session.pid, tty: session.tty, tool: nil, toolInput: nil, toolUseId: nil,
+                notificationType: nil, message: nil, agent: agent, sessionFile: session.transcriptPath
+            )
+        case .sessionReset:
+            // 清空由 clearDetected 与随后的文件同步负责
+            return nil
+        }
     }
 
     // MARK: - Periodic Status Check
@@ -1068,14 +1145,15 @@ actor SessionStore {
         Self.logger.info("Stopped periodic status check")
     }
 
-    /// Recheck status of all active sessions
+    /// 重新检查所有活跃会话
     private func recheckAllSessions() {
         var removedSession = false
+        let staleCutoff = Date().addingTimeInterval(-Self.staleSessionIdleTimeout)
 
-        for (sessionId, session) in Array(sessions) {
+        for (key, session) in Array(sessions) {
             if session.phase == .ended {
-                sessions.removeValue(forKey: sessionId)
-                cancelPendingSync(sessionId: sessionId)
+                sessions.removeValue(forKey: key)
+                cancelPendingSync(key: key)
                 removedSession = true
                 continue
             }
@@ -1083,12 +1161,19 @@ actor SessionStore {
             if let pid = session.pid {
                 let isRunning = isProcessRunning(pid: pid)
                 if !isRunning {
-                    Self.logger.info("Process \(pid) no longer running, ending session \(sessionId.prefix(8))")
-                    sessions.removeValue(forKey: sessionId)
-                    cancelPendingSync(sessionId: sessionId)
+                    Self.logger.info("Process \(pid) no longer running, ending session \(key.rawValue, privacy: .public)")
+                    sessions.removeValue(forKey: key)
+                    cancelPendingSync(key: key)
                     removedSession = true
                     continue
                 }
+            } else if session.lastActivity < staleCutoff {
+                // 没有实时集成的会话无法感知进程退出，只能按「多久没写入」回收
+                Self.logger.info("Session \(key.rawValue, privacy: .public) idle for too long, ending")
+                sessions.removeValue(forKey: key)
+                cancelPendingSync(key: key)
+                removedSession = true
+                continue
             }
 
             let needsSync: Bool
@@ -1099,7 +1184,7 @@ actor SessionStore {
                 needsSync = false
             }
             if needsSync {
-                scheduleFileSync(sessionId: sessionId, cwd: session.cwd)
+                scheduleFileSync(key: key, cwd: session.cwd)
             }
         }
 
@@ -1107,6 +1192,9 @@ actor SessionStore {
             publishState()
         }
     }
+
+    /// 无实时集成会话的空闲回收阈值（秒）。
+    private static let staleSessionIdleTimeout: TimeInterval = 30 * 60
 
     /// Check if a process is still running
     private nonisolated func isProcessRunning(pid: Int) -> Bool {
@@ -1123,13 +1211,13 @@ actor SessionStore {
     // MARK: - Queries
 
     /// Get a specific session
-    func session(for sessionId: String) -> SessionState? {
-        sessions[sessionId]
+    func session(for key: SessionKey) -> SessionState? {
+        sessions[key]
     }
 
     /// Check if there's an active permission for a session
-    func hasActivePermission(sessionId: String) -> Bool {
-        guard let session = sessions[sessionId] else { return false }
+    func hasActivePermission(key: SessionKey) -> Bool {
+        guard let session = sessions[key] else { return false }
         if case .waitingForApproval = session.phase {
             return true
         }

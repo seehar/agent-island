@@ -32,7 +32,7 @@ enum NotchContentType: Equatable {
         switch self {
         case .instances: return "instances"
         case .menu: return "menu"
-        case .chat(let session): return "chat-\(session.sessionId)"
+        case .chat(let session): return "chat-\(session.sessionKey.rawValue)"
         }
     }
 }
@@ -51,6 +51,7 @@ class NotchViewModel: ObservableObject {
     private let screenSelector = ScreenSelector.shared
     private let soundSelector = SoundSelector.shared
     private let claudeDirSelector = ClaudeDirSelector.shared
+    private let languageSelector = LanguageSelector.shared
 
     // MARK: - Geometry
 
@@ -72,14 +73,16 @@ class NotchViewModel: ObservableObject {
                 height: 580
             )
         case .menu:
-            // Base height covers all static rows (Back, 3 picker rows, 3 toggles,
-            // Accessibility, Update, GitHub, Quit + 4 dividers + padding).
-            // Picker expansion deltas added on top when expanded.
+            // 基础高度覆盖所有固定行（返回、4 个选择行、4 行 Agent 设置、
+            // 3 个开关、辅助功能、更新、GitHub、退出 + 4 条分隔线 + 内边距）。
+            // Agent 设置每行 36（上下各 10 内边距 + 16 行高）+ 4 间距，共 4 行。
+            // 选择器展开时，再叠加各自的展开高度增量。
             return CGSize(
                 width: min(screenRect.width * 0.4, 480),
-                height: 540
+                height: 744
                     + screenSelector.expandedPickerHeight
                     + soundSelector.expandedPickerHeight
+                    + languageSelector.expandedPickerHeight
                     + claudeDirSelector.expandedPickerHeight
             )
         case .instances:
@@ -125,6 +128,10 @@ class NotchViewModel: ObservableObject {
             .store(in: &cancellables)
 
         claudeDirSelector.$isPickerExpanded
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        languageSelector.$isPickerExpanded
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
     }
@@ -250,7 +257,7 @@ class NotchViewModel: ObservableObject {
         // Restore chat session if we had one open before
         if let chatSession = currentChatSession {
             // Avoid unnecessary updates if already showing this chat
-            if case .chat(let current) = contentType, current.sessionId == chatSession.sessionId {
+            if case .chat(let current) = contentType, current.sessionKey == chatSession.sessionKey {
                 return
             }
             contentType = .chat(chatSession)
@@ -282,7 +289,7 @@ class NotchViewModel: ObservableObject {
 
     func showChat(for session: SessionState) {
         // Avoid unnecessary updates if already showing this chat
-        if case .chat(let current) = contentType, current.sessionId == session.sessionId {
+        if case .chat(let current) = contentType, current.sessionKey == session.sessionKey {
             return
         }
         contentType = .chat(session)

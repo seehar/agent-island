@@ -7,12 +7,15 @@
 
 import Foundation
 
-struct HookInstaller {
+nonisolated struct HookInstaller {
 
-    /// Install hook script and update settings.json on app launch
+    /// hook 脚本文件名（各 Agent 的安装逻辑共用这个名字）。
+    static let hookScriptName = "claude-island-state.py"
+
+    /// 启动时安装 hook 脚本并更新 settings.json
     static func installIfNeeded() {
         let hooksDir = ClaudePaths.hooksDir
-        let pythonScript = hooksDir.appendingPathComponent("claude-island-state.py")
+        let pythonScript = hooksDir.appendingPathComponent(Self.hookScriptName)
 
         try? FileManager.default.createDirectory(
             at: hooksDir,

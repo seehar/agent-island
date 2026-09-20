@@ -40,9 +40,14 @@ class AgentFileWatcher {
         self.agentId = agentId
         self.cwd = cwd
 
+        // 子 Agent 记录只在 Claude Code 里存在，路径规则由 Claude schema 提供
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-")
                             .replacingOccurrences(of: ".", with: "-")
-        self.filePath = ConversationParser.subagentFilePath(sessionId: sessionId, agentId: agentId, projectDir: projectDir)
+        self.filePath = ClaudeTranscriptSchema.subagentFilePath(
+            sessionId: sessionId,
+            agentId: agentId,
+            projectDir: projectDir
+        )
     }
 
     /// Start watching the agent file
@@ -95,7 +100,8 @@ class AgentFileWatcher {
     }
 
     private func parseTools() {
-        let tools = ConversationParser.parseSubagentToolsSync(sessionId: sessionId, agentId: agentId, cwd: cwd)
+        let tools = AgentTranscriptSchemaRegistry.schema(for: .claudeCode)
+            .subagentTools(sessionId: sessionId, agentId: agentId, cwd: cwd)
 
         let newTools = tools.filter { !seenToolIds.contains($0.id) }
         guard !newTools.isEmpty || tools.count != seenToolIds.count else { return }
@@ -208,7 +214,11 @@ class AgentFileWatcherBridge: AgentFileWatcherDelegate {
     func didUpdateAgentTools(sessionId: String, taskToolId: String, tools: [SubagentToolInfo]) {
         Task {
             await SessionStore.shared.process(
-                .agentFileUpdated(sessionId: sessionId, taskToolId: taskToolId, tools: tools)
+                .agentFileUpdated(
+                    key: SessionKey(agent: .claudeCode, sessionId: sessionId),
+                    taskToolId: taskToolId,
+                    tools: tools
+                )
             )
         }
     }
