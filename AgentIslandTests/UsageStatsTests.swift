@@ -69,6 +69,25 @@ struct UsageStatsTests {
     #expect(sum.calls == 3)
   }
 
+  @Test("中文界面按「万 / 亿」，其余语言按 K / M")
+  func tokenShortFormatFollowsLanguage() {
+    let zh = Locale(identifier: "zh-Hans")
+    let en = Locale(identifier: "en-US")
+
+    // 中文：不足一万给原数，一万以上「万」，一亿以上「亿」。
+    #expect(UsageTokenFormat.short(9_999, languageCode: "zh", locale: zh) == "9,999")
+    #expect(UsageTokenFormat.short(12_488, languageCode: "zh", locale: zh) == "1.2万")
+    #expect(UsageTokenFormat.short(4_800_000, languageCode: "zh", locale: zh) == "480万")
+    #expect(UsageTokenFormat.short(100_000_000, languageCode: "zh", locale: zh) == "1亿")
+    #expect(UsageTokenFormat.short(3_239_364_009, languageCode: "zh", locale: zh) == "32.4亿")
+    #expect(UsageTokenFormat.short(69_538_549_758, languageCode: "zh", locale: zh) == "695.4亿")
+
+    // 其它语言沿用公制词头。
+    #expect(UsageTokenFormat.short(12_488, languageCode: "en", locale: en) == "12.5K")
+    #expect(UsageTokenFormat.short(4_800_000, languageCode: "en", locale: en) == "4.8M")
+    #expect(UsageTokenFormat.short(999, languageCode: "en", locale: en) == "999")
+  }
+
   @Test("小时键按本地时区切分")
   func hourKeyUsesLocalTimeZone() {
     let shanghai = calendar()

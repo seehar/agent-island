@@ -137,6 +137,49 @@ nonisolated struct UsageStatsSnapshot: Equatable, Sendable {
   static let empty = UsageStatsSnapshot()
 }
 
+// MARK: - 数值短格式
+
+/// 用量数字的短格式。
+///
+/// 中文界面按「万 / 亿」（12,488 → 1.2万；69,538,549,758 → 695.4亿），其余语言沿用
+/// K / M 公制词头（词头各语言通用）。小数点符号跟随界面语言。
+nonisolated enum UsageTokenFormat {
+    /// 短格式的 token 数量。
+    static func short(_ value: Int, languageCode: String, locale: Locale) -> String {
+        if languageCode.hasPrefix("zh") {
+            return chineseShort(value, locale: locale)
+        }
+        if value >= 1_000_000 {
+            return String(format: "%.1fM", locale: locale, Double(value) / 1_000_000)
+        }
+        if value >= 1_000 {
+            return String(format: "%.1fK", locale: locale, Double(value) / 1_000)
+        }
+        return value.formatted(.number.locale(locale))
+    }
+
+    /// 中文的量级词：不足一万给原数，一万以上用「万」，一亿以上用「亿」。
+    private static func chineseShort(_ value: Int, locale: Locale) -> String {
+        if value >= 100_000_000 {
+            return scaled(Double(value) / 100_000_000, suffix: "亿", locale: locale)
+        }
+        if value >= 10_000 {
+            return scaled(Double(value) / 10_000, suffix: "万", locale: locale)
+        }
+        return value.formatted(.number.locale(locale))
+    }
+
+    /// 保留一位小数；整数结果不带小数点（480 万而不是 480.0 万）。
+    private static func scaled(_ value: Double, suffix: String, locale: Locale) -> String {
+        let rounded = (value * 10).rounded() / 10
+        let text =
+            rounded == rounded.rounded()
+            ? String(Int(rounded))
+            : String(format: "%.1f", locale: locale, rounded)
+        return text + suffix
+    }
+}
+
 // MARK: - 时间桶键
 
 /// 聚合键的构造与解析。全部按**本地时区**分桶，键形如 `2026-09-20T14`。

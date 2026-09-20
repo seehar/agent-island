@@ -498,16 +498,13 @@ struct UsageStatsView: View {
         return Double(value) / Double(maximum)
     }
 
-    /// token 数值的短字符串：沿用会话列表的 K/M 词头约定（词头是公制前缀，各语言通用，
-    /// 因此不本地化），小数点符号跟随界面语言。
+    /// token 数值的短字符串：中文界面按「万 / 亿」，其余语言按 K / M（见 UsageTokenFormat）。
     private func tokenText(_ value: Int) -> String {
-        if value >= 1_000_000 {
-            return String(format: "%.1fM", locale: l10n.locale, Double(value) / 1_000_000)
-        }
-        if value >= 1_000 {
-            return String(format: "%.1fK", locale: l10n.locale, Double(value) / 1_000)
-        }
-        return "\(value)"
+        UsageTokenFormat.short(
+            value,
+            languageCode: locale.language.languageCode?.identifier ?? "en",
+            locale: l10n.locale
+        )
     }
 
     /// 缓存命中率：分母为 0 时数据层给 nil（没走过缓存就谈不上命中率），这里显示占位符。
