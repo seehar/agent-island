@@ -10,7 +10,7 @@ import CryptoKit
 
 /// Produces a stable hex hash string that is consistent across app launches.
 /// Swift's hashValue is randomized per process, making it unsuitable for identifiers.
-enum StableHash {
+nonisolated enum StableHash {
     static func hash(_ string: Substring) -> String {
         let data = Data(string.utf8)
         let digest = SHA256.hash(data: data)
@@ -18,7 +18,7 @@ enum StableHash {
     }
 }
 
-struct ChatMessage: Identifiable, Equatable {
+nonisolated struct ChatMessage: Identifiable, Equatable {
     let id: String
     let role: ChatRole
     let timestamp: Date
@@ -39,13 +39,13 @@ struct ChatMessage: Identifiable, Equatable {
     }
 }
 
-enum ChatRole: String, Equatable {
+nonisolated enum ChatRole: String, Equatable {
     case user
     case assistant
     case system
 }
 
-enum MessageBlock: Equatable, Identifiable {
+nonisolated enum MessageBlock: Equatable, Identifiable {
     case text(String)
     case toolUse(ToolUseBlock)
     case thinking(String)
@@ -82,7 +82,7 @@ enum MessageBlock: Equatable, Identifiable {
 /// Represents an inline image attached to a message — base64-encoded with a
 /// media type (e.g. "image/png"). Claude Code stores these both as top-level
 /// user message blocks and nested inside tool_result content arrays.
-struct ImageBlock: Equatable {
+nonisolated struct ImageBlock: Equatable {
     let mediaType: String
     let base64Data: String
 
@@ -93,7 +93,7 @@ struct ImageBlock: Equatable {
     }
 }
 
-struct ToolUseBlock: Equatable {
+nonisolated struct ToolUseBlock: Equatable {
     let id: String
     let name: String
     let input: [String: String]

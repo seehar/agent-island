@@ -106,7 +106,7 @@ class ChatHistoryManager: ObservableObject {
 
 // MARK: - Models
 
-struct ChatHistoryItem: Identifiable, Equatable, Sendable {
+nonisolated struct ChatHistoryItem: Identifiable, Equatable, Sendable {
     let id: String
     let type: ChatHistoryItemType
     let timestamp: Date
@@ -116,7 +116,7 @@ struct ChatHistoryItem: Identifiable, Equatable, Sendable {
     }
 }
 
-enum ChatHistoryItemType: Equatable, Sendable {
+nonisolated enum ChatHistoryItemType: Equatable, Sendable {
     case user(String)
     case assistant(String)
     case toolCall(ToolCallItem)
@@ -125,7 +125,7 @@ enum ChatHistoryItemType: Equatable, Sendable {
     case interrupted
 }
 
-struct ToolCallItem: Equatable, Sendable {
+nonisolated struct ToolCallItem: Equatable, Sendable {
     let name: String
     let input: [String: String]
     var status: ToolStatus
@@ -147,8 +147,8 @@ struct ToolCallItem: Equatable, Sendable {
         name == "Task" || name == "Agent"
     }
 
-    /// 面向用户的文案统一走本地化管理器。
-    private static let l10n = LocalizationManager.shared
+    /// 面向用户的文案统一走本地化入口；这里用非隔离的静态入口，
+    /// 因为本结构体是 `nonisolated`（会在解析 actor 与后台扫描里被读取）。
 
     /// Preview text for the tool (input-based)
     var inputPreview: String {
@@ -171,8 +171,8 @@ struct ToolCallItem: Equatable, Sendable {
         if let agentId = input["agentId"] {
             let blocking = input["block"] == "true"
             return blocking
-                ? Self.l10n.t("Waiting...")
-                : Self.l10n.t("Checking %@...", String(agentId.prefix(8)))
+                ? LocalizationManager.t("Waiting...")
+                : LocalizationManager.t("Checking %@...", String(agentId.prefix(8)))
         }
         return input.values.first.map { String($0.prefix(60)) } ?? ""
     }
@@ -184,10 +184,10 @@ struct ToolCallItem: Equatable, Sendable {
         }
         if status == .waitingForApproval {
             return ToolStatusDisplay(
-                text: Self.l10n.t("Waiting for approval..."), isRunning: true)
+                text: LocalizationManager.t("Waiting for approval..."), isRunning: true)
         }
         if status == .interrupted {
-            return ToolStatusDisplay(text: Self.l10n.t("Interrupted"), isRunning: false)
+            return ToolStatusDisplay(text: LocalizationManager.t("Interrupted"), isRunning: false)
         }
         return ToolStatusDisplay.completed(for: name, result: structuredResult)
     }
@@ -203,7 +203,7 @@ struct ToolCallItem: Equatable, Sendable {
     }
 }
 
-enum ToolStatus: Sendable, CustomStringConvertible {
+nonisolated enum ToolStatus: Sendable, CustomStringConvertible {
     case running
     case waitingForApproval
     case success
@@ -238,15 +238,15 @@ extension ToolStatus: Equatable {
 // MARK: - Subagent Tool Call
 
 /// Represents a tool call made by a subagent (Task tool)
-struct SubagentToolCall: Equatable, Identifiable, Sendable {
+nonisolated struct SubagentToolCall: Equatable, Identifiable, Sendable {
     let id: String
     let name: String
     let input: [String: String]
     var status: ToolStatus
     let timestamp: Date
 
-    /// 面向用户的文案统一走本地化管理器。
-    private static let l10n = LocalizationManager.shared
+    /// 面向用户的文案统一走本地化入口；这里用非隔离的静态入口，
+    /// 因为本结构体是 `nonisolated`（会在解析 actor 与后台扫描里被读取）。
 
     /// Short description for display
     var displayText: String {
@@ -255,17 +255,17 @@ struct SubagentToolCall: Equatable, Identifiable, Sendable {
             if let path = input["file_path"] {
                 return URL(fileURLWithPath: path).lastPathComponent
             }
-            return Self.l10n.t("Reading...")
+            return LocalizationManager.t("Reading...")
         case "Grep":
             if let pattern = input["pattern"] {
-                return Self.l10n.t("grep: %@", pattern)
+                return LocalizationManager.t("grep: %@", pattern)
             }
-            return Self.l10n.t("Searching...")
+            return LocalizationManager.t("Searching...")
         case "Glob":
             if let pattern = input["pattern"] {
-                return Self.l10n.t("glob: %@", pattern)
+                return LocalizationManager.t("glob: %@", pattern)
             }
-            return Self.l10n.t("Finding files...")
+            return LocalizationManager.t("Finding files...")
         case "Bash":
             if let desc = input["description"] {
                 return desc
@@ -274,29 +274,29 @@ struct SubagentToolCall: Equatable, Identifiable, Sendable {
                 let firstLine = cmd.components(separatedBy: "\n").first ?? cmd
                 return String(firstLine.prefix(40))
             }
-            return Self.l10n.t("Running command...")
+            return LocalizationManager.t("Running command...")
         case "Edit":
             if let path = input["file_path"] {
-                return Self.l10n.t(
+                return LocalizationManager.t(
                     "Edit: %@", URL(fileURLWithPath: path).lastPathComponent)
             }
-            return Self.l10n.t("Editing...")
+            return LocalizationManager.t("Editing...")
         case "Write":
             if let path = input["file_path"] {
-                return Self.l10n.t(
+                return LocalizationManager.t(
                     "Write: %@", URL(fileURLWithPath: path).lastPathComponent)
             }
-            return Self.l10n.t("Writing...")
+            return LocalizationManager.t("Writing...")
         case "WebFetch":
             if let url = input["url"] {
-                return Self.l10n.t("Fetching: %@...", String(url.prefix(30)))
+                return LocalizationManager.t("Fetching: %@...", String(url.prefix(30)))
             }
-            return Self.l10n.t("Fetching...")
+            return LocalizationManager.t("Fetching...")
         case "WebSearch":
             if let query = input["query"] {
-                return Self.l10n.t("Search: %@", String(query.prefix(30)))
+                return LocalizationManager.t("Search: %@", String(query.prefix(30)))
             }
-            return Self.l10n.t("Searching web...")
+            return LocalizationManager.t("Searching web...")
         default:
             return name
         }

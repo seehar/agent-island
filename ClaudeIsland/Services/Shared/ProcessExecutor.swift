@@ -18,14 +18,21 @@ enum ProcessExecutorError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .executionFailed(let command, let exitCode, let stderr):
-            let stderrInfo = stderr.map { ", stderr: \($0)" } ?? ""
-            return "Command '\(command)' failed with exit code \(exitCode)\(stderrInfo)"
+            // 有 stderr 时用三段占位符的 key，末尾 `%@` 承载 stderr 内容，
+            // 原实现里字面量 `, stderr: ` 前缀原样保留在 key 内（面向开发的字段标签）；
+            // 无 stderr 时沿用两段文案，与改造前的输出逐字相同。
+            guard let stderr else {
+                return LocalizationManager.t("Command '%@' failed with exit code %lld", command, Int(exitCode))
+            }
+            return LocalizationManager.t(
+                "Command '%@' failed with exit code %lld, stderr: %@",
+                command, Int(exitCode), stderr)
         case .invalidOutput(let command):
-            return "Command '\(command)' produced invalid output"
+            return LocalizationManager.t("Command '%@' produced invalid output", command)
         case .commandNotFound(let command):
-            return "Command not found: \(command)"
+            return LocalizationManager.t("Command not found: %@", command)
         case .launchFailed(let command, let underlying):
-            return "Failed to launch '\(command)': \(underlying.localizedDescription)"
+            return LocalizationManager.t("Failed to launch '%@': %@", command, underlying.localizedDescription)
         }
     }
 }
@@ -40,7 +47,7 @@ struct ProcessResult: Sendable {
 }
 
 /// Protocol for executing shell commands (enables testing)
-protocol ProcessExecuting: Sendable {
+nonisolated protocol ProcessExecuting: Sendable {
     func run(_ executable: String, arguments: [String]) async throws -> String
     func runWithResult(_ executable: String, arguments: [String]) async -> Result<ProcessResult, ProcessExecutorError>
     func runSync(_ executable: String, arguments: [String]) -> Result<String, ProcessExecutorError>
@@ -49,7 +56,7 @@ protocol ProcessExecuting: Sendable {
 /// Default implementation using Foundation.Process
 actor ProcessExecutor: ProcessExecuting {
     /// Shared instance (nonisolated(unsafe) required for actor init in static context)
-    nonisolated(unsafe) static let shared = ProcessExecutor()
+    static let shared = ProcessExecutor()
 
     /// Logger for process execution (nonisolated static for cross-context access)
     nonisolated static let logger = Logger(subsystem: "com.claudeisland", category: "ProcessExecutor")

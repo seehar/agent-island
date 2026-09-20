@@ -10,7 +10,7 @@ import Foundation
 // MARK: - Tool Result Wrapper
 
 /// Structured tool result data - parsed from JSONL tool_result blocks
-enum ToolResultData: Equatable, Sendable {
+nonisolated enum ToolResultData: Equatable, Sendable {
     case read(ReadResult)
     case edit(EditResult)
     case write(WriteResult)
@@ -31,7 +31,7 @@ enum ToolResultData: Equatable, Sendable {
 
 // MARK: - Read Tool Result
 
-struct ReadResult: Equatable, Sendable {
+nonisolated struct ReadResult: Equatable, Sendable {
     let filePath: String
     let content: String
     let numLines: Int
@@ -45,7 +45,7 @@ struct ReadResult: Equatable, Sendable {
 
 // MARK: - Edit Tool Result
 
-struct EditResult: Equatable, Sendable {
+nonisolated struct EditResult: Equatable, Sendable {
     let filePath: String
     let oldString: String
     let newString: String
@@ -58,7 +58,7 @@ struct EditResult: Equatable, Sendable {
     }
 }
 
-struct PatchHunk: Equatable, Sendable {
+nonisolated struct PatchHunk: Equatable, Sendable {
     let oldStart: Int
     let oldLines: Int
     let newStart: Int
@@ -68,7 +68,7 @@ struct PatchHunk: Equatable, Sendable {
 
 // MARK: - Write Tool Result
 
-struct WriteResult: Equatable, Sendable {
+nonisolated struct WriteResult: Equatable, Sendable {
     enum WriteType: String, Equatable, Sendable {
         case create
         case overwrite
@@ -86,7 +86,7 @@ struct WriteResult: Equatable, Sendable {
 
 // MARK: - Bash Tool Result
 
-struct BashResult: Equatable, Sendable {
+nonisolated struct BashResult: Equatable, Sendable {
     let stdout: String
     let stderr: String
     let interrupted: Bool
@@ -105,13 +105,13 @@ struct BashResult: Equatable, Sendable {
         if !stderr.isEmpty {
             return stderr
         }
-        return "(No content)"
+        return LocalizationManager.t("(No content)")
     }
 }
 
 // MARK: - Grep Tool Result
 
-struct GrepResult: Equatable, Sendable {
+nonisolated struct GrepResult: Equatable, Sendable {
     enum Mode: String, Equatable, Sendable {
         case filesWithMatches = "files_with_matches"
         case content
@@ -128,7 +128,7 @@ struct GrepResult: Equatable, Sendable {
 
 // MARK: - Glob Tool Result
 
-struct GlobResult: Equatable, Sendable {
+nonisolated struct GlobResult: Equatable, Sendable {
     let filenames: [String]
     let durationMs: Int
     let numFiles: Int
@@ -137,12 +137,12 @@ struct GlobResult: Equatable, Sendable {
 
 // MARK: - TodoWrite Tool Result
 
-struct TodoWriteResult: Equatable, Sendable {
+nonisolated struct TodoWriteResult: Equatable, Sendable {
     let oldTodos: [TodoItem]
     let newTodos: [TodoItem]
 }
 
-struct TodoItem: Equatable, Sendable {
+nonisolated struct TodoItem: Equatable, Sendable {
     let content: String
     let status: String // "pending", "in_progress", "completed"
     let activeForm: String?
@@ -150,7 +150,7 @@ struct TodoItem: Equatable, Sendable {
 
 // MARK: - Task (Agent) Tool Result
 
-struct TaskResult: Equatable, Sendable {
+nonisolated struct TaskResult: Equatable, Sendable {
     let agentId: String
     let status: String
     let content: String
@@ -162,7 +162,7 @@ struct TaskResult: Equatable, Sendable {
 
 // MARK: - WebFetch Tool Result
 
-struct WebFetchResult: Equatable, Sendable {
+nonisolated struct WebFetchResult: Equatable, Sendable {
     let url: String
     let code: Int
     let codeText: String
@@ -173,13 +173,13 @@ struct WebFetchResult: Equatable, Sendable {
 
 // MARK: - WebSearch Tool Result
 
-struct WebSearchResult: Equatable, Sendable {
+nonisolated struct WebSearchResult: Equatable, Sendable {
     let query: String
     let durationSeconds: Double
     let results: [SearchResultItem]
 }
 
-struct SearchResultItem: Equatable, Sendable {
+nonisolated struct SearchResultItem: Equatable, Sendable {
     let title: String
     let url: String
     let snippet: String
@@ -187,25 +187,25 @@ struct SearchResultItem: Equatable, Sendable {
 
 // MARK: - AskUserQuestion Tool Result
 
-struct AskUserQuestionResult: Equatable, Sendable {
+nonisolated struct AskUserQuestionResult: Equatable, Sendable {
     let questions: [QuestionItem]
     let answers: [String: String]
 }
 
-struct QuestionItem: Equatable, Sendable {
+nonisolated struct QuestionItem: Equatable, Sendable {
     let question: String
     let header: String?
     let options: [QuestionOption]
 }
 
-struct QuestionOption: Equatable, Sendable {
+nonisolated struct QuestionOption: Equatable, Sendable {
     let label: String
     let description: String?
 }
 
 // MARK: - BashOutput Tool Result
 
-struct BashOutputResult: Equatable, Sendable {
+nonisolated struct BashOutputResult: Equatable, Sendable {
     let shellId: String
     let status: String
     let stdout: String
@@ -219,14 +219,14 @@ struct BashOutputResult: Equatable, Sendable {
 
 // MARK: - KillShell Tool Result
 
-struct KillShellResult: Equatable, Sendable {
+nonisolated struct KillShellResult: Equatable, Sendable {
     let shellId: String
     let message: String
 }
 
 // MARK: - ExitPlanMode Tool Result
 
-struct ExitPlanModeResult: Equatable, Sendable {
+nonisolated struct ExitPlanModeResult: Equatable, Sendable {
     let filePath: String?
     let plan: String?
     let isAgent: Bool
@@ -234,7 +234,7 @@ struct ExitPlanModeResult: Equatable, Sendable {
 
 // MARK: - MCP Tool Result (Generic)
 
-struct MCPResult: Equatable, @unchecked Sendable {
+nonisolated struct MCPResult: Equatable, @unchecked Sendable {
     let serverName: String
     let toolName: String
     let rawResult: [String: Any]
@@ -248,7 +248,7 @@ struct MCPResult: Equatable, @unchecked Sendable {
 
 // MARK: - Generic Tool Result (Fallback)
 
-struct GenericResult: Equatable, @unchecked Sendable {
+nonisolated struct GenericResult: Equatable, @unchecked Sendable {
     let rawContent: String?
     let rawData: [String: Any]?
 
@@ -264,7 +264,7 @@ struct GenericResult: Equatable, @unchecked Sendable {
 
 // MARK: - Tool Status Display
 
-struct ToolStatusDisplay {
+nonisolated struct ToolStatusDisplay {
     let text: String
     let isRunning: Bool
 
@@ -272,84 +272,86 @@ struct ToolStatusDisplay {
     static func running(for toolName: String, input: [String: String]) -> ToolStatusDisplay {
         switch toolName {
         case "Read":
-            return ToolStatusDisplay(text: "Reading...", isRunning: true)
+            return ToolStatusDisplay(text: LocalizationManager.t("Reading..."), isRunning: true)
         case "Edit":
-            return ToolStatusDisplay(text: "Editing...", isRunning: true)
+            return ToolStatusDisplay(text: LocalizationManager.t("Editing..."), isRunning: true)
         case "Write":
-            return ToolStatusDisplay(text: "Writing...", isRunning: true)
+            return ToolStatusDisplay(text: LocalizationManager.t("Writing..."), isRunning: true)
         case "Bash":
             if let desc = input["description"], !desc.isEmpty {
                 return ToolStatusDisplay(text: desc, isRunning: true)
             }
-            return ToolStatusDisplay(text: "Running...", isRunning: true)
+            return ToolStatusDisplay(text: LocalizationManager.t("Running..."), isRunning: true)
         case "Grep", "Glob":
             if let pattern = input["pattern"] {
-                return ToolStatusDisplay(text: "Searching: \(pattern)", isRunning: true)
+                return ToolStatusDisplay(text: LocalizationManager.t("Searching: %@", pattern), isRunning: true)
             }
-            return ToolStatusDisplay(text: "Searching...", isRunning: true)
+            return ToolStatusDisplay(text: LocalizationManager.t("Searching..."), isRunning: true)
         case "WebSearch":
             if let query = input["query"] {
-                return ToolStatusDisplay(text: "Searching: \(query)", isRunning: true)
+                return ToolStatusDisplay(text: LocalizationManager.t("Searching: %@", query), isRunning: true)
             }
-            return ToolStatusDisplay(text: "Searching...", isRunning: true)
+            return ToolStatusDisplay(text: LocalizationManager.t("Searching..."), isRunning: true)
         case "WebFetch":
-            return ToolStatusDisplay(text: "Fetching...", isRunning: true)
+            return ToolStatusDisplay(text: LocalizationManager.t("Fetching..."), isRunning: true)
         case "Task", "Agent":
             if let desc = input["description"], !desc.isEmpty {
                 return ToolStatusDisplay(text: desc, isRunning: true)
             }
-            return ToolStatusDisplay(text: "Running agent...", isRunning: true)
+            return ToolStatusDisplay(text: LocalizationManager.t("Running agent..."), isRunning: true)
         case "TodoWrite":
-            return ToolStatusDisplay(text: "Updating todos...", isRunning: true)
+            return ToolStatusDisplay(text: LocalizationManager.t("Updating todos..."), isRunning: true)
         case "EnterPlanMode":
-            return ToolStatusDisplay(text: "Entering plan mode...", isRunning: true)
+            return ToolStatusDisplay(text: LocalizationManager.t("Entering plan mode..."), isRunning: true)
         case "ExitPlanMode":
-            return ToolStatusDisplay(text: "Exiting plan mode...", isRunning: true)
+            return ToolStatusDisplay(text: LocalizationManager.t("Exiting plan mode..."), isRunning: true)
         default:
-            return ToolStatusDisplay(text: "Running...", isRunning: true)
+            return ToolStatusDisplay(text: LocalizationManager.t("Running..."), isRunning: true)
         }
     }
 
     /// Get completed status text for a tool result
     static func completed(for toolName: String, result: ToolResultData?) -> ToolStatusDisplay {
         guard let result = result else {
-            return ToolStatusDisplay(text: "Completed", isRunning: false)
+            return ToolStatusDisplay(text: LocalizationManager.t("Completed"), isRunning: false)
         }
 
         switch result {
         case .read(let r):
-            let lineText = r.totalLines > r.numLines ? "\(r.numLines)+ lines" : "\(r.numLines) lines"
-            return ToolStatusDisplay(text: "Read \(r.filename) (\(lineText))", isRunning: false)
+            let lineText = r.totalLines > r.numLines
+                ? LocalizationManager.t("%lld+ lines", r.numLines)
+                : LocalizationManager.t("%lld lines", r.numLines)
+            return ToolStatusDisplay(text: LocalizationManager.t("Read %@ (%@)", r.filename, lineText), isRunning: false)
 
         case .edit(let r):
-            return ToolStatusDisplay(text: "Edited \(r.filename)", isRunning: false)
+            return ToolStatusDisplay(text: LocalizationManager.t("Edited %@", r.filename), isRunning: false)
 
         case .write(let r):
-            let action = r.type == .create ? "Created" : "Wrote"
-            return ToolStatusDisplay(text: "\(action) \(r.filename)", isRunning: false)
+            let action = r.type == .create ? LocalizationManager.t("Created %@", r.filename) : LocalizationManager.t("Wrote %@", r.filename)
+            return ToolStatusDisplay(text: action, isRunning: false)
 
         case .bash(let r):
             if let bgId = r.backgroundTaskId {
-                return ToolStatusDisplay(text: "Running in background (\(bgId))", isRunning: false)
+                return ToolStatusDisplay(text: LocalizationManager.t("Running in background (%@)", bgId), isRunning: false)
             }
             if let interpretation = r.returnCodeInterpretation {
                 return ToolStatusDisplay(text: interpretation, isRunning: false)
             }
-            return ToolStatusDisplay(text: "Completed", isRunning: false)
+            return ToolStatusDisplay(text: LocalizationManager.t("Completed"), isRunning: false)
 
         case .grep(let r):
-            let fileWord = r.numFiles == 1 ? "file" : "files"
-            return ToolStatusDisplay(text: "Found \(r.numFiles) \(fileWord)", isRunning: false)
+            let fileWord = r.numFiles == 1 ? LocalizationManager.t("file") : LocalizationManager.t("files")
+            return ToolStatusDisplay(text: LocalizationManager.t("Found %lld %@", r.numFiles, fileWord), isRunning: false)
 
         case .glob(let r):
             let fileWord = r.numFiles == 1 ? "file" : "files"
             if r.numFiles == 0 {
-                return ToolStatusDisplay(text: "No files found", isRunning: false)
+                return ToolStatusDisplay(text: LocalizationManager.t("No files found"), isRunning: false)
             }
-            return ToolStatusDisplay(text: "Found \(r.numFiles) \(fileWord)", isRunning: false)
+            return ToolStatusDisplay(text: LocalizationManager.t("Found %lld %@", r.numFiles, fileWord), isRunning: false)
 
         case .todoWrite:
-            return ToolStatusDisplay(text: "Updated todos", isRunning: false)
+            return ToolStatusDisplay(text: LocalizationManager.t("Updated todos"), isRunning: false)
 
         case .task(let r):
             return ToolStatusDisplay(text: r.status.capitalized, isRunning: false)
@@ -359,28 +361,28 @@ struct ToolStatusDisplay {
 
         case .webSearch(let r):
             let time = r.durationSeconds >= 1 ?
-                "\(Int(r.durationSeconds))s" :
-                "\(Int(r.durationSeconds * 1000))ms"
-            let searchWord = r.results.count == 1 ? "search" : "searches"
-            return ToolStatusDisplay(text: "Did 1 \(searchWord) in \(time)", isRunning: false)
+                LocalizationManager.t("%llds", Int(r.durationSeconds)) :
+                LocalizationManager.t("%lldms", Int(r.durationSeconds * 1000))
+            let searchWord = r.results.count == 1 ? LocalizationManager.t("search") : LocalizationManager.t("searches")
+            return ToolStatusDisplay(text: LocalizationManager.t("Did 1 %@ in %@", searchWord, time), isRunning: false)
 
         case .askUserQuestion:
-            return ToolStatusDisplay(text: "Answered", isRunning: false)
+            return ToolStatusDisplay(text: LocalizationManager.t("Answered"), isRunning: false)
 
         case .bashOutput(let r):
-            return ToolStatusDisplay(text: "Status: \(r.status)", isRunning: false)
+            return ToolStatusDisplay(text: LocalizationManager.t("Status: %@", r.status), isRunning: false)
 
         case .killShell:
-            return ToolStatusDisplay(text: "Terminated", isRunning: false)
+            return ToolStatusDisplay(text: LocalizationManager.t("Terminated"), isRunning: false)
 
         case .exitPlanMode:
-            return ToolStatusDisplay(text: "Plan ready", isRunning: false)
+            return ToolStatusDisplay(text: LocalizationManager.t("Plan ready"), isRunning: false)
 
         case .mcp:
-            return ToolStatusDisplay(text: "Completed", isRunning: false)
+            return ToolStatusDisplay(text: LocalizationManager.t("Completed"), isRunning: false)
 
         case .generic:
-            return ToolStatusDisplay(text: "Completed", isRunning: false)
+            return ToolStatusDisplay(text: LocalizationManager.t("Completed"), isRunning: false)
         }
     }
 }

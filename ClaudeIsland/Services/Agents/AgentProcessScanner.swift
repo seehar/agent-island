@@ -10,7 +10,7 @@ import Foundation
 import os.log
 
 /// 一个正在运行的 Agent CLI 进程。
-struct AgentProcess: Sendable, Equatable {
+nonisolated struct AgentProcess: Sendable, Equatable {
   let agent: AgentKind
   let pid: Int32
   /// 去掉 `/dev/` 前缀的短 tty 名，与 `SessionState.tty` 保持一致。
