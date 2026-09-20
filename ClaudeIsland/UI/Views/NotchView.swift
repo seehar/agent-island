@@ -65,6 +65,11 @@ struct NotchView: View {
   sessionMonitor.instances.count
  }
 
+ /// 正在跑的 subAgent 总数（跨会话求和）。派生工具名按 Agent 收敛在 AgentKind
+ private var activeSubagentCount: Int {
+  sessionMonitor.instances.reduce(0) { $0 + $1.subagentState.activeTasks.count }
+ }
+
  /// 计数徽标的取色：复用各阶段既有的语义色，让「处理中 / 待审批 / 等待输入」
  /// 在关闭态也能一眼分辨
  private var sessionCountColor: Color {
@@ -359,11 +364,13 @@ struct NotchView: View {
   max(0, closedNotchSize.height - 12) + 10
  }
 
- /// 关闭态右侧的会话计数：`活跃/总数`。活跃数取状态色、总数弱化，
- /// 数字等宽以免计数刷新时宽度抖动
+ /// 关闭态右侧的会话计数：`活跃/总数`，有 subAgent 在跑时追加 `+N`。
+ /// 活跃数取状态色、总数弱化，数字等宽以免计数刷新时宽度抖动
  private var sessionCountBadge: some View {
   (
    Text("\(activeSessionCount)").foregroundColor(sessionCountColor)
+    + Text(activeSubagentCount > 0 ? "+\(activeSubagentCount)" : "").foregroundColor(
+     sessionCountColor)
     + Text("/\(totalSessionCount)").foregroundColor(TerminalColors.dim)
   )
   .font(.system(size: 11, weight: .semibold, design: .rounded))
@@ -371,7 +378,12 @@ struct NotchView: View {
   .lineLimit(1)
   .minimumScaleFactor(0.75)  // 会话很多时缩字而非溢出 36pt 的关闭态槽位
   .accessibilityLabel(
-   Text(l10n.t("Active sessions %lld of %lld", activeSessionCount, totalSessionCount)))
+   Text(
+    activeSubagentCount > 0
+     ? l10n.t(
+      "Active sessions %lld of %lld, %lld subagents running", activeSessionCount,
+      totalSessionCount, activeSubagentCount)
+     : l10n.t("Active sessions %lld of %lld", activeSessionCount, totalSessionCount)))
  }
 
  // MARK: - Opened Header Content

@@ -199,8 +199,12 @@ actor SessionStore {
                 session.toolTracker.startTool(id: toolUseId, name: toolName)
 
                 // Skip creating top-level placeholder for subagent tools
-                // They'll appear under their parent Task instead
-                let isSubagentTool = session.subagentState.hasActiveSubagent && !ToolCallItem.isSubagentContainerName(toolName)
+                // They'll appear under their parent Task instead.
+                // 只对真正上报子 Agent 内部调用的 Agent 生效：其余 Agent（omp/pi/
+                // opencode）在 Task 运行期间报上来的工具属于根会话本体。
+                let isSubagentTool = session.agent.reportsSubagentInnerTools
+                    && session.subagentState.hasActiveSubagent
+                    && !ToolCallItem.isSubagentContainerName(toolName)
                 if isSubagentTool {
                     return
                 }
@@ -271,6 +275,7 @@ actor SessionStore {
                 Self.logger.debug("Started Task/Agent subagent tracking: \(toolUseId.prefix(12), privacy: .public)")
             } else if let toolName = event.tool,
                       let toolUseId = event.toolUseId,
+                      session.agent.reportsSubagentInnerTools,
                       session.subagentState.hasActiveSubagent {
                 // A subagent's inner tool is starting. Add it to the parent Task/Agent's
                 // subagent list and sync to chatItems so the UI updates live (rather
@@ -306,6 +311,7 @@ actor SessionStore {
                 session.subagentState.stopTask(taskToolId: toolUseId)
                 Self.logger.debug("Stopped subagent tracking for \(toolUseId.prefix(12), privacy: .public)")
             } else if let toolUseId = event.toolUseId,
+                      session.agent.reportsSubagentInnerTools,
                       session.subagentState.hasActiveSubagent {
                 // A subagent's inner tool completed. Update its status in the
                 // parent's subagent list and sync.

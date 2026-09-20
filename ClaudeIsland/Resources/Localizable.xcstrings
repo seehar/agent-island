@@ -578,6 +578,22 @@
         }
       }
     },
+    "Active sessions %lld of %lld, %lld subagents running" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Active sessions %lld of %lld, %lld subagents running"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "活跃会话 %lld 个，共 %lld 个；子 Agent 运行中 %lld 个"
+          }
+        }
+      }
+    },
     "Agents" : {
       "localizations" : {
         "en" : {
