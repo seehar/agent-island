@@ -60,9 +60,6 @@ nonisolated struct HookEvent: Codable, Sendable {
  let parentToolCallId: String?
  /// 子 Agent 自己的记录文件路径。
  let subagentSessionFile: String?
- /// 上报者是子代理实例时，它自己的实例名。
- /// 应用据此把「子代理再派出的子代理」挂到该子代理所属的那张 task 卡片下。
- let subagentReporter: String?
 
  enum CodingKeys: String, CodingKey {
   case sessionId = "session_id"
@@ -84,7 +81,6 @@ nonisolated struct HookEvent: Codable, Sendable {
   case subagentTask = "subagent_task"
   case parentToolCallId = "parent_tool_call_id"
   case subagentSessionFile = "subagent_session_file"
-  case subagentReporter = "subagent_reporter"
  }
 
  /// 事件所属 Agent（缺省视为 Claude Code，兼容已安装的旧 hook 脚本）。
@@ -109,7 +105,7 @@ nonisolated struct HookEvent: Codable, Sendable {
    tool: tool, toolInput: toolInput, toolUseId: toolUseId, notificationType: notificationType,
    message: message, agent: agent, sessionFile: sessionFile,
    subagentId: nil, subagentAgent: nil, subagentStatus: nil, subagentCurrentTool: nil,
-   subagentTask: nil, parentToolCallId: nil, subagentSessionFile: nil, subagentReporter: nil
+   subagentTask: nil, parentToolCallId: nil, subagentSessionFile: nil
   )
  }
 
@@ -119,7 +115,7 @@ nonisolated struct HookEvent: Codable, Sendable {
   message: String?, agent: String?, sessionFile: String?, subagentId: String?,
   subagentAgent: String?, subagentStatus: String?, subagentCurrentTool: String?,
   subagentTask: String?, parentToolCallId: String?, subagentSessionFile: String?,
-  subagentReporter: String?, wantsResponse: Bool? = nil,
+  wantsResponse: Bool? = nil,
   approvalKind: String? = nil, degradation: String? = nil, gateEnabled: Bool? = nil,
   ompOwnsApproval: Bool? = nil
  ) {
@@ -148,7 +144,6 @@ nonisolated struct HookEvent: Codable, Sendable {
   self.degradation = degradation
   self.gateEnabled = gateEnabled
   self.ompOwnsApproval = ompOwnsApproval
-  self.subagentReporter = subagentReporter
  }
 
  /// 是否为子代理总线事件（omp/pi 的 `task:subagent:*` 上报，不是会话自身的一轮活动）。
@@ -168,7 +163,7 @@ nonisolated struct HookEvent: Codable, Sendable {
    subagentId: subagentId, subagentAgent: subagentAgent, subagentStatus: subagentStatus,
    subagentCurrentTool: subagentCurrentTool, subagentTask: subagentTask,
    parentToolCallId: parentToolCallId ?? self.parentToolCallId,
-   subagentSessionFile: subagentSessionFile, subagentReporter: subagentReporter
+   subagentSessionFile: subagentSessionFile
   )
  }
 

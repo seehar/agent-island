@@ -100,7 +100,8 @@ actor SessionStore {
 
     // MARK: - Hook Event Processing
 
-    private func processHookEvent(_ event: HookEvent) async {
+    private func processHookEvent(_ rawEvent: HookEvent) async {
+        guard let event = resolveSubagentOwnership(rawEvent) else { return }
         let key = event.sessionKey
         var session = sessions[key] ?? createSession(from: event)
 
@@ -310,6 +311,67 @@ actor SessionStore {
         default:
             break
         }
+    }
+
+    /// 子代理总线事件的落点折算。
+    ///
+    /// 子代理不是应用认识的会话：omp 的扩展把整棵子代理树的 `task:subagent:*` 都挂在根
+    /// 会话名下上报，事件里的 `parent_tool_call_id` 是**派发它的那个会话**里的工具调用——
+    /// 根会话派出的子代理能直接对上卡片；「子代理再派出的子代理」对不上（那张卡在上一层
+    /// 会话里，本应用不渲染）。因此这里按子代理记录文件的目录层级反查归属：
+    /// `<父会话文件去后缀>/<实例名>.jsonl`（可嵌套多层），沿目录往上找到已知会话，并把
+    /// 挂靠卡片取成「派出它的那个子代理」的卡片，让孙代理与它的父辈同列。
+    /// 认不出来的一律丢弃——宁可少一条计数，也不凭空造出一个不存在的会话。
+    private func resolveSubagentOwnership(_ event: HookEvent) -> HookEvent? {
+        guard event.isSubagentBusEvent else { return event }
+
+        let key = sessions[event.sessionKey] != nil
+            ? event.sessionKey
+            : sessionKey(forSubagentTranscript: event.subagentSessionFile)
+        guard let key, let session = sessions[key] else {
+            Self.logger.debug(
+                "Dropping subagent event \(event.subagentId ?? "?", privacy: .public): unknown session"
+            )
+            return nil
+        }
+
+        if let toolCallId = event.parentToolCallId,
+            session.chatItems.contains(where: { $0.id == toolCallId })
+        {
+            return key == event.sessionKey
+                ? event
+                : event.owning(sessionKey: key, parentToolCallId: toolCallId)
+        }
+
+        let spawnerCardId = spawnerCard(for: event.subagentSessionFile, in: session)
+        Self.logger.debug(
+            "Subagent \(event.subagentId ?? "?", privacy: .public) -> session \(key.sessionId.prefix(8), privacy: .public) card \(spawnerCardId?.prefix(12) ?? "-", privacy: .public)"
+        )
+        return event.owning(sessionKey: key, parentToolCallId: spawnerCardId)
+    }
+
+    /// 沿子代理记录文件的目录层级往上找已知会话。
+    ///
+    /// 记录布局是 `<bucket>/<根会话文件名去后缀>/<实例名>.jsonl`，子代理再派子代理时
+    /// 继续往下嵌套，因此目录名逐级等于「上一层会话的文件名」。
+    private func sessionKey(forSubagentTranscript path: String?) -> SessionKey? {
+        guard let path, !path.isEmpty else { return nil }
+        var directory = URL(fileURLWithPath: path).deletingLastPathComponent()
+        while directory.path.count > 1 {
+            let candidate = directory.path + ".jsonl"
+            if let match = sessions.first(where: { $0.value.transcriptPath == candidate })?.key {
+                return match
+            }
+            directory = directory.deletingLastPathComponent()
+        }
+        return nil
+    }
+
+    /// 派出该子代理的卡片：记录文件的目录名就是派出者（根会话或上层子代理）的名字。
+    private func spawnerCard(for path: String?, in session: SessionState) -> String? {
+        guard let path, !path.isEmpty else { return nil }
+        let spawnerName = URL(fileURLWithPath: path).deletingLastPathComponent().lastPathComponent
+        return session.subagentState.subagents[spawnerName]?.parentToolCallId
     }
 
     /// 处理父会话 `task:subagent:*` 总线事件（omp / pi 的子 Agent）。
