@@ -12,7 +12,7 @@ import os.log
 nonisolated struct OpenCodeAgentProvider: AgentProvider {
     let kind: AgentKind = .opencode
 
-    private static let logger = Logger(subsystem: "com.claudeisland", category: "OpenCode")
+    private static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "OpenCode")
 
     func paths() -> AgentPaths? {
         let home = FileManager.default.homeDirectoryForCurrentUser

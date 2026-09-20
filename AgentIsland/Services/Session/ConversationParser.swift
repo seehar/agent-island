@@ -69,7 +69,7 @@ actor ConversationParser {
     static let shared = ConversationParser()
 
     /// 跨上下文使用的日志器。
-    nonisolated static let logger = Logger(subsystem: "com.claudeisland", category: "Parser")
+    nonisolated static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "Parser")
 
     /// 各会话的解析状态，按 (Agent, 会话 id) 隔离。
     private var states: [SessionKey: TranscriptParseState] = [:]

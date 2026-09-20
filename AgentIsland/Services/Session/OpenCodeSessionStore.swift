@@ -74,7 +74,7 @@ nonisolated struct OpenCodePartRecord {
 /// 目录。所有查询都用独立短连接执行：打开 → 查 → 关闭，避免长期持锁。
 /// 参数一律走绑定值，SQL 文本里不出现任何外部数据。
 nonisolated enum OpenCodeSessionStore {
-    private static let logger = Logger(subsystem: "com.claudeisland", category: "OpenCode")
+    private static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "OpenCode")
 
     /// 数据库拿不到锁时的等待上限；宁可返回空结果也不长时间阻塞调用方。
     private static let busyTimeoutMilliseconds: Int32 = 500

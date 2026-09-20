@@ -271,7 +271,7 @@ EOF
     # repo is disabled, so git push is no longer an option).
     cd "$WEBSITE_DIR" || exit 1
 
-    WRANGLER_PROJECT="${CLAUDE_ISLAND_WRANGLER_PROJECT:-vibenotch-website}"
+    WRANGLER_PROJECT="${AGENT_ISLAND_WRANGLER_PROJECT:-vibenotch-website}"
 
     read -p "Deploy website to Cloudflare Pages ($WRANGLER_PROJECT)? (Y/n) " -n 1 -r
     echo

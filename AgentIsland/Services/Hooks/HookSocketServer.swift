@@ -10,7 +10,7 @@ import Foundation
 import os.log
 
 /// Logger for hook socket server
-private let logger = Logger(subsystem: "com.claudeisland", category: "Hooks")
+private let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "Hooks")
 
 /// Event received from an agent's live integration (Claude Code hooks, pi/omp
 /// extension, OpenCode plugin).
@@ -137,7 +137,7 @@ class HookSocketServer {
  private var acceptSource: DispatchSourceRead?
  private var eventHandler: HookEventHandler?
  private var permissionFailureHandler: PermissionFailureHandler?
- private let queue = DispatchQueue(label: "com.claudeisland.socket", qos: .userInitiated)
+ private let queue = DispatchQueue(label: "com.celestial.AgentIsland.socket", qos: .userInitiated)
 
  /// Pending permission requests indexed by toolUseId
  private var pendingPermissions: [String: PendingPermission] = [:]

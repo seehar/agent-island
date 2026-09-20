@@ -10,7 +10,7 @@ import Foundation
 import os.log
 
 /// Logger for tool events
-private let logger = Logger(subsystem: "com.claudeisland", category: "ToolEvents")
+private let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "ToolEvents")
 
 /// Processes tool-related events and updates session state
 enum ToolEventProcessor {

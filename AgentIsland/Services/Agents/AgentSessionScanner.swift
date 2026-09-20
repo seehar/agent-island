@@ -12,7 +12,7 @@ import os.log
 
 /// 基于目录扫描的会话发现器。
 nonisolated enum FileSessionScanner {
-  private static let logger = Logger(subsystem: "com.claudeisland", category: "Discovery")
+  private static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "Discovery")
 
   /// 扫描会话根目录，返回 `since` 之后有写入的会话（新→旧）。
   ///

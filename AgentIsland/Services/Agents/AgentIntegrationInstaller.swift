@@ -14,7 +14,7 @@ import Foundation
 import os.log
 
 nonisolated enum AgentIntegrationInstaller {
-  private static let logger = Logger(subsystem: "com.claudeisland", category: "Integration")
+  private static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "Integration")
 
   /// pi 系扩展文件名（同一份源码安装到 omp 与 pi 各自的目录）。
   static let piFamilyExtensionName = "agent-island-state.ts"

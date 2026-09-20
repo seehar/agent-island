@@ -13,7 +13,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		FD33FD5D2EDF32D7002A6548 /* Claude Island.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Claude Island.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		FD33FD5D2EDF32D7002A6548 /* AgentIsland.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "AgentIsland.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -62,7 +62,7 @@
 		FD33FD5E2EDF32D7002A6548 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				FD33FD5D2EDF32D7002A6548 /* Claude Island.app */,
+				FD33FD5D2EDF32D7002A6548 /* AgentIsland.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -92,7 +92,7 @@
 				FD0F42E62EE7ABA400980302 /* Mixpanel */,
 			);
 			productName = AgentIsland;
-			productReference = FD33FD5D2EDF32D7002A6548 /* Claude Island.app */;
+			productReference = FD33FD5D2EDF32D7002A6548 /* AgentIsland.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */

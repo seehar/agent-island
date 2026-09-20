@@ -18,7 +18,7 @@ import os.log
 final class AgentSessionDiscovery {
     static let shared = AgentSessionDiscovery()
 
-    private static let logger = Logger(subsystem: "com.claudeisland", category: "Discovery")
+    private static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "Discovery")
 
     private var task: Task<Void, Never>?
     /// 已经登记过的会话，避免重复发送 SessionStart。
