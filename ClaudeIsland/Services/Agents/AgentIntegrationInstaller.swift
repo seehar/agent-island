@@ -18,6 +18,12 @@ nonisolated enum AgentIntegrationInstaller {
 
   /// pi 系扩展文件名（同一份源码安装到 omp 与 pi 各自的目录）。
   static let piFamilyExtensionName = "agent-island-state.ts"
+
+  /// 扩展源码在应用 bundle 里的资源名与扩展名。
+  /// 注意：`.ts` 会被 Xcode 判为源码类型而不进 Resources，因此随包资源用 `.ts.txt`，
+  /// 安装时再写成目标文件名 `agent-island-state.ts`。
+  private static let piFamilyExtensionResourceName = "agent-island-pi-extension"
+  private static let piFamilyExtensionResourceExtension = "ts.txt"
   /// OpenCode 插件文件名。
   static let openCodePluginName = "agent-island-state.js"
 
@@ -28,7 +34,10 @@ nonisolated enum AgentIntegrationInstaller {
 
   /// 启动时为所有已启用的 Agent 安装集成。
   static func installIfNeeded() {
-    for kind in AgentRegistry.enabled where kind.requiresIntegrationInstall {
+    // 所有随包提供集成的 Agent 都尝试安装：OpenCode 没有集成也能靠数据库轮询工作，
+    // 但插件能带来实时事件，因此同样默认安装（安装失败不影响其可用性）。
+    for kind in AgentRegistry.enabled
+    where AgentRegistry.provider(for: kind).integrationStatus() != nil {
       _ = install(kind)
     }
   }
@@ -92,7 +101,10 @@ nonisolated enum AgentIntegrationInstaller {
   private static func installPiFamilyExtension(_ kind: AgentKind) -> Bool {
     guard let destination = piFamilyExtensionFile(kind) else { return false }
     guard
-      let source = Bundle.main.url(forResource: "agent-island-pi-extension", withExtension: "ts"),
+      let source = Bundle.main.url(
+        forResource: piFamilyExtensionResourceName,
+        withExtension: piFamilyExtensionResourceExtension
+      ),
       let contents = try? String(contentsOf: source, encoding: .utf8)
     else {
       logger.error("缺少内置的 pi 扩展资源，无法为 \(kind.rawValue, privacy: .public) 安装集成")
