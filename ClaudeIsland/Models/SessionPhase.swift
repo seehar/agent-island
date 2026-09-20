@@ -206,7 +206,7 @@ extension SessionPhase: Equatable {
 
 // MARK: - Debug Description
 
-extension SessionPhase: CustomStringConvertible {
+nonisolated extension SessionPhase: CustomStringConvertible {
     nonisolated var description: String {
         switch self {
         case .idle:
