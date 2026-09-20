@@ -22,10 +22,77 @@ nonisolated enum AgentIntegrationInstaller {
   /// 扩展源码在应用 bundle 里的资源名与扩展名。
   /// 注意：`.ts` 会被 Xcode 判为源码类型而不进 Resources，因此随包资源用 `.ts.txt`，
   /// 安装时再写成目标文件名 `agent-island-state.ts`。
-  private static let piFamilyExtensionResourceName = "agent-island-pi-extension"
   private static let piFamilyExtensionResourceExtension = "ts.txt"
+
+  /// OpenCode 插件里声明的版本标记（与 pi 系扩展同一套做法，插件资源由 P2 维护）。
+  private static let openCodeVersionMarkerPrefix = "// agent-island-opencode-plugin-version:"
+
+  /// 当前应用期望的 OpenCode 插件版本：改插件时必须同步 +1。
+  static let openCodePluginVersion = 2
+
+  /// 当前应用期望的扩展版本戳：改 pi/omp 扩展时必须同步 +1。
+  /// `isInstalled` 按它比对（不再只看「文件在不在」），用户手改过或升级未重写都能被发现。
+  static let piFamilyExtensionVersion = 2
+
+  /// 扩展源码里声明版本 / 变体 / 降级档的三行注释标记。
+  private static let versionMarkerPrefix = "// agent-island-extension-version:"
+  private static let kindMarkerPrefix = "// agent-island-extension-kind:"
+  private static let degradationMarkerPrefix = "// agent-island-extension-degradation:"
+
+  /// 占位符前缀：安装后不该再出现（渲染漏了就拒绝安装）。
+  private static let placeholderPrefix = "__AGENT_ISLAND_"
+
+  /// 客户端等刘海的时限（与扩展内的缺省一致；写进文件是为了让策略在文件里可见）。
+  static let gateApprovalTimeoutMs = 120_000
+
+  /// 安装时替换的占位符：Agent 名、闸门策略 JSON、降级档名。
+  private static let agentToken = "__AGENT_ISLAND_AGENT__"
+  private static let gateConfigToken = "__AGENT_ISLAND_GATE_CONFIG__"
+  private static let degradationToken = "__AGENT_ISLAND_DEGRADATION__"
   /// OpenCode 插件文件名。
   static let openCodePluginName = "agent-island-state.js"
+
+  /// pi 系扩展的两个变体：闸门版（阻塞等刘海决定）与只上报版（关闭闸门/降级时用）。
+  enum Variant: String {
+    /// 阻塞闸门：`tool_call` 里等刘海决策，`{block:true}` 拦下被拒的工具。
+    case gate
+    /// 只上报：与旧版行为一致，审批仍在终端完成。
+    case reportOnly = "report-only"
+
+    /// 随包资源名（`.ts.txt`）。
+    var resourceName: String {
+      switch self {
+      case .gate: return "agent-island-pi-extension"
+      case .reportOnly: return "agent-island-pi-extension-report-only"
+      }
+    }
+  }
+
+  /// 该 Agent 的集成是否支持「刘海审批闸门」（能把决定回传给 agent）。
+  /// 目前只有 omp / pi 的扩展提供这条通道；Claude Code 走 hook 自己的审批通道，
+  /// 因此不在这里。
+  static func supportsApprovalGate(_ kind: AgentKind) -> Bool {
+    switch kind {
+    case .ohMyPi, .pi: return true
+    case .claudeCode, .opencode: return false
+    }
+  }
+
+  /// 该集成是否带版本戳：pi 系扩展与 OpenCode 插件都有；Claude 的 hook 脚本没有。
+  static func hasVersionedIntegration(_ kind: AgentKind) -> Bool {
+    switch kind {
+    case .ohMyPi, .pi, .opencode: return true
+    case .claudeCode: return false
+    }
+  }
+
+  /// 该 Agent 当前应安装哪个变体：开关关闭（或该 Agent 不支持闸门）时用只上报版。
+  static func piFamilyExtensionVariant(_ kind: AgentKind) -> Variant {
+    guard supportsApprovalGate(kind), AppSettings.isApprovalGateEnabled(kind) else {
+      return .reportOnly
+    }
+    return .gate
+  }
 
   /// 改名前的 pi 系扩展文件名：Agent 会加载目录里所有扩展，旧文件不清掉等于旧脚本
   /// 继续上报到废弃的 socket。装与卸都顺手清。
@@ -33,9 +100,6 @@ nonisolated enum AgentIntegrationInstaller {
 
   /// 改名前的 OpenCode 插件文件名（同上）。
   static let legacyOpenCodePluginNames = ["claude-island-state.js"]
-
-  /// 安装时替换的 Agent 标识占位符。
-  private static let agentToken = "__AGENT_ISLAND_AGENT__"
 
   // MARK: - 批量安装
 
@@ -90,17 +154,63 @@ nonisolated enum AgentIntegrationInstaller {
   }
 
   /// 是否已安装。
+  ///
+  /// pi 系不止看「文件在不在」，还要看版本戳与变体是否匹配当前设置——用户手改过扩展、
+  /// 应用降级、或写入被 `catch` 吞掉时，界面不能继续显示「已安装」。
   static func isInstalled(_ kind: AgentKind) -> Bool {
     switch kind {
     case .claudeCode:
       return HookInstaller.isInstalled()
     case .ohMyPi, .pi:
-      guard let file = piFamilyExtensionFile(kind) else { return false }
-      return FileManager.default.fileExists(atPath: file.path)
+      return isPiFamilyExtensionCurrent(kind)
     case .opencode:
-      guard let file = openCodePluginFile() else { return false }
-      return FileManager.default.fileExists(atPath: file.path)
+      return isOpenCodePluginCurrent()
     }
+  }
+
+  /// 磁盘上的 OpenCode 插件是不是「当前该装的那一份」。
+  ///
+  /// 只比版本戳：插件是**单一份**（没有闸门版 / 只上报版两态），也没有把闸门策略烘焙进文件
+  /// （它的降级语义由插件自持），因此变体与降级档都不参与比对——多比只会把「不该重装的」
+  /// 判成「需重装」。
+  static func isOpenCodePluginCurrent() -> Bool {
+    guard let file = openCodePluginFile(),
+      let contents = try? String(contentsOf: file, encoding: .utf8)
+    else {
+      return false
+    }
+    return markerValue(in: contents, prefix: openCodeVersionMarkerPrefix)
+      == String(openCodePluginVersion)
+  }
+
+  /// 磁盘上的扩展是不是「当前该装的那一份」：版本戳、变体、以及闸门版的降级档都要对上。
+  static func isPiFamilyExtensionCurrent(_ kind: AgentKind) -> Bool {
+    guard let file = piFamilyExtensionFile(kind),
+      let contents = try? String(contentsOf: file, encoding: .utf8)
+    else {
+      return false
+    }
+    let variant = piFamilyExtensionVariant(kind)
+    guard markerValue(in: contents, prefix: versionMarkerPrefix) == String(piFamilyExtensionVersion),
+      markerValue(in: contents, prefix: kindMarkerPrefix) == variant.rawValue
+    else {
+      return false
+    }
+    if variant == .gate,
+      markerValue(in: contents, prefix: degradationMarkerPrefix) != AppSettings.approvalDegradation.rawValue
+    {
+      return false
+    }
+    return true
+  }
+
+  /// 读扩展文件头里的一行标记值（形如 `// agent-island-extension-version: 2`）。
+  private static func markerValue(in contents: String, prefix: String) -> String? {
+    for line in contents.split(separator: "\n", omittingEmptySubsequences: false)
+    where line.hasPrefix(prefix) {
+      return line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+    }
+    return nil
   }
 
   // MARK: - pi 系
@@ -115,18 +225,26 @@ nonisolated enum AgentIntegrationInstaller {
 
   private static func installPiFamilyExtension(_ kind: AgentKind) -> Bool {
     guard let destination = piFamilyExtensionFile(kind) else { return false }
+    let variant = piFamilyExtensionVariant(kind)
     guard
       let source = Bundle.main.url(
-        forResource: piFamilyExtensionResourceName,
+        forResource: variant.resourceName,
         withExtension: piFamilyExtensionResourceExtension
       ),
       let contents = try? String(contentsOf: source, encoding: .utf8)
     else {
-      logger.error("缺少内置的 pi 扩展资源，无法为 \(kind.rawValue, privacy: .public) 安装集成")
+      logger.error(
+        "缺少内置的 pi 扩展资源（\(variant.rawValue, privacy: .public)），无法为 \(kind.rawValue, privacy: .public) 安装集成"
+      )
       return false
     }
 
-    let rendered = contents.replacingOccurrences(of: agentToken, with: kind.rawValue)
+    let rendered = renderPiFamilyExtension(contents, kind: kind, variant: variant)
+    guard !rendered.contains(placeholderPrefix) else {
+      // 占位符没替换完的扩展写出去就是坏脚本：宁可报告失败也不要静默装一个坏文件。
+      logger.error("pi 扩展资源里有未替换的占位符，拒绝安装")
+      return false
+    }
     do {
       try FileManager.default.createDirectory(
         at: destination.deletingLastPathComponent(),
@@ -141,6 +259,26 @@ nonisolated enum AgentIntegrationInstaller {
       logger.error("写入 pi 扩展失败：\(error.localizedDescription, privacy: .public)")
       return false
     }
+  }
+
+  /// 把随包资源渲染成可安装的扩展：替换 Agent 名；闸门版再把降级档与策略常量注入。
+  ///
+  /// 策略写进文件而不是运行时下发：扩展在 `tool_call` 里需要立刻知道降级档，而
+  /// 此时未必还能跟应用通话（应用不在正是降级档的适用场景）。
+  private static func renderPiFamilyExtension(
+    _ contents: String,
+    kind: AgentKind,
+    variant: Variant
+  ) -> String {
+    var rendered = contents.replacingOccurrences(of: agentToken, with: kind.rawValue)
+    guard variant == .gate else { return rendered }
+    let degradation = AppSettings.approvalDegradation.rawValue
+    rendered = rendered.replacingOccurrences(of: degradationToken, with: degradation)
+    rendered = rendered.replacingOccurrences(
+      of: gateConfigToken,
+      with: #"{"degradation":"\#(degradation)","timeoutMs":\#(gateApprovalTimeoutMs)}"#
+    )
+    return rendered
   }
 
   // MARK: - 文件清理

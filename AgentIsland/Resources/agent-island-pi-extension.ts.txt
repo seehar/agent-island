@@ -1,4 +1,8 @@
 // agent-island-pi-extension.ts —— 由 AgentIsland 安装的 pi / Oh My Pi 扩展
+// agent-island-extension-version: 2
+// agent-island-extension-kind: gate
+// agent-island-extension-degradation: __AGENT_ISLAND_DEGRADATION__
+// 本文件由 AgentIsland 安装并管理，勿手改：开关切换、档位变更或应用升级都会整体重写。
 //
 // 作用：把会话生命周期与工具调用实时上报给 notch 应用（unix socket），
 // 让 pi/omp 拥有和 Claude Code hooks 同等的实时状态，而不必轮询记录文件。
@@ -24,6 +28,39 @@ import net from "node:net";
 const AGENT = "__AGENT_ISLAND_AGENT__";
 const SOCKET_PATH = process.env.AGENT_ISLAND_SOCKET || "/tmp/agent-island.sock";
 
+/** 本文件期望的版本（安装器按它比对，见 AgentIntegrationInstaller）。 */
+const EXTENSION_VERSION = 2;
+
+/** 降级档：应用不可达时怎么办（用户在设置面板选，安装本文件时注入）。 */
+type Degradation = "strict" | "notify-only" | "read-only-allow";
+
+/** 闸门策略：由安装器注入 JSON；用户改设置后重装本文件即生效。 */
+const GATE_CONFIG: { degradation?: unknown; timeoutMs?: unknown } = __AGENT_ISLAND_GATE_CONFIG__;
+
+/** 取一个正整数；非法取值返回 undefined。 */
+function readPositiveInt(raw: unknown): number | undefined {
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+/** 归一化降级档；缺失或非法取值退回默认的 notify-only。 */
+function normalizeDegradation(raw: unknown): Degradation {
+  return raw === "strict" || raw === "read-only-allow" || raw === "notify-only" ? raw : "notify-only";
+}
+
+const DEGRADATION: Degradation = normalizeDegradation(GATE_CONFIG.degradation);
+
+/**
+ * 客户端等刘海的时限。
+ * 可用 AGENT_ISLAND_APPROVAL_TIMEOUT_MS 覆盖（验收矩阵靠它把超时改小）；
+ * 缺省 120s，必须早于应用侧 pending TTL 与服务端 handler 预算，这样「谁先说话」永远是本扩展，
+ * 模型看到的是可读超时理由，而不是 omp 的 `Extension ... timed out after 30000ms`。
+ */
+const APPROVAL_TIMEOUT_MS =
+  readPositiveInt(process.env.AGENT_ISLAND_APPROVAL_TIMEOUT_MS)
+  ?? readPositiveInt(GATE_CONFIG.timeoutMs)
+  ?? 120000;
+
 /** omp 子 Agent 总线频道；常量取值与 omp 的 `task/types.ts` 一致。 */
 const SUBAGENT_LIFECYCLE_CHANNEL = "task:subagent:lifecycle";
 const SUBAGENT_PROGRESS_CHANNEL = "task:subagent:progress";
@@ -44,11 +81,29 @@ interface IslandEvent {
   subagent_task?: string;
   parent_tool_call_id?: string;
   subagent_session_file?: string;
+  /** 审批闸门专用字段。 */
+  expects_response?: boolean;
+  approval_kind?: string;
+  parent_session?: boolean;
+  gate_enabled?: boolean;
+  gate_disabled_reason?: string;
+  gate_notice?: string;
+  degradation?: string;
+  approval_mode?: string;
+  integration_version?: number;
+  /** 「OMP 自己在问」让位信号：应用据此撤下自己的 Allow/Deny。 */
+  omp_owns_approval?: boolean;
 }
 
 /** 会话头；omp 用它给派生的子会话标注父会话。 */
 interface SessionHeaderLike {
   parentSession?: unknown;
+}
+
+/** 扩展可见的 UI 接口：闸门只用这两个方法做「降级可见」提示。 */
+interface ExtensionUILike {
+  setStatus?(key: string, text: string | undefined): void;
+  notify?(message: string, type?: "info" | "warning" | "error"): void;
 }
 
 /** 扩展可见的最小上下文接口（pi / omp 运行时提供，此处只声明用到的部分）。 */
@@ -62,6 +117,7 @@ interface ExtensionContextLike {
   hasUI?: unknown;
   mode?: unknown;
   cwd?: unknown;
+  ui?: ExtensionUILike;
   isIdle?(): unknown;
   sessionManager?: SessionManagerLike;
 }
@@ -71,9 +127,18 @@ interface EventBusLike {
   on(channel: string, handler: (data: unknown) => void): unknown;
 }
 
-/** 扩展注册接口。 */
+/** socket 类型：用 createConnection 的返回值反推，不依赖 @types/node 的 Socket 导出名。 */
+type NodeSocket = ReturnType<typeof net.createConnection>;
+
+/** tool_call 的裁决：block 为真时工具不执行，reason 作为工具错误文本回灌模型。 */
+interface ToolCallVerdict {
+  block?: boolean;
+  reason?: string;
+}
+
+/** 扩展注册接口（handler 可返回裁决或 Promise，故返回类型放宽成 unknown）。 */
 interface ExtensionApi {
-  on(event: string, handler: (event: unknown, ctx?: ExtensionContextLike) => void | Promise<void>): void;
+  on(event: string, handler: (event: unknown, ctx?: ExtensionContextLike) => unknown): void;
   events?: EventBusLike;
 }
 
@@ -103,14 +168,17 @@ function readObject(source: unknown, key: string): Record<string, unknown> | und
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : undefined;
 }
 
-let currentSessionFile: string | undefined;
-let currentSessionId: string | undefined;
-let reportedSessionId: string | undefined;
+// 注意：omp 的扩展模块在**整个进程内只求值一次**，下面这些模块级变量是所有会话
+// （根会话与各个 subAgent 会话）共用的。它们只记录「根会话」的身份，子代理上下文
+// 只读不写——否则子代理的 session_start 会把根会话身份冲掉，后续事件（含根会话自己的）
+// 都会带着子代理的会话 id 上报（真实踩过：一次嵌套派发里孙代理的 id 顶掉了根会话 id）。
+let rootSessionFile: string | undefined;
+let rootSessionId: string | undefined;
 let pid: number | undefined;
 let tty: string | undefined;
 
 // 串行发送，保证事件顺序；应用不在时也不会堆积。
-let chain: Promise<void> = Promise.resolve();
+let chain: Promise<boolean> = Promise.resolve(true);
 
 /** 取当前进程所在 tty，用于从 notch 聚焦终端。 */
 function detectTty(): string | undefined {
@@ -126,19 +194,50 @@ function detectTty(): string | undefined {
   return undefined;
 }
 
-/** 从扩展上下文里刷新会话文件与会话 id。 */
-function updateSessionRef(ctx: ExtensionContextLike | undefined): void {
+/**
+ * 会话文件是否是「根会话」形状：`<时间戳>_<uuid>.jsonl`。
+ *
+ * 子代理的会话文件形如 `<实例名>.jsonl`（没有时间戳前缀），与根会话一眼可分——比
+ * `ctx.sessionManager.getHeader()` 可靠：会话头要等会话落盘才存在，子代理的
+ * `session_start` 期间常常读不到，只看会话头会把子代理误判成根会话（也是真实踩过的坑）。
+ */
+function looksLikeRootSessionFile(path: string | undefined): boolean {
+  if (!path) {
+    return false;
+  }
+  const last = path.split("/").pop();
+  const base = last && last.endsWith(".jsonl") ? last.slice(0, -".jsonl".length) : last;
+  return base !== undefined && /^[0-9T:.-]+Z_[0-9a-f-]{8,}$/.test(base);
+}
+
+/** 读上下文里的会话文件路径（读取失败返回 undefined）。 */
+function currentSessionFilePath(ctx: ExtensionContextLike | undefined): string | undefined {
   try {
     const file = ctx?.sessionManager?.getSessionFile?.();
-    currentSessionFile = typeof file === "string" && file.startsWith("/") ? file : undefined;
+    return typeof file === "string" && file.startsWith("/") ? file : undefined;
   } catch {
-    currentSessionFile = undefined;
+    return undefined;
+  }
+}
+
+/**
+ * 记下根会话身份。只有根会话的上下文才允许写入。
+ *
+ * 模块级变量在进程内共享，子代理上下文只能读、不能写：一旦被覆盖，
+ * 后续所有事件都会带着错误的会话 id 上报。
+ */
+function bindRootSession(ctx: ExtensionContextLike | undefined): void {
+  const file = currentSessionFilePath(ctx);
+  if (file) {
+    rootSessionFile = file;
   }
   try {
     const id = ctx?.sessionManager?.getSessionId?.();
-    currentSessionId = typeof id === "string" && id.length > 0 ? id : undefined;
+    if (typeof id === "string" && id.length > 0) {
+      rootSessionId = id;
+    }
   } catch {
-    currentSessionId = undefined;
+    // 保持既有值
   }
 }
 
@@ -171,22 +270,386 @@ function isRootSession(ctx: ExtensionContextLike | undefined): boolean {
   if (ctx?.hasUI === true || ctx?.mode === "tui") {
     return true;
   }
-  return !hasParentSession(ctx);
+  if (hasParentSession(ctx)) {
+    return false;
+  }
+  // 会话头读不到（子代理 session_start 期间常见）时，退回到会话文件命名形状。
+  const file = currentSessionFilePath(ctx);
+  return file === undefined || looksLikeRootSessionFile(file);
 }
 
-/** 发送一条事件；永不抛错，永不阻塞调用方。 */
-function send(
+// ---------------------------------------------------------------------------
+// 审批闸门
+//
+// 把 tool_call 变成「阻塞闸门」：需要问的档位先把请求投给刘海应用，等它回
+// {"decision":"allow"|"deny"}，再决定放行还是 {block:true, reason}。
+// 三条硬约束：
+//   ① 永不抛错——抛错会被 omp 记成 `Extension ... failed` 并阻塞工具；
+//   ② 审批**不进 chain**——一个待批堵住整条上报链，比丢一条状态严重得多；
+//   ③ 写完后不 end()，收到完整 JSON 再 destroy()——实测（E1/E2/E3）写完就收尾会丢应答。
+// ---------------------------------------------------------------------------
+
+/** 审批档位：allow（只读/协议，直接放行）/ write（落盘）/ exec（执行）/ critical（危险命令）。 */
+type ApprovalTier = "allow" | "write" | "exec" | "critical";
+
+/**
+ * never-ask 白名单：只读与协议类工具，连 socket 都不发。
+ *
+ * 取向是「默认询问」——名单之外的一律问，因此 omp 将来新增的工具会自动落入「要问」，
+ * 漏的是「多问」而不是「漏问」。`yield` 必须留在名单里：拒 yield 会让子代理无法交付。
+ */
+const NEVER_ASK_TOOLS = new Set([
+  "read",
+  "glob",
+  "grep",
+  "ask",
+  "todo",
+  "yield",
+  "think",
+  "ast-grep",
+  "checkpoint",
+]);
+
+/** 前缀形态的 never-ask（记忆类工具名带动作后缀）。 */
+const NEVER_ASK_PREFIXES = ["memory-"];
+
+/** write 档：会落盘但不执行命令的工具（用于 approval_kind 展示与降级档判定）。 */
+const WRITE_TIER_TOOLS = new Set(["write", "edit", "ast-edit"]);
+
+/**
+ * 危险命令模式：内联一份精简名单，等价 omp 的 CRITICAL_BASH_PATTERNS
+ * （权威源 `oh-my-pi/packages/coding-agent/src/tools/bash.ts`，omp 18.2.6 共 21 条）。
+ *
+ * 不 import omp 内部模块：那会随包结构与导出变化而崩；这份名单随 omp 升级人工对齐。
+ * 命中即标红，并且在应用不可达时**任何降级档都直接拒绝**。
+ */
+const CRITICAL_COMMAND_PATTERNS: readonly RegExp[] = [
+  // 递归删除（选项可在 -r/-f 两侧，但必须带绝对根路径）。
+  /\brm\s+(?:-\S+\s+)*(?:-[a-z]*[rRfF][a-z]*|--recursive|--force)\s+(?:-\S+\s+)*\//i,
+  /\brm\s+(?:-\S+\s+)*--no-preserve-root\b/i,
+  /\bsudo\s+rm\b/i,
+  /\bchmod\s+-R\s+[0-7]+\s+\//i,
+  /\bchmod\s+-R\s+[ugoa+\-=rwxXst,]+\s+\//,
+  /\bchown\s+-R\s+\S+\s+\//i,
+  // fork 炸弹。
+  /:\(\)\s*\{\s*:\s*\|\s*:/i,
+  // 磁盘 / 文件系统破坏。
+  />\s*\/dev\/sd[a-z]/i,
+  /\bmkfs(\.|\b)/i,
+  /\bdd\s+if=.+of=\/dev\//i,
+  /\bshred\s+\/dev\//i,
+  /\bcryptsetup\b/i,
+  // 系统配置破坏。
+  />\s*\/etc\/(?:passwd|shadow|sudoers)\b/i,
+  /\btee\s+(?:-a\s+)?\/etc\/(?:passwd|shadow|sudoers)\b/i,
+  // 远程拉取后直接执行。
+  /\b(?:curl|wget|fetch)\b[^|]*\|\s*(?:bash|sh|zsh|fish)\b/i,
+  /(?:^|[\s;&|(])(?:bash|sh|zsh|source|\.)\s+<\(\s*(?:curl|wget|fetch)\b/i,
+  /\beval\s+["'`]?\$\(\s*(?:curl|wget|fetch)\b|\beval\s+`\s*(?:curl|wget|fetch)\b/i,
+  // 进程 / 主机控制。
+  /\bkill\s+-9\s+1\b/,
+  /(?:^|[\s;&|(])(?:shutdown|poweroff|reboot|halt)(?:\s|$|[;|&])/i,
+  /(?:^|[\s;&|(])init\s+0\b/i,
+  // 反弹 shell。
+  /\bnc\b[^|;]*\s-[a-zA-Z]*[ec][a-zA-Z]*\s/i,
+];
+
+/** 闸门自检结果：探测失败即降级为只上报（绝不静默放行）。 */
+let gateEnabled = true;
+let gateDisabledReason: string | undefined;
+let gateDisabledReported = false;
+/** 诊断用：omp 生效的审批档位（`pi.pi.*` 不是扩展 API 契约，只作诊断，不作安全判定）。 */
+let approvalMode: string | undefined;
+/** 降级提示在每个进程里只弹一次（状态行每次刷新）。 */
+let degradationNotified = false;
+
+/** 该工具是否属于 never-ask（只读/协议）。 */
+function isNeverAskTool(toolName: string): boolean {
+  return NEVER_ASK_TOOLS.has(toolName)
+    || NEVER_ASK_PREFIXES.some((prefix) => toolName.startsWith(prefix));
+}
+
+/** 从工具入参里取出可能含危险命令的文本（bash 的命令、eval 的代码）。 */
+function commandTextOf(toolName: string, input: unknown): string | undefined {
+  if (toolName === "bash") {
+    return readString(input, "command");
+  }
+  if (toolName === "eval") {
+    return readString(input, "code");
+  }
+  return undefined;
+}
+
+/** 该命令文本是否命中危险模式。 */
+function isCriticalCommand(text: string | undefined): boolean {
+  return text !== undefined && CRITICAL_COMMAND_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+/** 给一次工具调用定档。 */
+function classifyToolCall(toolName: string, input: unknown): ApprovalTier {
+  if (isNeverAskTool(toolName)) {
+    return "allow";
+  }
+  if (isCriticalCommand(commandTextOf(toolName, input))) {
+    return "critical";
+  }
+  return WRITE_TIER_TOOLS.has(toolName) ? "write" : "exec";
+}
+
+/** 读上下文里的会话 id（只读，不写模块级状态）。 */
+function readSessionIdFrom(ctx: ExtensionContextLike | undefined): string | undefined {
+  try {
+    const id = ctx?.sessionManager?.getSessionId?.();
+    return typeof id === "string" && id.length > 0 ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 闸门是否拦这一条（只拦根会话）。
+ *
+ * 判据顺序：① 会话头带 `parentSession` → 子代理（omp 的权威字段）；② 会话文件名形状，
+ * 复用本文件的 `looksLikeRootSessionFile`（根会话 `<时间戳>_<uuid>.jsonl`，子代理
+ * `<实例名>.jsonl`）；③ 两者都拿不到时退回 `isRootSession`。都拿不到按根会话处理——
+ * 宁可多问一次，也不漏掉用户眼前的会话。
+ */
+function isGateRootSession(ctx: ExtensionContextLike | undefined): boolean {
+  if (hasParentSession(ctx)) {
+    return false;
+  }
+  const file = currentSessionFilePath(ctx);
+  if (file) {
+    return looksLikeRootSessionFile(file);
+  }
+  return isRootSession(ctx);
+}
+
+/** 在 TUI 里留一行可见的降级提示（拿不到 UI 时静默——绝不因此抛错）。 */
+function notifyGateDegraded(ctx: ExtensionContextLike | undefined, message: string): void {
+  try {
+    const ui = ctx?.ui;
+    if (!ui) {
+      return;
+    }
+    if (typeof ui.setStatus === "function") {
+      ui.setStatus("agent-island-gate", message);
+    }
+    if (!degradationNotified && typeof ui.notify === "function") {
+      degradationNotified = true;
+      ui.notify(message, "warning");
+    }
+  } catch {
+    // 忽略：提示失败不影响决策。
+  }
+}
+
+/**
+ * 闸门自检 / 降级：探测失败即降级为只上报，并上报 `gate_enabled:false` + 原因。
+ * 绝不因为「集成坏了」而静默放行。
+ */
+function setGateEnabled(enabled: boolean, reason?: string): void {
+  gateEnabled = enabled;
+  gateDisabledReason = enabled ? undefined : reason;
+}
+
+/** 只上报的一次性告警（拿不到会话身份时静默，避免无限重试）。 */
+function reportGateDisabledOnce(): void {
+  if (gateDisabledReported) {
+    return;
+  }
+  gateDisabledReported = true;
+  void send({
+    event: "ToolApproval",
+    status: "gate_disabled",
+    expects_response: false,
+    gate_enabled: false,
+    gate_disabled_reason: gateDisabledReason ?? "gate disabled",
+    message: gateDisabledReason ?? "gate disabled",
+  });
+}
+
+/** 只读诊断：读 omp 生效的审批档位；失败即返回 undefined（不影响闸门）。 */
+function readApprovalMode(pi: ExtensionApi): string | undefined {
+  try {
+    const settings = (pi as { pi?: { settings?: { get?(key: string): unknown } } }).pi?.settings;
+    if (!settings || typeof settings.get !== "function") {
+      return undefined;
+    }
+    const value = settings.get("tools.approvalMode");
+    return typeof value === "string" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 启动自检：扩展 API 形状不对就降级为只上报（不做闸门）。 */
+function probeGateSupport(pi: ExtensionApi): string | undefined {
+  try {
+    if (typeof pi.on !== "function") {
+      return "pi.on is not available";
+    }
+    return undefined;
+  } catch (error) {
+    return `extension API probe failed: ${String(error)}`;
+  }
+}
+
+/** 「降级放行」的审计事件：先排队，等下一次成功上报时补投（应用恢复后刘海能看到发生过什么）。 */
+const degradedReports: Record<string, unknown>[] = [];
+const MAX_DEGRADED_REPORTS = 20;
+
+/** 记一条降级审计（超上限丢最旧的，避免内存无限增长）。 */
+function recordDegradedReport(body: Record<string, unknown>): void {
+  if (degradedReports.length >= MAX_DEGRADED_REPORTS) {
+    degradedReports.shift();
+  }
+  degradedReports.push(body);
+}
+
+/** 把排队的降级事件补投给应用；投不出去就留回队列，下次再试。 */
+function flushDegradedReports(): void {
+  if (degradedReports.length === 0) {
+    return;
+  }
+  const pending = degradedReports.splice(0, degradedReports.length);
+  for (const body of pending) {
+    void deliver(body).then((delivered) => {
+      if (!delivered) {
+        recordDegradedReport(body);
+      }
+    });
+  }
+}
+
+/** 一次审批询问的结果。 */
+interface ApprovalOutcome {
+  kind: "decision" | "timeout" | "unreachable" | "aborted";
+  decision?: string;
+  reason?: string;
+}
+
+/**
+ * 阻塞询问刘海：写一个 JSON，然后等应答。
+ *
+ * 与 send() 的差别（§5.2/§5.6）：独立 Promise、不复用 chain、写完后不 end()，
+ * 累积 data 直到能 JSON.parse，决策 / 超时 / 断开后 destroy() 释放 fd。
+ */
+function requestDecision(body: Record<string, unknown>, timeoutMs: number): Promise<ApprovalOutcome> {
+  const { promise, resolve } = Promise.withResolvers<ApprovalOutcome>();
+  let buffer = "";
+  let connected = false;
+  let settled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let socket: NodeSocket | undefined;
+  const done = (outcome: ApprovalOutcome) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+    try {
+      socket?.destroy();
+    } catch {
+      // 忽略：连接可能已经断开。
+    }
+    resolve(outcome);
+  };
+  try {
+    socket = net.createConnection(SOCKET_PATH, () => {
+      connected = true;
+      try {
+        socket?.write(JSON.stringify(body));
+      } catch {
+        done({ kind: "aborted" });
+      }
+    });
+    timer = setTimeout(() => done({ kind: "timeout" }), timeoutMs);
+    socket.on("data", (chunk: Buffer | string) => {
+      buffer += chunk.toString("utf8");
+      const text = buffer.trim();
+      if (text.length === 0) {
+        return;
+      }
+      try {
+        const parsed = JSON.parse(text) as { decision?: unknown; reason?: unknown };
+        done({
+          kind: "decision",
+          decision: typeof parsed.decision === "string" ? parsed.decision : undefined,
+          reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
+        });
+      } catch {
+        // 数据还没收全：继续累积，直到超时。
+      }
+    });
+    socket.on("error", () => done(connected ? { kind: "aborted" } : { kind: "unreachable" }));
+    socket.on("close", () => done(connected ? { kind: "aborted" } : { kind: "unreachable" }));
+  } catch {
+    done({ kind: "unreachable" });
+  }
+  return promise;
+}
+
+/**
+ * 按失败语义矩阵把询问结果折算成最终裁决。
+ *
+ * 「问了没答」= 拒绝（保安全，omp 在 yolo 下没有任何原生兜底）；
+ * 「无人可问」= 按用户选的降级档（保可用性，且降级必须在 TUI 可见）。
+ */
+function resolveOutcome(
+  tier: ApprovalTier,
+  outcome: ApprovalOutcome,
+): { allowed: boolean; reason?: string } {
+  if (outcome.kind === "decision") {
+    if (outcome.decision === "allow") {
+      return { allowed: true };
+    }
+    return { allowed: false, reason: outcome.reason ?? "Denied on AgentIsland" };
+  }
+  if (outcome.kind === "timeout") {
+    const seconds = Math.round(APPROVAL_TIMEOUT_MS / 1000);
+    return { allowed: false, reason: `Approval request timed out — no answer on AgentIsland within ${seconds}s.` };
+  }
+  if (outcome.kind === "aborted") {
+    // 已经问过人又被中断：不静默放行。
+    return { allowed: false, reason: "AgentIsland is no longer available" };
+  }
+  // 应用从未运行：危险命令一律拒绝，其余看用户选的降级档。
+  if (tier === "critical") {
+    return {
+      allowed: false,
+      reason: "Blocked on AgentIsland: known-dangerous command while the approval gate is unreachable",
+    };
+  }
+  switch (DEGRADATION) {
+    case "strict":
+      return { allowed: false, reason: "Blocked on AgentIsland: approval gate offline (strict)" };
+    case "read-only-allow":
+      // 只读档（never-ask）在闸门之前就放行了，走得到这里的都是 write/exec 档 → 拒绝。
+      return { allowed: false, reason: "Blocked on AgentIsland: approval gate offline (read-only-allow)" };
+    case "notify-only":
+    default:
+      return { allowed: true };
+  }
+}
+
+
+/** 组装一条事件的完整信封；没有会话标识时返回 undefined（这一条不发）。 */
+function buildBody(
   payload: IslandEvent,
   override?: { sessionId?: string; sessionFile?: string },
-): Promise<void> {
-  const sessionId = override?.sessionId ?? currentSessionId ?? reportedSessionId;
-  const sessionFile = override?.sessionFile ?? currentSessionFile;
+): Record<string, unknown> | undefined {
+  // 模块级状态只保存**根会话**身份（子代理上下文只读不写），因此这里的缺省值就是根会话；
+  // 子代理的请求由调用方通过 override 传它自己的会话身份。
+  const sessionId = override?.sessionId ?? rootSessionId;
+  const sessionFile = override?.sessionFile ?? rootSessionFile;
   if (!sessionId && !sessionFile) {
-    return Promise.resolve();
+    return undefined;
   }
-
-  const body = {
-    session_id: sessionId ?? reportedSessionId ?? "unknown",
+  return {
+    session_id: sessionId ?? "unknown",
     cwd: typeof process.cwd === "function" ? process.cwd() : undefined,
     pid,
     tty,
@@ -194,35 +657,76 @@ function send(
     session_file: sessionFile,
     ...payload,
   };
+}
 
-  const attempt = () => {
-    const { promise, resolve } = Promise.withResolvers<void>();
-    const socket = net.createConnection(SOCKET_PATH, () => {
-      socket.write(JSON.stringify(body));
-      socket.end();
-    });
-    const finish = () => {
-      socket.destroy();
-      resolve();
-    };
-    socket.setTimeout(400, finish);
-    socket.on("data", finish);
-    socket.on("error", finish);
-    socket.on("end", finish);
-    socket.on("close", resolve);
-    return promise;
+/** 一次「连接 → 写入」；返回是否写入成功（用于决定要不要补投降级审计事件）。 */
+function deliver(body: Record<string, unknown>): Promise<boolean> {
+  const { promise, resolve } = Promise.withResolvers<boolean>();
+  let wrote = false;
+  let settled = false;
+  let socket: NodeSocket | undefined;
+  const done = () => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    try {
+      socket?.destroy();
+    } catch {
+      // 忽略：连接可能已经断开。
+    }
+    resolve(wrote);
   };
+  try {
+    socket = net.createConnection(SOCKET_PATH, () => {
+      try {
+        socket?.write(JSON.stringify(body));
+        wrote = true;
+      } catch {
+        // 写入失败：按未送达处理。
+      }
+      socket?.end();
+    });
+    socket.setTimeout(400, done);
+    socket.on("data", done);
+    socket.on("error", done);
+    socket.on("end", done);
+    socket.on("close", done);
+  } catch {
+    done();
+  }
+  return promise;
+}
 
-  chain = chain.then(attempt).catch(() => {});
-  return chain;
+/** 发送一条事件；永不抛错，永不阻塞调用方。 */
+function send(
+  payload: IslandEvent,
+  override?: { sessionId?: string; sessionFile?: string },
+): Promise<void> {
+  const body = buildBody(payload, override);
+  if (!body) {
+    return Promise.resolve();
+  }
+  chain = chain
+    .then(() => deliver(body))
+    .then((delivered) => {
+      // 上报成功后把降级期间放行的审计事件补投给应用。
+      if (delivered) {
+        flushDegradedReports();
+      }
+      return delivered;
+    })
+    .catch(() => false);
+  return chain.then(() => undefined);
 }
 
 /**
- * 订阅父会话共享总线上的子 Agent 频道。
+ * 订阅本实例所在会话的共享总线上的子 Agent 频道。
  *
- * omp 的会话事件只发到该会话自己的总线，子 Agent 的模块实例拿到的是它自己的总线，
- * 因此只有根会话实例会收到 `task:subagent:*`；这里不再按上下文过滤，只在父会话
- * 引用就绪后上报。进度事件按「状态 + 当前工具」去重，避免流式进度把 socket 打满。
+ * 扩展模块在进程内只求值一次，订阅到的总线覆盖整棵子代理树（含「子代理再派子代理」
+ * 的孙代理）：所有总线事件都上报到根会话名下，由应用侧按 `parent_tool_call_id` 与
+ * 子代理会话文件路径挂到对应的 task 卡片；子代理不再按自己的会话上报，避免污染会话身份。
+ * 进度事件按「状态 + 当前工具」去重，避免流式进度把 socket 打满。
  */
 function subscribeSubagentBus(pi: ExtensionApi): void {
   const bus = pi.events;
@@ -233,27 +737,37 @@ function subscribeSubagentBus(pi: ExtensionApi): void {
 
   const lastProgressSignature = new Map<string, string>();
 
+  /** 总线事件一律上报到根会话名下：子代理本身不是应用认识的会话。 */
+  function rootOwner(): string | undefined {
+    return rootSessionId;
+  }
+
   bus.on(SUBAGENT_LIFECYCLE_CHANNEL, (data) => {
     const id = readString(data, "id");
-    if (!id) {
+    const owner = rootOwner();
+    if (!id || !owner) {
       return;
     }
-    void send({
-      event: "SubagentLifecycle",
-      status: "processing",
-      subagent_id: id,
-      subagent_agent: readString(data, "agent") ?? id,
-      subagent_status: readString(data, "status"),
-      subagent_task: readString(data, "description"),
-      parent_tool_call_id: readString(data, "parentToolCallId"),
-      subagent_session_file: readString(data, "sessionFile"),
-    });
+    void send(
+      {
+        event: "SubagentLifecycle",
+        status: "processing",
+        subagent_id: id,
+        subagent_agent: readString(data, "agent") ?? id,
+        subagent_status: readString(data, "status"),
+        subagent_task: readString(data, "description"),
+        parent_tool_call_id: readString(data, "parentToolCallId"),
+        subagent_session_file: readString(data, "sessionFile"),
+      },
+      { sessionId: owner },
+    );
   });
 
   bus.on(SUBAGENT_PROGRESS_CHANNEL, (data) => {
     const progress = readObject(data, "progress");
     const id = readString(progress, "id") ?? readString(data, "id");
-    if (!id) {
+    const owner = rootOwner();
+    if (!id || !owner) {
       return;
     }
     const status = readString(progress, "status");
@@ -263,28 +777,36 @@ function subscribeSubagentBus(pi: ExtensionApi): void {
       return;
     }
     lastProgressSignature.set(id, signature);
-    void send({
-      event: "SubagentProgress",
-      status: "processing",
-      subagent_id: id,
-      subagent_agent: readString(progress, "agent") ?? readString(data, "agent") ?? id,
-      subagent_status: status,
-      subagent_current_tool: currentTool,
-      subagent_task: readString(progress, "task") ?? readString(data, "task"),
-      parent_tool_call_id: readString(data, "parentToolCallId"),
-      subagent_session_file: readString(data, "sessionFile"),
-    });
+    void send(
+      {
+        event: "SubagentProgress",
+        status: "processing",
+        subagent_id: id,
+        subagent_agent: readString(progress, "agent") ?? readString(data, "agent") ?? id,
+        subagent_status: status,
+        subagent_current_tool: currentTool,
+        subagent_task: readString(progress, "task") ?? readString(data, "task"),
+        parent_tool_call_id: readString(data, "parentToolCallId"),
+        subagent_session_file: readString(data, "sessionFile"),
+      },
+      { sessionId: owner },
+    );
   });
 }
 
 export default function (pi: ExtensionApi) {
-  /** 子 Agent 上下文里也要能拿到会话引用，但只有根会话才上报。 */
+  // 启动自检：扩展 API 形状不对就降级为只上报，并让应用知道「闸门没在用」。
+  const probeFailure = probeGateSupport(pi);
+  if (probeFailure) {
+    setGateEnabled(false, probeFailure);
+  }
+
+  /** 只有根会话才绑定身份并上报会话事件；子代理上下文只读不写（见模块级变量注释）。 */
   function activateRootSession(ctx: ExtensionContextLike | undefined): boolean {
     if (!isRootSession(ctx)) {
       return false;
     }
-    updateSessionRef(ctx);
-    reportedSessionId = currentSessionId ?? reportedSessionId;
+    bindRootSession(ctx);
     return true;
   }
 
@@ -296,9 +818,22 @@ export default function (pi: ExtensionApi) {
       pid = process.pid;
       tty = detectTty();
     }
+    // 只读诊断：omp 生效的审批档位（用于应用侧做「双提示」告警）。
+    approvalMode = readApprovalMode(pi);
     // 扩展可能在会话中途被加载：按上下文判断是否正在跑。
     const busy = ctx?.isIdle?.() === false;
-    void send({ event: "SessionStart", status: busy ? "processing" : "idle" });
+    void send({
+      event: "SessionStart",
+      status: busy ? "processing" : "idle",
+      gate_enabled: gateEnabled,
+      gate_disabled_reason: gateDisabledReason,
+      integration_version: EXTENSION_VERSION,
+      degradation: DEGRADATION,
+      approval_mode: approvalMode,
+    });
+    if (!gateEnabled) {
+      reportGateDisabledOnce();
+    }
   });
 
   pi.on("session_switch", (_event, ctx) => {
@@ -307,11 +842,10 @@ export default function (pi: ExtensionApi) {
     }
     // 同一个进程切走的旧会话不会再被写盘，而进程还活着、存活回收不会触发；
     // 若只发 SessionStart，旧会话行会一直挂在列表里，因此先给旧会话补一个结束事件。
-    const previousSessionId = currentSessionId ?? reportedSessionId;
-    const previousSessionFile = currentSessionFile;
-    updateSessionRef(ctx);
-    reportedSessionId = currentSessionId ?? reportedSessionId;
-    if (previousSessionId && previousSessionId !== currentSessionId) {
+    const previousSessionId = rootSessionId;
+    const previousSessionFile = rootSessionFile;
+    bindRootSession(ctx);
+    if (previousSessionId && previousSessionId !== rootSessionId) {
       void send(
         { event: "SessionEnd", status: "ended" },
         { sessionId: previousSessionId, sessionFile: previousSessionFile },
@@ -353,17 +887,91 @@ export default function (pi: ExtensionApi) {
     // 该事件在部分版本不存在。
   }
 
-  pi.on("tool_call", (event, ctx) => {
-    if (!isRootSession(ctx)) {
+  // 审批闸门（核心）：先按档位定级，需要问的阻塞等刘海决定。
+  pi.on("tool_call", async (event, ctx) => {
+    const toolName = readString(event, "toolName") ?? "";
+    const toolCallId = readString(event, "toolCallId");
+    const input =
+      typeof event === "object" && event !== null
+        ? (event as Record<string, unknown>).input
+        : undefined;
+    let tier: ApprovalTier = "exec";
+    try {
+      // 普通上报保持原样：走 chain、fire-and-forget（卡片要尽快出现）。
+      if (isRootSession(ctx)) {
+        void send({
+          event: "PreToolUse",
+          status: "running_tool",
+          tool: toolName,
+          tool_input: input,
+          tool_use_id: toolCallId,
+        });
+      }
+
+      tier = classifyToolCall(toolName, input);
+      if (tier === "allow") {
+        return;
+      }
+      // 子会话默认不拦（`task` 本身已是授权边界，逐条上卡会刷屏并阻塞子代理）；危险命令例外。
+      if (!isGateRootSession(ctx) && tier !== "critical") {
+        return;
+      }
+      if (!toolCallId) {
+        // 没有工具调用 id 就无法让应用登记待批：降级为只上报，绝不「看起来问了」。
+        setGateEnabled(false, "tool_call without toolCallId");
+        reportGateDisabledOnce();
+        return;
+      }
+      const body = buildBody(
+        {
+          event: "ToolApproval",
+          status: "waiting_for_approval",
+          expects_response: true,
+          tool: toolName,
+          tool_input: input,
+          tool_use_id: toolCallId,
+          approval_kind: tier,
+          parent_session: hasParentSession(ctx),
+          gate_enabled: gateEnabled,
+          degradation: DEGRADATION,
+          approval_mode: approvalMode,
+        },
+        { sessionId: readSessionIdFrom(ctx), sessionFile: currentSessionFilePath(ctx) },
+      );
+      if (!body) {
+        // 拿不到会话身份：这一条只上报，不做闸门化（与既有 fail-open 一致）。
+        return;
+      }
+      const outcome = await requestDecision(body, APPROVAL_TIMEOUT_MS);
+      const verdict = resolveOutcome(tier, outcome);
+      if (verdict.allowed) {
+        if (outcome.kind === "unreachable") {
+          // 降级放行：TUI 留一行可见提示 + 排队一条审计事件（应用回来后补投）。
+          const notice = `AgentIsland gate offline — degraded to ${DEGRADATION}`;
+          if (ctx?.hasUI === true) {
+            notifyGateDegraded(ctx, notice);
+          }
+          recordDegradedReport({
+            ...body,
+            status: "degraded_allowed",
+            expects_response: false,
+            gate_notice: notice,
+          });
+        }
+        return;
+      }
+      const blocked: ToolCallVerdict = {
+        block: true,
+        reason: verdict.reason ?? "Denied on AgentIsland",
+      };
+      return blocked;
+    } catch {
+      // 闸门永不抛错：抛错会被 omp 记成扩展失败并阻塞工具。危险命令仍然拒绝。
+      if (tier === "critical") {
+        return { block: true, reason: "Blocked on AgentIsland: gate error on a known-dangerous command" };
+      }
       return;
     }
-    void send({
-      event: "PreToolUse",
-      status: "running_tool",
-      tool: readString(event, "toolName"),
-      tool_input: typeof event === "object" && event !== null ? (event as Record<string, unknown>).input : undefined,
-      tool_use_id: readString(event, "toolCallId"),
-    });
   });
 
   pi.on("tool_result", (event, ctx) => {
@@ -379,7 +987,8 @@ export default function (pi: ExtensionApi) {
     });
   });
 
-  // 需要用户确认（omp 的审批门）；应用只展示状态，批准仍在终端里完成。
+  // OMP 自己的审批门在响（非 yolo 的 exec 档、显式 prompt 策略、computer safetyChecks）。
+  // 上报让位信号：应用据此撤下自己的 Allow/Deny，只显示「终端正在询问」。
   pi.on("tool_approval_requested", (event, ctx) => {
     if (!isRootSession(ctx)) {
       return;
@@ -387,6 +996,8 @@ export default function (pi: ExtensionApi) {
     void send({
       event: "ToolApproval",
       status: "waiting_for_approval",
+      expects_response: false,
+      omp_owns_approval: true,
       tool: readString(event, "toolName"),
       tool_use_id: readString(event, "toolCallId"),
       message: readString(event, "reason"),

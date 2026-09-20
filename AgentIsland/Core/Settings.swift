@@ -31,6 +31,22 @@ enum NotificationSound: String, CaseIterable {
   }
 }
 
+/// 应用不可达（AgentIsland 没开）时闸门怎么办。
+///
+/// 这一档只在「无人可问」时生效；「问了没答」（超时）永远是拒绝——omp 生效的
+/// `approvalMode` 已是 yolo，超时放行等于静默执行任意命令。
+nonisolated enum ApprovalDegradation: String, CaseIterable {
+  /// 一律拒绝：把 agent 当生产工具，宁可停下也不误执行。
+  case strict
+  /// 放行 + 记录 + 刘海事后展示；已知危险命令仍然拒绝。（默认）
+  case notifyOnly = "notify-only"
+  /// 只放行只读工具，写 / 执行一律拒绝。
+  ///
+  /// 注意：只读档（read/glob/grep…）在闸门之前就放行了，能走到闸门的都是写 / 执行档，
+  /// 因此实际效果与 `strict` 相同——差别只在与用户心智模型对齐。
+  case readOnlyAllow = "read-only-allow"
+}
+
 nonisolated enum AppSettings {
   private static let defaults = UserDefaults.standard
 
@@ -41,6 +57,11 @@ nonisolated enum AppSettings {
     static let claudeDirectoryName = "claudeDirectoryName"
     static let language = "language"
     static let disabledAgents = "disabledAgents"
+    static let approvalGateAgents = "approvalGateAgents"
+    static let approvalDegradation = "approvalDegradation"
+    static let ompGateConfigBackupPath = "ompGateConfigBackupPath"
+    static let ompGateConfigOriginalTimeout = "ompGateConfigOriginalTimeout"
+    static let ompGateConfigAppliedAt = "ompGateConfigAppliedAt"
   }
 
   // MARK: - Notification Sound
@@ -113,6 +134,65 @@ nonisolated enum AppSettings {
     set {
       defaults.set(newValue.trimmingCharacters(in: .whitespaces), forKey: Keys.claudeDirectoryName)
     }
+  }
+
+  // MARK: - 审批闸门
+
+  /// 某个 Agent 是否在刘海上审批它的工具调用。默认关：只有用户显式打开后才有闸门。
+  /// 只有装了「闸门版扩展」的 Agent（omp / pi）才有意义，见 `AgentIntegrationInstaller`。
+  static func isApprovalGateEnabled(_ kind: AgentKind) -> Bool {
+    approvalGateAgents.contains(kind.rawValue)
+  }
+
+  static func setApprovalGate(_ kind: AgentKind, enabled: Bool) {
+    var agents = approvalGateAgents
+    if enabled {
+      agents.insert(kind.rawValue)
+    } else {
+      agents.remove(kind.rawValue)
+    }
+    approvalGateAgents = agents
+  }
+
+  private static var approvalGateAgents: Set<String> {
+    get { Set(defaults.stringArray(forKey: Keys.approvalGateAgents) ?? []) }
+    set { defaults.set(Array(newValue).sorted(), forKey: Keys.approvalGateAgents) }
+  }
+
+  /// 应用不可达时闸门怎么办；默认 `notify-only`。
+  /// 随扩展文件下发（写进扩展里的策略常量），不写用户的 agent 配置。
+  static var approvalDegradation: ApprovalDegradation {
+    get {
+      guard let raw = defaults.string(forKey: Keys.approvalDegradation),
+        let tier = ApprovalDegradation(rawValue: raw)
+      else {
+        return .notifyOnly
+      }
+      return tier
+    }
+    set {
+      defaults.set(newValue.rawValue, forKey: Keys.approvalDegradation)
+    }
+  }
+
+  // MARK: - omp 配置写入记录
+
+  /// `~/.omp/agent/config.yml` 的备份路径（关闭闸门时据此还原）。
+  static var ompGateConfigBackupPath: String? {
+    get { defaults.string(forKey: Keys.ompGateConfigBackupPath) }
+    set { defaults.set(newValue, forKey: Keys.ompGateConfigBackupPath) }
+  }
+
+  /// 写入前 `extensionHandlers.toolCallTimeoutMs` 的原值（界面展示与还原核对用）。
+  static var ompGateConfigOriginalTimeout: String? {
+    get { defaults.string(forKey: Keys.ompGateConfigOriginalTimeout) }
+    set { defaults.set(newValue, forKey: Keys.ompGateConfigOriginalTimeout) }
+  }
+
+  /// 写入时间。
+  static var ompGateConfigAppliedAt: Date? {
+    get { defaults.object(forKey: Keys.ompGateConfigAppliedAt) as? Date }
+    set { defaults.set(newValue, forKey: Keys.ompGateConfigAppliedAt) }
   }
 
   // MARK: - 改名迁移

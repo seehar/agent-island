@@ -1,0 +1,542 @@
+// agent-island-pi-extension.ts —— 由 AgentIsland 安装的 pi / Oh My Pi 扩展
+// agent-island-extension-version: 2
+// agent-island-extension-kind: report-only
+// 本文件由 AgentIsland 安装并管理，勿手改：开关切换、档位变更或应用升级都会整体重写。
+//
+// 作用：把会话生命周期与工具调用实时上报给 notch 应用（unix socket），
+// 让 pi/omp 拥有和 Claude Code hooks 同等的实时状态，而不必轮询记录文件。
+//
+// 子 Agent：omp 的 subAgent 是同进程内的**独立会话**（其 ctx 恒为 hasUI=false、
+// mode="print"），直接按会话上报会污染会话身份（子会话文件不在应用的会话目录
+// 布局里）；omp 已经把每个子 Agent 的生命周期投到父会话的共享 EventBus
+// （`task:subagent:lifecycle|progress`），因此这里订阅那条总线，把子 Agent 作为
+// 父会话的一部分上报。
+//
+// 安装位置：
+//   ~/.omp/agent/extensions/agent-island-state.ts   （Oh My Pi）
+//   ~/.pi/agent/extensions/agent-island-state.ts    （Pi）
+// 安装时会把 __AGENT_ISLAND_AGENT__ 替换成 "omp" 或 "pi"。
+//
+// 协议：连接 /tmp/agent-island.sock（可用 AGENT_ISLAND_SOCKET 覆盖），
+// 发送一个 JSON 对象即断开。应用不可用时静默失败，绝不阻塞 Agent。
+
+import { execSync } from "node:child_process";
+import net from "node:net";
+
+// 上报方标识：安装器会替换成具体 Agent 名（omp / pi）。
+const AGENT = "__AGENT_ISLAND_AGENT__";
+const SOCKET_PATH = process.env.AGENT_ISLAND_SOCKET || "/tmp/agent-island.sock";
+
+/** omp 子 Agent 总线频道；常量取值与 omp 的 `task/types.ts` 一致。 */
+const SUBAGENT_LIFECYCLE_CHANNEL = "task:subagent:lifecycle";
+const SUBAGENT_PROGRESS_CHANNEL = "task:subagent:progress";
+
+/** socket 类型：用 createConnection 的返回值反推，不依赖 @types/node 的 Socket 导出名。 */
+type NodeSocket = ReturnType<typeof net.createConnection>;
+
+/** 事件名与 Claude Code hook 事件同名，应用侧因此只需一套状态机。 */
+interface IslandEvent {
+  event: string;
+  status: string;
+  tool?: string;
+  tool_input?: unknown;
+  tool_use_id?: string;
+  message?: string;
+  /** 子 Agent 事件（SubagentLifecycle / SubagentProgress）专用字段。 */
+  subagent_id?: string;
+  subagent_agent?: string;
+  subagent_status?: string;
+  subagent_current_tool?: string;
+  subagent_task?: string;
+  parent_tool_call_id?: string;
+  subagent_session_file?: string;
+  /** 「OMP 自己在问」让位信号：应用据此撤下自己的 Allow/Deny。 */
+  omp_owns_approval?: boolean;
+}
+
+/** 会话头；omp 用它给派生的子会话标注父会话。 */
+interface SessionHeaderLike {
+  parentSession?: unknown;
+}
+
+/** 扩展可见的最小上下文接口（pi / omp 运行时提供，此处只声明用到的部分）。 */
+interface SessionManagerLike {
+  getSessionFile?(): unknown;
+  getSessionId?(): unknown;
+  getHeader?(): unknown;
+}
+
+interface ExtensionContextLike {
+  hasUI?: unknown;
+  mode?: unknown;
+  cwd?: unknown;
+  isIdle?(): unknown;
+  sessionManager?: SessionManagerLike;
+}
+
+/** 会话共享事件总线（omp 的 `pi.events`）；旧版 pi 可能没有。 */
+interface EventBusLike {
+  on(channel: string, handler: (data: unknown) => void): unknown;
+}
+
+/** 扩展注册接口。 */
+interface ExtensionApi {
+  on(event: string, handler: (event: unknown, ctx?: ExtensionContextLike) => void | Promise<void>): void;
+  events?: EventBusLike;
+}
+
+/** 从未知值里取布尔字段。 */
+function readBool(source: unknown, key: string): boolean {
+  if (typeof source !== "object" || source === null || !(key in source)) {
+    return false;
+  }
+  return (source as Record<string, unknown>)[key] === true;
+}
+
+/** 从未知值里取字符串字段，取不到时返回 undefined。 */
+function readString(source: unknown, key: string): string | undefined {
+  if (typeof source !== "object" || source === null || !(key in source)) {
+    return undefined;
+  }
+  const value = (source as Record<string, unknown>)[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/** 从未知值里取对象字段。 */
+function readObject(source: unknown, key: string): Record<string, unknown> | undefined {
+  if (typeof source !== "object" || source === null || !(key in source)) {
+    return undefined;
+  }
+  const value = (source as Record<string, unknown>)[key];
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : undefined;
+}
+
+// 注意：omp 的扩展模块在**整个进程内只求值一次**，下面这些模块级变量是所有会话
+// （根会话与各个 subAgent 会话）共用的。它们只记录「根会话」的身份，子代理上下文
+// 只读不写——否则子代理的 session_start 会把根会话身份冲掉，后续事件（含根会话自己的）
+// 都会带着子代理的会话 id 上报（真实踩过：一次嵌套派发里孙代理的 id 顶掉了根会话 id）。
+let rootSessionFile: string | undefined;
+let rootSessionId: string | undefined;
+let pid: number | undefined;
+let tty: string | undefined;
+
+// 串行发送，保证事件顺序；应用不在时也不会堆积。
+let chain: Promise<boolean> = Promise.resolve(true);
+
+/** 取当前进程所在 tty，用于从 notch 聚焦终端。 */
+function detectTty(): string | undefined {
+  try {
+    const out = execSync(`ps -p ${process.pid} -o tty=`, { encoding: "utf8", timeout: 800 }).trim();
+    // 无 tty 时 ps 会给出 `?` / `??` / `-`，这些都不是可聚焦的终端名
+    if (/^\/?[a-z]+[0-9]+$/.test(out) || /^\/?ttys[0-9]+$/.test(out)) {
+      return out.startsWith("/dev/") ? out.slice("/dev/".length) : out;
+    }
+  } catch {
+    // 忽略：拿不到 tty 只是无法从 notch 聚焦终端。
+  }
+  return undefined;
+}
+
+/**
+ * 会话文件是否是「根会话」形状：`<时间戳>_<uuid>.jsonl`。
+ *
+ * 子代理的会话文件形如 `<实例名>.jsonl`（没有时间戳前缀），与根会话一眼可分——比
+ * `ctx.sessionManager.getHeader()` 可靠：会话头要等会话落盘才存在，子代理的
+ * `session_start` 期间常常读不到，只看会话头会把子代理误判成根会话（也是真实踩过的坑）。
+ */
+function looksLikeRootSessionFile(path: string | undefined): boolean {
+  if (!path) {
+    return false;
+  }
+  const last = path.split("/").pop();
+  const base = last && last.endsWith(".jsonl") ? last.slice(0, -".jsonl".length) : last;
+  return base !== undefined && /^[0-9T:.-]+Z_[0-9a-f-]{8,}$/.test(base);
+}
+
+/** 读上下文里的会话文件路径（读取失败返回 undefined）。 */
+function currentSessionFilePath(ctx: ExtensionContextLike | undefined): string | undefined {
+  try {
+    const file = ctx?.sessionManager?.getSessionFile?.();
+    return typeof file === "string" && file.startsWith("/") ? file : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 记下根会话身份。只有根会话的上下文才允许写入。
+ *
+ * 模块级变量在进程内共享，子代理上下文只能读、不能写：一旦被覆盖，
+ * 后续所有事件都会带着错误的会话 id 上报。
+ */
+function bindRootSession(ctx: ExtensionContextLike | undefined): void {
+  const file = currentSessionFilePath(ctx);
+  if (file) {
+    rootSessionFile = file;
+  }
+  try {
+    const id = ctx?.sessionManager?.getSessionId?.();
+    if (typeof id === "string" && id.length > 0) {
+      rootSessionId = id;
+    }
+  } catch {
+    // 保持既有值
+  }
+}
+
+/**
+ * 会话头是否带 parentSession。
+ *
+ * omp 用它标注「这个会话由某个父会话派生」（子 Agent、持久化复活的子代理），
+ * 是区分「子 Agent」与「headless 根会话」的唯一权威字段。
+ */
+function hasParentSession(ctx: ExtensionContextLike | undefined): boolean {
+  try {
+    const header = ctx?.sessionManager?.getHeader?.();
+    const parent = readString(header, "parentSession");
+    return parent !== undefined;
+  } catch {
+    // 取不到会话头时按「不是子会话」处理，宁可多报一个会话，也不静默丢失。
+    return false;
+  }
+}
+
+/**
+ * 是否是应用要展示的「根会话」（用户眼前的那一个）。
+ *
+ * 不能只看 `hasUI`：omp 的子 Agent 与 headless 根会话（`omp -p`、`--mode json|rpc`）
+ * 都是 `hasUI=false` + `mode="print"`，只按 hasUI 过滤会把 headless 会话一并丢掉。
+ * 子 Agent 的权威判据是会话头里的 `parentSession`；TUI 一定是根会话（子 Agent 不
+ * 带 UI），因此 hasUI 为真时直接放行，避免 `--fork` 出来的根会话被误判成子会话。
+ */
+function isRootSession(ctx: ExtensionContextLike | undefined): boolean {
+  if (ctx?.hasUI === true || ctx?.mode === "tui") {
+    return true;
+  }
+  if (hasParentSession(ctx)) {
+    return false;
+  }
+  // 会话头读不到（子代理 session_start 期间常见）时，退回到会话文件命名形状。
+  const file = currentSessionFilePath(ctx);
+  return file === undefined || looksLikeRootSessionFile(file);
+}
+
+/** 组装一条事件的完整信封；没有会话标识时返回 undefined（这一条不发）。 */
+function buildBody(
+  payload: IslandEvent,
+  override?: { sessionId?: string; sessionFile?: string },
+): Record<string, unknown> | undefined {
+  // 模块级状态只保存**根会话**身份（子代理上下文只读不写），因此这里的缺省值就是根会话；
+  // 子代理的请求由调用方通过 override 传它自己的会话身份。
+  const sessionId = override?.sessionId ?? rootSessionId;
+  const sessionFile = override?.sessionFile ?? rootSessionFile;
+  if (!sessionId && !sessionFile) {
+    return undefined;
+  }
+  return {
+    session_id: sessionId ?? "unknown",
+    cwd: typeof process.cwd === "function" ? process.cwd() : undefined,
+    pid,
+    tty,
+    agent: AGENT,
+    session_file: sessionFile,
+    ...payload,
+  };
+}
+
+/** 一次「连接 → 写入」；返回是否写入成功（用于决定要不要补投降级审计事件）。 */
+function deliver(body: Record<string, unknown>): Promise<boolean> {
+  const { promise, resolve } = Promise.withResolvers<boolean>();
+  let wrote = false;
+  let settled = false;
+  let socket: NodeSocket | undefined;
+  const done = () => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    try {
+      socket?.destroy();
+    } catch {
+      // 忽略：连接可能已经断开。
+    }
+    resolve(wrote);
+  };
+  try {
+    socket = net.createConnection(SOCKET_PATH, () => {
+      try {
+        socket?.write(JSON.stringify(body));
+        wrote = true;
+      } catch {
+        // 写入失败：按未送达处理。
+      }
+      socket?.end();
+    });
+    socket.setTimeout(400, done);
+    socket.on("data", done);
+    socket.on("error", done);
+    socket.on("end", done);
+    socket.on("close", done);
+  } catch {
+    done();
+  }
+  return promise;
+}
+
+/** 发送一条事件；永不抛错，永不阻塞调用方。 */
+function send(
+  payload: IslandEvent,
+  override?: { sessionId?: string; sessionFile?: string },
+): Promise<void> {
+  const body = buildBody(payload, override);
+  if (!body) {
+    return Promise.resolve();
+  }
+  chain = chain.then(() => deliver(body)).catch(() => false);
+  return chain.then(() => undefined);
+}
+
+/**
+ * 订阅本实例所在会话的共享总线上的子 Agent 频道。
+ *
+ * 扩展模块在进程内只求值一次，订阅到的总线覆盖整棵子代理树（含「子代理再派子代理」
+ * 的孙代理）：所有总线事件都上报到根会话名下，由应用侧按 `parent_tool_call_id` 与
+ * 子代理会话文件路径挂到对应的 task 卡片；子代理不再按自己的会话上报，避免污染会话身份。
+ * 进度事件按「状态 + 当前工具」去重，避免流式进度把 socket 打满。
+ */
+function subscribeSubagentBus(pi: ExtensionApi): void {
+  const bus = pi.events;
+  if (!bus || typeof bus.on !== "function") {
+    // 旧版 pi 没有共享总线：子 Agent 不上报，其余事件不受影响。
+    return;
+  }
+
+  const lastProgressSignature = new Map<string, string>();
+
+  /** 总线事件一律上报到根会话名下：子代理本身不是应用认识的会话。 */
+  function rootOwner(): string | undefined {
+    return rootSessionId;
+  }
+
+  bus.on(SUBAGENT_LIFECYCLE_CHANNEL, (data) => {
+    const id = readString(data, "id");
+    const owner = rootOwner();
+    if (!id || !owner) {
+      return;
+    }
+    void send(
+      {
+        event: "SubagentLifecycle",
+        status: "processing",
+        subagent_id: id,
+        subagent_agent: readString(data, "agent") ?? id,
+        subagent_status: readString(data, "status"),
+        subagent_task: readString(data, "description"),
+        parent_tool_call_id: readString(data, "parentToolCallId"),
+        subagent_session_file: readString(data, "sessionFile"),
+      },
+      { sessionId: owner },
+    );
+  });
+
+  bus.on(SUBAGENT_PROGRESS_CHANNEL, (data) => {
+    const progress = readObject(data, "progress");
+    const id = readString(progress, "id") ?? readString(data, "id");
+    const owner = rootOwner();
+    if (!id || !owner) {
+      return;
+    }
+    const status = readString(progress, "status");
+    const currentTool = readString(progress, "currentTool");
+    const signature = `${status ?? ""}|${currentTool ?? ""}`;
+    if (lastProgressSignature.get(id) === signature) {
+      return;
+    }
+    lastProgressSignature.set(id, signature);
+    void send(
+      {
+        event: "SubagentProgress",
+        status: "processing",
+        subagent_id: id,
+        subagent_agent: readString(progress, "agent") ?? readString(data, "agent") ?? id,
+        subagent_status: status,
+        subagent_current_tool: currentTool,
+        subagent_task: readString(progress, "task") ?? readString(data, "task"),
+        parent_tool_call_id: readString(data, "parentToolCallId"),
+        subagent_session_file: readString(data, "sessionFile"),
+      },
+      { sessionId: owner },
+    );
+  });
+}
+
+export default function (pi: ExtensionApi) {
+  /** 只有根会话才绑定身份并上报会话事件；子代理上下文只读不写（见模块级变量注释）。 */
+  function activateRootSession(ctx: ExtensionContextLike | undefined): boolean {
+    if (!isRootSession(ctx)) {
+      return false;
+    }
+    bindRootSession(ctx);
+    return true;
+  }
+
+  pi.on("session_start", (_event, ctx) => {
+    if (!activateRootSession(ctx)) {
+      return;
+    }
+    if (pid === undefined) {
+      pid = process.pid;
+      tty = detectTty();
+    }
+    // 扩展可能在会话中途被加载：按上下文判断是否正在跑。
+    const busy = ctx?.isIdle?.() === false;
+    void send({ event: "SessionStart", status: busy ? "processing" : "idle" });
+  });
+
+  pi.on("session_switch", (_event, ctx) => {
+    if (!isRootSession(ctx)) {
+      return;
+    }
+    // 同一个进程切走的旧会话不会再被写盘，而进程还活着、存活回收不会触发；
+    // 若只发 SessionStart，旧会话行会一直挂在列表里，因此先给旧会话补一个结束事件。
+    const previousSessionId = rootSessionId;
+    const previousSessionFile = rootSessionFile;
+    bindRootSession(ctx);
+    if (previousSessionId && previousSessionId !== rootSessionId) {
+      void send(
+        { event: "SessionEnd", status: "ended" },
+        { sessionId: previousSessionId, sessionFile: previousSessionFile },
+      );
+    }
+    void send({ event: "SessionStart", status: "idle" });
+  });
+
+  pi.on("agent_start", (_event, ctx) => {
+    if (!activateRootSession(ctx)) {
+      return;
+    }
+    void send({ event: "UserPromptSubmit", status: "processing" });
+  });
+
+  pi.on("agent_end", (event, ctx) => {
+    if (ctx !== undefined && !isRootSession(ctx)) {
+      return;
+    }
+    // willContinue 表示还会继续（自动重试/续跑），此时不算一轮结束。
+    if (readBool(event, "willContinue")) {
+      return;
+    }
+    void send({ event: "Stop", status: "waiting_for_input" });
+  });
+
+  // Pi 侧的生命周期事件名（与 omp 的 agent_end 等价）；不支持时忽略。
+  try {
+    pi.on("agent_settled", (_event, ctx) => {
+      if (ctx !== undefined && !isRootSession(ctx)) {
+        return;
+      }
+      if (ctx?.isIdle?.() !== true) {
+        return;
+      }
+      void send({ event: "Stop", status: "waiting_for_input" });
+    });
+  } catch {
+    // 该事件在部分版本不存在。
+  }
+
+  pi.on("tool_call", (event, ctx) => {
+    if (!isRootSession(ctx)) {
+      return;
+    }
+    void send({
+      event: "PreToolUse",
+      status: "running_tool",
+      tool: readString(event, "toolName"),
+      tool_input: typeof event === "object" && event !== null ? (event as Record<string, unknown>).input : undefined,
+      tool_use_id: readString(event, "toolCallId"),
+    });
+  });
+
+  pi.on("tool_result", (event, ctx) => {
+    if (!isRootSession(ctx)) {
+      return;
+    }
+    const failed = readBool(event, "isError");
+    void send({
+      event: failed ? "PostToolUseFailure" : "PostToolUse",
+      status: "processing",
+      tool: readString(event, "toolName"),
+      tool_use_id: readString(event, "toolCallId"),
+    });
+  });
+
+  // OMP 自己的审批门在响（非 yolo 的 exec 档、显式 prompt 策略、computer safetyChecks）。
+  // 上报让位信号：应用据此撤下自己的 Allow/Deny，只显示「终端正在询问」。
+  pi.on("tool_approval_requested", (event, ctx) => {
+    if (!isRootSession(ctx)) {
+      return;
+    }
+    void send({
+      event: "ToolApproval",
+      status: "waiting_for_approval",
+      omp_owns_approval: true,
+      tool: readString(event, "toolName"),
+      tool_use_id: readString(event, "toolCallId"),
+      message: readString(event, "reason"),
+    });
+  });
+
+  pi.on("tool_approval_resolved", (event, ctx) => {
+    if (!isRootSession(ctx)) {
+      return;
+    }
+    const approved = readBool(event, "approved");
+    void send({
+      // 被拒绝的工具不会产生 tool_result（omp 的审批门在 execute 之前），
+      // 沿用 PostToolUse 会把「拒绝」显示成成功，因此按结果分流。
+      event: approved ? "PostToolUse" : "PostToolUseFailure",
+      status: "processing",
+      tool: readString(event, "toolName"),
+      tool_use_id: readString(event, "toolCallId"),
+    });
+  });
+
+  // `ask` 工具会阻塞等待用户回答，同样属于「等待输入」。
+  pi.on("tool_execution_start", (event, ctx) => {
+    if (readString(event, "toolName") !== "ask" || !isRootSession(ctx)) {
+      return;
+    }
+    const args = typeof event === "object" && event !== null ? (event as Record<string, unknown>).args : undefined;
+    const questions =
+      typeof args === "object" && args !== null && Array.isArray((args as Record<string, unknown>).questions)
+        ? ((args as Record<string, unknown>).questions as unknown[])
+        : [];
+    const first = questions.find((q) => typeof readString(q, "question") === "string");
+    void send({
+      event: "ToolApproval",
+      status: "waiting_for_approval",
+      tool: "ask",
+      tool_use_id: readString(event, "toolCallId"),
+      message: readString(first, "question"),
+    });
+  });
+
+  pi.on("tool_execution_end", (event, ctx) => {
+    if (readString(event, "toolName") !== "ask" || !isRootSession(ctx)) {
+      return;
+    }
+    void send({
+      event: "PostToolUse",
+      status: "processing",
+      tool: "ask",
+      tool_use_id: readString(event, "toolCallId"),
+    });
+  });
+
+  pi.on("session_shutdown", () => {
+    void send({ event: "SessionEnd", status: "ended" });
+  });
+
+  // 子 Agent：由父会话的共享总线代为上报（见 subscribeSubagentBus 注释）。
+  subscribeSubagentBus(pi);
+}
