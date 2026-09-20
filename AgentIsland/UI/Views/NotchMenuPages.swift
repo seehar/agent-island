@@ -23,6 +23,8 @@ struct GeneralSettingsPage: View {
 
     /// 登录时启动的实时状态，进入页面与回到应用时按系统状态刷新。
     @State private var launchAtLogin = false
+    /// 登录项改动失败的原因；直接写在开关行的副标题里，不再只留一行控制台日志。
+    @State private var launchAtLoginError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: NotchMenuMetrics.groupSpacing) {
@@ -36,11 +38,17 @@ struct GeneralSettingsPage: View {
             SettingsGroup(title: l10n.t("System")) {
                 SettingsToggleRow(
                     badge: SettingsBadge(
-                        source: .symbol(name: "power", tint: SettingsPalette.accent)),
+                        source: .symbol(name: "power", tint: AppPalette.accent)),
                     title: l10n.t("Launch at Login"),
+                    // 正常时这行解释开关的作用，失败时换成原因：不占额外高度，
+                    // 面板高度因此不必为偶发错误预留空间
+                    subtitle: launchAtLoginError ?? l10n.t("Opens AgentIsland when you log in"),
+                    subtitleColor: launchAtLoginError == nil
+                        ? AppPalette.secondaryText : AppPalette.danger,
                     isOn: launchAtLogin,
                     onToggle: toggleLaunchAtLogin
                 )
+                .frame(height: NotchMenuMetrics.twoLineRowHeight)
                 AccessibilityRow(isEnabled: AXIsProcessTrusted())
             }
         }
@@ -66,8 +74,11 @@ struct GeneralSettingsPage: View {
                 try SMAppService.mainApp.register()
                 launchAtLogin = true
             }
+            launchAtLoginError = nil
         } catch {
-            print("Failed to toggle launch at login: \(error)")
+            // 最常见的两种失败：用户在系统设置里关掉了登录项、应用不在 /Applications。
+            // 原因写在行内，用户不必去翻控制台。
+            launchAtLoginError = l10n.t("Failed to update login item")
         }
     }
 }
@@ -113,7 +124,7 @@ struct AboutSettingsPage: View {
 
                 SettingsButtonRow(
                     badge: SettingsBadge(
-                        source: .symbol(name: "star", tint: SettingsPalette.accent)),
+                        source: .symbol(name: "star", tint: AppPalette.accent)),
                     title: l10n.t("Star on GitHub"),
                     showsSeparator: false,
                     action: openRepository
@@ -124,9 +135,9 @@ struct AboutSettingsPage: View {
             SettingsGroup {
                 SettingsButtonRow(
                     badge: SettingsBadge(
-                        source: .symbol(name: "xmark.circle", tint: SettingsPalette.danger)),
+                        source: .symbol(name: "xmark.circle", tint: AppPalette.danger)),
                     title: l10n.t("Quit"),
-                    titleColor: SettingsPalette.danger,
+                    titleColor: AppPalette.danger,
                     showsSeparator: false,
                     action: quit
                 )
@@ -146,11 +157,11 @@ struct AboutSettingsPage: View {
 
             Text(appName)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(SettingsPalette.primaryText)
+                .foregroundColor(AppPalette.primaryText)
 
             Text(l10n.t("Version %@", appVersion))
                 .font(.system(size: 11))
-                .foregroundColor(SettingsPalette.tertiaryText)
+                .foregroundColor(AppPalette.tertiaryText)
         }
         .frame(maxWidth: .infinity)
         .frame(height: NotchMenuMetrics.appIdentityHeight)

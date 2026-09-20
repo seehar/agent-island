@@ -17,7 +17,7 @@ struct LanguagePickerRow: View {
 
     var body: some View {
         SettingsPickerRow(
-            badge: SettingsBadge(source: .symbol(name: "globe", tint: SettingsPalette.accent)),
+            badge: SettingsBadge(source: .symbol(name: "globe", tint: AppPalette.accent)),
             title: l10n.t("Language"),
             value: l10n.displayName(for: l10n.language),
             isExpanded: selector.isPickerExpanded,

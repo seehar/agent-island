@@ -7,46 +7,10 @@
 //  刘海面板重新取值——黑底上用叠白代替阴影，文字层级用白色透明度而非不同灰度。
 //  行的几何（图标块 22、上下内边距 9、左右 12）与 NotchMenuMetrics 共用同一组
 //  常量，面板高度因此仍可由常量解析地推出。
+//  语义色与圆角已提升为全应用共用的 token，见 UI/Components/AppTheme.swift。
 //
 
 import SwiftUI
-
-// MARK: - 调色
-
-/// 设置面板的语义色。
-///
-/// 强调色跟随系统「强调色」偏好——这是 macOS 控件的惯例：用户换了强调色，开关、
-/// 选中勾与分段滑块跟着换。成功/警告/危险只表达状态，不参与选中态，避免一个颜色
-/// 同时表示「被选中」和「状态正常」两件事。
-enum SettingsPalette {
-    /// 控件强调色：开关、选中勾、分段滑块、行内按钮。
-    static let accent = Color.accentColor
-    /// 成功 / 健康：集成已安装、已启用。
-    static let success = Color(red: 0.40, green: 0.78, blue: 0.47)
-    /// 警告：集成不可用、需要授权。
-    static let warning = Color(red: 1.0, green: 0.72, blue: 0.30)
-    /// 危险：退出、错误文案。
-    static let danger = Color(red: 1.0, green: 0.42, blue: 0.42)
-
-    /// 主要文字：行标题、分段控件里选中的标签。
-    static let primaryText = Color.white.opacity(0.92)
-    /// 次要文字：当前取值、状态副标题。
-    static let secondaryText = Color.white.opacity(0.55)
-    /// 三级文字：路径、分组标题、脚注。
-    static let tertiaryText = Color.white.opacity(0.38)
-
-    /// 卡片底色与描边（黑底上给卡片一条亮边，取代阴影）。
-    static let cardFill = Color.white.opacity(0.06)
-    static let cardStroke = Color.white.opacity(0.06)
-    /// 卡片内一行的悬停底色、按下时叠加的底色。
-    static let rowHover = Color.white.opacity(0.06)
-    static let rowPressed = Color.white.opacity(0.12)
-    /// 卡片内行之间的发丝分隔线。
-    static let separator = Color.white.opacity(0.08)
-    /// 分段控件的轨道与滑块。
-    static let segmentedTrack = Color.white.opacity(0.09)
-    static let segmentedThumb = Color.white.opacity(0.16)
-}
 
 // MARK: - 动效
 
@@ -73,12 +37,12 @@ struct SettingsCard<Content: View>: View {
             content
         }
         .background(
-            SettingsPalette.cardFill,
+            AppPalette.cardFill,
             in: RoundedRectangle(cornerRadius: NotchMenuMetrics.cardRadius, style: .continuous)
         )
         .overlay(
             RoundedRectangle(cornerRadius: NotchMenuMetrics.cardRadius, style: .continuous)
-                .strokeBorder(SettingsPalette.cardStroke, lineWidth: 0.5)
+                .strokeBorder(AppPalette.cardStroke, lineWidth: 0.5)
         )
         .clipShape(
             RoundedRectangle(cornerRadius: NotchMenuMetrics.cardRadius, style: .continuous)
@@ -93,7 +57,7 @@ struct SettingsSectionHeader: View {
     var body: some View {
         Text(title)
             .font(.system(size: 11, weight: .semibold))
-            .foregroundColor(SettingsPalette.tertiaryText)
+            .foregroundColor(AppPalette.tertiaryText)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, NotchMenuMetrics.rowHorizontalPadding)
     }
@@ -124,7 +88,7 @@ struct SettingsGroup<Content: View>: View {
             if let footnote {
                 Text(footnote)
                     .font(.system(size: 11))
-                    .foregroundColor(SettingsPalette.tertiaryText)
+                    .foregroundColor(AppPalette.tertiaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, NotchMenuMetrics.rowHorizontalPadding)
                     .padding(.top, NotchMenuMetrics.footnoteGap)
@@ -193,8 +157,8 @@ struct SettingsRowLabel<Trailing: View>: View {
         badge: SettingsBadge,
         title: String,
         subtitle: String? = nil,
-        titleColor: Color = SettingsPalette.primaryText,
-        subtitleColor: Color = SettingsPalette.secondaryText,
+        titleColor: Color = AppPalette.primaryText,
+        subtitleColor: Color = AppPalette.secondaryText,
         @ViewBuilder trailing: () -> Trailing
     ) {
         self.badge = badge
@@ -242,13 +206,13 @@ struct SettingsDisclosureValue: View {
         HStack(spacing: 6) {
             Text(value)
                 .font(.system(size: 11))
-                .foregroundColor(SettingsPalette.secondaryText)
+                .foregroundColor(AppPalette.secondaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)
 
             Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                 .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(SettingsPalette.tertiaryText)
+                .foregroundColor(AppPalette.tertiaryText)
         }
     }
 }
@@ -257,7 +221,7 @@ struct SettingsDisclosureValue: View {
 /// 选中态一律用强调色的勾，两者不混用。
 struct SettingsStatusValue: View {
     let text: String
-    var color: Color = SettingsPalette.secondaryText
+    var color: Color = AppPalette.secondaryText
     var dotColor: Color? = nil
 
     var body: some View {
@@ -296,8 +260,8 @@ struct SettingsButtonRow<Trailing: View>: View {
         badge: SettingsBadge,
         title: String,
         subtitle: String? = nil,
-        titleColor: Color = SettingsPalette.primaryText,
-        subtitleColor: Color = SettingsPalette.secondaryText,
+        titleColor: Color = AppPalette.primaryText,
+        subtitleColor: Color = AppPalette.secondaryText,
         showsSeparator: Bool = true,
         isDimmed: Bool = false,
         @ViewBuilder trailing: () -> Trailing,
@@ -325,7 +289,7 @@ struct SettingsButtonRow<Trailing: View>: View {
             ) {
                 trailing
             }
-            .background(isHovered ? SettingsPalette.rowHover : Color.clear)
+            .background(isHovered ? AppPalette.rowHover : Color.clear)
         }
         .buttonStyle(SettingsRowButtonStyle())
         .contentShape(Rectangle())
@@ -340,7 +304,7 @@ extension SettingsButtonRow where Trailing == EmptyView {
     init(
         badge: SettingsBadge,
         title: String,
-        titleColor: Color = SettingsPalette.primaryText,
+        titleColor: Color = AppPalette.primaryText,
         showsSeparator: Bool = true,
         action: @escaping () -> Void
     ) {
@@ -370,7 +334,7 @@ struct SettingsToggleRow: View {
         badge: SettingsBadge,
         title: String,
         subtitle: String? = nil,
-        subtitleColor: Color = SettingsPalette.secondaryText,
+        subtitleColor: Color = AppPalette.secondaryText,
         isOn: Bool,
         showsSeparator: Bool = true,
         onToggle: @escaping () -> Void
@@ -392,7 +356,7 @@ struct SettingsToggleRow: View {
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
-                .tint(SettingsPalette.accent)
+                .tint(AppPalette.accent)
                 .accessibilityLabel(Text(title))
         }
         .settingsRowSeparator(showsSeparator)
@@ -436,7 +400,7 @@ struct SettingsPickerRow<Options: View>: View {
                 SettingsRowLabel(badge: badge, title: title) {
                     SettingsDisclosureValue(value: value, isExpanded: isExpanded)
                 }
-                .background(isHovered ? SettingsPalette.rowHover : Color.clear)
+                .background(isHovered ? AppPalette.rowHover : Color.clear)
             }
             .buttonStyle(SettingsRowButtonStyle())
             .contentShape(Rectangle())
@@ -472,14 +436,14 @@ struct SettingsOptionRow: View {
                 Text(label)
                     .font(.system(size: 12))
                     .foregroundColor(
-                        isSelected ? SettingsPalette.primaryText : SettingsPalette.secondaryText
+                        isSelected ? AppPalette.primaryText : AppPalette.secondaryText
                     )
                     .lineLimit(1)
 
                 if let detail {
                     Text(detail)
                         .font(.system(size: 11))
-                        .foregroundColor(SettingsPalette.tertiaryText)
+                        .foregroundColor(AppPalette.tertiaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -489,12 +453,12 @@ struct SettingsOptionRow: View {
                 if isSelected {
                     Image(systemName: "checkmark")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(SettingsPalette.accent)
+                        .foregroundColor(AppPalette.accent)
                 }
             }
             .padding(.horizontal, NotchMenuMetrics.optionHorizontalPadding)
             .frame(height: NotchMenuMetrics.optionRowHeight)
-            .background(isHovered ? SettingsPalette.rowHover : Color.clear)
+            .background(isHovered ? AppPalette.rowHover : Color.clear)
         }
         .buttonStyle(SettingsRowButtonStyle())
         .contentShape(Rectangle())
@@ -509,7 +473,7 @@ struct SettingsNotice: View {
     var body: some View {
         Text(message)
             .font(.system(size: 11))
-            .foregroundColor(SettingsPalette.danger)
+            .foregroundColor(AppPalette.danger)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, NotchMenuMetrics.rowHorizontalPadding)
@@ -523,7 +487,7 @@ struct SettingsNotice: View {
 struct SettingsRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(configuration.isPressed ? SettingsPalette.rowPressed : Color.clear)
+            .background(configuration.isPressed ? AppPalette.rowPressed : Color.clear)
     }
 }
 
@@ -542,7 +506,7 @@ extension View {
         overlay(alignment: .bottom) {
             if isVisible {
                 Rectangle()
-                    .fill(SettingsPalette.separator)
+                    .fill(AppPalette.separator)
                     .frame(height: 1)
                     .padding(.leading, NotchMenuMetrics.separatorInset)
             }

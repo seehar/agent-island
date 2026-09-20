@@ -42,6 +42,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
   // 偏好域跟着 bundle id 走，改名后要先搬旧域的设置，再读任何配置。
   AppSettings.migrateLegacyDefaultsIfNeeded()
 
+  // 改名遗留的旧 socket 文件：老客户端会继续往一个无人监听的地址发状态，清一次。
+  LegacyArtifacts.removeLegacySockets()
+
   AgentIntegrationInstaller.installIfNeeded()
   NSApplication.shared.setActivationPolicy(.accessory)
 
@@ -71,7 +74,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
   screenObserver = nil
  }
 
+ /// 是否运行在单元测试宿主里。
+ ///
+ /// `xcodebuild test` 会启动一份 App 作为测试宿主，它与用户正在运行的实例 bundle id
+ /// 完全一样；单实例守卫一拦，整轮测试就会因为宿主被终止而失败。
+ private var isRunningTests: Bool {
+  NSClassFromString("XCTestCase") != nil
+   || Foundation.ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+   || Foundation.ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
+ }
+
  private func ensureSingleInstance() -> Bool {
+  if isRunningTests { return true }
+
   let bundleID = Bundle.main.bundleIdentifier ?? "com.celestial.AgentIsland"
   let runningApps = NSWorkspace.shared.runningApplications.filter {
    $0.bundleIdentifier == bundleID

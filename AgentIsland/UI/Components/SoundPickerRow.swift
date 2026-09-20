@@ -26,7 +26,7 @@ struct SoundPickerRow: View {
     var body: some View {
         SettingsPickerRow(
             badge: SettingsBadge(
-                source: .symbol(name: "speaker.wave.2", tint: SettingsPalette.accent)),
+                source: .symbol(name: "speaker.wave.2", tint: AppPalette.accent)),
             title: l10n.t("Notification Sound"),
             value: selectedSound.rawValue,
             isExpanded: isExpanded,

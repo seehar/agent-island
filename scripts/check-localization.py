@@ -17,7 +17,7 @@
   6. 根视图没有注入环境 locale（LocalizedRoot + .environment(\\.locale)）
 
 警告（默认退出码 0，`--strict` 时计入失败）：
-  7. catalog 里存在代码不再引用的键
+  7. catalog 里存在代码不再引用的键（仅 `--strict` 下计为失败）
 
 用法：python3 scripts/check-localization.py [--strict] [仓库根目录]
 """
@@ -225,7 +225,7 @@ def main():
             print(f"{level}  {rel}:{line}  {message}" if line else f"{level}  {rel}  {message}")
 
     print(f"扫描 {file_count} 个 Swift 文件、{len(strings)} 个键：{len(errors)} 错误、{len(warnings)} 警告")
-    return 1 if errors else 0
+    return 1 if errors or (STRICT and warnings) else 0
 
 
 if __name__ == "__main__":

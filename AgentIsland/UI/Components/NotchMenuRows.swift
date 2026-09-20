@@ -49,8 +49,8 @@ struct UpdateRow: View {
         case .found(let version, _), .readyToInstall(let version):
             SettingsStatusValue(
                 text: "v\(version)",
-                color: SettingsPalette.success,
-                dotColor: SettingsPalette.success
+                color: AppPalette.success,
+                dotColor: AppPalette.success
             )
 
         case .downloading(let progress), .extracting(let progress):
@@ -66,7 +66,7 @@ struct UpdateRow: View {
             }
 
         case .error:
-            SettingsStatusValue(text: l10n.t("Retry"), color: SettingsPalette.danger)
+            SettingsStatusValue(text: l10n.t("Retry"), color: AppPalette.danger)
         }
     }
 
@@ -90,21 +90,21 @@ struct UpdateRow: View {
     private var tint: Color {
         switch updateManager.state {
         case .idle:
-            return SettingsPalette.accent
+            return AppPalette.accent
         case .checking, .downloading, .installing:
-            return SettingsPalette.accent
+            return AppPalette.accent
         case .upToDate, .found, .readyToInstall:
-            return SettingsPalette.success
+            return AppPalette.success
         case .extracting:
-            return SettingsPalette.warning
+            return AppPalette.warning
         case .error:
-            return SettingsPalette.danger
+            return AppPalette.danger
         }
     }
 
     private var progressTint: Color {
-        if case .extracting = updateManager.state { return SettingsPalette.warning }
-        return SettingsPalette.accent
+        if case .extracting = updateManager.state { return AppPalette.warning }
+        return AppPalette.accent
     }
 
     private var title: String {
@@ -142,9 +142,9 @@ struct UpdateRow: View {
     }
 
     private var subtitleColor: Color {
-        if case .error = updateManager.state { return SettingsPalette.danger }
-        if case .upToDate = updateManager.state { return SettingsPalette.success }
-        return SettingsPalette.secondaryText
+        if case .error = updateManager.state { return AppPalette.danger }
+        if case .upToDate = updateManager.state { return AppPalette.success }
+        return AppPalette.secondaryText
     }
 
     private var isInteractive: Bool {
@@ -193,7 +193,7 @@ struct AccessibilityRow: View {
             badge: SettingsBadge(
                 source: .symbol(
                     name: "hand.raised",
-                    tint: granted ? SettingsPalette.accent : SettingsPalette.warning
+                    tint: granted ? AppPalette.accent : AppPalette.warning
                 )
             ),
             title: l10n.t("Accessibility")
@@ -201,8 +201,8 @@ struct AccessibilityRow: View {
             if granted {
                 SettingsStatusValue(
                     text: l10n.t("On"),
-                    color: SettingsPalette.secondaryText,
-                    dotColor: SettingsPalette.success
+                    color: AppPalette.secondaryText,
+                    dotColor: AppPalette.success
                 )
             } else {
                 enableButton
@@ -221,7 +221,7 @@ struct AccessibilityRow: View {
                 .foregroundColor(.black.opacity(0.85))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(Capsule().fill(SettingsPalette.accent))
+                .background(Capsule().fill(AppPalette.accent))
                 .contentShape(Capsule())
         }
         .buttonStyle(SettingsCompactButtonStyle())

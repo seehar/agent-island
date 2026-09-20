@@ -21,7 +21,7 @@ struct ClaudeDirPickerRow: View {
 
     var body: some View {
         SettingsPickerRow(
-            badge: SettingsBadge(source: .symbol(name: "folder", tint: SettingsPalette.accent)),
+            badge: SettingsBadge(source: .symbol(name: "folder", tint: AppPalette.accent)),
             title: l10n.t("Claude Directory"),
             value: displayValue,
             isExpanded: isExpanded,

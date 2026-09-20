@@ -27,6 +27,8 @@ struct NotchView: View {
  @State private var isVisible: Bool = false
  @State private var isHovering: Bool = false
  @State private var isBouncing: Bool = false
+ /// 头部右上角菜单按钮的悬停态（反馈口径与设置面板一致）
+ @State private var isMenuButtonHovered: Bool = false
 
  @Namespace private var activityNamespace
 
@@ -421,19 +423,26 @@ struct NotchView: View {
      Image(systemName: viewModel.contentType == .menu ? "xmark" : "line.3.horizontal")
       .font(.system(size: 11, weight: .medium))
       .foregroundColor(.white.opacity(0.4))
-      .frame(width: 22, height: 22)
-      .contentShape(Rectangle())
 
-     // Green dot for unseen update
+     // 有未看过的更新：用形状（向下箭头徽标）承载状态，颜色只作辅助——
+     // 只靠颜色区分状态，在黑白截图与色觉障碍下都会丢信息。
      if updateManager.hasUnseenUpdate && viewModel.contentType != .menu {
-      Circle()
-       .fill(TerminalColors.green)
-       .frame(width: 6, height: 6)
+      Image(systemName: "arrow.down.circle.fill")
+       .font(.system(size: 9, weight: .semibold))
+       .foregroundColor(AppPalette.accent)
        .offset(x: -2, y: 2)
+       .accessibilityHidden(true)
      }
     }
+    .frame(width: 22, height: 22)
+    .background(
+     RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous)
+      .fill(isMenuButtonHovered ? AppPalette.rowHover : Color.clear)
+    )
+    .contentShape(Rectangle())
+    .onHover { isMenuButtonHovered = $0 }
    }
-   .buttonStyle(.plain)
+   .buttonStyle(SettingsCompactButtonStyle())
   }
  }
 

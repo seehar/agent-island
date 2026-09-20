@@ -19,7 +19,7 @@ struct ScreenPickerRow: View {
 
     var body: some View {
         SettingsPickerRow(
-            badge: SettingsBadge(source: .symbol(name: "display", tint: SettingsPalette.accent)),
+            badge: SettingsBadge(source: .symbol(name: "display", tint: AppPalette.accent)),
             title: l10n.t("Screen"),
             value: currentSelectionLabel,
             isExpanded: isExpanded,

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Create a release: notarize, create DMG, sign for Sparkle, upload to GitHub, update website
+# 发布流程：编译门禁 → 公证 → DMG → Sparkle 签名 → GitHub Release → 推 gh-pages appcast
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,6 +43,16 @@ echo ""
 mkdir -p "$RELEASE_DIR"
 
 # ============================================
+# Step 0: 编译门禁（本地化守卫 + Release 编译 0 诊断）
+# ============================================
+echo "=== Step 0: Gate ==="
+if ! "$SCRIPT_DIR/gate.sh" --release; then
+    echo "ERROR: 编译门禁未通过，中止发布。"
+    exit 1
+fi
+echo ""
+
+# ============================================
 # Step 1: Notarize the app
 # ============================================
 echo "=== Step 1: Notarizing ==="
@@ -65,7 +75,8 @@ if ! xcrun notarytool history --keychain-profile "$KEYCHAIN_PROFILE" &>/dev/null
         exit 1
     fi
     SKIP_NOTARIZATION=true
-    echo "WARNING: Skipping notarization. Users will see Gatekeeper warnings!"
+    echo "注意: 本次跳过公证 —— 本次产物不可公证，仅限本机使用或内部分发；"
+    echo "      对外分发时用户首次打开会被 Gatekeeper 拦下（需右键 → 打开）。"
 else
     # Create zip for notarization
     ZIP_PATH="$BUILD_DIR/$APP_NAME-$VERSION.zip"
@@ -93,10 +104,10 @@ echo "=== Step 2: Creating DMG ==="
 
 DMG_PATH="$RELEASE_DIR/$APP_NAME-$VERSION.dmg"
 
-# Remove existing DMG if present
-if [ -f "$DMG_PATH" ]; then
+# Remove existing DMG if present（连配套 .sha256 一起删：重建后旧校验值必然描述另一份字节）
+if [ -f "$DMG_PATH" ] || [ -f "$DMG_PATH.sha256" ]; then
     echo "Removing existing DMG..."
-    rm -f "$DMG_PATH"
+    rm -f "$DMG_PATH" "$DMG_PATH.sha256"
 fi
 
 # Check if create-dmg is available (prettier DMG)
@@ -213,6 +224,7 @@ if ! command -v gh &> /dev/null; then
     echo "WARNING: gh CLI not found. Install with: brew install gh"
     echo "Skipping GitHub release upload; appcast 的下载地址指向 $GITHUB_DOWNLOAD_URL"
     echo "手动把 $DMG_PATH 上传到 tag v$VERSION 后 feed 才可用。"
+    echo "本次没有上传附件，因此不生成 $DMG_PATH.sha256（宁缺勿错：校验值必须描述发布资产）。"
 else
     # Check if release already exists
     if gh release view "v$VERSION" --repo "$GITHUB_REPO" &>/dev/null; then
@@ -233,6 +245,10 @@ else
 ### Auto-updates
 After installation, AgentIsland will automatically check for updates."
     fi
+
+    # 校验值只对「刚刚上传成功的那份 DMG」生成：本地重打包会让旧 .sha256 描述另一份字节，
+    # 那种「发布验收」是假验证；上传失败时 set -e 已中止，不会写这个文件
+    shasum -a 256 "$DMG_PATH" | tee "$DMG_PATH.sha256"
 
     echo "GitHub release created: https://github.com/$GITHUB_REPO/releases/tag/v$VERSION"
     echo "Download URL: $GITHUB_DOWNLOAD_URL"
@@ -360,6 +376,9 @@ echo "=== Release Complete ==="
 echo ""
 echo "Files created:"
 echo "  - DMG: $DMG_PATH"
+if [ -f "$DMG_PATH.sha256" ]; then
+    echo "  - SHA256: $DMG_PATH.sha256"
+fi
 if [ -f "$RELEASE_DIR/appcast/appcast.xml" ]; then
     echo "  - Appcast: $RELEASE_DIR/appcast/appcast.xml"
 fi

@@ -27,6 +27,13 @@ nonisolated enum AgentIntegrationInstaller {
   /// OpenCode 插件文件名。
   static let openCodePluginName = "agent-island-state.js"
 
+  /// 改名前的 pi 系扩展文件名：Agent 会加载目录里所有扩展，旧文件不清掉等于旧脚本
+  /// 继续上报到废弃的 socket。装与卸都顺手清。
+  static let legacyPiFamilyExtensionNames = ["claude-island-state.ts"]
+
+  /// 改名前的 OpenCode 插件文件名（同上）。
+  static let legacyOpenCodePluginNames = ["claude-island-state.js"]
+
   /// 安装时替换的 Agent 标识占位符。
   private static let agentToken = "__AGENT_ISLAND_AGENT__"
 
@@ -38,7 +45,12 @@ nonisolated enum AgentIntegrationInstaller {
     // 但插件能带来实时事件，因此同样默认安装（安装失败不影响其可用性）。
     for kind in AgentRegistry.enabled
     where AgentRegistry.provider(for: kind).integrationStatus() != nil {
-      _ = install(kind)
+      let installed = install(kind)
+      // 依赖集成的 Agent 装不上要留下痕迹：界面上那一行会显示「未安装」，
+      // 但只有日志能说明为什么（资源缺失、目录不可写、配置不可安全改写）。
+      if !installed, kind.requiresIntegrationInstall {
+        logger.error("启动时安装 \(kind.rawValue, privacy: .public) 的集成失败")
+      }
     }
   }
 
@@ -58,18 +70,21 @@ nonisolated enum AgentIntegrationInstaller {
     }
   }
 
-  /// 卸载某个 Agent 的集成。
+  /// 卸载某个 Agent 的集成（含改名遗留的旧文件）。
   static func uninstall(_ kind: AgentKind) {
     switch kind {
     case .claudeCode:
       HookInstaller.uninstall()
     case .ohMyPi, .pi:
       if let file = piFamilyExtensionFile(kind) {
-        try? FileManager.default.removeItem(at: file)
+        removeFile(file, label: "pi 扩展")
+        removeLegacyFiles(
+          in: file.deletingLastPathComponent(), names: Self.legacyPiFamilyExtensionNames)
       }
     case .opencode:
       if let file = openCodePluginFile() {
-        try? FileManager.default.removeItem(at: file)
+        removeFile(file, label: "OpenCode 插件")
+        removeLegacyFiles(in: file.deletingLastPathComponent(), names: Self.legacyOpenCodePluginNames)
       }
     }
   }
@@ -118,10 +133,39 @@ nonisolated enum AgentIntegrationInstaller {
         withIntermediateDirectories: true
       )
       try rendered.write(to: destination, atomically: true, encoding: .utf8)
+      // 装新的同时清旧的：旧文件不删会被 Agent 一起加载，等于双份上报
+      removeLegacyFiles(
+        in: destination.deletingLastPathComponent(), names: Self.legacyPiFamilyExtensionNames)
       return true
     } catch {
       logger.error("写入 pi 扩展失败：\(error.localizedDescription, privacy: .public)")
       return false
+    }
+  }
+
+  // MARK: - 文件清理
+
+  /// 删除一个集成文件；不存在时静默跳过（本来就没装）。
+  private static func removeFile(_ file: URL, label: String) {
+    guard FileManager.default.fileExists(atPath: file.path) else { return }
+    do {
+      try FileManager.default.removeItem(at: file)
+    } catch {
+      logger.error("删除 \(label, privacy: .public) 失败：\(error.localizedDescription, privacy: .public)")
+    }
+  }
+
+  /// 删除同一目录下改名遗留的旧文件。
+  private static func removeLegacyFiles(in directory: URL, names: [String]) {
+    for name in names {
+      let file = directory.appendingPathComponent(name)
+      guard FileManager.default.fileExists(atPath: file.path) else { continue }
+      do {
+        try FileManager.default.removeItem(at: file)
+        logger.notice("已清理改名遗留的集成文件：\(name, privacy: .public)")
+      } catch {
+        logger.debug("遗留集成文件未能删除：\(name, privacy: .public)")
+      }
     }
   }
 
@@ -152,6 +196,7 @@ nonisolated enum AgentIntegrationInstaller {
         withIntermediateDirectories: true
       )
       try contents.write(to: destination, atomically: true, encoding: .utf8)
+      removeLegacyFiles(in: destination.deletingLastPathComponent(), names: Self.legacyOpenCodePluginNames)
       return true
     } catch {
       logger.error("写入 OpenCode 插件失败：\(error.localizedDescription, privacy: .public)")

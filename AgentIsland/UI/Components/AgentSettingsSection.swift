@@ -89,7 +89,7 @@ private struct AgentSettingsRow: View {
             title: kind.displayName,
             subtitle: summary?.text,
             subtitleColor: summary?.isWarning == true
-                ? SettingsPalette.warning : SettingsPalette.secondaryText,
+                ? AppPalette.warning : AppPalette.secondaryText,
             isOn: isEnabled,
             showsSeparator: showsSeparator,
             onToggle: onToggle

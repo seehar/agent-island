@@ -6,8 +6,11 @@
 //
 
 import Foundation
+import os.log
 
 nonisolated struct HookInstaller {
+    /// 失败原因走日志而不是界面：界面上「是否已装」由集成状态表达，日志里才写得下原因。
+    private static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "Integration")
 
     /// hook 脚本文件名（各 Agent 的安装逻辑共用这个名字）。
     static let hookScriptName = "agent-island-state.py"
@@ -21,95 +24,141 @@ nonisolated struct HookInstaller {
         ([hookScriptName] + legacyHookScriptNames).contains { command.contains($0) }
     }
 
-    /// 启动时安装 hook 脚本并更新 settings.json
+    /// 启动时安装 hook 脚本并更新 settings.json。
+    ///
+    /// 顺序是有讲究的：脚本先落地，再改 settings.json。以前两者都用 `try?` 且不看结果，
+    /// 脚本拷贝失败时配置里仍然写进一条指向不存在脚本的命令 —— Claude Code 会在每个事件
+    /// 上跑一次注定失败的命令。现在脚本没落地就直接返回，配置保持原样。
     static func installIfNeeded() {
         let hooksDir = ClaudePaths.hooksDir
         let pythonScript = hooksDir.appendingPathComponent(Self.hookScriptName)
 
-        try? FileManager.default.createDirectory(
-            at: hooksDir,
-            withIntermediateDirectories: true
-        )
-
-        for legacy in Self.legacyHookScriptNames {
-            try? FileManager.default.removeItem(at: hooksDir.appendingPathComponent(legacy))
+        do {
+            try FileManager.default.createDirectory(
+                at: hooksDir,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            logger.error("创建 hooks 目录失败，跳过 Claude 集成安装：\(error.localizedDescription, privacy: .public)")
+            return
         }
 
-        if let bundled = Bundle.main.url(forResource: "agent-island-state", withExtension: "py") {
-            try? FileManager.default.removeItem(at: pythonScript)
-            try? FileManager.default.copyItem(at: bundled, to: pythonScript)
-            try? FileManager.default.setAttributes(
+        removeLegacyHookScripts(in: hooksDir)
+
+        guard let bundled = Bundle.main.url(forResource: "agent-island-state", withExtension: "py")
+        else {
+            logger.error("缺少内置的 hook 脚本资源，跳过 Claude 集成安装")
+            return
+        }
+
+        do {
+            if FileManager.default.fileExists(atPath: pythonScript.path) {
+                try FileManager.default.removeItem(at: pythonScript)
+            }
+            try FileManager.default.copyItem(at: bundled, to: pythonScript)
+            try FileManager.default.setAttributes(
                 [.posixPermissions: 0o755],
                 ofItemAtPath: pythonScript.path
             )
+        } catch {
+            logger.error("写入 hook 脚本失败，本次不改 settings.json：\(error.localizedDescription, privacy: .public)")
+            return
         }
 
         updateSettings(at: ClaudePaths.settingsFile)
     }
 
-    private static func updateSettings(at settingsURL: URL) {
-        var json: [String: Any] = [:]
-        if let data = try? Data(contentsOf: settingsURL),
-           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            json = existing
+    /// 清理改名前的 hook 脚本：旧脚本会继续往已废弃的 socket 发状态。
+    private static func removeLegacyHookScripts(in hooksDir: URL) {
+        for legacy in Self.legacyHookScriptNames {
+            let file = hooksDir.appendingPathComponent(legacy)
+            guard FileManager.default.fileExists(atPath: file.path) else { continue }
+            do {
+                try FileManager.default.removeItem(at: file)
+                logger.notice("已清理改名遗留的 hook 脚本：\(legacy, privacy: .public)")
+            } catch {
+                logger.debug("遗留 hook 脚本未能删除：\(legacy, privacy: .public)")
+            }
+        }
+    }
+
+    /// 把 hook 条目合并写回 settings.json。
+    ///
+    /// 三条安全约束：
+    /// 1. 读不到或读不懂原文件时**放弃写入**（见 `HookSettingsLoad.refusalReason`）：
+    ///    宁可这次装不上 hook，也不能把用户整份 Claude Code 配置清空。
+    /// 2. 内容没有变化就一个字节都不写，避免每次启动都刷新文件时间戳。
+    /// 3. 覆盖前把上一版留成 `settings.json.agent-island-backup`，写入用原子替换。
+    /// 内部可见而不是 private：单测要拿**临时目录**里的 settings.json 走一遍真实的
+    /// 读-改-写（含备份与原子替换），真实路径永远由 `installIfNeeded` 传进来。
+    static func updateSettings(at settingsURL: URL) {
+        let fileExists = FileManager.default.fileExists(atPath: settingsURL.path)
+        let loaded = HookSettingsMerger.load(
+            data: fileExists ? try? Data(contentsOf: settingsURL) : nil,
+            fileExists: fileExists
+        )
+        if let refusal = loaded.refusalReason {
+            logger.error("settings.json 不可安全写入（\(refusal, privacy: .public)），本次跳过 hook 安装：\(settingsURL.path, privacy: .public)")
+            return
         }
 
+        let stripped = HookSettingsMerger.strippingOwnHooks(
+            from: loaded.settings,
+            isOwnCommand: isOwnHookCommand
+        )
+        let merged = HookSettingsMerger.appending(hookEvents: hookEvents(), to: stripped)
+
+        guard
+            let data = try? JSONSerialization.data(
+                withJSONObject: merged,
+                options: [.prettyPrinted, .sortedKeys]
+            )
+        else {
+            logger.error("hook 配置序列化失败，跳过写入")
+            return
+        }
+
+        let original = try? Data(contentsOf: settingsURL)
+        guard original != data else { return }  // 已经是目标状态
+
+        if let original, fileExists {
+            let backup = settingsURL.appendingPathExtension("agent-island-backup")
+            try? original.write(to: backup, options: [.atomic])
+        }
+
+        do {
+            try data.write(to: settingsURL, options: [.atomic])
+            logger.debug("已写入 Claude hook 配置：\(settingsURL.path, privacy: .public)")
+        } catch {
+            logger.error("写入 settings.json 失败：\(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// 本次要注册的 hook 事件：基础集 + 按已装 Claude Code 版本追加的事件。
+    private static func hookEvents() -> [(event: String, entries: [[String: Any]])] {
         let python = detectPython()
         let command = "\(python) \(ClaudePaths.hookScriptShellPath)"
         let hookEntry: [[String: Any]] = [["type": "command", "command": command]]
-        let hookEntryWithTimeout: [[String: Any]] = [["type": "command", "command": command, "timeout": 86400]]
+        let hookEntryWithTimeout: [[String: Any]] = [
+            ["type": "command", "command": command, "timeout": 86400]
+        ]
         let withMatcher: [[String: Any]] = [["matcher": "*", "hooks": hookEntry]]
-        let withMatcherAndTimeout: [[String: Any]] = [["matcher": "*", "hooks": hookEntryWithTimeout]]
+        let withMatcherAndTimeout: [[String: Any]] = [
+            ["matcher": "*", "hooks": hookEntryWithTimeout]
+        ]
         let withoutMatcher: [[String: Any]] = [["hooks": hookEntry]]
         let preCompactConfig: [[String: Any]] = [
             ["matcher": "auto", "hooks": hookEntry],
-            ["matcher": "manual", "hooks": hookEntry]
+            ["matcher": "manual", "hooks": hookEntry],
         ]
 
-        var hooks = json["hooks"] as? [String: Any] ?? [:]
-
-        // Strip any existing AgentIsland hooks from ALL event types first — even
-        // events we no longer register. Fixes users who installed v1.3 on an older
-        // Claude Code and now have invalid keys like PermissionDenied sitting in
-        // their settings.json (issue #85).
-        var cleanedHooks: [String: Any] = [:]
-        for (event, value) in hooks {
-            if let entries = value as? [[String: Any]] {
-                let cleaned = entries.compactMap { removingAgentIslandHooks(from: $0) }
-                if !cleaned.isEmpty {
-                    cleanedHooks[event] = cleaned
-                }
-            } else {
-                cleanedHooks[event] = value
-            }
-        }
-        hooks = cleanedHooks
-
-        // Register only hooks the installed Claude Code version supports.
-        // When detection fails, fall back to the baseline set that every
-        // Claude Code version has supported (no new v1.3+ hooks).
-        let installedVersion = detectClaudeCodeVersion()
-        let hookEvents = supportedHookEvents(
-            for: installedVersion,
+        return supportedHookEvents(
+            for: detectClaudeCodeVersion(),
             withMatcher: withMatcher,
             withMatcherAndTimeout: withMatcherAndTimeout,
             withoutMatcher: withoutMatcher,
             preCompactConfig: preCompactConfig
-        )
-
-        for (event, config) in hookEvents {
-            let existing = hooks[event] as? [[String: Any]] ?? []
-            hooks[event] = existing + config
-        }
-
-        json["hooks"] = hooks
-
-        if let data = try? JSONSerialization.data(
-            withJSONObject: json,
-            options: [.prettyPrinted, .sortedKeys]
-        ) {
-            try? data.write(to: settingsURL)
-        }
+        ).map { (event: $0.0, entries: $0.1) }
     }
 
     // MARK: - Claude Code Version Detection
@@ -258,46 +307,57 @@ nonisolated struct HookInstaller {
         return false
     }
 
-    /// Uninstall hooks from settings.json and remove script
+    /// 卸载：删脚本 + 从 settings.json 摘掉本应用的 hook 条目。
+    ///
+    /// 与安装同一套安全约束：读不到／读不懂配置文件时什么都不改（只删脚本），
+    /// 也不会在文件本来不存在时凭空造一个空的 settings.json。
     static func uninstall() {
         let hooksDir = ClaudePaths.hooksDir
         let pythonScript = hooksDir.appendingPathComponent(Self.hookScriptName)
-        for legacy in Self.legacyHookScriptNames {
-            try? FileManager.default.removeItem(at: hooksDir.appendingPathComponent(legacy))
-        }
         let settings = ClaudePaths.settingsFile
 
-        try? FileManager.default.removeItem(at: pythonScript)
+        removeLegacyHookScripts(in: hooksDir)
 
-        guard let data = try? Data(contentsOf: settings),
-              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var hooks = json["hooks"] as? [String: Any] else {
-            return
-        }
-
-        for (event, value) in hooks {
-            if var entries = value as? [[String: Any]] {
-                entries = entries.compactMap { removingAgentIslandHooks(from: $0) }
-
-                if entries.isEmpty {
-                    hooks.removeValue(forKey: event)
-                } else {
-                    hooks[event] = entries
-                }
+        if FileManager.default.fileExists(atPath: pythonScript.path) {
+            do {
+                try FileManager.default.removeItem(at: pythonScript)
+            } catch {
+                logger.error("删除 hook 脚本失败：\(error.localizedDescription, privacy: .public)")
             }
         }
 
-        if hooks.isEmpty {
-            json.removeValue(forKey: "hooks")
-        } else {
-            json["hooks"] = hooks
+        let fileExists = FileManager.default.fileExists(atPath: settings.path)
+        guard fileExists else { return }
+
+        let loaded = HookSettingsMerger.load(
+            data: try? Data(contentsOf: settings),
+            fileExists: fileExists
+        )
+        if let refusal = loaded.refusalReason {
+            logger.error("卸载时 settings.json 不可安全改写（\(refusal, privacy: .public)），跳过清理")
+            return
         }
 
-        if let data = try? JSONSerialization.data(
-            withJSONObject: json,
-            options: [.prettyPrinted, .sortedKeys]
-        ) {
-            try? data.write(to: settings)
+        let stripped = HookSettingsMerger.strippingOwnHooks(
+            from: loaded.settings,
+            isOwnCommand: isOwnHookCommand
+        )
+        guard
+            let data = try? JSONSerialization.data(
+                withJSONObject: stripped,
+                options: [.prettyPrinted, .sortedKeys]
+            )
+        else {
+            logger.error("卸载时序列化 settings.json 失败，跳过写入")
+            return
+        }
+        guard (try? Data(contentsOf: settings)) != data else { return }
+
+        do {
+            try data.write(to: settings, options: [.atomic])
+            logger.notice("已从 settings.json 摘除 Claude hook 配置")
+        } catch {
+            logger.error("卸载时写入 settings.json 失败：\(error.localizedDescription, privacy: .public)")
         }
     }
 

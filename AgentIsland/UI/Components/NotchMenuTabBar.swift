@@ -25,7 +25,7 @@ struct NotchMenuTabBar: View {
         .frame(height: NotchMenuMetrics.tabBarHeight)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(SettingsPalette.segmentedTrack)
+                .fill(AppPalette.segmentedTrack)
         )
     }
 
@@ -55,7 +55,7 @@ struct NotchMenuTabBar: View {
             .background {
                 if isSelected {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(SettingsPalette.segmentedThumb)
+                        .fill(AppPalette.segmentedThumb)
                         .matchedGeometryEffect(id: "segment-thumb", in: thumb)
                 }
             }
@@ -86,8 +86,8 @@ struct NotchMenuTabBar: View {
     }
 
     private func foregroundColor(for section: NotchMenuSection) -> Color {
-        if section == selection { return SettingsPalette.primaryText }
+        if section == selection { return AppPalette.primaryText }
         if hoveredSection == section { return Color.white.opacity(0.75) }
-        return SettingsPalette.secondaryText
+        return AppPalette.secondaryText
     }
 }

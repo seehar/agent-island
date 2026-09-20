@@ -13,6 +13,8 @@
 #   ./scripts/build-and-install.sh --install-dir DIR  安装到 DIR（默认 /Applications）
 #
 # 注意：安装到 /Applications 之外的目录时脚本不会去动正在运行的实例。
+# 步骤 1 先跑 scripts/gate.sh --release（本地化守卫 + Release 编译 0 诊断），未过即中止，
+# 不会进入归档与安装。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -63,11 +65,14 @@ echo "源码状态: $(cd "$PROJECT_DIR" && git rev-parse --short HEAD 2>/dev/nul
 echo ""
 
 # ============================================
-# 步骤 1: 本地化守卫
+# 步骤 1: 编译门禁（本地化守卫 + Release 编译 0 诊断）
 # ============================================
-echo "=== 步骤 1: 本地化守卫 ==="
-python3 "$SCRIPT_DIR/check-localization.py"
-echo ""
+echo "=== 步骤 1: 编译门禁 ==="
+if ! "$SCRIPT_DIR/gate.sh" --release; then
+    echo "ERROR: 编译门禁未通过，中止构建。"
+    exit 1
+fi
+echo "" 
 
 # ============================================
 # 步骤 2: 归档（关闭签名）
@@ -97,12 +102,8 @@ if [ "$ARCHIVE_EXIT" -ne 0 ]; then
     exit 1
 fi
 
-DIAGNOSTICS=$(grep -cE ": (error|warning):" "$LOG" || true)
-echo "归档成功，编译诊断 $DIAGNOSTICS 条"
-if [ "$DIAGNOSTICS" -ne 0 ]; then
-    grep -E ": (error|warning):" "$LOG" | head -20
-    echo "WARNING: 归档带诊断信息，请确认后再安装。"
-fi
+# 诊断判据由步骤 1 的门禁负责（0 条才算过），这里只确认归档产物存在
+echo "归档成功"
 
 if [ ! -d "$ARCHIVED_APP" ]; then
     echo "ERROR: 归档里找不到 $APP_NAME.app"
@@ -158,7 +159,8 @@ if [ "$MAKE_DMG" = true ]; then
             -ov -format UDZO "$DMG_PATH" > /dev/null
     fi
 
-    shasum -a 256 "$DMG_PATH" | tee "$DMG_PATH.sha256"
+    # 这里不生成 .sha256：本地重打包出的字节与已发布资产不是同一份，那个文件会被误当发布校验值；
+    # 校验值由 create-release.sh 在附件上传成功后、对「本次上传的那份 DMG」生成
     echo "DMG: $DMG_PATH"
 fi
 
@@ -221,5 +223,7 @@ fi
 echo ""
 echo "=== 完成 ==="
 echo ""
+echo "提示：本脚本不再生成 releases/*.dmg.sha256 —— 校验值只对「实际上传的那份文件」有意义，"
+echo "      发布态的哈希由 scripts/create-release.sh 在 gh 上传成功后生成。"
 echo "提示：产物为 ad-hoc 签名、未经 Apple 公证，spctl 会拒绝它；"
 echo "      本机安装不受影响，分发给他人需要 Developer ID 证书与公证。"

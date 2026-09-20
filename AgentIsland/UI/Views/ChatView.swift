@@ -16,6 +16,8 @@ struct ChatView: View {
  @ObservedObject private var l10n = LocalizationManager.shared
 
  @State private var inputText: String = ""
+ /// 发送失败时的行内提示（不弹窗）：非空时显示在输入框上方
+ @State private var sendErrorMessage: String? = nil
  @State private var history: [ChatHistoryItem] = []
  @State private var session: SessionState
  @State private var isLoading: Bool = true
@@ -89,8 +91,15 @@ struct ChatView: View {
         ))
      }
     } else {
-     inputBar
-      .transition(.opacity)
+     VStack(spacing: 0) {
+      if let sendErrorMessage {
+       SettingsNotice(message: sendErrorMessage)
+        .padding(.top, 8)
+      }
+
+      inputBar
+     }
+     .transition(.opacity)
     }
    }
   }
@@ -378,7 +387,8 @@ struct ChatView: View {
   HStack(spacing: 10) {
    TextField(
     canSendMessages
-     ? l10n.t("Message Claude...") : l10n.t("Open Claude Code in tmux to enable messaging"),
+     ? l10n.t("Message %@...", key.agent.shortName)
+     : l10n.t("Open %@ in tmux to enable messaging", key.agent.displayName),
     text: $inputText
    )
    .textFieldStyle(.plain)
@@ -443,6 +453,7 @@ struct ChatView: View {
  /// Bar for interactive tools like AskUserQuestion that need terminal input
  private var interactivePromptBar: some View {
   ChatInteractivePromptBar(
+   agent: key.agent,
    isInTmux: session.isInTmux,
    onGoToTerminal: { focusTerminal() }
   )
@@ -488,6 +499,7 @@ struct ChatView: View {
   guard !text.isEmpty else { return }
 
   inputText = ""
+  sendErrorMessage = nil
 
   // Resume autoscroll when user sends a message
   resumeAutoscroll()
@@ -495,17 +507,28 @@ struct ChatView: View {
 
   // Don't add to history here - it will be synced from JSONL when UserPromptSubmit event fires
   Task {
-   await sendToSession(text)
+   guard await sendToSession(text) else {
+    // 发送失败：把内容放回输入框（用户已重新输入则不覆盖），并在输入框上方说明原因。
+    // 这一条不进 history——history 只由记录同步喂入，所以不会重复出现。
+    if inputText.isEmpty {
+     inputText = text
+    }
+    isInputFocused = true
+    sendErrorMessage = l10n.t("Couldn't send to the terminal")
+    return
+   }
   }
  }
 
- private func sendToSession(_ text: String) async {
-  guard session.isInTmux else { return }
-  guard let tty = session.tty else { return }
+ /// 把一条消息送进该会话所在的 tmux pane，返回是否真的送达。
+ /// 以前这个返回值被丢弃：「找不到 pane / tmux 路径不可用 / 发送失败」在界面上完全一样，
+ /// 用户看到的是消息凭空消失。
+ private func sendToSession(_ text: String) async -> Bool {
+  guard session.isInTmux else { return false }
+  guard let tty = session.tty else { return false }
 
-  if let target = await findTmuxTarget(tty: tty) {
-   _ = await ToolApprovalHandler.shared.sendMessage(text, to: target)
-  }
+  guard let target = await findTmuxTarget(tty: tty) else { return false }
+  return await ToolApprovalHandler.shared.sendMessage(text, to: target)
  }
 
  private func findTmuxTarget(tty: String) async -> TmuxTarget? {
@@ -1195,6 +1218,7 @@ struct InterruptedMessageView: View {
 
 /// Bar for interactive tools like AskUserQuestion that need terminal input
 struct ChatInteractivePromptBar: View {
+ let agent: AgentKind
  let isInTmux: Bool
  let onGoToTerminal: () -> Void
  @ObservedObject private var l10n = LocalizationManager.shared
@@ -1209,7 +1233,7 @@ struct ChatInteractivePromptBar: View {
     Text(MCPToolFormatter.formatToolName("AskUserQuestion"))
      .font(.system(size: 12, weight: .medium, design: .monospaced))
      .foregroundColor(TerminalColors.amber)
-    Text(l10n.t("Claude Code needs your input"))
+    Text(l10n.t("%@ needs your input", agent.displayName))
      .font(.system(size: 11))
      .foregroundColor(.white.opacity(0.5))
      .lineLimit(1)

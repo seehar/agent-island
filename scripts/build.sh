@@ -17,9 +17,8 @@ mkdir -p "$BUILD_DIR"
 
 cd "$PROJECT_DIR"
 
-# 本地化守卫：键缺失、格式符不一致、绕过自研查表的字面量都在这里拦下（见脚本头部说明）
-echo "Checking localization..."
-python3 "$SCRIPT_DIR/check-localization.py"
+# 门禁：本地化守卫 + 编译 0 诊断（判据与用法见 scripts/gate.sh 头部）
+"$SCRIPT_DIR/gate.sh" --release
 echo ""
 
 # Build and archive — pipe to xcpretty when available, but capture the real

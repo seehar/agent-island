@@ -9,32 +9,32 @@
 - 平台：macOS 15.6+；只构建本机 arm64 产物
 - 工程：`AgentIsland.xcodeproj` 用 `PBXFileSystemSynchronizedRootGroup`（objectVersion 77）→ **源文件放进 `AgentIsland/<层>/` 即自动进 target**，资源（`.py`/`.js`/`.xcstrings`）自动进 Resources，通常不需要改 pbxproj
 - 签名：ad-hoc（`codesign --force --deep --sign -`）。没有 Developer ID、不做公证 —— 这是既定取舍，不要再提议申请证书或改回 developer-id 导出流程
-- 仓库没有测试 target，也没有 SwiftLint/SwiftFormat/CI 配置：质量门禁是「编译 0 诊断 + 本地化守卫通过 + 实机观察」
+- 测试 target 是 `AgentIslandTests`（纯逻辑用例，挂在 scheme 的 Testables 上；没有 SwiftLint/SwiftFormat/CI 配置）：质量门禁是 `scripts/gate.sh`（编译 0 诊断 + 本地化守卫 0 错误 0 警告）+ 实机观察
 
 ## 命令
 
 ```bash
-# 编译门禁（唯一权威判定）。判据：** BUILD SUCCEEDED ** 且诊断计数为 0
-LOG=/tmp/island-build.log
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-  xcodebuild -project AgentIsland.xcodeproj -scheme AgentIsland \
-  -configuration Release -derivedDataPath /tmp/island-dd \
-  CODE_SIGNING_ALLOWED=NO build > "$LOG" 2>&1
-echo "exit=$?"; grep -cE ': (error|warning):' "$LOG"   # 期望 0
+# 编译门禁：scripts/gate.sh 是唯一入口。判据 = BUILD SUCCEEDED + 编译诊断 0 条
+# + 本地化守卫 0 错误 0 警告
+./scripts/gate.sh                 # Release 编译（默认）
+./scripts/gate.sh --debug         # Debug 编译
+./scripts/gate.sh --with-tests    # 追加跑测试：xcodebuild test -only-testing:AgentIslandTests
+# 脚本任一步不达标就 exit 非 0 —— 不要只看日志。派生数据与日志在 ${TMPDIR}/agent-island-gate，
+# 不写用户的 DerivedData，也不改 build/ 与 releases/。
 
-# 本地化守卫：缺键、格式符不一致、绕过自研查表、未引用键（--strict）
+# 单独跑本地化守卫（gate.sh 的第一步：缺键、格式符不一致、绕过自研查表、未引用键）
 python3 scripts/check-localization.py
 python3 scripts/check-localization.py --strict
 
 # 构建 + 安装到本机 /Applications（无 Developer ID 机器上的主路径）
-./scripts/build-and-install.sh                 # 构建 + 安装 + 启动
+./scripts/build-and-install.sh                 # 编译门禁 → 归档 → 安装 → 启动
 ./scripts/build-and-install.sh --no-launch     # 只安装
 ./scripts/build-and-install.sh --build-only    # 只产出 build/export/AgentIsland.app 与 releases/*.dmg
-# 两者都会先跑本地化守卫，再归档（0 诊断才算过）、ad-hoc 重签、校验签名
+# 第一步就是 scripts/gate.sh --release（未过即中止），再归档、ad-hoc 重签、校验签名
 
 # 需要 Apple 证书的路径（本机环境跑不通，仅作记录）
 ./scripts/build.sh               # developer-id 导出（需要证书）
-./scripts/create-release.sh      # 公证 → DMG → Sparkle 签名 → GitHub Release → 推 gh-pages appcast
+./scripts/create-release.sh      # 编译门禁 → 公证 → DMG → Sparkle 签名 → GitHub Release → 推 gh-pages appcast
 ./scripts/generate-keys.sh       # Sparkle EdDSA 密钥（一次性；已有密钥时不要重跑）
 ```
 
@@ -60,7 +60,8 @@ AgentIsland/
     Views/      # NotchView（关闭态 + 展开态）、NotchMenuView/NotchMenuPages（设置面板）、ClaudeInstancesView（会话列表）、ChatView（对话）
     Window/     # NSPanel 宿主：NotchPanel、NotchWindowController、NotchViewController
   Resources/    # Localizable.xcstrings、三个 Agent 侧集成资源（.py/.js/.ts.txt）、entitlements
-scripts/        # build.sh / build-and-install.sh / create-release.sh / generate-keys.sh / check-localization.py / make-appicon.py
+AgentIslandTests/ # 纯逻辑单测（target AgentIslandTests，scheme 的 Testables 里挂了它）
+scripts/          # build.sh / build-and-install.sh / create-release.sh / gate.sh / generate-keys.sh / check-localization.py / make-appicon.py
 ```
 
 ## 架构
@@ -96,7 +97,7 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 - 禁止 `Text("…")` 字面量、`NSLocalizedString`、`String(localized:)`、`localizedString(forKey:)`：它们由平台按 `Bundle.main` 解析，读不到运行时选定的 `.lproj`，会出现「切了语言没变」。
 - 新增文案必须同时做两件事：写 `t("…")` 调用 + 在 catalog 里加键并补 `en`/`zh-Hans` 两侧；两侧格式符集合必须一致，复数变化的每一档都要有。
 - 数字/日期/度量衡走环境 `\.locale`（根视图 `LocalizedRoot` 注入），不要手写格式。
-- 以上规则已静态化在 `scripts/check-localization.py`：**改完文案必须跑它**（`build.sh` / `build-and-install.sh` 的第一步也是它）。
+- 以上规则已静态化在 `scripts/check-localization.py`：**改完文案必须跑它**（`scripts/gate.sh` 的第一步就是它，`build.sh` / `build-and-install.sh` 也都会先跑它）。
 
 ### 刘海窗口
 
@@ -128,7 +129,7 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 - 日志用 `os.Logger`，subsystem 统一 `com.celestial.AgentIsland`，category 取组件名（`Session`/`Hooks`/`Integration`/`Discovery`/`OpenCode`/`Window`/`ProcessExecutor`…）。新代码不用 `print`（`AppDelegate` 里几处是遗留，别跟着写）。
 - 资源命名：`.ts` 会被 Xcode 判成源码而不进 Resources，所以随包资源叫 `agent-island-pi-extension.ts.txt`，安装时再写成 `agent-island-state.ts`。
 - 偏好域跟着 bundle id（`com.celestial.AgentIsland`）。改名/换 id 时必须保留并扩展 `AppSettings.migrateLegacyDefaultsIfNeeded()`、`HookInstaller.legacyHookScriptNames` 这类迁移入口 —— 它们是兼容层，不是待清理的残留。
-- 版面常量集中在 `NotchGeometry` / `Core/NotchMenuLayout.swift` / `UI/Components/SettingsKit.swift` / `AgentPalette.swift`，不要散落魔法数字；关闭态与展开态的尺寸是对齐像素调出来的，改动要有截图取证。
+- 版面常量集中在 `Core/NotchGeometry.swift` / `Core/NotchMenuLayout.swift` / `UI/Components/SettingsKit.swift` / `UI/Components/AppTheme.swift`（`AppPalette` 调色 + `AppRadius` 圆角），Agent 品牌色在 `UI/Components/AgentPalette.swift`，不要散落魔法数字；关闭态与展开态的尺寸是对齐像素调出来的，改动要有截图取证。
 
 ## 已知坑
 
@@ -156,8 +157,9 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 <verification>
 声称完成前必须确认：
 
-- 编译改动 -> 跑上面的 xcodebuild 门禁，`(error|warning)` 计数为 0（含警告；只看到 BUILD SUCCEEDED 不算过）
-- 文案/本地化改动 -> `python3 scripts/check-localization.py`，0 错误
+- 编译改动 -> `./scripts/gate.sh`（唯一入口）：BUILD SUCCEEDED + 编译诊断 0 条 + 本地化守卫 0 错误 0 警告；脚本不达标自己就 exit 非 0，只看到 BUILD SUCCEEDED 不算过
+- 纯逻辑改动 -> `./scripts/gate.sh --with-tests`（跑的是 `xcodebuild test -only-testing:AgentIslandTests`）
+- 文案/本地化改动 -> `python3 scripts/check-localization.py --strict`，0 错误 0 警告（gate.sh 的第一步就是它）
 - 刘海可见行为（关闭态形态、动效、计数、面板高度）-> 装到 /Applications 上实机观察 + 截图取证（没有测试 target，纯逻辑覆盖不到）
 - 集成安装/卸载改动 -> 确认 Agent 侧文件确实写入/删除，且未破坏用户既有配置（`~/.claude/settings.json` 等）
 - 发布 -> build 号已 bump、release 附件与本地产物字节一致、appcast 签名校验通过

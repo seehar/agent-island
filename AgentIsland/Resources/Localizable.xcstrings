@@ -953,22 +953,6 @@
       },
       "shouldTranslate" : false
     },
-    "Claude Code needs your input" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Claude Code needs your input"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Claude Code 需要你的输入"
-          }
-        }
-      }
-    },
     "Claude Directory" : {
       "localizations" : {
         "en" : {
@@ -1111,6 +1095,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已完成"
+          }
+        }
+      }
+    },
+    "Couldn't send to the terminal" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't send to the terminal"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法发送到终端"
           }
         }
       }
@@ -1418,6 +1418,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法启动“%@”：%@"
+          }
+        }
+      }
+    },
+    "Failed to update login item" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to update login item"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新登录项失败"
           }
         }
       }
@@ -1732,22 +1748,6 @@
         }
       }
     },
-    "Message Claude..." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Message Claude..."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "给 Claude 发消息..."
-          }
-        }
-      }
-    },
     "Monitored Agents" : {
       "localizations" : {
         "en" : {
@@ -1990,22 +1990,6 @@
         }
       }
     },
-    "Open Claude Code in tmux to enable messaging" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open Claude Code in tmux to enable messaging"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "在 tmux 中打开 Claude Code 以启用消息发送"
-          }
-        }
-      }
-    },
     "OpenCode" : {
       "localizations" : {
         "en" : {
@@ -2022,6 +2006,22 @@
         }
       },
       "shouldTranslate" : false
+    },
+    "Opens AgentIsland when you log in" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opens AgentIsland when you log in"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登录时自动打开 AgentIsland"
+          }
+        }
+      }
     },
     "Pi" : {
       "localizations" : {
@@ -2218,22 +2218,6 @@
         }
       }
     },
-    "Run claude in terminal" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Run claude in terminal"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "在终端中运行 claude"
-          }
-        }
-      }
-    },
     "Running agent..." : {
       "localizations" : {
         "en" : {
@@ -2407,6 +2391,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "选择 Claude Code 使用的文件夹（通常是 ~/.claude 或 ~/.config/claude）。"
+          }
+        }
+      }
+    },
+    "Sessions appear here when you run an agent in a terminal." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sessions appear here when you run an agent in a terminal."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在终端里运行智能体后，会话会出现在这里。"
           }
         }
       }
@@ -2975,6 +2975,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "stderr："
+          }
+        }
+      }
+    },
+    "Message %@..." : {
+      "comment" : "输入框占位：%@ 为 Agent 短名（Claude / OMP / Pi / OpenCode）。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Message %@..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "给 %@ 发消息..."
+          }
+        }
+      }
+    },
+    "Open %@ in tmux to enable messaging" : {
+      "comment" : "不可发送时的输入框占位：%@ 为 Agent 产品名。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open %@ in tmux to enable messaging"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 tmux 中打开 %@ 以启用消息发送"
+          }
+        }
+      }
+    },
+    "%@ needs your input" : {
+      "comment" : "交互工具（如 AskUserQuestion）等待输入：%@ 为 Agent 产品名。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ needs your input"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 需要你的输入"
           }
         }
       }

@@ -61,10 +61,9 @@ nonisolated enum NotchMenuMetrics {
 
     // MARK: - 行高
 
-    /// 单行设置行（按钮、选择行）。
+    /// 单行设置行（按钮、选择行）。注意开关行会更高：开关控件 24 比图标块 22 高，
+    /// 单行开关行是 42——本仓库目前没有单行开关行，用到时按这个值量过再写进分组表。
     static let rowHeight: CGFloat = 40
-    /// 单行开关行：开关控件 24 比图标块 22 高，行高因此多 2。
-    static let toggleRowHeight: CGFloat = 42
     /// 两行设置行（标题 + 副标题）：比图标块高，行高在视图里固定成这个值，
     /// 有无副标题都不改变面板高度。
     static let twoLineRowHeight: CGFloat = 48
@@ -167,8 +166,8 @@ nonisolated enum NotchMenuMetrics {
             return [
                 // 界面：语言 / 屏幕 / 胶囊高度 / 通知音效
                 Block(rows: [rowHeight, rowHeight, rowHeight, rowHeight]),
-                // 系统：登录时启动（开关行）/ 辅助功能
-                Block(rows: [toggleRowHeight, rowHeight]),
+                // 系统：登录时启动（开关行，带副标题）/ 辅助功能
+                Block(rows: [twoLineRowHeight, rowHeight]),
             ]
         case .agents:
             return [

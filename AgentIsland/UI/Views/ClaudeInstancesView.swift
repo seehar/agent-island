@@ -27,11 +27,11 @@ struct ClaudeInstancesView: View {
         VStack(spacing: 8) {
             Text(l10n.t("No sessions"))
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.white.opacity(0.4))
+                .foregroundColor(AppPalette.tertiaryText)
 
-            Text(l10n.t("Run claude in terminal"))
+            Text(l10n.t("Sessions appear here when you run an agent in a terminal."))
                 .font(.system(size: 11))
-                .foregroundColor(.white.opacity(0.25))
+                .foregroundColor(AppPalette.subtleText)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -167,8 +167,9 @@ struct InstanceRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            // State indicator on left
+            // 行首状态指示：形状区分相位，颜色只表状态
             stateIndicator
+                .accessibilityLabel(phaseStatusText)
                 .frame(width: 14)
 
             // Text content
@@ -176,7 +177,7 @@ struct InstanceRow: View {
                 HStack(spacing: 6) {
                     Text(session.displayTitle)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.white)
+                        .foregroundColor(AppPalette.primaryText)
                         .lineLimit(1)
 
                     // 多 Agent 时标注会话归属；单 Agent 用户保持原样
@@ -188,7 +189,7 @@ struct InstanceRow: View {
                     if session.usage.totalTokens > 0 {
                         Text(session.usage.formattedTotal)
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.3))
+                            .foregroundColor(AppPalette.subtleText)
                     }
                 }
 
@@ -198,16 +199,16 @@ struct InstanceRow: View {
                     HStack(spacing: 4) {
                         Text(MCPToolFormatter.formatToolName(toolName))
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundColor(TerminalColors.amber.opacity(0.9))
+                            .foregroundColor(AppPalette.warning)
                         if isInteractiveTool {
                             Text(l10n.t("Needs your input"))
                                 .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.5))
+                                .foregroundColor(AppPalette.secondaryText)
                                 .lineLimit(1)
                         } else if let input = session.pendingToolInput {
                             Text(input)
                                 .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.5))
+                                .foregroundColor(AppPalette.secondaryText)
                                 .lineLimit(1)
                         }
                     }
@@ -219,12 +220,12 @@ struct InstanceRow: View {
                             if let toolName = session.lastToolName {
                                 Text(MCPToolFormatter.formatToolName(toolName))
                                     .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                    .foregroundColor(.white.opacity(0.5))
+                                    .foregroundColor(AppPalette.secondaryText)
                             }
                             if let input = session.lastMessage {
                                 Text(input)
                                     .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.4))
+                                    .foregroundColor(AppPalette.tertiaryText)
                                     .lineLimit(1)
                             }
                         }
@@ -233,11 +234,11 @@ struct InstanceRow: View {
                         HStack(spacing: 4) {
                             Text(l10n.t("You:"))
                                 .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.white.opacity(0.5))
+                                .foregroundColor(AppPalette.secondaryText)
                             if let msg = session.lastMessage {
                                 Text(msg)
                                     .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.4))
+                                    .foregroundColor(AppPalette.tertiaryText)
                                     .lineLimit(1)
                             }
                         }
@@ -246,20 +247,20 @@ struct InstanceRow: View {
                         if let msg = session.lastMessage {
                             Text(msg)
                                 .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.4))
+                                .foregroundColor(AppPalette.tertiaryText)
                                 .lineLimit(1)
                         }
                     }
                 } else if let lastMsg = session.lastMessage {
                     Text(lastMsg)
                         .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.4))
+                        .foregroundColor(AppPalette.tertiaryText)
                         .lineLimit(1)
                 } else {
                     // Fallback: show phase-based status when no other content
                     Text(phaseStatusText)
                         .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.4))
+                        .foregroundColor(AppPalette.tertiaryText)
                         .lineLimit(1)
                 }
             }
@@ -271,7 +272,7 @@ struct InstanceRow: View {
                 // 该 Agent 的审批只能在其自身 CLI 里完成，notch 仅提示
                 Text(l10n.t("Waiting for approval in terminal"))
                     .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.5))
+                    .foregroundColor(AppPalette.secondaryText)
                     .lineLimit(1)
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
             } else if isWaitingForApproval && isInteractiveTool {
@@ -330,8 +331,8 @@ struct InstanceRow: View {
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isWaitingForApproval)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(isHovered ? Color.white.opacity(0.06) : Color.clear)
+            RoundedRectangle(cornerRadius: AppRadius.panel)
+                .fill(isHovered ? AppPalette.rowHover : Color.clear)
         )
         .onHover { isHovered = $0 }
         .task {
@@ -339,24 +340,32 @@ struct InstanceRow: View {
         }
     }
 
+    /// 行首状态指示：**形状**区分相位、颜色只表状态（`AppPalette.warning` 需要授权、
+    /// `AppPalette.success` 等待输入、其余相位用 `AppPalette.subtleText`）。处理中沿用
+    /// 该 Agent 自己的转轮动效，与关闭态标记同源，相位不再靠色相区分。
     @ViewBuilder
     private var stateIndicator: some View {
         switch session.phase {
         case .processing, .compacting:
             AgentSpinner(agent: session.agent)
         case .waitingForApproval:
-            AgentSpinner(agent: session.agent, color: TerminalColors.amber)
+            phaseGlyph("exclamationmark.circle.fill", color: AppPalette.warning)
         case .waitingForInput:
-            Circle()
-                .fill(TerminalColors.green)
-                .frame(width: 6, height: 6)
-        case .idle, .ended:
-            Circle()
-                .fill(Color.white.opacity(0.2))
-                .frame(width: 6, height: 6)
+            phaseGlyph("checkmark.circle.fill", color: AppPalette.success)
+        case .idle:
+            phaseGlyph("circle.dashed", color: AppPalette.subtleText)
+        case .ended:
+            phaseGlyph("minus.circle", color: AppPalette.subtleText)
         }
     }
 
+    /// 相位符号：占位宽度与转轮一致，行首列宽不随相位跳动。
+    private func phaseGlyph(_ symbol: String, color: Color) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundColor(color)
+            .frame(width: 12)
+    }
 }
 
 // MARK: - Inline Approval Buttons
@@ -386,13 +395,13 @@ struct InlineApprovalButtons: View {
             } label: {
                 Text(l10n.t("Deny"))
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white.opacity(0.6))
+                    .foregroundColor(AppPalette.secondaryText)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
                     .background(Color.white.opacity(0.1))
                     .clipShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(SessionPressFeedbackStyle(shape: Capsule()))
             .opacity(showDenyButton ? 1 : 0)
             .scaleEffect(showDenyButton ? 1 : 0.8)
 
@@ -407,7 +416,7 @@ struct InlineApprovalButtons: View {
                     .background(Color.white.opacity(0.9))
                     .clipShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(SessionPressFeedbackStyle(shape: Capsule()))
             .opacity(showAllowButton ? 1 : 0)
             .scaleEffect(showAllowButton ? 1 : 0.8)
         }
@@ -439,14 +448,14 @@ struct IconButton: View {
         } label: {
             Image(systemName: icon)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundColor(isHovered ? .white.opacity(0.8) : .white.opacity(0.4))
+                .foregroundColor(isHovered ? AppPalette.primaryText : AppPalette.tertiaryText)
                 .frame(width: 24, height: 24)
                 .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(isHovered ? Color.white.opacity(0.1) : Color.clear)
+                    RoundedRectangle(cornerRadius: AppRadius.control)
+                        .fill(isHovered ? AppPalette.rowHover : Color.clear)
                 )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SessionPressFeedbackStyle(shape: RoundedRectangle(cornerRadius: AppRadius.control)))
         .onHover { isHovered = $0 }
     }
 }
@@ -470,13 +479,13 @@ struct CompactTerminalButton: View {
                 Text(l10n.t("Go to Terminal"))
                     .font(.system(size: 10, weight: .medium))
             }
-            .foregroundColor(isEnabled ? .white.opacity(0.9) : .white.opacity(0.3))
+            .foregroundColor(isEnabled ? AppPalette.primaryText : AppPalette.subtleText)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(isEnabled ? Color.white.opacity(0.15) : Color.white.opacity(0.05))
             .clipShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SessionPressFeedbackStyle(shape: Capsule()))
     }
 }
 
@@ -499,12 +508,28 @@ struct TerminalButton: View {
                 Text(l10n.t("Terminal"))
                     .font(.system(size: 11, weight: .medium))
             }
-            .foregroundColor(isEnabled ? .black : .white.opacity(0.4))
+            .foregroundColor(isEnabled ? .black : AppPalette.tertiaryText)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(isEnabled ? Color.white.opacity(0.95) : Color.white.opacity(0.1))
             .clipShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SessionPressFeedbackStyle(shape: Capsule()))
+    }
+}
+
+
+// MARK: - 按压反馈
+
+/// 行内控件的按压反馈：按控件自身的形状叠一层 `AppPalette.rowPressed`，不做位移——
+/// 与设置面板的行按压（`SettingsRowButtonStyle`）同一口径，区别只是按压层跟随控件
+/// 形状，圆角控件按下时不会露出直角。
+private struct SessionPressFeedbackStyle<S: Shape>: ButtonStyle {
+    /// 控件自身的形状（图标按钮用 `AppRadius.control` 圆角，胶囊按钮用 `Capsule`）。
+    let shape: S
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(shape.fill(configuration.isPressed ? AppPalette.rowPressed : Color.clear))
     }
 }

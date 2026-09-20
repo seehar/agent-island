@@ -33,7 +33,7 @@ struct NotchHeightPickerRow: View {
     var body: some View {
         SettingsPickerRow(
             badge: SettingsBadge(
-                source: .symbol(name: "menubar.rectangle", tint: SettingsPalette.accent)),
+                source: .symbol(name: "menubar.rectangle", tint: AppPalette.accent)),
             title: l10n.t("Notch Height"),
             value: "\(title(for: selector.mode)) · \(heightLabel(effectiveHeight))",
             isExpanded: isExpanded,
@@ -110,7 +110,7 @@ private struct NotchHeightStepperRow: View {
             Text(l10n.t("Custom"))
                 .font(.system(size: 12))
                 .foregroundColor(
-                    isSelected ? SettingsPalette.primaryText : SettingsPalette.secondaryText)
+                    isSelected ? AppPalette.primaryText : AppPalette.secondaryText)
 
             Spacer(minLength: 8)
 
@@ -122,7 +122,7 @@ private struct NotchHeightStepperRow: View {
 
             Text(heightLabel(value))
                 .font(.system(size: 11).monospacedDigit())
-                .foregroundColor(SettingsPalette.secondaryText)
+                .foregroundColor(AppPalette.secondaryText)
                 .frame(width: 44)
 
             StepperButton(

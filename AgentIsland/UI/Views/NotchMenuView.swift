@@ -57,11 +57,11 @@ struct NotchMenuView: View {
             } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(SettingsPalette.secondaryText)
+                    .foregroundColor(AppPalette.secondaryText)
                     .frame(width: 22, height: 22)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(isBackHovered ? SettingsPalette.rowHover : Color.clear)
+                            .fill(isBackHovered ? AppPalette.rowHover : Color.clear)
                     )
                     .contentShape(Rectangle())
             }
@@ -71,7 +71,7 @@ struct NotchMenuView: View {
 
             Text(l10n.t("Settings"))
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(SettingsPalette.primaryText)
+                .foregroundColor(AppPalette.primaryText)
 
             Spacer()
         }

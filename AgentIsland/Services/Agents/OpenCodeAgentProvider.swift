@@ -14,16 +14,36 @@ nonisolated struct OpenCodeAgentProvider: AgentProvider {
 
     private static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "OpenCode")
 
+    /// 是否已经报告过「数据目录不存在」。
+    ///
+    /// `paths()` 会被 4 秒一轮的会话发现循环和每次记录同步调用，而数据目录不存在
+    /// 是常态（用户没装 OpenCode），逐次打日志会把 debug 流刷满，因此每个进程只
+    /// 报一次。
+    nonisolated(unsafe) private static var didReportMissingDataDirectory = false
+
     func paths() -> AgentPaths? {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let dataDir = home.appendingPathComponent(".local/share/opencode")
-        guard FileManager.default.fileExists(atPath: dataDir.path) else { return nil }
+        guard FileManager.default.fileExists(atPath: dataDir.path) else {
+            Self.reportMissingDataDirectory()
+            return nil
+        }
         return AgentPaths(
             configDir: home.appendingPathComponent(".config/opencode"),
             sessionsDir: nil,
             pluginsDir: dataDir.appendingPathComponent("storage/plugin"),
             dataDir: dataDir
         )
+    }
+
+    /// 报告一次「数据目录不存在」。
+    ///
+    /// 这一步返回 nil 会让整个 OpenCode 接入被静默跳过（发现不到会话、记录读不出
+    /// 内容），界面上只表现为「没有会话」，因此留下日志说明原因。
+    private static func reportMissingDataDirectory() {
+        guard !didReportMissingDataDirectory else { return }
+        didReportMissingDataDirectory = true
+        logger.debug("OpenCode 数据目录不存在（~/.local/share/opencode），该 Agent 的接入被跳过")
     }
 
     /// 权威会话数据库路径。
