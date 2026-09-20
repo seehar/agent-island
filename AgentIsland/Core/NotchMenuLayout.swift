@@ -199,8 +199,8 @@ nonisolated enum NotchMenuMetrics {
             return [
                 // 标识块（图标 + 名称 + 版本）：不画卡片也没有标题
                 Block(hasHeader: false, rows: [appIdentityHeight]),
-                // 检查更新 / GitHub
-                Block(hasHeader: false, rows: [twoLineRowHeight, rowHeight]),
+                // 检查更新 / 自动检查更新（开关行）/ GitHub
+                Block(hasHeader: false, rows: [twoLineRowHeight, toggleRowHeight, rowHeight]),
                 // 退出（破坏性操作单独一张卡片）
                 Block(hasHeader: false, rows: [rowHeight]),
             ]
