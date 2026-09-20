@@ -735,6 +735,69 @@ grep -c "Allow tool" /tmp/ai-approve/p1/frames/f1.txt   # 期望 0
 
 ---
 
+## 12. 问答通道（ask）（v3 新增）
+
+**目标**：omp 的交互式提问（原生 `ask` 工具）过去只能在终端作答。本切片把它接到刘海——扩展注册**同名影子 `ask`** 顶掉内置实现，刘海与终端两条路竞速，**先答者胜**；两条路的败者都要收干净。
+
+### 12.1 协议
+
+**上行**（扩展 → 应用）沿用 `ToolApproval` 信封（老信封字节不变，只新增两个可选键）：
+
+```
+event: "ToolApproval", status: "waiting_for_approval", expects_response: true,
+tool: "ask", tool_use_id: <该 ask 调用的 toolCallId>,
+ask: { questions: [ { id, question, header?, multi_select, free_text, options: [ { label, description? } ] } ] }
+```
+
+- `multi_select` 取自原生 `multi`（缺省按单选）；`options[].label` 必有、`description?` 可选、`preview` **不上行**（刘海不渲染富预览）。
+- `free_text` **恒为 true**：原生对每个问题都会自动补一行 “Other (type your own)”（`ask.ts:42`），上报 `false` 等于凭空砍掉一个原生就有的入口。
+- 应用侧解码为 `HookEvent.ask: AskPayload?`（`HookSocketServer.swift`，`CodingKeys` 里 `ask`；`AskQuestion` 的 `multi_select` / `free_text` 缺省按 `false`、`options` 缺省空数组）。
+
+**下行**（应用 → 扩展）：
+
+```
+{"decision":"answer","answers":{<问题 id>: [<选中的 label> | <自由文本>]}}
+```
+
+- 用户放弃作答走既有的 `deny`；`allow` / `ask` 两个旧取值的语义与**字段集合**逐字不变（`HookResponse.encode` 是手写的，缺省键不会出现在字节里；写回统一经 `AskAnswerBuilder.normalized`，因此「`answer` 但一个答案都没有」在服务端就被折成 `deny`，空答案不可能被发出去）。编码器固定 `sortedKeys`，字节形态稳定。
+
+### 12.2 影子 ask 的竞速与取消（扩展侧）
+
+- 注册同名 `ask`：`approval: "read"`、`concurrency: "exclusive"`（都照抄原生，避免与原生并发抢弹窗），`NEVER_ASK_TOOLS` 里也含 `ask`，否则自己的 `tool_call` 闸门会把这次提问再拦一次。
+- `execute` 内并发两条路：
+  - **刘海**：发带 `ask` 负载的阻塞询问，等 `ASK_TIMEOUT_MS`（缺省 300s，`AGENT_ISLAND_ASK_TIMEOUT_MS` 可覆盖）；
+  - **原生**：`ctx.invokeTool(params, { signal })` 委托内置实现，终端作答能力完整保留。
+- 结算规则：
+  - 刘海先答（`answer` + 非空答案）→ `abort()` 原生那条（撤下终端对话框）并返回刘海作答；
+  - 原生先答 → 关掉刘海那条 socket，应用按「外部已裁决」撤卡；
+  - 刘海明确放弃（`deny`）→ 撤下终端对话框，并**按原生取消语义**抛 `ToolAbortError`（不是「返回空答案」）；
+  - 刘海超时 / 应用不可达 / 拿不到会话身份 / 非 TUI 根会话 / 没有原生可委托 → **一律原生独占**（功能不退化，也绝不假装问过）。
+- 影子工具只在 **omp** 注册：pi 0.85.1 没有原生 `ask`，注册同名只会凭空多出一个永远失败的工具。
+
+### 12.3 撤卡与超时的不变量
+
+- **撤卡不依赖 TTL**：工具结束时扩展上报 `PostToolUse`（成功）或 `PostToolUseFailure`（拒绝/中止），应用在 `ClaudeSessionMonitor` 里按 `tool_use_id` 关掉那张卡。`Stop` 清会话待批的既有逻辑保留。
+- **超时三层必须满足 `客户端预算 < 应用侧 pending TTL`**：
+
+| 层 | 值 | 出处 |
+| --- | --- | --- |
+| 闸门客户端预算 | 120s | `AgentIntegrationInstaller.gateApprovalTimeoutMs`（安装时写进扩展的 `GATE_CONFIG.timeoutMs`） |
+| ask 客户端预算 | 300s | 扩展 `ASK_TIMEOUT_MS`（读题/权衡比「许可/拒绝」慢，且原生 `ask.timeout` 默认关闭） |
+| **应用侧 pending TTL** | **330s**（> 300s，留 30s） | `HookSocketServer.pendingTTL`（`AGENT_ISLAND_PENDING_TTL_SECONDS` 可覆盖） |
+| omp handler 预算 | 300000 ms | `~/.omp/agent/config.yml` 的 `extensionHandlers.toolCallTimeoutMs`（`OmpConfigInstaller.gateHandlerTimeoutMs`，用户开闸门时写入） |
+
+TTL 小于 ask 预算时，卡片会在用户思考期间被应用先收割 → 下图那条「作答无门」的路径就是它，因此 v3 把 TTL 从 150s 提到 330s。
+
+### 12.4 只上报版也带影子 ask
+
+`agent-island-pi-extension-report-only.ts.txt` 与闸门版**同源**，同样注册影子 ask：「只上报」只表示**不做闸门**（不拦 `tool_call`），问答通道与闸门开关无关。两个变体的版本戳同为 **3**（`AgentIntegrationInstaller.piFamilyExtensionVersion = 3`；安装器按「版本 + 变体 + （闸门版）降级档」判定是否重装）。
+
+### 12.5 仍然存在的边界
+
+- **多选「一个都不选」无法表达**：作答字典只带「真的选到了答案」的问题（空数组不进字典），而 `answer` 且全空会被折成 `deny`。所以「多选问题想表达『都不选』」目前只能整体跳过，无法逐题区分。
+- **Claude 的 `AskUserQuestion` 未接入**：Claude 链路是 `PermissionRequest` + hook 脚本，信封里没有 `ask` 负载；会话列表对它只给「去刘海上作答 / 定位终端」的入口（`isInteractiveTool` 分支），作答仍在终端。
+- **opencode 无提问通道**：插件不带 `ask`，本切片未改动它。
+
 ## 附录 A：本方案新增的实测证据
 
 | # | 实验 | 命令/对象 | 结果 | 用于 |
