@@ -24,7 +24,9 @@ import { execSync } from "node:child_process";
 import net from "node:net";
 
 // 上报方标识：安装器会替换成具体 Agent 名（omp / pi）。
-const AGENT = "__AGENT_ISLAND_AGENT__";
+// 显式标注成 string：渲染后它是字面量类型（"omp"/"pi"），会让按 Agent 分支的判断
+// 被 TS 判成「无重叠的比较」（影子 `ask` 只在 omp 注册时命中）。与闸门版同一处理。
+const AGENT: string = "__AGENT_ISLAND_AGENT__";
 const SOCKET_PATH = process.env.AGENT_ISLAND_SOCKET || "/tmp/agent-island.sock";
 
 /** omp 子 Agent 总线频道；常量取值与 omp 的 `task/types.ts` 一致。 */
@@ -571,11 +573,22 @@ function subscribeSubagentBus(pi: ExtensionApi): void {
 let shadowAskRegistered = false;
 
 /**
- * ask 作答预算：比审批的一次决定长得多——读题、权衡、点选比「许可/拒绝」慢得多，
- * 而原生询问本身没有超时（`ask.timeout` 默认 0 = 关闭，settings-schema.ts:2281-2297）。
+ * ask 作答预算。
+ *
+ * 读题、权衡、点选比一次许可决定慢得多，而原生询问本身没有超时
+ * （`ask.timeout` 默认 0 = 关闭，settings-schema.ts:2281-2297），所以给得更宽。
+ * 但它必须**严格小于**服务端预算，链条是（本变体不做闸门，故没有最后一档）：
+ *
+ *   应用 pending TTL 330s  >  omp 服务端 toolCallTimeoutMs 300s  >  ask 客户端 240s  >  （闸门版：闸门客户端 120s）
+ *
+ * 服务端那 300s 由安装器写进用户配置（`extensionHandlers.toolCallTimeoutMs`，用户开闸门时写入；
+ * 消费方是扩展 `tool_call` handler 的 active-work 预算，settings-schema.ts:6094-6104）。
+ * 取 240s 而不是 300s：相等时「谁先到点」不可判定（理由见闸门版同一常量的注释），
+ * 两个变体保持同一个缺省值，便于对读与统一验收。
+ *
  * 可用 AGENT_ISLAND_ASK_TIMEOUT_MS 覆盖（验收靠它把超时改小）。
  */
-const ASK_TIMEOUT_MS = readPositiveInt(process.env.AGENT_ISLAND_ASK_TIMEOUT_MS) ?? 300000;
+const ASK_TIMEOUT_MS = readPositiveInt(process.env.AGENT_ISLAND_ASK_TIMEOUT_MS) ?? 240000;
 
 /** 上行给刘海的一个选项：原生选项去掉 `preview`（刘海不渲染富预览）。 */
 interface AskWireOption {

@@ -918,11 +918,25 @@ function subscribeSubagentBus(pi: ExtensionApi): void {
 let shadowAskRegistered = false;
 
 /**
- * ask 作答预算：比闸门的 120s 更长——读题、权衡、点选比「许可/拒绝」慢得多，
- * 而原生询问本身没有超时（`ask.timeout` 默认 0 = 关闭，settings-schema.ts:2281-2297）。
+ * ask 作答预算。
+ *
+ * 读题、权衡、点选比「许可/拒绝」慢得多，而原生询问本身没有超时
+ * （`ask.timeout` 默认 0 = 关闭，settings-schema.ts:2281-2297），所以它比闸门给得宽。
+ * 但它必须**严格小于**服务端预算，四层从外到内是：
+ *
+ *   应用 pending TTL 330s  >  omp 服务端 toolCallTimeoutMs 300s  >  ask 客户端 240s  >  闸门客户端 120s
+ *
+ * 服务端那 300s 由安装器写进用户配置（`extensionHandlers.toolCallTimeoutMs`，
+ * `OmpConfigInstaller.gateHandlerTimeoutMs`；消费方是扩展 `tool_call` handler 的
+ * active-work 预算，settings-schema.ts:6094-6104）。
+ * 取 240s 而不是 300s：**相等时「谁先到点」不可判定**——客户端以为自己仍是裁决者，
+ * 服务端却可能同时 fail-closed，用户看到的是不可读的 `Extension … timed out`；
+ * 而且相等这种配置在真机上要等满那个时长才能证伪。留 60s 余量后，「本扩展总是先说话、
+ * 理由可读」不再依赖竞态。应用侧 pending TTL 仍取 330s（> 300s），TTL 不变。
+ *
  * 可用 AGENT_ISLAND_ASK_TIMEOUT_MS 覆盖（验收靠它把超时改小）。
  */
-const ASK_TIMEOUT_MS = readPositiveInt(process.env.AGENT_ISLAND_ASK_TIMEOUT_MS) ?? 300000;
+const ASK_TIMEOUT_MS = readPositiveInt(process.env.AGENT_ISLAND_ASK_TIMEOUT_MS) ?? 240000;
 
 /** 上行给刘海的一个选项：原生选项去掉 `preview`（刘海不渲染富预览）。 */
 interface AskWireOption {

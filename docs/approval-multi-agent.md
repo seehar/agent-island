@@ -765,7 +765,7 @@ ask: { questions: [ { id, question, header?, multi_select, free_text, options: [
 
 - 注册同名 `ask`：`approval: "read"`、`concurrency: "exclusive"`（都照抄原生，避免与原生并发抢弹窗），`NEVER_ASK_TOOLS` 里也含 `ask`，否则自己的 `tool_call` 闸门会把这次提问再拦一次。
 - `execute` 内并发两条路：
-  - **刘海**：发带 `ask` 负载的阻塞询问，等 `ASK_TIMEOUT_MS`（缺省 300s，`AGENT_ISLAND_ASK_TIMEOUT_MS` 可覆盖）；
+  - **刘海**：发带 `ask` 负载的阻塞询问，等 `ASK_TIMEOUT_MS`（缺省 **240s**，`AGENT_ISLAND_ASK_TIMEOUT_MS` 可覆盖）；
   - **原生**：`ctx.invokeTool(params, { signal })` 委托内置实现，终端作答能力完整保留。
 - 结算规则：
   - 刘海先答（`answer` + 非空答案）→ `abort()` 原生那条（撤下终端对话框）并返回刘海作答；
@@ -777,16 +777,19 @@ ask: { questions: [ { id, question, header?, multi_select, free_text, options: [
 ### 12.3 撤卡与超时的不变量
 
 - **撤卡不依赖 TTL**：工具结束时扩展上报 `PostToolUse`（成功）或 `PostToolUseFailure`（拒绝/中止），应用在 `ClaudeSessionMonitor` 里按 `tool_use_id` 关掉那张卡。`Stop` 清会话待批的既有逻辑保留。
-- **超时三层必须满足 `客户端预算 < 应用侧 pending TTL`**：
+- **超时预算必须严格有序**（四层从外到内，任何两层**不得相等**）：
 
 | 层 | 值 | 出处 |
 | --- | --- | --- |
+| **应用侧 pending TTL** | **330s** | `HookSocketServer.pendingTTL`（`AGENT_ISLAND_PENDING_TTL_SECONDS` 可覆盖） |
+| omp 服务端 handler 预算 | 300000 ms（300s） | `~/.omp/agent/config.yml` 的 `extensionHandlers.toolCallTimeoutMs`（`OmpConfigInstaller.gateHandlerTimeoutMs`，用户开闸门时写入）；消费方是扩展 `tool_call` handler 的 active-work 预算（`config/settings-schema.ts:6094-6104`） |
+| ask 客户端预算 | **240s** | 扩展 `ASK_TIMEOUT_MS`（`AGENT_ISLAND_ASK_TIMEOUT_MS` 可覆盖）；读题/权衡比「许可/拒绝」慢，且原生 `ask.timeout` 默认关闭 |
 | 闸门客户端预算 | 120s | `AgentIntegrationInstaller.gateApprovalTimeoutMs`（安装时写进扩展的 `GATE_CONFIG.timeoutMs`） |
-| ask 客户端预算 | 300s | 扩展 `ASK_TIMEOUT_MS`（读题/权衡比「许可/拒绝」慢，且原生 `ask.timeout` 默认关闭） |
-| **应用侧 pending TTL** | **330s**（> 300s，留 30s） | `HookSocketServer.pendingTTL`（`AGENT_ISLAND_PENDING_TTL_SECONDS` 可覆盖） |
-| omp handler 预算 | 300000 ms | `~/.omp/agent/config.yml` 的 `extensionHandlers.toolCallTimeoutMs`（`OmpConfigInstaller.gateHandlerTimeoutMs`，用户开闸门时写入） |
 
-TTL 小于 ask 预算时，卡片会在用户思考期间被应用先收割 → 下图那条「作答无门」的路径就是它，因此 v3 把 TTL 从 150s 提到 330s。
+链条：**`app pending TTL 330s > omp 服务端 toolCallTimeoutMs 300s > ask 客户端 240s > 闸门客户端 120s`**。
+
+- **为什么必须严格小于、不能相等**：相等时「谁先到点」不可判定——客户端以为自己仍是裁决者，服务端却可能在同一时刻 fail-closed，用户看到的是不可读的 `Extension … timed out` 而不是我们给的可读理由；而且相等这种配置在真机上要等满该时长才能证伪（整合验收已把它标为 [未实测]）。ask 客户端因此取 240s（相对服务端 300s 留 60s 余量），闸门客户端 120s 与服务端 300s 均不变。
+- **TTL 与 ask 预算的关系**：TTL 330s 仍 > ask 240s、也 > 服务端 300s，保证「扩展先超时、应用后收割」；TTL 小于 ask 预算时，卡片会在用户思考期间被应用先收割 → 下图那条「作答无门」的路径就是它，因此 v3 把 TTL 从 150s 提到 330s。
 
 ### 12.4 只上报版也带影子 ask
 
