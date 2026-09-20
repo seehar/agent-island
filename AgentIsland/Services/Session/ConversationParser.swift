@@ -25,19 +25,17 @@ nonisolated struct UsageInfo: Equatable {
         inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens
     }
 
-    /// 展示用短字符串（例如 "12.5K tokens"）。
+    /// 展示用短字符串（中文界面如 "1.1亿"，其它语言如 "106.6M"）。
     ///
-    /// 小数点符号跟随界面语言（德语环境下写作 12,5K）；K/M 是公制词头，各语言通用，
-    /// 因此不参与本地化。
+    /// 量级与小数点符号都跟随界面语言：中文按「万 / 亿」，其余语言按 K / M 公制词头。
+    /// 与统计页共用 `UsageTokenFormat`，同一份数据不会在两处显示成不同量级。
     var formattedTotal: String {
-        let total = totalTokens
-        let locale = Locale(identifier: AppSettings.language.resolvedCode)
-        if total >= 1_000_000 {
-            return String(format: "%.1fM", locale: locale, Double(total) / 1_000_000)
-        } else if total >= 1_000 {
-            return String(format: "%.1fK", locale: locale, Double(total) / 1_000)
-        }
-        return "\(total)"
+        let languageCode = AppSettings.language.resolvedCode
+        return UsageTokenFormat.short(
+            totalTokens,
+            languageCode: languageCode,
+            locale: Locale(identifier: languageCode)
+        )
     }
 }
 
