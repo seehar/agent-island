@@ -12,7 +12,9 @@ import SwiftUI
 struct PreferencePickerRow<Option: PreferenceOption>: View {
     let badge: SettingsBadge
     let title: String
-    let selector: EnumPreference<Option>
+    /// 订阅这个选择器：改档位时本行要重画（当前取值与选中勾）。
+    /// 不能写成普通的 `let`——那样只有祖先视图碰巧重算时才刷新（「改了设置不生效」的经典成因）。
+    @ObservedObject var selector: EnumPreference<Option>
     /// 档位文案。
     let label: (Option) -> String
     /// 档位右侧的补充说明（数值 + 单位）；返回 nil 就不画。

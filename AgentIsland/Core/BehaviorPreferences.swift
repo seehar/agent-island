@@ -83,12 +83,12 @@ final class EnumPreference<Option: PreferenceOption>: ObservableObject {
         self.option = PreferenceStore.read(Option.self, defaults: defaults)
     }
 
-    /// 选择新档位并落盘。
+    /// 选择新档位并落盘。订阅了本对象的视图会收到 `objectWillChange`，
+    /// 因此不需要额外发通知（谁要按新值重算，就订阅这个选择器）。
     func select(_ newOption: Option) {
         guard newOption != option else { return }
         option = newOption
         PreferenceStore.write(newOption, defaults: defaults)
-        NotificationCenter.default.post(name: .behaviourPreferenceChanged, object: nil)
     }
 
     /// 展开时面板需要多出来的高度：选择行 + 微调行都由行自己定位，
@@ -97,11 +97,6 @@ final class EnumPreference<Option: PreferenceOption>: ObservableObject {
         guard isPickerExpanded else { return 0 }
         return NotchMenuMetrics.pickerOptionsHeight(visibleOptions: Option.allCases.count)
     }
-}
-
-extension Notification.Name {
-    /// 行为类偏好变化：需要按新值重算的视图（面板尺寸、空闲可见性…）据此刷新。
-    static let behaviourPreferenceChanged = Notification.Name("BehaviourPreferenceChanged")
 }
 
 // MARK: - 悬停展开
