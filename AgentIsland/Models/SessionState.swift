@@ -119,6 +119,15 @@ nonisolated struct SessionState: Equatable, Identifiable, Sendable {
         phase.needsAttention
     }
 
+    /// 当前正在运行的子 Agent 数。
+    ///
+    /// omp/pi 走子 Agent 生命周期（`subagentState.subagents`）；Claude 没有这条
+    /// 通道，退回到「在飞的 Task 工具」计数。两者表达同一件事，界面不必区分。
+    var activeSubagentCount: Int {
+        let running = subagentState.runningSubagentCount
+        return running > 0 ? running : subagentState.activeTasks.count
+    }
+
     /// The active permission context, if any
     var activePermission: PermissionContext? {
         if case .waitingForApproval(let ctx) = phase {
@@ -287,13 +296,68 @@ nonisolated struct SubagentState: Equatable, Sendable {
     /// Mapping of agentId to Task description (for AgentOutputTool display)
     var agentDescriptions: [String: String]
 
+    /// 子 Agent 实例，键为 omp 的 job 名（同时是子会话记录的文件名）。
+    var subagents: [String: SubagentRun]
+
+    /// 子 Agent 的首次出现顺序，供界面稳定排序（字典不保证顺序）。
+    var subagentOrder: [String]
+
     nonisolated init(
         activeTasks: [String: TaskContext] = [:], taskStack: [String] = [],
-        agentDescriptions: [String: String] = [:]
+        agentDescriptions: [String: String] = [:],
+        subagents: [String: SubagentRun] = [:], subagentOrder: [String] = []
     ) {
         self.activeTasks = activeTasks
         self.taskStack = taskStack
         self.agentDescriptions = agentDescriptions
+        self.subagents = subagents
+        self.subagentOrder = subagentOrder
+    }
+
+    /// 正在运行的子 Agent 数（不含已结束的）。
+    nonisolated var runningSubagentCount: Int {
+        subagents.values.filter { $0.status.isRunning }.count
+    }
+
+    /// 记录或更新一个子 Agent。
+    ///
+    /// 终态会清掉「当前工具」：否则已结束的子 Agent 会一直显示在跑某个工具。
+    nonisolated mutating func upsertSubagent(
+        id: String,
+        agent: String?,
+        status: SubagentRunStatus,
+        currentTool: String? = nil,
+        task: String? = nil,
+        sessionFile: String? = nil,
+        parentToolCallId: String? = nil
+    ) {
+        let resolvedTool = status.isRunning ? currentTool : nil
+        if var run = subagents[id] {
+            run.agent = agent
+            run.status = status
+            run.currentTool = resolvedTool ?? (status.isRunning ? run.currentTool : nil)
+            run.task = task ?? run.task
+            run.sessionFile = sessionFile ?? run.sessionFile
+            run.parentToolCallId = parentToolCallId ?? run.parentToolCallId
+            subagents[id] = run
+        } else {
+            subagentOrder.append(id)
+            subagents[id] = SubagentRun(
+                id: id,
+                agent: agent,
+                status: status,
+                currentTool: resolvedTool,
+                task: task,
+                sessionFile: sessionFile,
+                parentToolCallId: parentToolCallId
+            )
+        }
+    }
+
+    /// 某个 task 工具调用派生的子 Agent，按出现顺序。
+    nonisolated func subagents(forTask taskToolId: String) -> [SubagentRun] {
+        subagentOrder.compactMap { subagents[$0] }
+            .filter { $0.parentToolCallId == taskToolId }
     }
 
     /// Whether there's an active subagent
@@ -317,22 +381,22 @@ nonisolated struct SubagentState: Equatable, Sendable {
         activeTasks.removeValue(forKey: taskToolId)
     }
 
+    /// 一轮结束（根会话的 `Stop`）：清掉「在飞的 Task 工具」跟踪，但**保留子 Agent 表**。
+    ///
+    /// omp 的 task 默认异步派发：根会话回合结束时子 Agent 往往还在跑，若一并清空，
+    /// 界面会在子 Agent 运行期间失去全部表示。子 Agent 由自己的生命周期事件收敛。
+    nonisolated mutating func finishTurn() {
+        activeTasks.removeAll()
+        taskStack.removeAll()
+        agentDescriptions.removeAll()
+    }
+
     /// Set the agentId for a Task (called when agent file is discovered)
     nonisolated mutating func setAgentId(_ agentId: String, for taskToolId: String) {
         activeTasks[taskToolId]?.agentId = agentId
         if let description = activeTasks[taskToolId]?.description {
             agentDescriptions[agentId] = description
         }
-    }
-
-    /// Add a subagent tool to a specific Task by ID
-    nonisolated mutating func addSubagentToolToTask(_ tool: SubagentToolCall, taskId: String) {
-        activeTasks[taskId]?.subagentTools.append(tool)
-    }
-
-    /// Set all subagent tools for a specific Task (used when updating from agent file)
-    nonisolated mutating func setSubagentTools(_ tools: [SubagentToolCall], for taskId: String) {
-        activeTasks[taskId]?.subagentTools = tools
     }
 
     /// Add a subagent tool to the most recent active Task
@@ -367,4 +431,60 @@ nonisolated struct TaskContext: Equatable, Sendable {
     var agentId: String?
     var description: String?
     var subagentTools: [SubagentToolCall]
+}
+
+// MARK: - Subagent Run
+
+/// 子 Agent 的生命周期状态（omp 的 `task:subagent:lifecycle` 取值）。
+nonisolated enum SubagentRunStatus: String, Sendable {
+    case started
+    case running
+    case completed
+    case failed
+    case aborted
+    /// 上报值不认识（旧版或新增取值）：按「已结束」处理，避免计数永远偏高。
+    case unknown
+
+    /// 是否仍在运行。
+    nonisolated var isRunning: Bool {
+        self == .started || self == .running
+    }
+
+    /// 从线协议取值构造。
+    nonisolated init(wire: String?) {
+        guard let wire, let value = SubagentRunStatus(rawValue: wire) else {
+            self = .unknown
+            return
+        }
+        self = value
+    }
+}
+
+/// 一个子 Agent 实例（omp 的 task 派发单元）。
+///
+/// 与 `SubagentToolCall` 的区别：后者是「子 Agent 内部的一次工具调用」（Claude 由
+/// hook 与 agent 记录上报）；本类型是「子 Agent 本身」——omp 通过父会话的
+/// `task:subagent:*` 总线给出身份、状态与当前工具，但不给内部调用明细。
+nonisolated struct SubagentRun: Equatable, Identifiable, Sendable {
+    /// omp 的 job 名（如 `EchoAlpha`），同时是子会话记录的文件名。
+    let id: String
+    /// 子 Agent 类型名（如 `scout` / `sonic`）；记录侧兜底拿不到类型时为 nil。
+    var agent: String?
+    var status: SubagentRunStatus
+    /// 当前正在执行的工具名；已结束时为空。
+    var currentTool: String?
+    /// 交给它的任务描述。
+    var task: String?
+    /// 子 Agent 自己的记录文件路径。
+    var sessionFile: String?
+    /// 派生它的父会话工具调用（task 工具的 tool_use_id）。
+    var parentToolCallId: String?
+
+    /// 任务描述首行，供密集行展示（omp 的 task 正文是完整 brief，太长）。
+    nonisolated var taskSummary: String? {
+        guard let task, !task.isEmpty else { return nil }
+        let firstLine = task.split(separator: "\n", omittingEmptySubsequences: true)
+            .first.map(String.init) ?? task
+        return String(firstLine.prefix(120))
+    }
 }

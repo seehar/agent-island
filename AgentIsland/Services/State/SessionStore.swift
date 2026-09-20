@@ -95,24 +95,6 @@ actor SessionStore {
 
         case .toolCompleted(let key, let toolUseId, let result):
             await processToolCompleted(key: key, toolUseId: toolUseId, result: result)
-
-        // MARK: - Subagent Events
-
-        case .subagentStarted(let key, let taskToolId):
-            processSubagentStarted(key: key, taskToolId: taskToolId)
-
-        case .subagentToolExecuted(let key, let tool):
-            processSubagentToolExecuted(key: key, tool: tool)
-
-        case .subagentToolCompleted(let key, let toolId, let status):
-            processSubagentToolCompleted(key: key, toolId: toolId, status: status)
-
-        case .subagentStopped(let key, let taskToolId):
-            processSubagentStopped(key: key, taskToolId: taskToolId)
-
-        case .agentFileUpdated:
-            // No longer used - subagent tools are populated from JSONL completion
-            break
         }
 
         publishState()
@@ -143,6 +125,15 @@ actor SessionStore {
             return
         }
 
+        // 子 Agent 总线事件描述的是「派出去的子 Agent」，不是会话自身的一轮活动，
+        // 因此不参与相位推导与工具跟踪，只更新子 Agent 表。
+        if event.event == "SubagentLifecycle" || event.event == "SubagentProgress" {
+            processSubagentBusEvent(event: event, session: &session)
+            sessions[key] = session
+            publishState()
+            return
+        }
+
         let newPhase = event.determinePhase()
 
         if session.phase.canTransition(to: newPhase) {
@@ -160,7 +151,7 @@ actor SessionStore {
         processSubagentTracking(event: event, session: &session)
 
         if event.event == "Stop" {
-            session.subagentState = SubagentState()
+            session.subagentState.finishTurn()
         }
 
         sessions[key] = session
@@ -225,7 +216,8 @@ actor SessionStore {
                             status: .running,
                             result: nil,
                             structuredResult: nil,
-                            subagentTools: []
+                            subagentTools: [],
+                            subagentRuns: []
                         )),
                         timestamp: Date()
                     )
@@ -322,6 +314,64 @@ actor SessionStore {
         }
     }
 
+    /// 处理父会话 `task:subagent:*` 总线事件（omp / pi 的子 Agent）。
+    ///
+    /// 相位规则：有子 Agent 在跑就把会话提到 `processing`（子 Agent 期间没有任何
+    /// 父会话事件的 headless 场景尤其需要）；子 Agent 全部结束时若相位还停在
+    /// `processing`，补一次收尾——根会话自身的事件会立即纠正，不会长期偏离。
+    private func processSubagentBusEvent(event: HookEvent, session: inout SessionState) {
+        guard let subagentId = event.subagentId else { return }
+
+        let reported = SubagentRunStatus(wire: event.subagentStatus)
+        let existing = session.subagentState.subagents[subagentId]?.status
+        // 上报值不认识时沿用已知状态；首次进度事件早于生命周期事件时按「已开跑」处理。
+        let status: SubagentRunStatus = reported == .unknown ? (existing ?? .running) : reported
+
+        session.subagentState.upsertSubagent(
+            id: subagentId,
+            agent: event.subagentAgent ?? subagentId,
+            status: status,
+            currentTool: event.subagentCurrentTool,
+            task: event.subagentTask,
+            sessionFile: event.subagentSessionFile,
+            parentToolCallId: event.parentToolCallId
+        )
+
+        if session.subagentState.runningSubagentCount > 0 {
+            if session.phase.canTransition(to: .processing) {
+                session.phase = .processing
+            }
+        } else if session.phase == .processing, session.phase.canTransition(to: .waitingForInput) {
+            session.phase = .waitingForInput
+        }
+
+        syncSubagentRunsToChatItems(session: &session)
+        Self.logger.debug(
+            "Subagent \(subagentId, privacy: .public) -> \(String(describing: status), privacy: .public)"
+        )
+    }
+
+    /// 把子 Agent 表写进对应的 task 卡，供界面渲染。
+    ///
+    /// 会话里没有任何子 Agent 时直接返回：此时卡片上的子 Agent 行来自记录解析
+    /// （见 `populateSubagentRunsFromTaskResults`），不能被空状态擦掉。
+    private func syncSubagentRunsToChatItems(session: inout SessionState) {
+        guard !session.subagentState.subagents.isEmpty else { return }
+        for index in 0..<session.chatItems.count {
+            guard case .toolCall(var tool) = session.chatItems[index].type,
+                ToolCallItem.isSubagentContainerName(tool.name)
+            else { continue }
+            let runs = session.subagentState.subagents(forTask: session.chatItems[index].id)
+            guard runs != tool.subagentRuns else { continue }
+            tool.subagentRuns = runs
+            session.chatItems[index] = ChatHistoryItem(
+                id: session.chatItems[index].id,
+                type: .toolCall(tool),
+                timestamp: session.chatItems[index].timestamp
+            )
+        }
+    }
+
     /// Push the current subagent tool lists from subagentState into the
     /// corresponding ChatHistoryItem.subagentTools so the UI renders them live.
     private func syncSubagentToolsToChatItems(session: inout SessionState) {
@@ -340,37 +390,6 @@ actor SessionStore {
                 }
             }
         }
-    }
-
-    // MARK: - Subagent Event Handlers
-
-    /// Handle subagent started event
-    private func processSubagentStarted(key: SessionKey, taskToolId: String) {
-        guard var session = sessions[key] else { return }
-        session.subagentState.startTask(taskToolId: taskToolId)
-        sessions[key] = session
-    }
-
-    /// Handle subagent tool executed event
-    private func processSubagentToolExecuted(key: SessionKey, tool: SubagentToolCall) {
-        guard var session = sessions[key] else { return }
-        session.subagentState.addSubagentTool(tool)
-        sessions[key] = session
-    }
-
-    /// Handle subagent tool completed event
-    private func processSubagentToolCompleted(key: SessionKey, toolId: String, status: ToolStatus) {
-        guard var session = sessions[key] else { return }
-        session.subagentState.updateSubagentToolStatus(toolId: toolId, status: status)
-        sessions[key] = session
-    }
-
-    /// Handle subagent stopped event
-    private func processSubagentStopped(key: SessionKey, taskToolId: String) {
-        guard var session = sessions[key] else { return }
-        session.subagentState.stopTask(taskToolId: taskToolId)
-        sessions[key] = session
-        // Subagent tools will be populated from agent file in processFileUpdated
     }
 
     /// Parse ISO8601 timestamp string
@@ -614,7 +633,8 @@ actor SessionStore {
                                         status: existingTool.status,
                                         result: existingTool.result,
                                         structuredResult: existingTool.structuredResult,
-                                        subagentTools: existingTool.subagentTools
+                                        subagentTools: existingTool.subagentTools,
+                                        subagentRuns: existingTool.subagentRuns
                                     )),
                                     timestamp: message.timestamp
                                 )
@@ -655,7 +675,8 @@ actor SessionStore {
                                         status: existingTool.status,
                                         result: existingTool.result,
                                         structuredResult: existingTool.structuredResult,
-                                        subagentTools: existingTool.subagentTools
+                                        subagentTools: existingTool.subagentTools,
+                                        subagentRuns: existingTool.subagentRuns
                                     )),
                                     timestamp: message.timestamp
                                 )
@@ -691,6 +712,8 @@ actor SessionStore {
             session: &session,
             structuredResults: payload.structuredResults
         )
+
+        populateSubagentRunsFromTaskResults(session: &session)
 
         sessions[payload.key] = session
 
@@ -751,6 +774,42 @@ actor SessionStore {
             )
 
             Self.logger.debug("Populated \(subagentToolInfos.count) subagent tools for Task \(taskToolId.prefix(12), privacy: .public) from agent \(taskResult.agentId.prefix(8), privacy: .public)")
+        }
+    }
+
+    /// 记录侧兜底：从 task 工具结果文本里还原它派生的子 Agent 名单。
+    ///
+    /// 只在卡片上还没有子 Agent 行时使用（应用重启、读取历史、或实时集成缺席）。
+    /// omp 的 task 结果是纯文本清单，名字取自它自己的 job 名，因此与实时上报的
+    /// `subagent_id` 同源——实时事件到达后会按同一个 id 覆盖成真实状态。
+    private func populateSubagentRunsFromTaskResults(session: inout SessionState) {
+        for index in 0..<session.chatItems.count {
+            guard case .toolCall(var tool) = session.chatItems[index].type,
+                tool.isSubagentContainer,
+                tool.subagentRuns.isEmpty
+            else { continue }
+
+            let names = GenericToolResultBuilder.subagentNames(fromTaskResult: tool.result)
+            guard !names.isEmpty else { continue }
+
+            // 结果已经完整落到卡片上时，子 Agent 必然已经结束；否则按运行中处理。
+            let status: SubagentRunStatus = tool.status == .success ? .completed : .running
+            tool.subagentRuns = names.map { name in
+                SubagentRun(
+                    id: name,
+                    agent: nil,
+                    status: status,
+                    currentTool: nil,
+                    task: nil,
+                    sessionFile: nil,
+                    parentToolCallId: session.chatItems[index].id
+                )
+            }
+            session.chatItems[index] = ChatHistoryItem(
+                id: session.chatItems[index].id,
+                type: .toolCall(tool),
+                timestamp: session.chatItems[index].timestamp
+            )
         }
     }
 
@@ -833,7 +892,8 @@ actor SessionStore {
                     status: status,
                     result: resultText,
                     structuredResult: structuredResults[tool.id],
-                    subagentTools: []
+                    subagentTools: [],
+                    subagentRuns: []
                 )),
                 timestamp: message.timestamp
             )

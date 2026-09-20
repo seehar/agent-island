@@ -43,23 +43,6 @@ enum SessionEvent: Sendable {
     /// User interrupted Claude (detected via JSONL)
     case interruptDetected(key: SessionKey)
 
-    // MARK: - Subagent Events (Task tool tracking)
-
-    /// A Task (subagent) tool has started
-    case subagentStarted(key: SessionKey, taskToolId: String)
-
-    /// A tool was executed within an active subagent
-    case subagentToolExecuted(key: SessionKey, tool: SubagentToolCall)
-
-    /// A subagent tool completed (status update)
-    case subagentToolCompleted(key: SessionKey, toolId: String, status: ToolStatus)
-
-    /// A Task (subagent) tool has stopped
-    case subagentStopped(key: SessionKey, taskToolId: String)
-
-    /// Agent file was updated with new subagent tools (from AgentFileWatcher)
-    case agentFileUpdated(key: SessionKey, taskToolId: String, tools: [SubagentToolInfo])
-
     // MARK: - Clear Events (from JSONL detection)
 
     /// User issued /clear command - reset UI state while keeping session alive
@@ -230,20 +213,6 @@ extension SessionEvent: CustomStringConvertible {
         case .toolCompleted(let key, let toolUseId, let result):
             return
                 "toolCompleted(session: \(key.sessionId.prefix(8)), tool: \(toolUseId.prefix(12)), status: \(result.status))"
-        case .subagentStarted(let key, let taskToolId):
-            return
-                "subagentStarted(session: \(key.sessionId.prefix(8)), task: \(taskToolId.prefix(12)))"
-        case .subagentToolExecuted(let key, let tool):
-            return "subagentToolExecuted(session: \(key.sessionId.prefix(8)), tool: \(tool.name))"
-        case .subagentToolCompleted(let key, let toolId, let status):
-            return
-                "subagentToolCompleted(session: \(key.sessionId.prefix(8)), tool: \(toolId.prefix(12)), status: \(status))"
-        case .subagentStopped(let key, let taskToolId):
-            return
-                "subagentStopped(session: \(key.sessionId.prefix(8)), task: \(taskToolId.prefix(12)))"
-        case .agentFileUpdated(let key, let taskToolId, let tools):
-            return
-                "agentFileUpdated(session: \(key.sessionId.prefix(8)), task: \(taskToolId.prefix(12)), tools: \(tools.count))"
         }
     }
 }

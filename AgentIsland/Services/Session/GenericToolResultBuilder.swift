@@ -125,6 +125,29 @@ nonisolated enum GenericToolResultBuilder {
         return name
     }
 
+    /// 从 omp 的 task 结果文本里解析出它派生的子 Agent 名字。
+    ///
+    /// omp 的结果是纯文本清单，每个子 Agent 形如 ``- `EchoAlpha` (job `EchoAlpha`)``
+    /// 或 ``Spawned agent `TypecheckHarness` (job `…`)``，因此按 `(job ` 标记取名字最稳
+    /// （每个子 Agent 恰好一次）。解析不出来就返回空，调用方保持原状——这是记录侧
+    /// 兜底：实时集成缺席或应用重启后，卡片仍能列出子 Agent。
+    static func subagentNames(fromTaskResult text: String?) -> [String] {
+        guard let text, !text.isEmpty else { return [] }
+        let marker = "(job `"
+        var names: [String] = []
+        var searchStart = text.startIndex
+        while let range = text.range(of: marker, range: searchStart..<text.endIndex) {
+            let nameStart = range.upperBound
+            guard let nameEnd = text[nameStart...].firstIndex(of: "`") else { break }
+            let name = String(text[nameStart..<nameEnd])
+            if !name.isEmpty, !names.contains(name) {
+                names.append(name)
+            }
+            searchStart = text.index(after: nameEnd)
+        }
+        return names
+    }
+
     /// 是否为「编辑类」工具（Claude 用 `Edit`，pi/omp 用 `edit`，OpenCode 用 `edit`/`write`）。
     static func isEditLike(_ toolName: String) -> Bool {
         let name = normalizedName(toolName)

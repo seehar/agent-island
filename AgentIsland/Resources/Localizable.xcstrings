@@ -71,6 +71,41 @@
         }
       }
     },
+    "%lld agents" : {
+      "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文无词形变化只用 other），不要拆成多条键或改回手写分支。",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld agent"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld agents"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld 个子代理"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld lines" : {
       "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文无词形变化只用 other），不要拆成多条键或改回手写分支。",
       "localizations" : {
@@ -1334,6 +1369,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "解压中..."
+          }
+        }
+      }
+    },
+    "Failed" : {
+      "comment" : "子代理/工具失败时的状态词",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "失败"
           }
         }
       }

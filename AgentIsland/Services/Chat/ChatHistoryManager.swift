@@ -135,17 +135,21 @@ nonisolated struct ToolCallItem: Equatable, Sendable {
     /// For Task tools: nested subagent tool calls
     var subagentTools: [SubagentToolCall]
 
+    /// 派生出来的子 Agent（omp 的 task 派发单元）。
+    /// Claude 走 `subagentTools`（内部工具明细），omp 走这里（子 Agent 身份与状态）。
+    var subagentRuns: [SubagentRun]
+
     /// Whether this tool is the subagent-container tool. "Task" is the
     /// legacy name; Claude Code now uses "Agent".
     var isSubagentContainer: Bool {
         Self.isSubagentContainerName(name)
     }
 
-    /// 是否按「子 Agent 容器」呈现：只有真的收到嵌套工具时才折叠成容器。
-    /// omp/pi/opencode 不上报子 Agent 内部调用，它们的派生工具行因此与普通工具行
-    /// 一致，结果内容照常可展开查看。
+    /// 是否按「子 Agent 容器」呈现：只有真的收到子 Agent 内容时才折叠成容器。
+    /// Claude 给的是子 Agent 内部的工具明细，omp/pi 给的是子 Agent 实例本身，
+    /// 两者任一非空都按容器呈现；都没有则与普通工具行一致，结果照常可展开。
     var presentsAsSubagentContainer: Bool {
-        isSubagentContainer && !subagentTools.isEmpty
+        isSubagentContainer && (!subagentTools.isEmpty || !subagentRuns.isEmpty)
     }
 
     /// Same check by raw tool-name string (used when we don't have a
@@ -208,7 +212,8 @@ nonisolated struct ToolCallItem: Equatable, Sendable {
         lhs.status == rhs.status &&
         lhs.result == rhs.result &&
         lhs.structuredResult == rhs.structuredResult &&
-        lhs.subagentTools == rhs.subagentTools
+        lhs.subagentTools == rhs.subagentTools &&
+        lhs.subagentRuns == rhs.subagentRuns
     }
 }
 

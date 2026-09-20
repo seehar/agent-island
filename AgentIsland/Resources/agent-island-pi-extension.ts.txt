@@ -3,6 +3,12 @@
 // 作用：把会话生命周期与工具调用实时上报给 notch 应用（unix socket），
 // 让 pi/omp 拥有和 Claude Code hooks 同等的实时状态，而不必轮询记录文件。
 //
+// 子 Agent：omp 的 subAgent 是同进程内的**独立会话**（其 ctx 恒为 hasUI=false、
+// mode="print"），直接按会话上报会污染会话身份（子会话文件不在应用的会话目录
+// 布局里）；omp 已经把每个子 Agent 的生命周期投到父会话的共享 EventBus
+// （`task:subagent:lifecycle|progress`），因此这里订阅那条总线，把子 Agent 作为
+// 父会话的一部分上报。
+//
 // 安装位置：
 //   ~/.omp/agent/extensions/agent-island-state.ts   （Oh My Pi）
 //   ~/.pi/agent/extensions/agent-island-state.ts    （Pi）
@@ -18,6 +24,10 @@ import net from "node:net";
 const AGENT = "__AGENT_ISLAND_AGENT__";
 const SOCKET_PATH = process.env.AGENT_ISLAND_SOCKET || "/tmp/agent-island.sock";
 
+/** omp 子 Agent 总线频道；常量取值与 omp 的 `task/types.ts` 一致。 */
+const SUBAGENT_LIFECYCLE_CHANNEL = "task:subagent:lifecycle";
+const SUBAGENT_PROGRESS_CHANNEL = "task:subagent:progress";
+
 /** 事件名与 Claude Code hook 事件同名，应用侧因此只需一套状态机。 */
 interface IslandEvent {
   event: string;
@@ -26,12 +36,26 @@ interface IslandEvent {
   tool_input?: unknown;
   tool_use_id?: string;
   message?: string;
+  /** 子 Agent 事件（SubagentLifecycle / SubagentProgress）专用字段。 */
+  subagent_id?: string;
+  subagent_agent?: string;
+  subagent_status?: string;
+  subagent_current_tool?: string;
+  subagent_task?: string;
+  parent_tool_call_id?: string;
+  subagent_session_file?: string;
+}
+
+/** 会话头；omp 用它给派生的子会话标注父会话。 */
+interface SessionHeaderLike {
+  parentSession?: unknown;
 }
 
 /** 扩展可见的最小上下文接口（pi / omp 运行时提供，此处只声明用到的部分）。 */
 interface SessionManagerLike {
   getSessionFile?(): unknown;
   getSessionId?(): unknown;
+  getHeader?(): unknown;
 }
 
 interface ExtensionContextLike {
@@ -42,9 +66,15 @@ interface ExtensionContextLike {
   sessionManager?: SessionManagerLike;
 }
 
+/** 会话共享事件总线（omp 的 `pi.events`）；旧版 pi 可能没有。 */
+interface EventBusLike {
+  on(channel: string, handler: (data: unknown) => void): unknown;
+}
+
 /** 扩展注册接口。 */
 interface ExtensionApi {
   on(event: string, handler: (event: unknown, ctx?: ExtensionContextLike) => void | Promise<void>): void;
+  events?: EventBusLike;
 }
 
 /** 从未知值里取布尔字段。 */
@@ -62,6 +92,15 @@ function readString(source: unknown, key: string): string | undefined {
   }
   const value = (source as Record<string, unknown>)[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/** 从未知值里取对象字段。 */
+function readObject(source: unknown, key: string): Record<string, unknown> | undefined {
+  if (typeof source !== "object" || source === null || !(key in source)) {
+    return undefined;
+  }
+  const value = (source as Record<string, unknown>)[key];
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : undefined;
 }
 
 let currentSessionFile: string | undefined;
@@ -103,19 +142,56 @@ function updateSessionRef(ctx: ExtensionContextLike | undefined): void {
   }
 }
 
+/**
+ * 会话头是否带 parentSession。
+ *
+ * omp 用它标注「这个会话由某个父会话派生」（子 Agent、持久化复活的子代理），
+ * 是区分「子 Agent」与「headless 根会话」的唯一权威字段。
+ */
+function hasParentSession(ctx: ExtensionContextLike | undefined): boolean {
+  try {
+    const header = ctx?.sessionManager?.getHeader?.();
+    const parent = readString(header, "parentSession");
+    return parent !== undefined;
+  } catch {
+    // 取不到会话头时按「不是子会话」处理，宁可多报一个会话，也不静默丢失。
+    return false;
+  }
+}
+
+/**
+ * 是否是应用要展示的「根会话」（用户眼前的那一个）。
+ *
+ * 不能只看 `hasUI`：omp 的子 Agent 与 headless 根会话（`omp -p`、`--mode json|rpc`）
+ * 都是 `hasUI=false` + `mode="print"`，只按 hasUI 过滤会把 headless 会话一并丢掉。
+ * 子 Agent 的权威判据是会话头里的 `parentSession`；TUI 一定是根会话（子 Agent 不
+ * 带 UI），因此 hasUI 为真时直接放行，避免 `--fork` 出来的根会话被误判成子会话。
+ */
+function isRootSession(ctx: ExtensionContextLike | undefined): boolean {
+  if (ctx?.hasUI === true || ctx?.mode === "tui") {
+    return true;
+  }
+  return !hasParentSession(ctx);
+}
+
 /** 发送一条事件；永不抛错，永不阻塞调用方。 */
-function send(payload: IslandEvent): Promise<void> {
-  if (!currentSessionId && !currentSessionFile) {
+function send(
+  payload: IslandEvent,
+  override?: { sessionId?: string; sessionFile?: string },
+): Promise<void> {
+  const sessionId = override?.sessionId ?? currentSessionId ?? reportedSessionId;
+  const sessionFile = override?.sessionFile ?? currentSessionFile;
+  if (!sessionId && !sessionFile) {
     return Promise.resolve();
   }
 
   const body = {
-    session_id: currentSessionId ?? reportedSessionId ?? "unknown",
+    session_id: sessionId ?? reportedSessionId ?? "unknown",
     cwd: typeof process.cwd === "function" ? process.cwd() : undefined,
     pid,
     tty,
     agent: AGENT,
-    session_file: currentSessionFile,
+    session_file: sessionFile,
     ...payload,
   };
 
@@ -141,12 +217,68 @@ function send(payload: IslandEvent): Promise<void> {
   return chain;
 }
 
-/** 只有根会话（用户眼前的那个）才代表 notch 要展示的会话，子 Agent 事件不上报。 */
-function isRootSession(ctx: ExtensionContextLike | undefined): boolean {
-  return ctx?.hasUI === true || ctx?.mode === "tui";
+/**
+ * 订阅父会话共享总线上的子 Agent 频道。
+ *
+ * omp 的会话事件只发到该会话自己的总线，子 Agent 的模块实例拿到的是它自己的总线，
+ * 因此只有根会话实例会收到 `task:subagent:*`；这里不再按上下文过滤，只在父会话
+ * 引用就绪后上报。进度事件按「状态 + 当前工具」去重，避免流式进度把 socket 打满。
+ */
+function subscribeSubagentBus(pi: ExtensionApi): void {
+  const bus = pi.events;
+  if (!bus || typeof bus.on !== "function") {
+    // 旧版 pi 没有共享总线：子 Agent 不上报，其余事件不受影响。
+    return;
+  }
+
+  const lastProgressSignature = new Map<string, string>();
+
+  bus.on(SUBAGENT_LIFECYCLE_CHANNEL, (data) => {
+    const id = readString(data, "id");
+    if (!id) {
+      return;
+    }
+    void send({
+      event: "SubagentLifecycle",
+      status: "processing",
+      subagent_id: id,
+      subagent_agent: readString(data, "agent") ?? id,
+      subagent_status: readString(data, "status"),
+      subagent_task: readString(data, "description"),
+      parent_tool_call_id: readString(data, "parentToolCallId"),
+      subagent_session_file: readString(data, "sessionFile"),
+    });
+  });
+
+  bus.on(SUBAGENT_PROGRESS_CHANNEL, (data) => {
+    const progress = readObject(data, "progress");
+    const id = readString(progress, "id") ?? readString(data, "id");
+    if (!id) {
+      return;
+    }
+    const status = readString(progress, "status");
+    const currentTool = readString(progress, "currentTool");
+    const signature = `${status ?? ""}|${currentTool ?? ""}`;
+    if (lastProgressSignature.get(id) === signature) {
+      return;
+    }
+    lastProgressSignature.set(id, signature);
+    void send({
+      event: "SubagentProgress",
+      status: "processing",
+      subagent_id: id,
+      subagent_agent: readString(progress, "agent") ?? readString(data, "agent") ?? id,
+      subagent_status: status,
+      subagent_current_tool: currentTool,
+      subagent_task: readString(progress, "task") ?? readString(data, "task"),
+      parent_tool_call_id: readString(data, "parentToolCallId"),
+      subagent_session_file: readString(data, "sessionFile"),
+    });
+  });
 }
 
 export default function (pi: ExtensionApi) {
+  /** 子 Agent 上下文里也要能拿到会话引用，但只有根会话才上报。 */
   function activateRootSession(ctx: ExtensionContextLike | undefined): boolean {
     if (!isRootSession(ctx)) {
       return false;
@@ -170,8 +302,20 @@ export default function (pi: ExtensionApi) {
   });
 
   pi.on("session_switch", (_event, ctx) => {
-    if (!activateRootSession(ctx)) {
+    if (!isRootSession(ctx)) {
       return;
+    }
+    // 同一个进程切走的旧会话不会再被写盘，而进程还活着、存活回收不会触发；
+    // 若只发 SessionStart，旧会话行会一直挂在列表里，因此先给旧会话补一个结束事件。
+    const previousSessionId = currentSessionId ?? reportedSessionId;
+    const previousSessionFile = currentSessionFile;
+    updateSessionRef(ctx);
+    reportedSessionId = currentSessionId ?? reportedSessionId;
+    if (previousSessionId && previousSessionId !== currentSessionId) {
+      void send(
+        { event: "SessionEnd", status: "ended" },
+        { sessionId: previousSessionId, sessionFile: previousSessionFile },
+      );
     }
     void send({ event: "SessionStart", status: "idle" });
   });
@@ -197,6 +341,9 @@ export default function (pi: ExtensionApi) {
   // Pi 侧的生命周期事件名（与 omp 的 agent_end 等价）；不支持时忽略。
   try {
     pi.on("agent_settled", (_event, ctx) => {
+      if (ctx !== undefined && !isRootSession(ctx)) {
+        return;
+      }
       if (ctx?.isIdle?.() !== true) {
         return;
       }
@@ -250,8 +397,11 @@ export default function (pi: ExtensionApi) {
     if (!isRootSession(ctx)) {
       return;
     }
+    const approved = readBool(event, "approved");
     void send({
-      event: "PostToolUse",
+      // 被拒绝的工具不会产生 tool_result（omp 的审批门在 execute 之前），
+      // 沿用 PostToolUse 会把「拒绝」显示成成功，因此按结果分流。
+      event: approved ? "PostToolUse" : "PostToolUseFailure",
       status: "processing",
       tool: readString(event, "toolName"),
       tool_use_id: readString(event, "toolCallId"),
@@ -293,4 +443,7 @@ export default function (pi: ExtensionApi) {
   pi.on("session_shutdown", () => {
     void send({ event: "SessionEnd", status: "ended" });
   });
+
+  // 子 Agent：由父会话的共享总线代为上报（见 subscribeSubagentBus 注释）。
+  subscribeSubagentBus(pi);
 }

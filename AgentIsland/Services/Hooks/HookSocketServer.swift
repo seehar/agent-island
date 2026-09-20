@@ -30,6 +30,20 @@ nonisolated struct HookEvent: Codable, Sendable {
  let agent: String?
  /// 记录文件路径，由非 Claude 集成上报，避免应用再按目录反推。
  let sessionFile: String?
+ /// 子 Agent 实例标识（omp 的 job 名，如 `EchoAlpha`）。
+ let subagentId: String?
+ /// 子 Agent 类型名（omp 的 agent 名，如 `scout` / `sonic`）。
+ let subagentAgent: String?
+ /// 子 Agent 状态：`started` / `running` / `completed` / `failed` / `aborted`。
+ let subagentStatus: String?
+ /// 子 Agent 当前正在执行的工具名；空闲时为空。
+ let subagentCurrentTool: String?
+ /// 子 Agent 的任务描述（`SubagentLifecycle` 带 `description`，进度事件带 `task`）。
+ let subagentTask: String?
+ /// 派生该子 Agent 的父会话工具调用（task 工具的 tool_use_id）。
+ let parentToolCallId: String?
+ /// 子 Agent 自己的记录文件路径。
+ let subagentSessionFile: String?
 
  enum CodingKeys: String, CodingKey {
   case sessionId = "session_id"
@@ -39,6 +53,13 @@ nonisolated struct HookEvent: Codable, Sendable {
   case notificationType = "notification_type"
   case message, agent
   case sessionFile = "session_file"
+  case subagentId = "subagent_id"
+  case subagentAgent = "subagent_agent"
+  case subagentStatus = "subagent_status"
+  case subagentCurrentTool = "subagent_current_tool"
+  case subagentTask = "subagent_task"
+  case parentToolCallId = "parent_tool_call_id"
+  case subagentSessionFile = "subagent_session_file"
  }
 
  /// 事件所属 Agent（缺省视为 Claude Code，兼容已安装的旧 hook 脚本）。
@@ -58,6 +79,22 @@ nonisolated struct HookEvent: Codable, Sendable {
   tool: String?, toolInput: [String: AnyCodable]?, toolUseId: String?, notificationType: String?,
   message: String?, agent: String? = nil, sessionFile: String? = nil
  ) {
+  self.init(
+   sessionId: sessionId, cwd: cwd, event: event, status: status, pid: pid, tty: tty,
+   tool: tool, toolInput: toolInput, toolUseId: toolUseId, notificationType: notificationType,
+   message: message, agent: agent, sessionFile: sessionFile,
+   subagentId: nil, subagentAgent: nil, subagentStatus: nil, subagentCurrentTool: nil,
+   subagentTask: nil, parentToolCallId: nil, subagentSessionFile: nil
+  )
+ }
+
+ init(
+  sessionId: String, cwd: String, event: String, status: String, pid: Int?, tty: String?,
+  tool: String?, toolInput: [String: AnyCodable]?, toolUseId: String?, notificationType: String?,
+  message: String?, agent: String?, sessionFile: String?, subagentId: String?,
+  subagentAgent: String?, subagentStatus: String?, subagentCurrentTool: String?,
+  subagentTask: String?, parentToolCallId: String?, subagentSessionFile: String?
+ ) {
   self.sessionId = sessionId
   self.cwd = cwd
   self.event = event
@@ -71,6 +108,13 @@ nonisolated struct HookEvent: Codable, Sendable {
   self.message = message
   self.agent = agent
   self.sessionFile = sessionFile
+  self.subagentId = subagentId
+  self.subagentAgent = subagentAgent
+  self.subagentStatus = subagentStatus
+  self.subagentCurrentTool = subagentCurrentTool
+  self.subagentTask = subagentTask
+  self.parentToolCallId = parentToolCallId
+  self.subagentSessionFile = subagentSessionFile
  }
 
  var sessionPhase: SessionPhase {

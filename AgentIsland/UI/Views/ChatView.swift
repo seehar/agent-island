@@ -798,12 +798,21 @@ struct ToolCallView: View {
      .fixedSize()
 
     if tool.presentsAsSubagentContainer {
-     let taskDesc = tool.input["description"] ?? l10n.t("Running agent...")
-     Text(l10n.t("%@ (%lld tools)", taskDesc, tool.subagentTools.count))
-      .font(.system(size: 11))
-      .foregroundColor(textColor.opacity(0.7))
-      .lineLimit(1)
-      .truncationMode(.tail)
+     // Claude 给的是子 Agent 内部的工具明细，omp/pi 给的是子 Agent 实例本身。
+     if !tool.subagentTools.isEmpty {
+      let taskDesc = tool.input["description"] ?? l10n.t("Running agent...")
+      Text(l10n.t("%@ (%lld tools)", taskDesc, tool.subagentTools.count))
+       .font(.system(size: 11))
+       .foregroundColor(textColor.opacity(0.7))
+       .lineLimit(1)
+       .truncationMode(.tail)
+     } else {
+      Text(l10n.t("%lld agents", tool.subagentRuns.count))
+       .font(.system(size: 11))
+       .foregroundColor(textColor.opacity(0.7))
+       .lineLimit(1)
+       .truncationMode(.tail)
+     }
     } else if tool.name == "AgentOutputTool", let desc = agentDescription {
      let blocking = tool.input["block"] == "true"
      Text(blocking ? l10n.t("Waiting: %@", desc) : desc)
@@ -840,6 +849,13 @@ struct ToolCallView: View {
    // Subagent tools list (for Task/Agent tools)
    if tool.presentsAsSubagentContainer {
     SubagentToolsList(tools: tool.subagentTools)
+     .padding(.leading, 12)
+     .padding(.top, 2)
+   }
+
+   // 子 Agent 行（omp/pi 通过 task 派发的实例）
+   if !tool.subagentRuns.isEmpty {
+    SubagentRunsList(runs: tool.subagentRuns)
      .padding(.leading, 12)
      .padding(.top, 2)
    }
@@ -893,6 +909,87 @@ struct ToolCallView: View {
 }
 
 // MARK: - Subagent Views
+
+/// 一个 task 派发出来的子 Agent 列表（omp/pi）。
+struct SubagentRunsList: View {
+ let runs: [SubagentRun]
+
+ var body: some View {
+  VStack(alignment: .leading, spacing: 2) {
+   ForEach(runs) { run in
+    SubagentRunRow(run: run)
+   }
+  }
+ }
+}
+
+/// 单个子 Agent 行：实例名 + 类型 + 当前工具 + 状态。
+struct SubagentRunRow: View {
+ let run: SubagentRun
+ @ObservedObject private var l10n = LocalizationManager.shared
+
+ @State private var dotOpacity: Double = 0.5
+
+ private var statusColor: Color {
+  switch run.status {
+  case .started, .running: return .orange
+  case .completed: return .green
+  case .failed, .aborted: return .red
+  case .unknown: return .white.opacity(0.4)
+  }
+ }
+
+ /// 状态词。运行中用工具状态文案（与普通工具行同源），未知状态不显示文字。
+ private var statusText: String {
+  switch run.status {
+  case .started, .running:
+   return ToolStatusDisplay.running(for: run.currentTool ?? "", input: [:]).text
+  case .completed: return l10n.t("Completed")
+  case .failed: return l10n.t("Failed")
+  case .aborted: return l10n.t("Interrupted")
+  case .unknown: return ""
+  }
+ }
+
+ var body: some View {
+  HStack(spacing: 4) {
+   Circle()
+    .fill(statusColor.opacity(run.status.isRunning ? dotOpacity : 0.6))
+    .frame(width: 4, height: 4)
+    .id(run.status)
+    .onAppear {
+     if run.status.isRunning {
+      withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
+       dotOpacity = 0.2
+      }
+     }
+    }
+
+   // 实例名（omp 的 job 名，与它自己的产物页一致）
+   Text(run.id)
+    .font(.system(size: 10, weight: .medium))
+    .foregroundColor(.white.opacity(0.6))
+
+   if let agent = run.agent, !agent.isEmpty {
+    Text(agent)
+     .font(.system(size: 10))
+     .foregroundColor(.white.opacity(0.35))
+   }
+
+   if let tool = run.currentTool, run.status.isRunning {
+    Text(tool)
+     .font(.system(size: 10, design: .monospaced))
+     .foregroundColor(.white.opacity(0.4))
+   }
+
+   Text(statusText)
+    .font(.system(size: 10))
+    .foregroundColor(.white.opacity(0.5))
+    .lineLimit(1)
+    .truncationMode(.middle)
+  }
+ }
+}
 
 /// List of subagent tools (shown during Task execution)
 struct SubagentToolsList: View {

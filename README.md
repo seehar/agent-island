@@ -21,6 +21,7 @@
 - **Notch UI** — Animated overlay that expands from the MacBook notch; on external displays it matches the menu bar height instead of leaving a black bar, and the height can be pinned in settings
 - **Multi-Agent Sessions** — Monitors Claude Code, Oh My Pi (`omp`), Pi and OpenCode sessions side by side, each tagged with its own badge
 - **Live Session Monitoring** — Track multiple sessions per agent in real-time
+- **Subagent Visibility** — Claude Code subagent tool calls and `omp`/`pi` subagent runs are counted in the notch badge and listed under their `task` card
 - **Permission Approvals** — Approve or deny Claude Code tool executions directly from the notch
 - **Chat History** — View full conversation history with markdown rendering
 - **Auto-Setup** — Per-agent integrations install automatically on first launch
