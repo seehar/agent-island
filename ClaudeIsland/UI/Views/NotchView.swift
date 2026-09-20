@@ -325,7 +325,7 @@ struct NotchView: View {
 
      // Permission indicator only (amber) - waiting for input shows checkmark on right
      if hasPendingPermission {
-      PermissionIndicatorIcon(size: 14, color: Color(red: 0.85, green: 0.47, blue: 0.34))
+      PermissionIndicatorIcon(size: 14, color: TerminalColors.amber)
        .matchedGeometryEffect(
         id: "status-indicator", in: activityNamespace, isSource: showClosedActivity)
      }

@@ -346,7 +346,7 @@ struct ChatView: View {
    // New messages indicator overlay
    .overlay(alignment: .bottom) {
     if isAutoscrollPaused && newMessageCount > 0 {
-     NewMessagesIndicator(count: newMessageCount) {
+     NewMessagesIndicator(count: newMessageCount, color: session.agent.brandColor) {
       withAnimation(.easeOut(duration: 0.3)) {
        // In inverted scroll, use .bottom anchor to scroll to the visual bottom
        proxy.scrollTo("bottom", anchor: .bottom)
@@ -669,9 +669,11 @@ struct AssistantMessageView: View {
 
 struct ProcessingIndicatorView: View {
  @ObservedObject private var l10n = LocalizationManager.shared
- private let color = Color(red: 0.85, green: 0.47, blue: 0.34)  // Claude orange
- /// 转轮帧表归属的 Agent（当前会话）
+ /// 转轮帧表与强调色都归属当前会话的 Agent
  let agent: AgentKind
+
+ /// 文案配色取该 Agent 的品牌色
+ private var color: Color { agent.brandColor }
 
  /// 每种语言的候选文案数量，init 与 baseText 必须一致。
  private static let variantCount = 2
@@ -1245,6 +1247,8 @@ struct ChatApprovalBar: View {
 /// Floating indicator showing count of new messages when user has scrolled up
 struct NewMessagesIndicator: View {
  let count: Int
+ /// 归属 Agent 的品牌色
+ let color: Color
  let onTap: () -> Void
  @ObservedObject private var l10n = LocalizationManager.shared
 
@@ -1264,7 +1268,7 @@ struct NewMessagesIndicator: View {
    .padding(.vertical, 8)
    .background(
     Capsule()
-     .fill(Color(red: 0.85, green: 0.47, blue: 0.34))  // Claude orange
+     .fill(color)
      .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
    )
    .scaleEffect(isHovering ? 1.05 : 1.0)

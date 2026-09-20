@@ -131,8 +131,6 @@ struct InstanceRow: View {
     @State private var isHovered = false
     @State private var isYabaiAvailable = false
 
-    private let claudeOrange = Color(red: 0.85, green: 0.47, blue: 0.34)
-
     /// Whether we're showing the approval UI
     private var isWaitingForApproval: Bool {
         session.phase.isWaitingForApproval
@@ -345,7 +343,7 @@ struct InstanceRow: View {
     private var stateIndicator: some View {
         switch session.phase {
         case .processing, .compacting:
-            AgentSpinner(agent: session.agent, color: claudeOrange)
+            AgentSpinner(agent: session.agent)
         case .waitingForApproval:
             AgentSpinner(agent: session.agent, color: TerminalColors.amber)
         case .waitingForInput:

@@ -88,7 +88,7 @@ private struct AgentSettingsRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            AgentLogo(agent: kind, size: 12, color: textColor)
+            AgentLogo(agent: kind, size: 12)
                 .frame(width: 16)
 
             Text(kind.displayName)

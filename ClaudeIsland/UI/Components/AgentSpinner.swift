@@ -17,7 +17,8 @@ struct AgentSpinner: View {
     /// 字号，同时也是帧的占位宽度。
     var size: CGFloat = 12
 
-    var color: Color = TerminalColors.prompt
+    /// 覆盖转轮配色；nil 表示用该 Agent 的品牌色，无归属时退回应用强调色。
+    var color: Color? = nil
 
     /// 帧节拍。各 Agent 的 TUI 节拍并不相同（OpenCode 是 0.04s），但刘海里只有
     /// 12pt，照搬 TUI 的速度会像闪烁，所以统一到 0.15s。
@@ -27,10 +28,13 @@ struct AgentSpinner: View {
         TimelineView(.periodic(from: Self.epoch, by: Self.frameInterval)) { context in
             Text(Self.glyph(for: agent, at: context.date))
                 .font(.system(size: size, weight: .bold))
-                .foregroundColor(color)
+                .foregroundColor(tint)
                 .frame(width: size, alignment: .center)
         }
     }
+
+    /// 实际配色：调用方未覆盖时用该 Agent 的品牌色，无归属时退回应用强调色。
+    private var tint: Color { color ?? agent?.brandColor ?? TerminalColors.prompt }
 
     /// 帧序列的相位原点。所有转轮共用它，因此同一 Agent 的多个转轮始终同相，
     /// 不会各走各的。

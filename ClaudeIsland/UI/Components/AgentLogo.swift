@@ -7,6 +7,7 @@
 //  除 Claude Code 沿用本应用既有的像素螃蟹外，其余标记按各 Agent 官方站点的
 //  矢量形状用单色矩形重绘——刘海处只有 14pt，矢量比位图清晰，也不必随包携带
 //  图片资源。每份形状的坐标即官方 SVG 的原始坐标，便于日后对照更新。
+//  配色取自 AgentPalette：各 Agent 画自己的品牌色，不再统一套用 Claude 橙。
 //
 
 import Combine
@@ -18,7 +19,8 @@ struct AgentLogo: View {
     /// 标记高度。宽度按各自的宽高比推导（Claude 螃蟹为高度的 66/52）。
     var size: CGFloat = 14
 
-    var color: Color = TerminalColors.prompt
+    /// 覆盖标记配色；nil 表示用该 Agent 的品牌色（见 AgentPalette）。
+    var color: Color? = nil
 
     /// 仅 Claude 螃蟹支持：处理中时摆动腿部。
     var animateLegs: Bool = false
@@ -26,15 +28,18 @@ struct AgentLogo: View {
     var body: some View {
         switch agent {
         case .claudeCode:
-            ClaudeCrabIcon(size: size, color: color, animateLegs: animateLegs)
+            ClaudeCrabIcon(size: size, color: tint, animateLegs: animateLegs)
         case .ohMyPi:
-            PixelMark(shape: .ohMyPi, size: size, color: color)
+            PixelMark(shape: .ohMyPi, size: size, color: tint)
         case .pi:
-            PixelMark(shape: .pi, size: size, color: color)
+            PixelMark(shape: .pi, size: size, color: tint)
         case .opencode:
-            PixelMark(shape: .opencode, size: size, color: color)
+            PixelMark(shape: .opencode, size: size, color: tint)
         }
     }
+
+    /// 实际配色：调用方未覆盖时用该 Agent 的品牌色。
+    private var tint: Color { color ?? agent.brandColor }
 }
 
 // MARK: - Claude Code 像素螃蟹
@@ -52,11 +57,11 @@ private struct ClaudeCrabIcon: View {
 
     init(
         size: CGFloat = 16,
-        color: Color = Color(red: 0.85, green: 0.47, blue: 0.34),
+        color: Color? = nil,
         animateLegs: Bool = false
     ) {
         self.size = size
-        self.color = color
+        self.color = color ?? AgentKind.claudeCode.brandColor
         self.animateLegs = animateLegs
     }
 
