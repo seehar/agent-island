@@ -293,7 +293,7 @@ struct ChatView: View {
 
      // Processing indicator at bottom (first due to flip)
      if isProcessing {
-      ProcessingIndicatorView(turnId: lastUserMessageId)
+      ProcessingIndicatorView(turnId: lastUserMessageId, agent: session.agent)
        .padding(.horizontal, 16)
        .scaleEffect(x: 1, y: -1)
        .transition(
@@ -670,6 +670,8 @@ struct AssistantMessageView: View {
 struct ProcessingIndicatorView: View {
  @ObservedObject private var l10n = LocalizationManager.shared
  private let color = Color(red: 0.85, green: 0.47, blue: 0.34)  // Claude orange
+ /// 转轮帧表归属的 Agent（当前会话）
+ let agent: AgentKind
 
  /// 每种语言的候选文案数量，init 与 baseText 必须一致。
  private static let variantCount = 2
@@ -679,7 +681,8 @@ struct ProcessingIndicatorView: View {
  private let timer = Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()
 
  /// 用 turnId 为同一轮对话稳定地挑选文案
- init(turnId: String = "") {
+ init(turnId: String = "", agent: AgentKind) {
+  self.agent = agent
   // 取哈希绝对值再取模（magnitude 避免 abs(Int.min) 溢出崩溃）
   textIndex = Int(turnId.hashValue.magnitude % UInt(Self.variantCount))
  }
@@ -695,7 +698,7 @@ struct ProcessingIndicatorView: View {
 
  var body: some View {
   HStack(alignment: .center, spacing: 6) {
-   ProcessingSpinner()
+   AgentSpinner(agent: agent)
     .frame(width: 6)
 
    Text(baseText + dots)
@@ -753,7 +756,7 @@ struct ToolCallView: View {
 
  /// Whether the tool can be expanded (has result, NOT a subagent container, NOT Edit).
  private var canExpand: Bool {
-  !tool.isSubagentContainer && !GenericToolResultBuilder.isEditLike(tool.name) && hasResult
+  !tool.presentsAsSubagentContainer && !GenericToolResultBuilder.isEditLike(tool.name) && hasResult
  }
 
  private var showContent: Bool {
@@ -792,7 +795,7 @@ struct ToolCallView: View {
      .foregroundColor(textColor)
      .fixedSize()
 
-    if tool.isSubagentContainer && !tool.subagentTools.isEmpty {
+    if tool.presentsAsSubagentContainer {
      let taskDesc = tool.input["description"] ?? l10n.t("Running agent...")
      Text(l10n.t("%@ (%lld tools)", taskDesc, tool.subagentTools.count))
       .font(.system(size: 11))
@@ -833,7 +836,7 @@ struct ToolCallView: View {
    }
 
    // Subagent tools list (for Task/Agent tools)
-   if tool.isSubagentContainer && !tool.subagentTools.isEmpty {
+   if tool.presentsAsSubagentContainer {
     SubagentToolsList(tools: tool.subagentTools)
      .padding(.leading, 12)
      .padding(.top, 2)
@@ -841,7 +844,7 @@ struct ToolCallView: View {
 
    // Result content (Edit always shows, others when expanded)
    // Edit tools bypass hasResult check - fallback in ToolResultContent renders from input params
-   if showContent && tool.status != .running && !tool.isSubagentContainer
+   if showContent && tool.status != .running && !tool.presentsAsSubagentContainer
     && (hasResult || tool.name == "Edit")
    {
     ToolResultContent(tool: tool)
@@ -1253,7 +1256,7 @@ struct NewMessagesIndicator: View {
     Image(systemName: "chevron.down")
      .font(.system(size: 10, weight: .bold))
 
-    Text(count == 1 ? l10n.t("1 new message") : l10n.t("%lld new messages", count))
+    Text(l10n.t("%lld new messages", count))
      .font(.system(size: 12, weight: .medium))
    }
    .foregroundColor(.white)
