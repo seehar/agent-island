@@ -70,13 +70,11 @@ struct NotchView: View {
   sessionMonitor.instances.reduce(0) { $0 + $1.subagentState.activeTasks.count }
  }
 
- /// 计数徽标的取色：复用各阶段既有的语义色，让「处理中 / 待审批 / 等待输入」
- /// 在关闭态也能一眼分辨
+ /// 计数徽标的取色：与左侧标记**同一个来源**（headerAgent 的品牌色），
+ /// 所以两侧永远同色；没有标记可挂时退回弱化色。状态由标记的动效（呼吸 / 走 / 弹跳）
+ /// 与左侧的审批指示表达，不再占用这个色位。
  private var sessionCountColor: Color {
-  if hasPendingPermission { return TerminalColors.amber }
-  if isAnyProcessing { return TerminalColors.prompt }
-  if hasWaitingForInput { return TerminalColors.green }
-  return TerminalColors.dim
+  headerAgent?.brandColor ?? TerminalColors.dim
  }
 
  // MARK: - Sizing
@@ -373,7 +371,7 @@ struct NotchView: View {
  }
 
  /// 关闭态右侧的会话计数：`活跃/总数`，有 subAgent 在跑时追加 `+N`。
- /// 活跃数取状态色、总数弱化，数字等宽以免计数刷新时宽度抖动
+ /// 活跃数取头部标记的品牌色、总数弱化，数字等宽以免计数刷新时宽度抖动
  private var sessionCountBadge: some View {
   (
    Text("\(activeSessionCount)").foregroundColor(sessionCountColor)
