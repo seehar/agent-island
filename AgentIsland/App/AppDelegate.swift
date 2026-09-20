@@ -51,6 +51,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
   windowManager = WindowManager()
   _ = windowManager?.setupNotchWindow()
 
+  // 用量统计索引：首轮要把历史记录读一遍，跑在后台低优先级任务里，不阻塞界面。
+  // 测试宿主里不启动：单测不需要读几个 GB 的历史，也不该污染用户统计库。
+  if !isRunningTests {
+   Task { await UsageStatsIndexer.shared.start() }
+  }
+
   screenObserver = ScreenObserver { [weak self] in
    self?.handleScreenChange()
   }
@@ -72,6 +78,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
  func applicationWillTerminate(_ notification: Notification) {
   updateCheckTimer?.invalidate()
   screenObserver = nil
+  Task { await UsageStatsIndexer.shared.stop() }
  }
 
  /// 是否运行在单元测试宿主里。

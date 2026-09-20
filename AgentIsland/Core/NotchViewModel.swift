@@ -26,12 +26,15 @@ enum NotchOpenReason {
 enum NotchContentType: Equatable {
     case instances
     case menu
+    /// 用量统计页。
+    case stats
     case chat(SessionState)
 
     var id: String {
         switch self {
         case .instances: return "instances"
         case .menu: return "menu"
+        case .stats: return "stats"
         case .chat(let session): return "chat-\(session.sessionKey.rawValue)"
         }
     }
@@ -108,6 +111,13 @@ class NotchViewModel: ObservableObject {
                     expandedPickerHeight: expandedPickerHeight(for: menuSection),
                     chromeHeight: panelChromeHeight
                 )
+            )
+        case .stats:
+            // 统计页高度固定：窗口高 750 是这个内容面的硬顶（设置面板的 maxPanelHeight
+            // 夹取只作用于 .menu），内容超出由页内滚动接管（见 UsageStatsMetrics）。
+            return CGSize(
+                width: min(screenRect.width * 0.4, UsageStatsMetrics.panelWidthMax),
+                height: UsageStatsMetrics.panelHeight
             )
         case .instances:
             return CGSize(
@@ -390,6 +400,12 @@ class NotchViewModel: ObservableObject {
 
     func toggleMenu() {
         contentType = contentType == .menu ? .instances : .menu
+    }
+
+    /// 在会话列表与统计页之间翻转（与 `toggleMenu()` 同形，两者互不干扰：
+    /// 在设置面板里点统计直接切到统计页，在统计页里点设置直接切到设置页）。
+    func toggleStats() {
+        contentType = contentType == .stats ? .instances : .stats
     }
 
     func showChat(for session: SessionState) {

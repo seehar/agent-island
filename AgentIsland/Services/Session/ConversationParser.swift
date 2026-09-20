@@ -17,8 +17,12 @@ nonisolated struct UsageInfo: Equatable {
     var cacheReadTokens: Int = 0
     var cacheCreationTokens: Int = 0
 
+    /// 总 token = 输入 + 输出 + 缓存读 + 缓存写。
+    ///
+    /// 与记录里的原始口径一致（omp / pi 的 `totalTokens` 就是这四项之和），
+    /// 也与用量统计页一致——两处若不同，同一份数据会出现两个数。
     var totalTokens: Int {
-        inputTokens + outputTokens
+        inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens
     }
 
     /// 展示用短字符串（例如 "12.5K tokens"）。

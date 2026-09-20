@@ -18,6 +18,9 @@ private let cornerRadiusInsets = (
 struct NotchView: View {
  @ObservedObject var viewModel: NotchViewModel
  @StateObject private var sessionMonitor = ClaudeSessionMonitor()
+ /// 统计页的视图模型：与 `sessionMonitor` 同款，由内容根持有，
+ /// 内容面切换时不重建（切回统计页时不会重新取一次数据）。
+ @StateObject private var usageStatsViewModel = UsageStatsViewModel()
  @StateObject private var activityCoordinator = NotchActivityCoordinator.shared
  @ObservedObject private var updateManager = UpdateManager.shared
  @ObservedObject private var textSizeSelector = TextSizeSelector.shared
@@ -34,6 +37,8 @@ struct NotchView: View {
  @State private var isBouncing: Bool = false
  /// 头部右上角菜单按钮的悬停态（反馈口径与设置面板一致）
  @State private var isMenuButtonHovered: Bool = false
+ /// 头部右上角统计按钮的悬停态（与设置面板、设置按钮同一反馈口径）
+ @State private var isStatsButtonHovered: Bool = false
 
  @Namespace private var activityNamespace
 
@@ -414,6 +419,28 @@ struct NotchView: View {
 
    Spacer()
 
+   // 统计入口：与设置按钮并列，两个按钮各自遵循同一互斥规则——内容面就是自己的
+   // 目标面时显示 xmark（点击退回会话列表），否则显示自己的图标。设置按钮因此仍是最右侧
+   // 那个，它在设置面板里承担的「唯一返回键」语义不受影响。
+   Button {
+    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+     viewModel.toggleStats()
+    }
+   } label: {
+    Image(systemName: viewModel.contentType == .stats ? "xmark" : "chart.bar.xaxis")
+     .font(.system(size: 11, weight: .medium))
+     .foregroundColor(.white.opacity(0.4))
+     .frame(width: 22, height: 22)
+     .background(
+      RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous)
+       .fill(isStatsButtonHovered ? AppPalette.rowHover : Color.clear)
+     )
+     .contentShape(Rectangle())
+     .onHover { isStatsButtonHovered = $0 }
+   }
+   .buttonStyle(SettingsCompactButtonStyle())
+   .accessibilityLabel(Text(l10n.t("Statistics")))
+
    // Menu toggle
    Button {
     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -465,6 +492,10 @@ struct NotchView: View {
     .environment(\.appTextScale, textSizeSelector.scale)
    case .menu:
     NotchMenuView(viewModel: viewModel)
+   case .stats:
+    UsageStatsView(viewModel: usageStatsViewModel)
+     // 内容面按用户的字号档位缩放；统计页自带滚动，放大也不会被裁掉
+     .environment(\.appTextScale, textSizeSelector.scale)
    case .chat(let session):
     ChatView(
      key: session.sessionKey,
