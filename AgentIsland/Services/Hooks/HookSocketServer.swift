@@ -426,9 +426,11 @@ class HookSocketServer {
  /// **不变量：本值必须大于集成侧最长的客户端等待预算**，否则应用会先收割，卡片凭空
  /// 消失、作答无门。集成侧目前有两处预算：
  /// * 工具审批闸门：等用户点击 120s（`AGENT_ISLAND_*_TOOL_TIMEOUT_MS`）；
- /// * `ask` 作答：300s（`AGENT_ISLAND_ASK_TIMEOUT_MS` 缺省 300s；超时后集成侧不撤
+ /// * `ask` 作答：240s（`AGENT_ISLAND_ASK_TIMEOUT_MS` 缺省 240s；超时后集成侧不撤
  ///   终端里的提问，转而等 Agent 原生弹窗）。
- /// 取 330s（> 300s，留 30s 余量）。闸门那条路径不受本值影响：它靠工具结束时的
+ /// 取 330s（> 300s，留 30s 余量）；四层链条必须严格递减：
+ /// app pending TTL 330s > omp 服务端 toolCallTimeoutMs 300s > ask 客户端 240s > 闸门客户端 120s。
+ /// 闸门那条路径不受本值影响：它靠工具结束时的
  /// `PostToolUse` / `PostToolUseFailure` 撤卡，不依赖 TTL。
  /// 环境变量 `AGENT_ISLAND_PENDING_TTL_SECONDS` 可覆盖（验证用钩子）。
  private let pendingTTL: TimeInterval = {
