@@ -17,6 +17,11 @@ mkdir -p "$BUILD_DIR"
 
 cd "$PROJECT_DIR"
 
+# 本地化守卫：键缺失、格式符不一致、绕过自研查表的字面量都在这里拦下（见脚本头部说明）
+echo "Checking localization..."
+python3 "$SCRIPT_DIR/check-localization.py"
+echo ""
+
 # Build and archive — pipe to xcpretty when available, but capture the real
 # xcodebuild exit code so a noisy-but-successful xcpretty doesn't fail the build.
 echo "Archiving..."

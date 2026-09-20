@@ -340,15 +340,15 @@ nonisolated struct ToolStatusDisplay {
             return ToolStatusDisplay(text: LocalizationManager.t("Completed"), isRunning: false)
 
         case .grep(let r):
-            let fileWord = r.numFiles == 1 ? LocalizationManager.t("file") : LocalizationManager.t("files")
-            return ToolStatusDisplay(text: LocalizationManager.t("Found %lld %@", r.numFiles, fileWord), isRunning: false)
+            return ToolStatusDisplay(
+                text: LocalizationManager.t("Found %lld files", r.numFiles), isRunning: false)
 
         case .glob(let r):
-            let fileWord = r.numFiles == 1 ? "file" : "files"
             if r.numFiles == 0 {
                 return ToolStatusDisplay(text: LocalizationManager.t("No files found"), isRunning: false)
             }
-            return ToolStatusDisplay(text: LocalizationManager.t("Found %lld %@", r.numFiles, fileWord), isRunning: false)
+            return ToolStatusDisplay(
+                text: LocalizationManager.t("Found %lld files", r.numFiles), isRunning: false)
 
         case .todoWrite:
             return ToolStatusDisplay(text: LocalizationManager.t("Updated todos"), isRunning: false)
@@ -363,8 +363,8 @@ nonisolated struct ToolStatusDisplay {
             let time = r.durationSeconds >= 1 ?
                 LocalizationManager.t("%llds", Int(r.durationSeconds)) :
                 LocalizationManager.t("%lldms", Int(r.durationSeconds * 1000))
-            let searchWord = r.results.count == 1 ? LocalizationManager.t("search") : LocalizationManager.t("searches")
-            return ToolStatusDisplay(text: LocalizationManager.t("Did 1 %@ in %@", searchWord, time), isRunning: false)
+            // 一次 WebSearch 调用；`results` 是命中条数，不是搜索次数
+            return ToolStatusDisplay(text: LocalizationManager.t("Did 1 search in %@", time), isRunning: false)
 
         case .askUserQuestion:
             return ToolStatusDisplay(text: LocalizationManager.t("Answered"), isRunning: false)

@@ -2,97 +2,211 @@
   "sourceLanguage" : "en",
   "strings" : {
     "%@ (%lld tools)" : {
+      "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文无词形变化只用 other），不要拆成多条键或改回手写分支。",
       "localizations" : {
         "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ (%lld tools)"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@ (%lld tool)"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@ (%lld tools)"
+                }
+              }
+            }
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@（%lld 个工具）"
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@（%lld 个工具）"
+                }
+              }
+            }
           }
         }
       }
     },
     "%lld files with matches" : {
+      "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文无词形变化只用 other），不要拆成多条键或改回手写分支。",
       "localizations" : {
         "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld files with matches"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld file with matches"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld files with matches"
+                }
+              }
+            }
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 个文件包含匹配"
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld 个文件包含匹配"
+                }
+              }
+            }
           }
         }
       }
     },
     "%lld lines" : {
+      "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文无词形变化只用 other），不要拆成多条键或改回手写分支。",
       "localizations" : {
         "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld lines"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld line"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld lines"
+                }
+              }
+            }
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 行"
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld 行"
+                }
+              }
+            }
           }
         }
       }
     },
     "%lld new messages" : {
+      "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文无词形变化只用 other），不要拆成多条键或改回手写分支。",
       "localizations" : {
         "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld new messages"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld new message"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld new messages"
+                }
+              }
+            }
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 条新消息"
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld 条新消息"
+                }
+              }
+            }
           }
         }
       }
     },
     "%lld tools" : {
+      "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文无词形变化只用 other），不要拆成多条键或改回手写分支。",
       "localizations" : {
         "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld tools"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld tool"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld tools"
+                }
+              }
+            }
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 个工具"
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld 个工具"
+                }
+              }
+            }
           }
         }
       }
     },
     "%lld+ lines" : {
+      "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文无词形变化只用 other），不要拆成多条键或改回手写分支。",
       "localizations" : {
         "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld+ lines"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld+ line"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld+ lines"
+                }
+              }
+            }
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld+ 行"
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld+ 行"
+                }
+              }
+            }
           }
         }
       }
@@ -226,81 +340,176 @@
       }
     },
     "+%lld more tool uses" : {
+      "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文无词形变化只用 other），不要拆成多条键或改回手写分支。",
       "localizations" : {
         "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "+%lld more tool uses"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld more tool use"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld more tool uses"
+                }
+              }
+            }
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "另有 %lld 次工具调用"
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "另有 %lld 次工具调用"
+                }
+              }
+            }
           }
         }
       }
     },
     "... (%lld more lines)" : {
+      "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文无词形变化只用 other），不要拆成多条键或改回手写分支。",
       "localizations" : {
         "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "... (%lld more lines)"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "... (%lld more line)"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "... (%lld more lines)"
+                }
+              }
+            }
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "...（另有 %lld 行）"
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "...（另有 %lld 行）"
+                }
+              }
+            }
           }
         }
       }
     },
     "... and %lld more files" : {
+      "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文无词形变化只用 other），不要拆成多条键或改回手写分支。",
       "localizations" : {
         "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "... and %lld more files"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "... and %lld more file"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "... and %lld more files"
+                }
+              }
+            }
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "... 另有 %lld 个文件"
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "... 另有 %lld 个文件"
+                }
+              }
+            }
           }
         }
       }
     },
     "... and %lld more hunks" : {
+      "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文无词形变化只用 other），不要拆成多条键或改回手写分支。",
       "localizations" : {
         "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "... and %lld more hunks"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "... and %lld more hunk"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "... and %lld more hunks"
+                }
+              }
+            }
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "... 另有 %lld 个差异块"
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "... 另有 %lld 个差异块"
+                }
+              }
+            }
           }
         }
       }
     },
     "... and %lld more results" : {
+      "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文无词形变化只用 other），不要拆成多条键或改回手写分支。",
       "localizations" : {
         "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "... and %lld more results"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "... and %lld more result"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "... and %lld more results"
+                }
+              }
+            }
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "... 另有 %lld 条结果"
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "... 另有 %lld 条结果"
+                }
+              }
+            }
           }
         }
       }
@@ -317,22 +526,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "... 还有更多（已截断）"
-          }
-        }
-      }
-    },
-    "1 new message" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 new message"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 条新消息"
           }
         }
       }
@@ -434,6 +627,7 @@
       }
     },
     "Auto" : {
+      "comment" : "屏幕选择：自动跟随系统选择屏幕",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -543,7 +737,8 @@
             "value" : "Bash"
           }
         }
-      }
+      },
+      "shouldTranslate" : false
     },
     "Built-in" : {
       "localizations" : {
@@ -671,7 +866,8 @@
             "value" : "Claude"
           }
         }
-      }
+      },
+      "shouldTranslate" : false
     },
     "Claude Code" : {
       "localizations" : {
@@ -687,7 +883,8 @@
             "value" : "Claude Code"
           }
         }
-      }
+      },
+      "shouldTranslate" : false
     },
     "Claude Code needs your input" : {
       "localizations" : {
@@ -722,6 +919,7 @@
       }
     },
     "Command" : {
+      "comment" : "SlashCommand 在工具卡上的短名",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -834,6 +1032,7 @@
       }
     },
     "Completed" : {
+      "comment" : "工具执行结束的状态词",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -897,18 +1096,19 @@
         }
       }
     },
-    "Did 1 %@ in %@" : {
+    "Did 1 search in %@" : {
+      "comment" : "WebSearch 工具卡状态：一次搜索调用与耗时",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Did 1 %@ in %@"
+            "value" : "Did 1 search in %@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已完成 1 %@，用时 %@"
+            "value" : "已完成 1 次搜索，用时 %@"
           }
         }
       }
@@ -994,6 +1194,7 @@
       }
     },
     "Enable" : {
+      "comment" : "按钮：启用某个 Agent 或集成",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1122,6 +1323,7 @@
       }
     },
     "Fetch" : {
+      "comment" : "WebFetch 在工具卡上的短名",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1185,18 +1387,37 @@
         }
       }
     },
-    "Found %lld %@" : {
+    "Found %lld files" : {
+      "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文无词形变化只用 other），不要拆成多条键或改回手写分支。",
       "localizations" : {
         "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Found %lld %@"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Found %lld file"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Found %lld files"
+                }
+              }
+            }
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "找到 %lld %@"
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "找到 %lld 个文件"
+                }
+              }
+            }
           }
         }
       }
@@ -1314,6 +1535,7 @@
       }
     },
     "Interrupted" : {
+      "comment" : "工具或会话被中断时的状态词",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1378,6 +1600,7 @@
       }
     },
     "Main" : {
+      "comment" : "屏幕选择器里与具体屏幕名并列的「主屏」",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1567,7 +1790,8 @@
             "value" : "OMP"
           }
         }
-      }
+      },
+      "shouldTranslate" : false
     },
     "Off" : {
       "localizations" : {
@@ -1599,7 +1823,8 @@
             "value" : "Oh My Pi"
           }
         }
-      }
+      },
+      "shouldTranslate" : false
     },
     "On" : {
       "localizations" : {
@@ -1647,7 +1872,8 @@
             "value" : "OpenCode"
           }
         }
-      }
+      },
+      "shouldTranslate" : false
     },
     "Pi" : {
       "localizations" : {
@@ -1663,9 +1889,11 @@
             "value" : "Pi"
           }
         }
-      }
+      },
+      "shouldTranslate" : false
     },
     "Plan" : {
+      "comment" : "EnterPlanMode / ExitPlanMode 在工具卡上的短名",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1794,6 +2022,7 @@
       }
     },
     "Ready" : {
+      "comment" : "会话状态：等待用户输入",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1938,6 +2167,7 @@
       }
     },
     "Search" : {
+      "comment" : "WebSearch 在工具卡上的短名",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2047,7 +2277,8 @@
             "value" : "Shell"
           }
         }
-      }
+      },
+      "shouldTranslate" : false
     },
     "Shell %@ terminated" : {
       "localizations" : {
@@ -2098,22 +2329,42 @@
       }
     },
     "Subagent used %lld tools:" : {
+      "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文无词形变化只用 other），不要拆成多条键或改回手写分支。",
       "localizations" : {
         "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Subagent used %lld tools:"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Subagent used %lld tool:"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Subagent used %lld tools:"
+                }
+              }
+            }
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "子代理使用了 %lld 个工具："
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "子代理使用了 %lld 个工具："
+                }
+              }
+            }
           }
         }
       }
     },
     "System" : {
+      "comment" : "语言选择器：跟随系统语言",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2450,6 +2701,7 @@
       }
     },
     "You:" : {
+      "comment" : "用户消息行的前缀",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2461,38 +2713,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你："
-          }
-        }
-      }
-    },
-    "file" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "file"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "个文件"
-          }
-        }
-      }
-    },
-    "files" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "files"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "个文件"
           }
         }
       }
@@ -2530,6 +2750,7 @@
       }
     },
     "now" : {
+      "comment" : "相对时间文案：距今不足 5 秒",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2545,39 +2766,8 @@
         }
       }
     },
-    "search" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "search"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "次搜索"
-          }
-        }
-      }
-    },
-    "searches" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "searches"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "次搜索"
-          }
-        }
-      }
-    },
     "stderr:" : {
+      "comment" : "bash 输出里标准错误段的标签",
       "localizations" : {
         "en" : {
           "stringUnit" : {

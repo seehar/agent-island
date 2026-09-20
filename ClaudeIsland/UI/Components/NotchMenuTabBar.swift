@@ -24,7 +24,7 @@ struct NotchMenuTabBar: View {
                     VStack(spacing: 2) {
                         Image(systemName: section.symbolName)
                             .font(.system(size: 12, weight: .medium))
-                        Text(l10n.t(section.titleKey))
+                        Text(title(for: section))
                             .font(.system(size: 10, weight: .medium))
                             .lineLimit(1)
                     }
@@ -45,7 +45,7 @@ struct NotchMenuTabBar: View {
                         hoveredSection = nil
                     }
                 }
-                .accessibilityLabel(Text(l10n.t(section.titleKey)))
+                .accessibilityLabel(Text(title(for: section)))
             }
         }
         .padding(.horizontal, 4)
@@ -56,6 +56,17 @@ struct NotchMenuTabBar: View {
     }
 
     // MARK: - Presentation
+
+    /// 页签标题。在视图里解析而不是放进 `NotchMenuSection`：key 保持字面量，
+    /// 本地化守卫才能审计到；同时在观察 `LocalizationManager` 的视图内解析，
+    /// 切换语言才会重新渲染。
+    private func title(for section: NotchMenuSection) -> String {
+        switch section {
+        case .general: return l10n.t("General")
+        case .agents: return l10n.t("Agents")
+        case .about: return l10n.t("About")
+        }
+    }
 
     private func foregroundColor(for section: NotchMenuSection) -> Color {
         if section == selection { return .white }

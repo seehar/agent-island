@@ -24,7 +24,7 @@ class PassThroughHostingView<Content: View>: NSHostingView<Content> {
 
 class NotchViewController: NSViewController {
     private let viewModel: NotchViewModel
-    private var hostingView: PassThroughHostingView<NotchView>!
+    private var hostingView: PassThroughHostingView<LocalizedRoot<NotchView>>!
 
     init(viewModel: NotchViewModel) {
         self.viewModel = viewModel
@@ -36,7 +36,9 @@ class NotchViewController: NSViewController {
     }
 
     override func loadView() {
-        hostingView = PassThroughHostingView(rootView: NotchView(viewModel: viewModel))
+        // 界面只有这一个宿主视图：环境 locale 在这里注入，平台驱动的格式化才跟随界面语言
+        hostingView = PassThroughHostingView(
+            rootView: LocalizedRoot { NotchView(viewModel: viewModel) })
 
         // Calculate the hit-test rect based on panel state
         hostingView.hitTestRect = { [weak self] in

@@ -22,12 +22,16 @@ nonisolated struct UsageInfo: Equatable {
     }
 
     /// 展示用短字符串（例如 "12.5K tokens"）。
+    ///
+    /// 小数点符号跟随界面语言（德语环境下写作 12,5K）；K/M 是公制词头，各语言通用，
+    /// 因此不参与本地化。
     var formattedTotal: String {
         let total = totalTokens
+        let locale = Locale(identifier: AppSettings.language.resolvedCode)
         if total >= 1_000_000 {
-            return String(format: "%.1fM", Double(total) / 1_000_000)
+            return String(format: "%.1fM", locale: locale, Double(total) / 1_000_000)
         } else if total >= 1_000 {
-            return String(format: "%.1fK", Double(total) / 1_000)
+            return String(format: "%.1fK", locale: locale, Double(total) / 1_000)
         }
         return "\(total)"
     }

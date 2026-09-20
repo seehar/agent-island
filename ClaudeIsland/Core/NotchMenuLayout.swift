@@ -22,15 +22,6 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
 
     var id: String { rawValue }
 
-    /// 页签标题的本地化 key（key 即英语源文案）。
-    var titleKey: String {
-        switch self {
-        case .general: return "General"
-        case .agents: return "Agents"
-        case .about: return "About"
-        }
-    }
-
     /// 页签图标；只表达分组含义，具体设置行各自用自己的图标。
     var symbolName: String {
         switch self {
