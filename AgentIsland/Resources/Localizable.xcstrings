@@ -176,6 +176,41 @@
         }
       }
     },
+    "%lld questions" : {
+      "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文无词形变化只用 other），不要拆成多条键或改回手写分支。",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld question"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld questions"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld 个问题"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld tools" : {
       "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文无词形变化只用 other），不要拆成多条键或改回手写分支。",
       "localizations" : {
@@ -753,6 +788,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "一直显示"
+          }
+        }
+      }
+    },
+    "Answer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Answer"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作答"
           }
         }
       }
@@ -2907,6 +2958,22 @@
         }
       }
     },
+    "Select one or more" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select one or more"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可多选"
+          }
+        }
+      }
+    },
     "Select the folder Claude Code uses (typically ~/.claude or ~/.config/claude)." : {
       "localizations" : {
         "en" : {
@@ -3000,6 +3067,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Shell %@ 已终止"
+          }
+        }
+      }
+    },
+    "Skip" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skip"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "跳过"
           }
         }
       }
@@ -3135,6 +3218,22 @@
         }
       }
     },
+    "Submit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Submit"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "提交"
+          }
+        }
+      }
+    },
     "System" : {
       "comment" : "语言选择器：跟随系统语言",
       "localizations" : {
@@ -3228,6 +3327,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "关闭某个智能体时，会同时卸载它的实时集成。"
+          }
+        }
+      }
+    },
+    "Type your answer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type your answer"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "输入你的回答"
           }
         }
       }

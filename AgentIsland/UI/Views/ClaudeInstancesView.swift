@@ -158,10 +158,11 @@ struct InstanceRow: View {
         session.phase.isWaitingForApproval
     }
 
-    /// Whether the pending tool requires interactive input (not just approve/deny)
+    /// 待批工具是否需要交互式作答（不是批准/拒绝）。工具名按 Agent 驱动：
+    /// Claude 是 `AskUserQuestion`，omp/pi 是 `ask`，opencode 无。
     private var isInteractiveTool: Bool {
         guard let toolName = session.pendingToolName else { return false }
-        return toolName == "AskUserQuestion"
+        return session.agent.isInteractiveTool(toolName)
     }
 
     /// 是否在该 Agent 行显示归属角标：只有用户启用了多个 Agent 时才需要区分
@@ -327,11 +328,10 @@ struct InstanceRow: View {
                     .lineLimit(1)
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
             } else if isWaitingForApproval && isInteractiveTool {
-                // Interactive tools like AskUserQuestion - show chat + terminal buttons
+                // 交互式提问（Claude 的 AskUserQuestion / omp 的 ask）：这不是批准或
+                // 拒绝，行内给 Allow/Deny 会误导，因此只给「去刘海上作答」的入口。
                 HStack(spacing: 8) {
-                    IconButton(icon: "bubble.left") {
-                        onChat()
-                    }
+                    AnswerButton(onTap: onChat)
 
                     // Go to Terminal button (only if yabai available)
                     if isYabaiAvailable {
@@ -551,6 +551,34 @@ struct CompactTerminalButton: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(isEnabled ? Color.white.opacity(0.15) : Color.white.opacity(0.05))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(SessionPressFeedbackStyle(shape: Capsule()))
+    }
+}
+
+// MARK: - 作答入口按钮
+
+/// 「去刘海上作答」入口：交互式提问待批时替代 Allow/Deny——那两个按钮对提问
+/// 不成立（点了也答不了题），而提问的选项在对话页里。
+struct AnswerButton: View {
+    let onTap: () -> Void
+    @ObservedObject private var l10n = LocalizationManager.shared
+
+    var body: some View {
+        Button {
+            onTap()
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "questionmark.bubble")
+                    .appFont(9, weight: .medium)
+                Text(l10n.t("Answer"))
+                    .appFont(11, weight: .medium)
+            }
+            .foregroundColor(.black)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Color.white.opacity(0.95))
             .clipShape(Capsule())
         }
         .buttonStyle(SessionPressFeedbackStyle(shape: Capsule()))

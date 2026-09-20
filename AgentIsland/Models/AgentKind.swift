@@ -108,4 +108,22 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
     var reportsSubagentInnerTools: Bool {
         self == .claudeCode
     }
+
+    /// 该 Agent 的「交互工具」：命中它们的待批不是「批准/拒绝」，而是要在刘海上
+    /// 作答（选项、自由文本），因此卡片必须换成提问界面，给 Allow/Deny 会误导。
+    /// - Claude Code：`AskUserQuestion`
+    /// - omp / pi：`ask`（扩展把它报成 `ToolApproval` + `ask` 负载）
+    /// - OpenCode：无——插件不上报交互提问，待批一律是批准语义
+    var interactiveToolNames: Set<String> {
+        switch self {
+        case .claudeCode: return ["AskUserQuestion"]
+        case .ohMyPi, .pi: return ["ask"]
+        case .opencode: return []
+        }
+    }
+
+    /// 该工具名在本 Agent 下是否需要在刘海上作答。
+    func isInteractiveTool(_ toolName: String) -> Bool {
+        interactiveToolNames.contains(toolName)
+    }
 }

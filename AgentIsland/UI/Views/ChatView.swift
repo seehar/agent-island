@@ -28,6 +28,8 @@ struct ChatView: View {
  @State private var previousHistoryCount: Int = 0
  @State private var isBottomVisible: Bool = true
  @State private var approvalDisplay: PendingApprovalDisplay?
+ /// 待批工具若是 `ask`（交互式提问），这里持有它的问题集。
+ @State private var pendingAsk: AskPayload?
  @FocusState private var isInputFocused: Bool
 
  init(
@@ -75,14 +77,22 @@ struct ChatView: View {
 
     // Approval bar, interactive prompt, or Input bar
     if let tool = approvalTool {
-     if tool == "AskUserQuestion" {
-      // Interactive tools - show prompt to answer in terminal
-      interactivePromptBar
-       .transition(
-        .asymmetric(
-         insertion: .opacity.combined(with: .move(edge: .bottom)),
-         removal: .opacity
-        ))
+     if key.agent.isInteractiveTool(tool) {
+      // 交互式提问不是批准/拒绝：信封带 `ask` 时直接在刘海上作答；没有载荷
+      // （例如 Claude 的 AskUserQuestion 只走 hook、不带 ask）才退回「去终端作答」，
+      // 免得给出误导性的 Allow/Deny。
+      Group {
+       if let ask = pendingAsk, key.agent.approval.canDecideRemotely {
+        askBar(ask)
+       } else {
+        interactivePromptBar
+       }
+      }
+      .transition(
+       .asymmetric(
+        insertion: .opacity.combined(with: .move(edge: .bottom)),
+        removal: .opacity
+       ))
      } else {
       approvalBar(tool: tool)
        .transition(
@@ -161,9 +171,10 @@ struct ChatView: View {
   .onReceive(sessionMonitor.$instances) { sessions in
    // 展示档位随 pending 生命周期刷新：每次会话发布都重查一次，否则「同会话补发了
    // 让位信号但 SessionState 没变」时卡片不会更新。
-   approvalDisplay =
+   let isWaiting =
     sessions.first(where: { $0.sessionKey == key })?.phase.isWaitingForApproval == true
-    ? sessionMonitor.approvalDisplay(for: key) : nil
+   approvalDisplay = isWaiting ? sessionMonitor.approvalDisplay(for: key) : nil
+   pendingAsk = isWaiting ? sessionMonitor.pendingAsk(for: key) : nil
    if let updated = sessions.first(where: { $0.sessionKey == key }),
     updated != session
    {
@@ -445,6 +456,15 @@ struct ChatView: View {
 
  // MARK: - Approval Bar
 
+ /// 作答卡：选项、自由文本与提交/跳过都在刘海上完成。
+ private func askBar(_ ask: AskPayload) -> some View {
+  ApprovalAskView(
+   ask: ask,
+   onSubmit: { answerPermission($0) },
+   onSkip: { denyPermission() }
+  )
+ }
+
  private func approvalBar(tool: String) -> some View {
   ChatApprovalBar(
    tool: tool,
@@ -495,6 +515,11 @@ struct ChatView: View {
 
  private func approvePermission() {
   sessionMonitor.approvePermission(key: key)
+ }
+
+ /// 在刘海上作答：由会话监视器折成回传决定（空答案按放弃处理）。
+ private func answerPermission(_ answers: [String: [String]]) {
+  sessionMonitor.answerPermission(key: key, answers: answers)
  }
 
  private func denyPermission() {

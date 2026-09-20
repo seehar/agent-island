@@ -68,7 +68,14 @@ class ClaudeSessionMonitor: ObservableObject {
                     HookSocketServer.shared.cancelPendingPermissions(key: event.sessionKey)
                 }
 
-                if event.event == "PostToolUse", let toolUseId = event.toolUseId {
+                // 工具结束即撤卡：成功走 `PostToolUse`，被拒绝 / 中止走
+                // `PostToolUseFailure`（`ask` 放弃作答是原生取消语义，扩展侧只报后者，
+                // 并带上同一个 `tool_use_id`）。两种终态都按 tool_use_id 收敛——只认
+                // 成功那条会让失败分支的 pending 一直挂到 TTL 到期。Claude 本来也会发
+                // `PostToolUseFailure`，因此这里的既有语义不变。
+                if (event.event == "PostToolUse" || event.event == "PostToolUseFailure"),
+                    let toolUseId = event.toolUseId
+                {
                     HookSocketServer.shared.cancelPendingPermission(
                         key: event.sessionKey, toolUseId: toolUseId)
                 }
@@ -141,6 +148,51 @@ class ClaudeSessionMonitor: ObservableObject {
     /// 待批卡片的展示档位（危险命令 / 闸门降级 / 让位）；没有待批时返回 nil。
     func approvalDisplay(for key: SessionKey) -> PendingApprovalDisplay? {
         HookSocketServer.shared.pendingApprovalDisplay(key: key)
+    }
+
+    /// 待批工具若是 `ask`（交互式提问），返回它的问题集；其余情况返回 nil。
+    /// 与 `approvalDisplay` 同形：视图在「每次会话发布都重查」的既有路径里取用，
+    /// 不另开轮询。
+    func pendingAsk(for key: SessionKey) -> AskPayload? {
+        HookSocketServer.shared.pendingAsk(key: key)
+    }
+
+    /// 在刘海上作答：把「问题 id → 选中的 label（自由文本为输入原文）」回传给该
+    /// Agent。没有作答任何一题时按放弃处理（`AskAnswerBuilder` 折成 deny），与
+    /// 既有的拒绝路径同一套语义。
+    ///
+    /// 无论写回 socket 是否成功都推进本地状态——与 `approvePermission` /
+    /// `denyPermission` 一致：本地状态不能吊在「对端还活着」上，否则会话会一直
+    /// 停在等待态。
+    func answerPermission(key: SessionKey, answers: [String: [String]]) {
+        Task {
+            guard let session = await SessionStore.shared.session(for: key),
+                  let permission = session.activePermission else {
+                return
+            }
+
+            let response = AskAnswerBuilder.response(answers: answers)
+
+            if key.agent.approval.canDecideRemotely {
+                HookSocketServer.shared.respondToPermission(
+                    key: key,
+                    toolUseId: permission.toolUseId,
+                    decision: response.decision,
+                    answers: response.answers,
+                    reason: response.reason
+                )
+            }
+
+            if response.decision == AskAnswerBuilder.decisionAnswer {
+                await SessionStore.shared.process(
+                    .permissionApproved(key: key, toolUseId: permission.toolUseId)
+                )
+            } else {
+                await SessionStore.shared.process(
+                    .permissionDenied(key: key, toolUseId: permission.toolUseId, reason: nil)
+                )
+            }
+        }
     }
 
     /// Archive (remove) a session from the instances list

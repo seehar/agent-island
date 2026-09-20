@@ -42,6 +42,8 @@ nonisolated struct HookEvent: Codable, Sendable {
  let gateEnabled: Bool?
  /// 集成侧上报「这次审批由 Agent 自己的终端弹窗负责」（`omp_owns_approval`）。
  let ompOwnsApproval: Bool?
+ /// 集成侧 `ask` 工具的问题负载（`ask`）；其它工具有待批时该字段缺省。
+ let ask: AskPayload?
  /// 上报方所属 Agent；旧版 Claude hook 脚本不带该字段，按 Claude 处理。
  let agent: String?
  /// 记录文件路径，由非 Claude 集成上报，避免应用再按目录反推。
@@ -73,6 +75,7 @@ nonisolated struct HookEvent: Codable, Sendable {
  case degradation
  case gateEnabled = "gate_enabled"
  case ompOwnsApproval = "omp_owns_approval"
+ case ask
   case sessionFile = "session_file"
   case subagentId = "subagent_id"
   case subagentAgent = "subagent_agent"
@@ -117,7 +120,7 @@ nonisolated struct HookEvent: Codable, Sendable {
   subagentTask: String?, parentToolCallId: String?, subagentSessionFile: String?,
   wantsResponse: Bool? = nil,
   approvalKind: String? = nil, degradation: String? = nil, gateEnabled: Bool? = nil,
-  ompOwnsApproval: Bool? = nil
+  ompOwnsApproval: Bool? = nil, ask: AskPayload? = nil
  ) {
   self.sessionId = sessionId
   self.cwd = cwd
@@ -144,6 +147,7 @@ nonisolated struct HookEvent: Codable, Sendable {
   self.degradation = degradation
   self.gateEnabled = gateEnabled
   self.ompOwnsApproval = ompOwnsApproval
+  self.ask = ask
  }
 
  /// 是否为子代理总线事件（omp/pi 的 `task:subagent:*` 上报，不是会话自身的一轮活动）。
@@ -226,10 +230,133 @@ nonisolated struct HookEvent: Codable, Sendable {
  }
 }
 
+// MARK: - Ask 负载（交互式提问）
+
+/// `ask` 工具给出的一个选项。
+nonisolated struct AskOption: Codable, Equatable, Sendable {
+ /// 选项文本；用户选中的就是这个文本，回传时原样带回。
+ let label: String
+ /// 选项的补充说明（副标题）。
+ let description: String?
+
+ init(label: String, description: String? = nil) {
+  self.label = label
+  self.description = description
+ }
+}
+
+/// `ask` 工具提出的一个问题。
+nonisolated struct AskQuestion: Codable, Equatable, Sendable {
+ /// 问题 id；作答字典的键就是它。
+ let id: String
+ /// 问题正文。
+ let question: String
+ /// 问题的短标题（可缺省）。
+ let header: String?
+ /// 是否多选；缺省按单选。
+ let multiSelect: Bool
+ /// 是否允许自由文本作答（可缺省）。
+ let freeText: Bool
+ /// 候选选项；空数组表示只能自由文本作答。
+ let options: [AskOption]
+
+ init(
+  id: String, question: String, header: String? = nil, multiSelect: Bool = false,
+  freeText: Bool = false, options: [AskOption] = []
+ ) {
+  self.id = id
+  self.question = question
+  self.header = header
+  self.multiSelect = multiSelect
+  self.freeText = freeText
+  self.options = options
+ }
+
+ /// 载荷里这两个开关可能缺省，按 false 处理；选项缺省按空数组。
+ private enum CodingKeys: String, CodingKey {
+  case id, question, header
+  case multiSelect = "multi_select"
+  case freeText = "free_text"
+  case options
+ }
+
+ init(from decoder: Decoder) throws {
+  let container = try decoder.container(keyedBy: CodingKeys.self)
+  id = try container.decode(String.self, forKey: .id)
+  question = try container.decode(String.self, forKey: .question)
+  header = try container.decodeIfPresent(String.self, forKey: .header)
+  multiSelect = try container.decodeIfPresent(Bool.self, forKey: .multiSelect) ?? false
+  freeText = try container.decodeIfPresent(Bool.self, forKey: .freeText) ?? false
+  options = try container.decodeIfPresent([AskOption].self, forKey: .options) ?? []
+ }
+}
+
+/// `ask` 工具的完整问题集（信封里的 `ask` 字段）。
+nonisolated struct AskPayload: Codable, Equatable, Sendable {
+ let questions: [AskQuestion]
+}
+
 /// Response to send back to the hook
-struct HookResponse: Codable {
- let decision: String  // "allow", "deny", or "ask"
+nonisolated struct HookResponse: Codable {
+ /// `allow` / `deny` / `ask` 三个取值的语义逐字不变；`answer` 是 `ask` 工具的回答。
+ let decision: String
+ /// 提问作答（`decision == "answer"`）：键为问题 id，值为选中的 label 或自由文本。
+ /// 其余决定一律为 nil。
+ let answers: [String: [String]]?
  let reason: String?
+
+ private enum CodingKeys: String, CodingKey {
+  case decision, answers, reason
+ }
+
+ /// 手写编码而不是用合成的：它写死了「哪些键会出现」这条契约——缺省的字段一律不
+ /// 出现在字节里（因此 `allow` / `deny` / `ask` 的字段集合与加 `answers` 之前相同），
+ /// 也是消融实验唯一需要改的一行。键的**顺序**不在这里决定，由写回时用的
+ /// `sortedKeys` 编码器保证（见 `responseEncoder`）。
+ /// - Parameter encoder: 目标编码器。
+ func encode(to encoder: Encoder) throws {
+  var container = encoder.container(keyedBy: CodingKeys.self)
+  try container.encode(decision, forKey: .decision)
+  try container.encodeIfPresent(answers, forKey: .answers)
+  try container.encodeIfPresent(reason, forKey: .reason)
+ }
+}
+
+// MARK: - 作答决定
+
+/// 把用户在刘海上做出的选择折成回传决定。纯函数、无状态，因此「选择 → 答案 JSON」
+/// 这一段可以脱离 UI 独立验证。
+nonisolated enum AskAnswerBuilder {
+ /// 集成侧据此把答案交给模型继续。
+ static let decisionAnswer = "answer"
+ /// 用户放弃作答：沿用既有 deny 语义，Agent 按「拒绝/未作答」继续。
+ static let decisionDeny = "deny"
+
+ /// 归一化一个回传决定：`allow` / `deny` / `ask` **原样透传**（既有语义逐字不变，
+ /// 编码结果里不会多出 `answers` 键）；`answer` 且没有任何答案时折成 `deny`。
+ /// 放在服务端这一层是为了让「空答案」不可能被发出去——写回 socket 前必过这里。
+ static func normalized(
+  decision: String, answers: [String: [String]]?, reason: String?
+ ) -> HookResponse {
+  guard decision == decisionAnswer else {
+   return HookResponse(decision: decision, answers: nil, reason: reason)
+  }
+  return response(answers: answers ?? [:], reason: reason)
+ }
+
+ /// 由「问题 id → 选中的 label」构造回传响应。
+ ///
+ /// 逐题丢掉空数组：集成侧对「键存在但为空」与「键缺失」的处理是两回事，只发真的
+ /// 选到了答案的问题。一个问题都没作答（用户直接跳过、或只点了空的自由文本）时
+ /// **不发 `answer`**——空答案到了集成侧会变成「模型收到空回答」，语义不明；按放弃
+ /// 处理（`deny`）更接近用户意图，也让集成侧的闸门走既有的拒绝分支。
+ static func response(answers: [String: [String]], reason: String? = nil) -> HookResponse {
+  let chosen = answers.filter { !$0.value.isEmpty }
+  guard !chosen.isEmpty else {
+   return HookResponse(decision: decisionDeny, answers: nil, reason: reason)
+  }
+  return HookResponse(decision: decisionAnswer, answers: chosen, reason: reason)
+ }
 }
 
 /// 待批许可的字典键：会话（Agent + 会话 id）+ 会话内的工具调用 id。
@@ -295,12 +422,20 @@ class HookSocketServer {
  private var openClientCount = 0
 
  /// 待批许可的存活上限：超时视为「问了没人答」，关闭 fd 并走失败回调。
- /// 默认 150s；环境变量 `AGENT_ISLAND_PENDING_TTL_SECONDS` 可覆盖（验证用钩子）。
+ ///
+ /// **不变量：本值必须大于集成侧最长的客户端等待预算**，否则应用会先收割，卡片凭空
+ /// 消失、作答无门。集成侧目前有两处预算：
+ /// * 工具审批闸门：等用户点击 120s（`AGENT_ISLAND_*_TOOL_TIMEOUT_MS`）；
+ /// * `ask` 作答：300s（`AGENT_ISLAND_ASK_TIMEOUT_MS` 缺省 300s；超时后集成侧不撤
+ ///   终端里的提问，转而等 Agent 原生弹窗）。
+ /// 取 330s（> 300s，留 30s 余量）。闸门那条路径不受本值影响：它靠工具结束时的
+ /// `PostToolUse` / `PostToolUseFailure` 撤卡，不依赖 TTL。
+ /// 环境变量 `AGENT_ISLAND_PENDING_TTL_SECONDS` 可覆盖（验证用钩子）。
  private let pendingTTL: TimeInterval = {
   // 项目内自有 `ProcessInfo`（进程树）会遮蔽 Foundation 的同名类型，故显式限定
   guard let raw = Foundation.ProcessInfo.processInfo.environment["AGENT_ISLAND_PENDING_TTL_SECONDS"],
    let seconds = TimeInterval(raw), seconds > 0
-  else { return 150 }
+  else { return 330 }
   return seconds
  }()
 
@@ -412,9 +547,16 @@ class HookSocketServer {
  }
 
  /// Respond to a pending permission request by (会话, toolUseId)
- func respondToPermission(key: SessionKey, toolUseId: String, decision: String, reason: String? = nil) {
+ ///
+ /// `answers` 只为 `ask` 工具的作答（`decision == "answer"`）提供；其余决定传 nil，
+ /// 编码结果里就不会出现 `answers` 键，老信封的字节形态逐字不变。
+ func respondToPermission(
+  key: SessionKey, toolUseId: String, decision: String, answers: [String: [String]]? = nil,
+  reason: String? = nil
+ ) {
   queue.async { [weak self] in
-   self?.sendPermissionResponse(key: key, toolUseId: toolUseId, decision: decision, reason: reason)
+   self?.sendPermissionResponse(
+    key: key, toolUseId: toolUseId, decision: decision, answers: answers, reason: reason)
   }
  }
 
@@ -459,6 +601,18 @@ class HookSocketServer {
    return nil
   }
   return PendingApprovalDisplay(event: pending.event)
+ }
+
+ /// 该会话待批的工具若带 `ask` 负载，返回它的问题集；其余情况（无待批、或待批
+ /// 工具没有提问负载）返回 nil。视图在「每次会话发布都重查」的既有路径里取用，
+ /// 不另开轮询。
+ func pendingAsk(key: SessionKey) -> AskPayload? {
+  permissionsLock.lock()
+  defer { permissionsLock.unlock() }
+  guard let pending = pendingPermissions.values.first(where: { $0.key == key }) else {
+   return nil
+  }
+  return pending.event.ask
  }
 
  /// Cancel a specific pending permission by (会话, toolUseId)：终端里自己批了 / 工具已完成
@@ -524,7 +678,10 @@ class HookSocketServer {
   }
   timer.resume()
   reaperTimer = timer
-  logger.debug(
+  // 用 info 而不是 debug：TTL 是与集成侧预算对齐的策略值（见 pendingTTL 的不变量），
+  // 必须在持久化的统一日志里可查——上一次「TTL 小于集成侧等待预算」的错配就是因为
+  // 这个值在运行的机器上读不到。
+  logger.info(
    "Pending permission reaper started (TTL: \(String(format: "%.1f", self.pendingTTL), privacy: .public)s)"
   )
  }
@@ -549,6 +706,19 @@ class HookSocketServer {
  }
 
  // MARK: - Tool Use ID Cache
+
+ /// 写回响应的编码器。
+ ///
+ /// `.sortedKeys` 不是审美而是必需：`JSONEncoder` 的对象键顺序由内部字典决定，实测
+ /// 同一字段集合在不同进程里会产出不同顺序（`{"decision":…,"answers":…}` 与
+ /// `{"answers":…,"decision":…}` 都出现过，`deny` 的 `reason` 也会跑到前面）。
+ /// 写回 socket 的字节是跨进程契约的一部分，排序后每次都是同一串字节，才谈得上
+ /// 逐字节断言、抓包比对与排查。
+ private static let responseEncoder: JSONEncoder = {
+  let encoder = JSONEncoder()
+  encoder.outputFormatting = .sortedKeys
+  return encoder
+ }()
 
  /// Encoder with sorted keys for deterministic cache keys
  private static let sortedEncoder: JSONEncoder = {
@@ -757,6 +927,17 @@ class HookSocketServer {
     "Pending permission registered - agent:\(sessionKey.agent.rawValue, privacy: .public) session:\(sessionKey.sessionId.prefix(8), privacy: .public) tool:\(toolUseId.prefix(12), privacy: .public) pending:\(pendingTotal, privacy: .public)"
    )
 
+   // `ask` 工具：登记时把解析出的问题/选项规模记一条，便于在没跑起界面时
+   // 用日志独立核查「信封里的 ask 真的被解析出来了」。
+   if let ask = updatedEvent.ask {
+    let optionCount = ask.questions.reduce(0) { $0 + $1.options.count }
+    let multiCount = ask.questions.filter(\.multiSelect).count
+    let freeTextCount = ask.questions.filter(\.freeText).count
+    logger.info(
+     "Pending ask registered - agent:\(sessionKey.agent.rawValue, privacy: .public) session:\(sessionKey.sessionId.prefix(8), privacy: .public) tool:\(toolUseId.prefix(12), privacy: .public) questions:\(ask.questions.count, privacy: .public) options:\(optionCount, privacy: .public) multi:\(multiCount, privacy: .public) freeText:\(freeTextCount, privacy: .public)"
+    )
+   }
+
    // 展示档位只在集成真的报了的时候记一条：既是可回溯的审计痕迹，也让
    // 「危险命令 / 降级放行 / 终端正在询问」在应用侧可被独立核查。
    if updatedEvent.isCriticalApproval || updatedEvent.isGateDegraded
@@ -777,7 +958,8 @@ class HookSocketServer {
  }
 
  private func sendPermissionResponse(
-  key: SessionKey, toolUseId: String, decision: String, reason: String?
+  key: SessionKey, toolUseId: String, decision: String, answers: [String: [String]]?,
+  reason: String?
  ) {
   permissionsLock.lock()
   let pendingKey = PendingPermissionKey(key: key, toolUseId: toolUseId)
@@ -790,8 +972,9 @@ class HookSocketServer {
   }
   permissionsLock.unlock()
 
-  let response = HookResponse(decision: decision, reason: reason)
-  guard let data = try? JSONEncoder().encode(response) else {
+  let response = AskAnswerBuilder.normalized(
+   decision: decision, answers: answers, reason: reason)
+  guard let data = try? Self.responseEncoder.encode(response) else {
    closeClient(pending.clientSocket)
    permissionFailureHandler?(pending.key, pending.toolUseId)
    return
@@ -824,7 +1007,9 @@ class HookSocketServer {
   }
  }
 
- private func sendPermissionResponseBySession(key: SessionKey, decision: String, reason: String?) {
+ private func sendPermissionResponseBySession(
+  key: SessionKey, decision: String, answers: [String: [String]]? = nil, reason: String?
+ ) {
   permissionsLock.lock()
   let matchingPending = pendingPermissions.values
    .filter { $0.key == key }
@@ -843,8 +1028,9 @@ class HookSocketServer {
    forKey: PendingPermissionKey(key: pending.key, toolUseId: pending.toolUseId))
   permissionsLock.unlock()
 
-  let response = HookResponse(decision: decision, reason: reason)
-  guard let data = try? JSONEncoder().encode(response) else {
+  let response = AskAnswerBuilder.normalized(
+   decision: decision, answers: answers, reason: reason)
+  guard let data = try? Self.responseEncoder.encode(response) else {
    closeClient(pending.clientSocket)
    permissionFailureHandler?(pending.key, pending.toolUseId)
    return
