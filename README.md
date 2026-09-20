@@ -2,7 +2,7 @@
   <img src="ClaudeIsland/Assets.xcassets/AppIcon.appiconset/icon_128x128.png" alt="Logo" width="100" height="100">
   <h3 align="center">Vibe Notch (previously Claude Island)</h3>
   <p align="center">
-    A macOS menu bar app that brings Dynamic Island-style notifications to Claude Code CLI sessions.
+    A macOS menu bar app that brings Dynamic Island-style notifications to Claude Code, Oh My Pi, Pi and OpenCode CLI sessions.
     <br />
     <br />
     <a href="https://github.com/farouqaldori/vibe-notch/releases/latest" target="_blank" rel="noopener noreferrer">
@@ -21,15 +21,30 @@
 ## Features
 
 - **Notch UI** — Animated overlay that expands from the MacBook notch
-- **Live Session Monitoring** — Track multiple Claude Code sessions in real-time
-- **Permission Approvals** — Approve or deny tool executions directly from the notch
+- **Multi-Agent Sessions** — Monitors Claude Code, Oh My Pi (`omp`), Pi and OpenCode sessions side by side, each tagged with its own badge
+- **Live Session Monitoring** — Track multiple sessions per agent in real-time
+- **Permission Approvals** — Approve or deny Claude Code tool executions directly from the notch
 - **Chat History** — View full conversation history with markdown rendering
-- **Auto-Setup** — Hooks install automatically on first launch
+- **Auto-Setup** — Per-agent integrations install automatically on first launch
 
 ## Requirements
 
 - macOS 15.6+
-- Claude Code CLI
+- At least one supported CLI: [Claude Code](https://claude.com/claude-code), `omp` (Oh My Pi), `pi`, or [OpenCode](https://opencode.ai)
+
+## Supported Agents
+
+| Agent | Session records | Live integration | Approve from notch |
+|---|---|---|---|
+| Claude Code | `~/.claude/projects/**/*.jsonl` | `hooks/claude-island-state.py` + `settings.json` | yes |
+| Oh My Pi (`omp`) | `~/.omp/agent/sessions/**/*.jsonl` | `~/.omp/agent/extensions/agent-island-state.ts` | no (status only) |
+| Pi | `~/.pi/agent/sessions/**/*.jsonl` | `~/.pi/agent/extensions/agent-island-state.ts` | no (status only) |
+| OpenCode | `~/.local/share/opencode/opencode.db` | `~/.config/opencode/plugins/agent-island-state.js` | no (status only) |
+
+Agents can be enabled or disabled individually from the notch menu; integrations are installed
+for the enabled agents and removed when one is switched off. Agents without an installed
+integration still show up: their sessions are discovered by scanning the record directory (or
+database) and their status is inferred from the transcript.
 
 ## Install
 
@@ -41,16 +56,24 @@ xcodebuild -scheme ClaudeIsland -configuration Release build
 
 ## How It Works
 
-Vibe Notch installs hooks into `~/.claude/hooks/` that communicate session state via a Unix socket. The app listens for events and displays them in the notch overlay.
+Vibe Notch installs a small integration per agent that reports session state over a Unix socket
+(`/tmp/claude-island.sock`). The app listens for those events, parses the agent's own session
+records for conversation history, and displays everything in the notch overlay.
 
-When Claude needs permission to run a tool, the notch expands with approve/deny buttons—no need to switch to the terminal.
+For Claude Code the integration is a hook script in `~/.claude/hooks/`; for `omp`/`pi` it is a
+TypeScript extension; for OpenCode it is a plugin. The integrations are the only agent-side files
+Vibe Notch writes, and each is removed when its agent is disabled in the notch menu.
+
+When Claude needs permission to run a tool, the notch expands with approve/deny buttons—no need to
+switch to the terminal. Other agents keep their own approval UI; the notch only shows that they are
+waiting.
 
 ## Analytics
 
 Vibe Notch uses Mixpanel to collect anonymous usage data:
 
 - **App Launched** — App version, build number, macOS version
-- **Session Started** — When a new Claude Code session is detected
+- **Session Started** — When a new session is detected
 
 No personal data or conversation content is collected.
 
