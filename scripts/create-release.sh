@@ -206,9 +206,13 @@ echo ""
 # ============================================
 echo "=== Step 5: Creating GitHub Release ==="
 
+# 下载地址只由仓库与版本决定：即使没有 gh CLI（手动上传附件），appcast 的 enclosure 也要指向它
+GITHUB_DOWNLOAD_URL="https://github.com/$GITHUB_REPO/releases/download/v$VERSION/$APP_NAME-$VERSION.dmg"
+
 if ! command -v gh &> /dev/null; then
     echo "WARNING: gh CLI not found. Install with: brew install gh"
-    echo "Skipping GitHub release."
+    echo "Skipping GitHub release upload; appcast 的下载地址指向 $GITHUB_DOWNLOAD_URL"
+    echo "手动把 $DMG_PATH 上传到 tag v$VERSION 后 feed 才可用。"
 else
     # Check if release already exists
     if gh release view "v$VERSION" --repo "$GITHUB_REPO" &>/dev/null; then
@@ -230,7 +234,6 @@ else
 After installation, AgentIsland will automatically check for updates."
     fi
 
-    GITHUB_DOWNLOAD_URL="https://github.com/$GITHUB_REPO/releases/download/v$VERSION/$APP_NAME-$VERSION.dmg"
     echo "GitHub release created: https://github.com/$GITHUB_REPO/releases/tag/v$VERSION"
     echo "Download URL: $GITHUB_DOWNLOAD_URL"
 fi
