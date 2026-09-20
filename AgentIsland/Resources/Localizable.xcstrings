@@ -642,6 +642,22 @@
         }
       }
     },
+    "Appearance" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appearance"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "外观"
+          }
+        }
+      }
+    },
     "Auto" : {
       "comment" : "屏幕选择：自动跟随系统选择屏幕",
       "localizations" : {
@@ -1680,6 +1696,22 @@
         }
       }
     },
+    "Monitored Agents" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Monitored Agents"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "监控的智能体"
+          }
+        }
+      }
+    },
     "Needs your input" : {
       "localizations" : {
         "en" : {
@@ -1872,22 +1904,6 @@
         }
       },
       "shouldTranslate" : false
-    },
-    "Off" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Off"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "关"
-          }
-        }
-      }
     },
     "Oh My Pi" : {
       "localizations" : {
@@ -2343,6 +2359,22 @@
         }
       }
     },
+    "Settings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设置"
+          }
+        }
+      }
+    },
     "Shell" : {
       "localizations" : {
         "en" : {
@@ -2508,6 +2540,22 @@
         }
       }
     },
+    "Turning an agent off also uninstalls its live integration." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turning an agent off also uninstalls its live integration."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭某个智能体时，会同时卸载它的实时集成。"
+          }
+        }
+      }
+    },
     "Unavailable" : {
       "localizations" : {
         "en" : {
@@ -2600,6 +2648,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更新待办..."
+          }
+        }
+      }
+    },
+    "Version %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Version %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "版本 %@"
           }
         }
       }

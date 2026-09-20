@@ -2,9 +2,9 @@
 //  AgentSettingsSection.swift
 //  AgentIsland
 //
-//  设置面板中的 Agent 区段：逐个列出受支持的 Agent CLI，提供启用开关与实时
-//  集成的安装状态。关闭某个 Agent 会卸载其集成，重新打开会安装集成；需要
-//  集成却安装失败时回滚开关并给出提示。
+//  设置面板中的 Agent 区段：逐个列出受支持的 Agent CLI，提供启用开关与实时集成的
+//  安装状态。关闭某个 Agent 会卸载其集成，重新打开会安装集成；需要集成却安装失败
+//  时回滚开关并给出提示。
 //
 
 import Combine
@@ -21,22 +21,18 @@ struct AgentSettingsSection: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ForEach(AgentKind.allCases) { kind in
+            ForEach(Array(AgentKind.allCases.enumerated()), id: \.element) { index, kind in
                 AgentSettingsRow(
                     kind: kind,
                     isEnabled: isEnabled[kind] ?? true,
+                    showsSeparator: index < AgentKind.allCases.count - 1
+                        || installError != nil,
                     onToggle: { toggle(kind) }
                 )
             }
 
             if let installError {
-                // 安装失败的内联提示：不弹窗，保持与设置面板其它行一致
-                Text(installError)
-                    .font(.system(size: 11))
-                    .foregroundColor(TerminalColors.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+                SettingsNotice(message: installError)
             }
         }
         .onAppear { isEnabled = AgentSettingsSection.currentEnabledMap() }
@@ -77,69 +73,48 @@ struct AgentSettingsSection: View {
 
 // MARK: - Agent 行
 
-/// 单个 Agent 的设置行：名称 + 集成状态 + 启用开关。
+/// 单个 Agent 的设置行：品牌标记 + 名称（副标题是集成状态与它写在哪）+ 启用开关。
+/// 被关闭的 Agent 整行降透明度，但开关仍可点回来。
 private struct AgentSettingsRow: View {
     let kind: AgentKind
     let isEnabled: Bool
+    let showsSeparator: Bool
     let onToggle: () -> Void
+
     @ObservedObject private var l10n = LocalizationManager.shared
 
-    @State private var isHovered = false
-
     var body: some View {
-        HStack(spacing: 10) {
-            AgentLogo(agent: kind, size: 12)
-                .frame(width: 16)
-
-            Text(kind.displayName)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(textColor)
-
-            Spacer(minLength: 8)
-
-            // 集成状态：provider 不提供集成信息时整块隐藏
-            if let status = integrationStatus {
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(healthText(status.health))
-                        .font(.system(size: 11))
-                        .foregroundColor(healthColor(status.health))
-                    if let file = status.installedFiles.first {
-                        Text(shortenedPath(file.path))
-                            .font(.system(size: 10))
-                            .foregroundColor(.white.opacity(0.3))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                }
-                .frame(maxWidth: 170, alignment: .trailing)
-            }
-
-            Toggle("", isOn: Binding(get: { isEnabled }, set: { _ in onToggle() }))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .tint(TerminalColors.green)
-                .accessibilityLabel(Text(kind.displayName))
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(isHovered ? Color.white.opacity(0.08) : Color.clear)
+        SettingsToggleRow(
+            badge: SettingsBadge(source: .agent(kind)),
+            title: kind.displayName,
+            subtitle: summary?.text,
+            subtitleColor: summary?.isWarning == true
+                ? SettingsPalette.warning : SettingsPalette.secondaryText,
+            isOn: isEnabled,
+            showsSeparator: showsSeparator,
+            onToggle: onToggle
         )
-        // 被禁用的 Agent 行整体降透明度
+        // 行高固定为两行的高度：没有集成信息的 Agent 也占同样的高度，
+        // 面板高度才不会随某个 Agent 的状态漂移。
+        .frame(height: NotchMenuMetrics.twoLineRowHeight)
         .opacity(isEnabled ? 1.0 : 0.5)
-        .onHover { isHovered = $0 }
     }
 
     // MARK: - Presentation
 
-    private var integrationStatus: AgentIntegrationStatus? {
-        AgentRegistry.provider(for: kind).integrationStatus()
-    }
+    /// 副标题：集成状态，已安装时在后面补上写在哪（长路径交给截断）。
+    /// 不可用是唯一需要引人注意的状态，因此只有它用警告色，且不必再报路径。
+    private var summary: (text: String, isWarning: Bool)? {
+        guard let status = AgentRegistry.provider(for: kind).integrationStatus() else {
+            return nil
+        }
 
-    private var textColor: Color {
-        .white.opacity(isHovered ? 1.0 : 0.7)
+        let health = healthText(status.health)
+        if status.health == .unavailable {
+            return (health, true)
+        }
+        guard let file = status.installedFiles.first else { return (health, false) }
+        return ("\(health) · \(shortenedPath(file.path))", false)
     }
 
     private func healthText(_ health: AgentIntegrationStatus.Health) -> String {
@@ -147,14 +122,6 @@ private struct AgentSettingsRow: View {
         case .installed: return l10n.t("Installed")
         case .missing: return l10n.t("Not installed")
         case .unavailable: return l10n.t("Unavailable")
-        }
-    }
-
-    private func healthColor(_ health: AgentIntegrationStatus.Health) -> Color {
-        switch health {
-        case .installed: return TerminalColors.green
-        case .missing: return .white.opacity(0.4)
-        case .unavailable: return TerminalColors.amber
         }
     }
 

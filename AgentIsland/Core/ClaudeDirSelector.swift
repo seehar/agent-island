@@ -16,10 +16,8 @@ class ClaudeDirSelector: ObservableObject {
 
     @Published var isPickerExpanded: Bool = false
 
-    /// Height of a single option row (matches SoundOptionRowInline style).
-    private let rowHeight: CGFloat = 32
 
-    /// Number of option rows the picker shows (Auto-detect + Choose folder…).
+    /// 展开后的选项行数：自动检测 + 选择文件夹。
     private let optionCount: Int = 2
 
     private init() {}
@@ -27,6 +25,6 @@ class ClaudeDirSelector: ObservableObject {
     /// Extra height needed when the picker is expanded.
     var expandedPickerHeight: CGFloat {
         guard isPickerExpanded else { return 0 }
-        return CGFloat(optionCount) * rowHeight + 8  // +8 for padding
+        return NotchMenuMetrics.pickerOptionsHeight(visibleOptions: optionCount)
     }
 }

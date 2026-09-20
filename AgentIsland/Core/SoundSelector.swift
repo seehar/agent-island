@@ -18,11 +18,8 @@ class SoundSelector: ObservableObject {
 
     // MARK: - Constants
 
-    /// Maximum number of sound options to show before scrolling
-    private let maxVisibleOptions = 6
-
-    /// Height per sound option row
-    private let rowHeight: CGFloat = 32
+    /// 展开后不滚动就能看到的音效数；超出的部分在选项列表里滚动。
+    nonisolated static let maxVisibleOptions = 6
 
     private init() {}
 
@@ -32,7 +29,7 @@ class SoundSelector: ObservableObject {
     var expandedPickerHeight: CGFloat {
         guard isPickerExpanded else { return 0 }
         let totalOptions = NotificationSound.allCases.count
-        let visibleOptions = min(totalOptions, maxVisibleOptions)
-        return CGFloat(visibleOptions) * rowHeight + 8 // +8 for padding
+        let visibleOptions = min(totalOptions, Self.maxVisibleOptions)
+        return NotchMenuMetrics.pickerOptionsHeight(visibleOptions: visibleOptions)
     }
 }

@@ -15,14 +15,11 @@ class LanguageSelector: ObservableObject {
 
     @Published var isPickerExpanded: Bool = false
 
-    /// 单个选项行的高度（与 SoundOptionRowInline 保持一致）。
-    private let rowHeight: CGFloat = 32
-
     private init() {}
 
     /// 选择器展开时所需的额外高度。
     var expandedPickerHeight: CGFloat {
         guard isPickerExpanded else { return 0 }
-        return CGFloat(AppLanguage.allCases.count) * rowHeight + 8  // +8 为内边距
+        return NotchMenuMetrics.pickerOptionsHeight(visibleOptions: AppLanguage.allCases.count)
     }
 }

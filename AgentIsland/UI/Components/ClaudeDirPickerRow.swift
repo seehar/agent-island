@@ -2,110 +2,72 @@
 //  ClaudeDirPickerRow.swift
 //  AgentIsland
 //
-//  Settings row for choosing Claude's config directory. Expands inline
-//  (matching SoundPickerRow / ScreenPickerRow style) with "Auto-detect"
-//  and "Choose folder…" options. Default resolution order when auto:
-//  CLAUDE_CONFIG_DIR → ~/.config/claude/ → ~/.claude/.
+//  设置面板中的 Claude 配置目录选择行。自动解析顺序：CLAUDE_CONFIG_DIR →
+//  ~/.config/claude/ → ~/.claude/；也可以手动指定一个目录。
 //
 
 import AppKit
 import SwiftUI
 
 struct ClaudeDirPickerRow: View {
+    /// 是否是所在卡片的最后一行（最后一行不画分隔线）。
+    var showsSeparator: Bool = true
+
     @ObservedObject private var selector = ClaudeDirSelector.shared
     @ObservedObject private var l10n = LocalizationManager.shared
     @State private var currentValue: String = AppSettings.claudeDirectoryName
-    @State private var isHovered: Bool = false
 
     private var isExpanded: Bool { selector.isPickerExpanded }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Main row - shows current selection
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
+        SettingsPickerRow(
+            badge: SettingsBadge(source: .symbol(name: "folder", tint: SettingsPalette.accent)),
+            title: l10n.t("Claude Directory"),
+            value: displayValue,
+            isExpanded: isExpanded,
+            showsSeparator: showsSeparator,
+            onToggle: {
+                withAnimation(SettingsMotion.expand) {
                     selector.isPickerExpanded.toggle()
                 }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "folder")
-                        .font(.system(size: 12))
-                        .foregroundColor(textColor)
-                        .frame(width: 16)
-
-                    Text(l10n.t("Claude Directory"))
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(textColor)
-
-                    Spacer()
-
-                    Text(displayValue)
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.4))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 10))
-                        .foregroundColor(.white.opacity(0.4))
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(isHovered ? Color.white.opacity(0.08) : Color.clear)
-                )
             }
-            .buttonStyle(.plain)
-            .onHover { isHovered = $0 }
+        ) {
+            SettingsOptionRow(
+                label: l10n.t("Auto-detect"),
+                detail: isCustom ? nil : resolvedAutoDetectPath,
+                isSelected: !isCustom
+            ) {
+                applyChoice(path: "")
+            }
 
-            // Expanded options
-            if isExpanded {
-                VStack(spacing: 2) {
-                    ClaudeDirOptionRow(
-                        label: l10n.t("Auto-detect"),
-                        sublabel: isCustom ? nil : resolvedAutoDetectPath,
-                        isSelected: !isCustom
-                    ) {
-                        applyChoice(path: "")
-                    }
-
-                    ClaudeDirOptionRow(
-                        label: l10n.t("Choose folder…"),
-                        sublabel: isCustom ? displayValue : nil,
-                        isSelected: isCustom
-                    ) {
-                        openFolderPicker()
-                    }
-                }
-                .padding(.leading, 28)
-                .padding(.top, 4)
+            SettingsOptionRow(
+                label: l10n.t("Choose folder…"),
+                detail: isCustom ? displayValue : nil,
+                isSelected: isCustom
+            ) {
+                openFolderPicker()
             }
         }
         .onAppear { currentValue = AppSettings.claudeDirectoryName }
     }
 
-    // MARK: - Presentation
-
-    private var textColor: Color {
-        .white.opacity(isHovered ? 1.0 : 0.7)
-    }
+    // MARK: - 表现
 
     private var isCustom: Bool {
         !currentValue.isEmpty && currentValue != ".claude"
     }
 
-    /// Short display string for the main row's right side.
+    /// 主行右侧的短描述。
     private var displayValue: String {
         isCustom ? shortenedPath(currentValue) : l10n.t("Auto-detect")
     }
 
-    /// What `Auto-detect` actually resolves to right now (for the sublabel).
+    /// 「自动」当前实际解析到哪，作为选项说明显示。
     private var resolvedAutoDetectPath: String {
         shortenedPath(ClaudePaths.claudeDir.path)
     }
 
-    /// Shortens paths under the user's home directory to `~/…`.
+    /// 首页目录下的路径压缩成 `~/…`。
     private func shortenedPath(_ raw: String) -> String {
         let path = raw.hasPrefix("/") ? raw : NSHomeDirectory() + "/" + raw
         let home = NSHomeDirectory()
@@ -115,7 +77,7 @@ struct ClaudeDirPickerRow: View {
         return path
     }
 
-    // MARK: - Actions
+    // MARK: - 动作
 
     private func openFolderPicker() {
         let panel = NSOpenPanel()
@@ -128,9 +90,8 @@ struct ClaudeDirPickerRow: View {
         panel.canCreateDirectories = false
         panel.directoryURL = ClaudePaths.claudeDir
 
-        // The notch sits at .mainMenu + 3 and would cover the picker. Drop it
-        // for the duration of the modal so the panel is on top and
-        // interactive, then restore.
+        // 刘海面板在 .mainMenu + 3，会盖住选择面板：弹窗期间把它降回普通层并让出鼠标，
+        // 结束后还原。
         let notchWindow = NSApp.windows.first { $0 is NotchPanel }
         let originalLevel = notchWindow?.level ?? (.mainMenu + 3)
         let wasIgnoring = notchWindow?.ignoresMouseEvents ?? true
@@ -152,54 +113,5 @@ struct ClaudeDirPickerRow: View {
         AppSettings.claudeDirectoryName = path
         ClaudePaths.invalidateCache()
         HookInstaller.installIfNeeded()
-    }
-}
-
-// MARK: - Option Row (Inline)
-
-private struct ClaudeDirOptionRow: View {
-    let label: String
-    let sublabel: String?
-    let isSelected: Bool
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(isSelected ? TerminalColors.green : Color.white.opacity(0.2))
-                    .frame(width: 6, height: 6)
-
-                Text(label)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.white.opacity(isHovered ? 1.0 : 0.7))
-
-                if let sublabel {
-                    Text(sublabel)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.35))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-
-                Spacer()
-
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(TerminalColors.green)
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isHovered ? Color.white.opacity(0.06) : Color.clear)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
     }
 }

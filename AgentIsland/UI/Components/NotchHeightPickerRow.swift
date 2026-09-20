@@ -16,10 +16,12 @@ private func heightLabel(_ height: CGFloat) -> String {
 }
 
 struct NotchHeightPickerRow: View {
+    /// 是否是所在卡片的最后一行（最后一行不画分隔线）。
+    var showsSeparator: Bool = true
+
     @ObservedObject private var selector = NotchHeightSelector.shared
     @ObservedObject private var screenSelector = ScreenSelector.shared
     @ObservedObject private var l10n = LocalizationManager.shared
-    @State private var isHovered = false
 
     private var isExpanded: Bool { selector.isPickerExpanded }
 
@@ -29,58 +31,23 @@ struct NotchHeightPickerRow: View {
     private var effectiveHeight: CGFloat { selector.resolvedHeight(for: screen) }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // 主行 —— 高度来源与实际生效的数值
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
+        SettingsPickerRow(
+            badge: SettingsBadge(
+                source: .symbol(name: "menubar.rectangle", tint: SettingsPalette.accent)),
+            title: l10n.t("Notch Height"),
+            value: "\(title(for: selector.mode)) · \(heightLabel(effectiveHeight))",
+            isExpanded: isExpanded,
+            showsSeparator: showsSeparator,
+            onToggle: {
+                withAnimation(SettingsMotion.expand) {
                     selector.isPickerExpanded.toggle()
                 }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "menubar.rectangle")
-                        .font(.system(size: 12))
-                        .foregroundColor(textColor)
-                        .frame(width: 16)
-
-                    Text(l10n.t("Notch Height"))
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(textColor)
-
-                    Spacer()
-
-                    Text("\(title(for: selector.mode)) · \(heightLabel(effectiveHeight))")
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.4))
-                        .lineLimit(1)
-
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 10))
-                        .foregroundColor(.white.opacity(0.4))
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(isHovered ? Color.white.opacity(0.08) : Color.clear)
-                )
             }
-            .buttonStyle(.plain)
-            .onHover { isHovered = $0 }
-
-            if isExpanded {
-                options
-            }
-        }
-    }
-
-    // MARK: - 展开的选项
-
-    private var options: some View {
-        VStack(spacing: 2) {
+        ) {
             ForEach([NotchHeightMode.automatic, .menuBar, .notch], id: \.self) { mode in
-                NotchHeightOptionRow(
+                SettingsOptionRow(
                     label: title(for: mode),
-                    height: selector.height(for: mode, on: screen),
+                    detail: heightLabel(selector.height(for: mode, on: screen)),
                     isSelected: selector.mode == mode
                 ) {
                     selector.select(mode)
@@ -97,15 +64,9 @@ struct NotchHeightPickerRow: View {
                 increase: { step(by: NotchHeightSelector.step) }
             )
         }
-        .padding(.leading, 28)
-        .padding(.top, 4)
     }
 
     // MARK: - 文案
-
-    private var textColor: Color {
-        .white.opacity(isHovered ? 1.0 : 0.7)
-    }
 
     /// 选项标题。在视图里按字面量取键，本地化守卫才能审计到。
     private func title(for mode: NotchHeightMode) -> String {
@@ -126,60 +87,16 @@ struct NotchHeightPickerRow: View {
     /// 选择后短暂延迟再收起，让用户看到选中态的变化。微调行不收，方便连按。
     private func collapseAfterDelay() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(SettingsMotion.expand) {
                 selector.isPickerExpanded = false
             }
         }
     }
 }
 
-// MARK: - 来源选项行
-
-private struct NotchHeightOptionRow: View {
-    let label: String
-    let height: CGFloat
-    let isSelected: Bool
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(isSelected ? TerminalColors.green : Color.white.opacity(0.2))
-                    .frame(width: 6, height: 6)
-
-                Text(label)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.white.opacity(isHovered ? 1.0 : 0.7))
-
-                Spacer()
-
-                Text(heightLabel(height))
-                    .font(.system(size: 11).monospacedDigit())
-                    .foregroundColor(.white.opacity(0.4))
-
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(TerminalColors.green)
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isHovered ? Color.white.opacity(0.06) : Color.clear)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-    }
-}
-
 // MARK: - 微调行
 
+/// 微调行：与选项行同一套几何，右侧换成「− 数值 +」。
 private struct NotchHeightStepperRow: View {
     let value: CGFloat
     let isSelected: Bool
@@ -190,15 +107,12 @@ private struct NotchHeightStepperRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Circle()
-                .fill(isSelected ? TerminalColors.green : Color.white.opacity(0.2))
-                .frame(width: 6, height: 6)
-
             Text(l10n.t("Custom"))
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.white.opacity(isSelected ? 1.0 : 0.7))
+                .font(.system(size: 12))
+                .foregroundColor(
+                    isSelected ? SettingsPalette.primaryText : SettingsPalette.secondaryText)
 
-            Spacer()
+            Spacer(minLength: 8)
 
             StepperButton(
                 systemName: "minus",
@@ -208,7 +122,7 @@ private struct NotchHeightStepperRow: View {
 
             Text(heightLabel(value))
                 .font(.system(size: 11).monospacedDigit())
-                .foregroundColor(.white.opacity(0.55))
+                .foregroundColor(SettingsPalette.secondaryText)
                 .frame(width: 44)
 
             StepperButton(
@@ -217,8 +131,8 @@ private struct NotchHeightStepperRow: View {
                 action: increase
             )
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, NotchMenuMetrics.optionHorizontalPadding)
+        .frame(height: NotchMenuMetrics.optionRowHeight)
     }
 }
 
@@ -234,16 +148,17 @@ private struct StepperButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(.white.opacity(isEnabled ? (isHovered ? 1.0 : 0.75) : 0.25))
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(
+                    Color.white.opacity(isEnabled ? (isHovered ? 1.0 : 0.75) : 0.25))
                 .frame(width: 20, height: 20)
                 .background(
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(Color.white.opacity(isHovered && isEnabled ? 0.14 : 0.06))
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.white.opacity(isHovered && isEnabled ? 0.16 : 0.08))
                 )
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SettingsCompactButtonStyle())
         .disabled(!isEnabled)
         .onHover { isHovered = $0 }
     }

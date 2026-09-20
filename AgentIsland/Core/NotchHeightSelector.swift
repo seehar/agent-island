@@ -39,9 +39,6 @@ final class NotchHeightSelector: ObservableObject {
     static let fallbackNotchHeight: CGFloat = 38
     /// 拿不到屏幕时的兜底高度（典型菜单栏高度）。
     static let fallbackHeight: CGFloat = 24
-    /// 单个选项行（微调行同高）的高度：内边距 6×2 + 20 的控件。
-    static let optionRowHeight: CGFloat = 32
-
     // MARK: - 状态
 
     @Published private(set) var mode: NotchHeightMode = .automatic
@@ -108,7 +105,8 @@ final class NotchHeightSelector: ObservableObject {
     /// 展开时面板需要多出来的高度：3 个来源选项 + 1 行微调。
     var expandedPickerHeight: CGFloat {
         guard isPickerExpanded else { return 0 }
-        return 4 * Self.optionRowHeight + 8  // +8 为内边距
+        // 3 个来源选项 + 1 行微调
+        return NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 4)
     }
 
     // MARK: - 持久化

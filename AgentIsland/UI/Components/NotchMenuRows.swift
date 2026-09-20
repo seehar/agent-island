@@ -2,165 +2,84 @@
 //  NotchMenuRows.swift
 //  AgentIsland
 //
-//  设置面板里可复用的行组件：普通行、开关行、辅助功能授权行与更新行。
-//  它们只负责一行的外观与交互，分组与分页由 NotchMenuView 决定。
+//  设置面板里两个自成一体、状态较多的行：更新行与辅助功能授权行。
+//  普通行、开关行与可展开的选择行都在 SettingsKit 里，这两行只写自己的状态。
 //
 
-import ApplicationServices
 import Combine
 import SwiftUI
 
-// MARK: - Update Row
+// MARK: - 更新行
 
+/// 「关于」页的更新行：一行表达「检查 / 下载 / 安装」的全过程，状态与进度在右侧，
+/// 失败时把原因写在副标题里（一行读不下就交给尾部的重试）。
 struct UpdateRow: View {
     @ObservedObject var updateManager: UpdateManager
     @ObservedObject private var l10n = LocalizationManager.shared
-    @State private var isHovered = false
-    @State private var isSpinning = false
-
-    private var appVersion: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
-        return "v\(version) (\(build))"
-    }
 
     var body: some View {
-        Button {
-            handleTap()
-        } label: {
-            HStack(spacing: 10) {
-                // Icon
-                ZStack {
-                    if case .installing = updateManager.state {
-                        Image(systemName: "gear")
-                            .font(.system(size: 12))
-                            .foregroundColor(TerminalColors.blue)
-                            .rotationEffect(.degrees(isSpinning ? 360 : 0))
-                            .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: isSpinning)
-                            .onAppear { isSpinning = true }
-                    } else {
-                        Image(systemName: icon)
-                            .font(.system(size: 12))
-                            .foregroundColor(iconColor)
-                    }
-                }
-                .frame(width: 16)
-
-                // Label
-                Text(label)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(labelColor)
-
-                Spacer()
-
-                // Right side: progress or status
-                rightContent
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isHovered && isInteractive ? Color.white.opacity(0.08) : Color.clear)
-            )
-        }
-        .buttonStyle(.plain)
+        SettingsButtonRow(
+            badge: SettingsBadge(source: .symbol(name: symbolName, tint: tint)),
+            title: title,
+            subtitle: subtitle,
+            subtitleColor: subtitleColor,
+            showsSeparator: false,
+            trailing: { status },
+            action: handleTap
+        )
+        // 行高固定为两行的高度：状态文案一行还是两行，面板高度都不变。
+        .frame(height: NotchMenuMetrics.twoLineRowHeight)
         .disabled(!isInteractive)
-        .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.2), value: updateManager.state)
     }
 
-    // MARK: - Right Content
+    // MARK: - 尾部状态
 
     @ViewBuilder
-    private var rightContent: some View {
+    private var status: some View {
         switch updateManager.state {
-        case .idle:
-            Text(appVersion)
-                .font(.system(size: 11))
-                .foregroundColor(.white.opacity(0.4))
-
-        case .upToDate:
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundColor(TerminalColors.green)
-                Text(l10n.t("Up to date"))
-                    .font(.system(size: 11))
-                    .foregroundColor(TerminalColors.green)
-            }
+        case .idle, .upToDate:
+            EmptyView()
 
         case .checking, .installing:
             ProgressView()
                 .scaleEffect(0.5)
                 .frame(width: 12, height: 12)
 
-        case .found(let version, _):
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(TerminalColors.green)
-                    .frame(width: 6, height: 6)
-                Text("v\(version)")
-                    .font(.system(size: 11))
-                    .foregroundColor(TerminalColors.green)
-            }
+        case .found(let version, _), .readyToInstall(let version):
+            SettingsStatusValue(
+                text: "v\(version)",
+                color: SettingsPalette.success,
+                dotColor: SettingsPalette.success
+            )
 
-        case .downloading(let progress):
+        case .downloading(let progress), .extracting(let progress):
             HStack(spacing: 8) {
                 ProgressView(value: progress)
                     .frame(width: 60)
-                    .tint(TerminalColors.blue)
+                    .tint(progressTint)
                 Text("\(Int(progress * 100))%")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(TerminalColors.blue)
+                    .monospacedDigit()
+                    .foregroundColor(progressTint)
                     .frame(width: 32, alignment: .trailing)
-            }
-
-        case .extracting(let progress):
-            HStack(spacing: 8) {
-                ProgressView(value: progress)
-                    .frame(width: 60)
-                    .tint(TerminalColors.amber)
-                Text("\(Int(progress * 100))%")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(TerminalColors.amber)
-                    .frame(width: 32, alignment: .trailing)
-            }
-
-        case .readyToInstall(let version):
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(TerminalColors.green)
-                    .frame(width: 6, height: 6)
-                Text("v\(version)")
-                    .font(.system(size: 11))
-                    .foregroundColor(TerminalColors.green)
             }
 
         case .error:
-            Text(l10n.t("Retry"))
-                .font(.system(size: 11))
-                .foregroundColor(.white.opacity(0.5))
+            SettingsStatusValue(text: l10n.t("Retry"), color: SettingsPalette.danger)
         }
     }
 
-    // MARK: - Computed Properties
+    // MARK: - 文案与配色
 
-    private var icon: String {
+    private var symbolName: String {
         switch updateManager.state {
-        case .idle:
+        case .idle, .checking, .downloading:
             return "arrow.down.circle"
-        case .checking:
-            return "arrow.down.circle"
-        case .upToDate:
+        case .upToDate, .found, .readyToInstall:
             return "checkmark.circle.fill"
-        case .found:
-            return "arrow.down.circle.fill"
-        case .downloading:
-            return "arrow.down.circle"
         case .extracting:
             return "doc.zipper"
-        case .readyToInstall:
-            return "checkmark.circle.fill"
         case .installing:
             return "gear"
         case .error:
@@ -168,35 +87,32 @@ struct UpdateRow: View {
         }
     }
 
-    private var iconColor: Color {
+    private var tint: Color {
         switch updateManager.state {
         case .idle:
-            return .white.opacity(isHovered ? 1.0 : 0.7)
-        case .checking:
-            return .white.opacity(0.7)
-        case .upToDate:
-            return TerminalColors.green
-        case .found, .readyToInstall:
-            return TerminalColors.green
-        case .downloading:
-            return TerminalColors.blue
+            return SettingsPalette.accent
+        case .checking, .downloading, .installing:
+            return SettingsPalette.accent
+        case .upToDate, .found, .readyToInstall:
+            return SettingsPalette.success
         case .extracting:
-            return TerminalColors.amber
-        case .installing:
-            return TerminalColors.blue
+            return SettingsPalette.warning
         case .error:
-            return Color(red: 1.0, green: 0.4, blue: 0.4)
+            return SettingsPalette.danger
         }
     }
 
-    private var label: String {
+    private var progressTint: Color {
+        if case .extracting = updateManager.state { return SettingsPalette.warning }
+        return SettingsPalette.accent
+    }
+
+    private var title: String {
         switch updateManager.state {
-        case .idle:
+        case .idle, .upToDate:
             return l10n.t("Check for Updates")
         case .checking:
             return l10n.t("Checking...")
-        case .upToDate:
-            return l10n.t("Check for Updates")
         case .found:
             return l10n.t("Download Update")
         case .downloading:
@@ -212,17 +128,23 @@ struct UpdateRow: View {
         }
     }
 
-    private var labelColor: Color {
+    /// 副标题：说明当前状态；失败时把原因写在这里，用户不必去翻日志。
+    /// 版本号在「关于」页的标识块里，这里不重复。
+    private var subtitle: String? {
         switch updateManager.state {
-        case .idle, .upToDate:
-            return .white.opacity(isHovered ? 1.0 : 0.7)
-        case .checking, .downloading, .extracting, .installing:
-            return .white.opacity(0.9)
-        case .found, .readyToInstall:
-            return TerminalColors.green
-        case .error:
-            return Color(red: 1.0, green: 0.4, blue: 0.4)
+        case .upToDate:
+            return l10n.t("Up to date")
+        case .error(let message):
+            return message
+        default:
+            return nil
         }
+    }
+
+    private var subtitleColor: Color {
+        if case .error = updateManager.state { return SettingsPalette.danger }
+        if case .upToDate = updateManager.state { return SettingsPalette.success }
+        return SettingsPalette.secondaryText
     }
 
     private var isInteractive: Bool {
@@ -234,7 +156,7 @@ struct UpdateRow: View {
         }
     }
 
-    // MARK: - Actions
+    // MARK: - 交互
 
     private func handleTap() {
         switch updateManager.state {
@@ -250,166 +172,66 @@ struct UpdateRow: View {
     }
 }
 
-// MARK: - Accessibility Permission Row
+// MARK: - 辅助功能授权行
 
+/// 「通用」页的辅助功能授权行：已授权时只是状态，未授权时右侧给一个直接跳转系统
+/// 设置的按钮，不让用户自己去翻「隐私与安全性」。
 struct AccessibilityRow: View {
     let isEnabled: Bool
     @ObservedObject private var l10n = LocalizationManager.shared
 
-    @State private var isHovered = false
+    /// 回到应用时重新取一次授权状态：用户可能刚在系统设置里改过。
     @State private var refreshTrigger = false
 
-    private var currentlyEnabled: Bool {
-        // Re-check on each render when refreshTrigger changes
+    private var granted: Bool {
         _ = refreshTrigger
         return isEnabled
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "hand.raised")
-                .font(.system(size: 12))
-                .foregroundColor(textColor)
-                .frame(width: 16)
-
-            Text(l10n.t("Accessibility"))
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(textColor)
-
-            Spacer()
-
-            if isEnabled {
-                Circle()
-                    .fill(TerminalColors.green)
-                    .frame(width: 6, height: 6)
-
-                Text(l10n.t("On"))
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.4))
+        SettingsRowLabel(
+            badge: SettingsBadge(
+                source: .symbol(
+                    name: "hand.raised",
+                    tint: granted ? SettingsPalette.accent : SettingsPalette.warning
+                )
+            ),
+            title: l10n.t("Accessibility")
+        ) {
+            if granted {
+                SettingsStatusValue(
+                    text: l10n.t("On"),
+                    color: SettingsPalette.secondaryText,
+                    dotColor: SettingsPalette.success
+                )
             } else {
-                Button(action: openAccessibilitySettings) {
-                    Text(l10n.t("Enable"))
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.black)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5)
-                                .fill(Color.white)
-                        )
-                }
-                .buttonStyle(.plain)
+                enableButton
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(isHovered ? Color.white.opacity(0.08) : Color.clear)
-        )
-        .onHover { isHovered = $0 }
+        .settingsRowSeparator(false)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshTrigger.toggle()
         }
     }
 
-    private var textColor: Color {
-        .white.opacity(isHovered ? 1.0 : 0.7)
+    private var enableButton: some View {
+        Button(action: openAccessibilitySettings) {
+            Text(l10n.t("Enable"))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.black.opacity(0.85))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(SettingsPalette.accent))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(SettingsCompactButtonStyle())
     }
 
     private func openAccessibilitySettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+        if let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        {
             NSWorkspace.shared.open(url)
         }
-    }
-}
-
-struct MenuRow: View {
-    let icon: String
-    let label: String
-    var isDestructive: Bool = false
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .font(.system(size: 12))
-                    .foregroundColor(textColor)
-                    .frame(width: 16)
-
-                Text(label)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(textColor)
-
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isHovered ? Color.white.opacity(0.08) : Color.clear)
-            )
-        }
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
-        .onHover { isHovered = $0 }
-    }
-
-    private var textColor: Color {
-        if isDestructive {
-            return Color(red: 1.0, green: 0.4, blue: 0.4)
-        }
-        return .white.opacity(isHovered ? 1.0 : 0.7)
-    }
-}
-
-struct MenuToggleRow: View {
-    let icon: String
-    let label: String
-    let isOn: Bool
-    @ObservedObject private var l10n = LocalizationManager.shared
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .font(.system(size: 12))
-                    .foregroundColor(textColor)
-                    .frame(width: 16)
-
-                Text(label)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(textColor)
-
-                Spacer()
-
-                Circle()
-                    .fill(isOn ? TerminalColors.green : Color.white.opacity(0.3))
-                    .frame(width: 6, height: 6)
-
-                Text(isOn ? l10n.t("On") : l10n.t("Off"))
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.4))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isHovered ? Color.white.opacity(0.08) : Color.clear)
-            )
-        }
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
-        .onHover { isHovered = $0 }
-    }
-
-    private var textColor: Color {
-        .white.opacity(isHovered ? 1.0 : 0.7)
     }
 }
