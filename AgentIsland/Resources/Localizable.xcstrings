@@ -3685,6 +3685,193 @@
           }
         }
       }
+    },
+    "Approve tool calls on the notch" : {
+      "comment" : "omp/pi 闸门开关（设置面板「智能体」页行内按钮的无障碍标签）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Approve tool calls on the notch"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在刘海上批准工具调用"
+          }
+        }
+      }
+    },
+    "Notch approval on" : {
+      "comment" : "闸门打开时补在集成状态后面的副标题片段",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notch approval on"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "刘海审批已开启"
+          }
+        }
+      }
+    },
+    "Outdated — reinstall" : {
+      "comment" : "扩展文件在但不是当前该装的那一份（版本戳/变体/降级档对不上）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Outdated — reinstall"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "版本过旧，请重新安装"
+          }
+        }
+      }
+    },
+    "Enable %@ first" : {
+      "comment" : "Agent 关闭时闸门按钮的悬停说明；%@ = Agent 产品名",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable %@ first"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请先启用 %@"
+          }
+        }
+      }
+    },
+    "On: %@ no longer prompts on its own. Turning this off leaves it with no approval gate at all." : {
+      "comment" : "闸门打开态的悬停说明；%@ = Agent 产品名",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On: %@ no longer prompts on its own. Turning this off leaves it with no approval gate at all."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已开启：%@ 自身不再提示。关闭后它将不再有任何审批闸门。"
+          }
+        }
+      }
+    },
+    "Approve %@ tool calls on the notch. Its default approvalMode is already yolo, so omp never prompts on its own." : {
+      "comment" : "闸门关闭态的悬停说明；%@ = Agent 产品名",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Approve %@ tool calls on the notch. Its default approvalMode is already yolo, so omp never prompts on its own."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在刘海上批准 %@ 的工具调用。它的默认 approvalMode 已是 yolo，因此 omp 自身不会提示。"
+          }
+        }
+      }
+    },
+    "Off" : {
+      "comment" : "闸门按钮的无障碍状态值（开态复用既有键 On）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Off"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关"
+          }
+        }
+      }
+    },
+    "Dangerous command" : {
+      "comment" : "集成侧命中危险命令名单（approval_kind=critical）；卡片与列表行的警示字样",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dangerous command"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "危险命令"
+          }
+        }
+      }
+    },
+    "Asking in terminal" : {
+      "comment" : "集成上报 omp_owns_approval：这次审批由 Agent 自己的终端弹窗负责",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Asking in terminal"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "终端正在询问"
+          }
+        }
+      }
+    },
+    "Gate degraded" : {
+      "comment" : "集成报了「闸门降级」但没报档位（老信封）时的提示",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gate degraded"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "闸门已降级"
+          }
+        }
+      }
+    },
+    "Gate degraded: %@" : {
+      "comment" : "闸门降级提示；%@ = 降级档名（notify-only / strict / read-only-allow）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gate degraded: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "闸门已降级：%@"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

@@ -27,6 +27,7 @@ struct ChatView: View {
  @State private var newMessageCount: Int = 0
  @State private var previousHistoryCount: Int = 0
  @State private var isBottomVisible: Bool = true
+ @State private var approvalDisplay: PendingApprovalDisplay?
  @FocusState private var isInputFocused: Bool
 
  init(
@@ -158,6 +159,11 @@ struct ChatView: View {
    }
   }
   .onReceive(sessionMonitor.$instances) { sessions in
+   // 展示档位随 pending 生命周期刷新：每次会话发布都重查一次，否则「同会话补发了
+   // 让位信号但 SessionState 没变」时卡片不会更新。
+   approvalDisplay =
+    sessions.first(where: { $0.sessionKey == key })?.phase.isWaitingForApproval == true
+    ? sessionMonitor.approvalDisplay(for: key) : nil
    if let updated = sessions.first(where: { $0.sessionKey == key }),
     updated != session
    {
@@ -443,6 +449,7 @@ struct ChatView: View {
   ChatApprovalBar(
    tool: tool,
    toolInput: session.pendingToolInput,
+   display: approvalDisplay,
    onApprove: { approvePermission() },
    onDeny: { denyPermission() }
   )
@@ -1286,6 +1293,7 @@ struct ChatInteractivePromptBar: View {
 struct ChatApprovalBar: View {
  let tool: String
  let toolInput: String?
+ let display: PendingApprovalDisplay?
  let onApprove: () -> Void
  let onDeny: () -> Void
  @ObservedObject private var l10n = LocalizationManager.shared
@@ -1300,12 +1308,31 @@ struct ChatApprovalBar: View {
    VStack(alignment: .leading, spacing: 2) {
     Text(MCPToolFormatter.formatToolName(tool))
      .appFont(12, weight: .medium, design: .monospaced)
-     .foregroundColor(TerminalColors.amber)
+     .foregroundColor(display?.isCritical == true ? AppPalette.danger : TerminalColors.amber)
     if let input = toolInput {
      Text(input)
       .appFont(11)
       .foregroundColor(.white.opacity(0.5))
       .lineLimit(1)
+    }
+    if let display, display.isCritical {
+     // 集成侧命中危险命令名单：与普通待批区分开，避免「看不出这次是危险的」
+     Text(l10n.t("Dangerous command"))
+      .appFont(11, weight: .medium)
+      .foregroundColor(AppPalette.danger)
+    }
+    if let display, display.terminalIsAsking {
+     Text(l10n.t("Asking in terminal"))
+      .appFont(11)
+      .foregroundColor(AppPalette.tertiaryText)
+    }
+    if let display, display.isGateDegraded {
+     Text(
+      display.degradedTier.map { l10n.t("Gate degraded: %@", $0) }
+       ?? l10n.t("Gate degraded")
+     )
+     .appFont(11)
+     .foregroundColor(AppPalette.warning)
     }
    }
    .opacity(showContent ? 1 : 0)

@@ -8,6 +8,17 @@
 
 import Foundation
 
+/// 某个 Agent 的审批能力：决定「刘海上的批准/拒绝能否真正回传给该 Agent」，以及
+/// 该 Agent 用哪个事件名请求审批。纯数据，避免能力判断散落到各个调用点。
+nonisolated struct ApprovalCapability: Sendable {
+    /// 刘海上的决定能否真正回传给该 Agent（为假时 UI 只提示「在终端中批准」）。
+    let canDecideRemotely: Bool
+    /// 该 Agent 的集成会阻塞等待应答；决定服务端是否保留 socket fd。
+    let waitsForDecision: Bool
+    /// 该 Agent 用来请求审批的事件名。
+    let requestEvent: String
+}
+
 /// 受支持的编码 Agent CLI。
 nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
     /// Anthropic Claude Code（`claude`）。
@@ -53,10 +64,19 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
         }
     }
 
-    /// 该 Agent 是否提供可被 notch 拦截的审批提示。目前只有 Claude Code 的
-    /// hook 协议支持从 notch 批准/拒绝，其余 Agent 只上报状态，审批仍走自身 UI。
-    var supportsPermissionControl: Bool {
-        self == .claudeCode
+    /// 该 Agent 的审批能力。`canDecideRemotely` 为真时 notch 才给出批准/拒绝
+    /// 入口并回传决定；`waitsForDecision` 与 `requestEvent` 描述集成侧的等待
+    /// 方式与事件名（扩展 / 插件据此实现阻塞闸门）。
+    var approval: ApprovalCapability {
+        switch self {
+        case .claudeCode:
+            return .init(
+                canDecideRemotely: true, waitsForDecision: true,
+                requestEvent: "PermissionRequest")
+        case .ohMyPi, .pi, .opencode:
+            return .init(
+                canDecideRemotely: true, waitsForDecision: true, requestEvent: "ToolApproval")
+        }
     }
 
     /// 是否需要用户安装集成（hook 脚本 / 扩展 / 插件）才能上报实时事件。

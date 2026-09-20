@@ -87,6 +87,8 @@ struct ClaudeInstancesView: View {
                 ForEach(sortedInstances) { session in
                     InstanceRow(
                         session: session,
+                        isCriticalApproval: sessionMonitor.approvalDisplay(
+                            for: session.sessionKey)?.isCritical == true,
                         onFocus: { focusSession(session) },
                         onChat: { openChat(session) },
                         onArchive: { archiveSession(session) },
@@ -136,6 +138,8 @@ struct ClaudeInstancesView: View {
 
 struct InstanceRow: View {
     let session: SessionState
+    /// 该会话的待批工具是否命中危险命令档（集成侧判定）；行内据此给出警示。
+    let isCriticalApproval: Bool
     let onFocus: () -> Void
     let onChat: () -> Void
     let onArchive: () -> Void
@@ -320,7 +324,7 @@ struct InstanceRow: View {
             Spacer(minLength: 0)
 
             // Action icons or approval buttons
-            if isWaitingForApproval && !session.agent.supportsPermissionControl {
+            if isWaitingForApproval && !session.agent.approval.canDecideRemotely {
                 // 该 Agent 的审批只能在其自身 CLI 里完成，notch 仅提示
                 Text(l10n.t("Waiting for approval in terminal"))
                     .appFont(11)
@@ -344,11 +348,19 @@ struct InstanceRow: View {
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
             } else if isWaitingForApproval {
-                InlineApprovalButtons(
-                    onChat: onChat,
-                    onApprove: onApprove,
-                    onReject: onReject
-                )
+                HStack(spacing: 6) {
+                    if isCriticalApproval {
+                        Text(l10n.t("Dangerous command"))
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(AppPalette.danger)
+                            .lineLimit(1)
+                    }
+                    InlineApprovalButtons(
+                        onChat: onChat,
+                        onApprove: onApprove,
+                        onReject: onReject
+                    )
+                }
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
             } else {
                 HStack(spacing: 8) {
@@ -406,7 +418,9 @@ struct InstanceRow: View {
         case .processing, .compacting:
             AgentSpinner(agent: session.agent)
         case .waitingForApproval:
-            phaseGlyph("exclamationmark.circle.fill", color: AppPalette.warning)
+            phaseGlyph(
+                "exclamationmark.circle.fill",
+                color: isCriticalApproval ? AppPalette.danger : AppPalette.warning)
         case .waitingForInput:
             phaseGlyph("checkmark.circle.fill", color: AppPalette.success)
         case .idle:

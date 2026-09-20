@@ -65,16 +65,16 @@ class ClaudeSessionMonitor: ObservableObject {
                 }
 
                 if event.event == "Stop" {
-                    HookSocketServer.shared.cancelPendingPermissions(sessionId: event.sessionId)
+                    HookSocketServer.shared.cancelPendingPermissions(key: event.sessionKey)
                 }
 
                 if event.event == "PostToolUse", let toolUseId = event.toolUseId {
-                    HookSocketServer.shared.cancelPendingPermission(toolUseId: toolUseId)
+                    HookSocketServer.shared.cancelPendingPermission(
+                        key: event.sessionKey, toolUseId: toolUseId)
                 }
             },
-            onPermissionFailure: { sessionId, toolUseId in
-                // 审批应答只来自 Claude Code 的 hook 通道
-                let key = SessionKey(agent: .claudeCode, sessionId: sessionId)
+            onPermissionFailure: { key, toolUseId in
+                // 失败回调按待批条目自带的会话键归属，不再假设是 Claude
                 Task {
                     await SessionStore.shared.process(
                         .permissionSocketFailed(key: key, toolUseId: toolUseId)
@@ -101,9 +101,10 @@ class ClaudeSessionMonitor: ObservableObject {
                 return
             }
 
-            // 只有能回传决定的 Agent（Claude Code）才需要应答 hook
-            if key.agent.supportsPermissionControl {
+            // 只有能回传决定的 Agent 才需要应答 hook
+            if key.agent.approval.canDecideRemotely {
                 HookSocketServer.shared.respondToPermission(
+                    key: key,
                     toolUseId: permission.toolUseId,
                     decision: "allow"
                 )
@@ -122,8 +123,9 @@ class ClaudeSessionMonitor: ObservableObject {
                 return
             }
 
-            if key.agent.supportsPermissionControl {
+            if key.agent.approval.canDecideRemotely {
                 HookSocketServer.shared.respondToPermission(
+                    key: key,
                     toolUseId: permission.toolUseId,
                     decision: "deny",
                     reason: reason
@@ -134,6 +136,11 @@ class ClaudeSessionMonitor: ObservableObject {
                 .permissionDenied(key: key, toolUseId: permission.toolUseId, reason: reason)
             )
         }
+    }
+
+    /// 待批卡片的展示档位（危险命令 / 闸门降级 / 让位）；没有待批时返回 nil。
+    func approvalDisplay(for key: SessionKey) -> PendingApprovalDisplay? {
+        HookSocketServer.shared.pendingApprovalDisplay(key: key)
     }
 
     /// Archive (remove) a session from the instances list
