@@ -1,0 +1,185 @@
+# AgentIsland（macOS 刘海 Agent 会话面板）
+
+> 一款 macOS 菜单栏应用（`LSUIElement`，无 Dock 图标）：把 Claude Code、Oh My Pi（`omp`）、Pi、OpenCode 的 CLI 会话状态搬到 MacBook 刘海处的浮层里 —— 实时状态、对话历史，以及 Claude Code 的工具审批。
+> 派生自 `engels74/claude-island`，已全量改名 AgentIsland（目录、target、scheme、bundle id、socket、集成文件名、偏好域）。
+
+- 语言/框架：Swift（工程 `SWIFT_VERSION = 5.0`，但已打开 Swift 6 并发语义：`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`、`SWIFT_APPROACHABLE_CONCURRENCY = YES`、`SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES`）
+- UI：SwiftUI 为主 + AppKit 桥（无边 `NSPanel` 浮层、`NSHostingView`、全局事件监听）
+- 依赖（SPM）：Sparkle（自动更新）、swift-markdown（聊天 Markdown 渲染）
+- 平台：macOS 15.6+；只构建本机 arm64 产物
+- 工程：`AgentIsland.xcodeproj` 用 `PBXFileSystemSynchronizedRootGroup`（objectVersion 77）→ **源文件放进 `AgentIsland/<层>/` 即自动进 target**，资源（`.py`/`.js`/`.xcstrings`）自动进 Resources，通常不需要改 pbxproj
+- 签名：ad-hoc（`codesign --force --deep --sign -`）。没有 Developer ID、不做公证 —— 这是既定取舍，不要再提议申请证书或改回 developer-id 导出流程
+- 仓库没有测试 target，也没有 SwiftLint/SwiftFormat/CI 配置：质量门禁是「编译 0 诊断 + 本地化守卫通过 + 实机观察」
+
+## 命令
+
+```bash
+# 编译门禁（唯一权威判定）。判据：** BUILD SUCCEEDED ** 且诊断计数为 0
+LOG=/tmp/island-build.log
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild -project AgentIsland.xcodeproj -scheme AgentIsland \
+  -configuration Release -derivedDataPath /tmp/island-dd \
+  CODE_SIGNING_ALLOWED=NO build > "$LOG" 2>&1
+echo "exit=$?"; grep -cE ': (error|warning):' "$LOG"   # 期望 0
+
+# 本地化守卫：缺键、格式符不一致、绕过自研查表、未引用键（--strict）
+python3 scripts/check-localization.py
+python3 scripts/check-localization.py --strict
+
+# 构建 + 安装到本机 /Applications（无 Developer ID 机器上的主路径）
+./scripts/build-and-install.sh                 # 构建 + 安装 + 启动
+./scripts/build-and-install.sh --no-launch     # 只安装
+./scripts/build-and-install.sh --build-only    # 只产出 build/export/AgentIsland.app 与 releases/*.dmg
+# 两者都会先跑本地化守卫，再归档（0 诊断才算过）、ad-hoc 重签、校验签名
+
+# 需要 Apple 证书的路径（本机环境跑不通，仅作记录）
+./scripts/build.sh               # developer-id 导出（需要证书）
+./scripts/create-release.sh      # 公证 → DMG → Sparkle 签名 → GitHub Release → 推 gh-pages appcast
+./scripts/generate-keys.sh       # Sparkle EdDSA 密钥（一次性；已有密钥时不要重跑）
+```
+
+## 目录结构
+
+```
+AgentIsland/
+  App/          # 入口（AgentIslandApp @main）、AppDelegate（生命周期/单实例/偏好迁移/装集成/Sparkle）、ScreenObserver、WindowManager
+  Core/         # 应用状态与版面：NotchViewModel（@Observable UI 状态）、NotchGeometry（纯几何）、NotchMenuLayout、Settings（UserDefaults）、Localization、各 Selector（语言/屏幕/声音/高度/Claude 目录）
+  Models/       # AgentKind、SessionState、SessionPhase（状态机）、SessionEvent、ChatMessage、SubagentToolInfo、TmuxTarget
+  Events/       # 全局鼠标事件监听（悬停/点击命中刘海）
+  Services/
+    Agents/     # Agent 接入面：AgentProvider 协议、AgentRegistry、各 Provider、集成安装/卸载、进程与记录扫描
+    Session/    # 记录解析：TranscriptSchema + 各 Agent schema、ConversationParser（JSONL 增量）、AgentFileWatcher、OpenCodeSessionStore（SQLite）、AgentSessionDiscovery
+    State/      # SessionStore（actor，唯一状态入口）、FileSyncScheduler、ToolEventProcessor
+    Hooks/      # HookSocketServer（/tmp/agent-island.sock）、HookInstaller
+    Chat/       # ChatHistoryManager
+    Tmux/       # 审批键序下发：ToolApprovalHandler、TmuxController/TargetFinder/Matcher
+    Window/     # 聚焦终端窗口：WindowFinder/Focuser、YabaiController
+    Update/     # Sparkle 更新 UI 做进刘海（NotchUserDriver）
+  UI/
+    Components/ # 角标/图标/设置行套件（SettingsKit）/形状/调色
+    Views/      # NotchView（关闭态 + 展开态）、NotchMenuView/NotchMenuPages（设置面板）、ClaudeInstancesView（会话列表）、ChatView（对话）
+    Window/     # NSPanel 宿主：NotchPanel、NotchWindowController、NotchViewController
+  Resources/    # Localizable.xcstrings、三个 Agent 侧集成资源（.py/.js/.ts.txt）、entitlements
+scripts/        # build.sh / build-and-install.sh / create-release.sh / generate-keys.sh / check-localization.py / make-appicon.py
+```
+
+## 架构
+
+### 事件驱动的单一状态源
+
+```
+Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
+  → Unix socket /tmp/agent-island.sock（每条连接一个 JSON 对象，snake_case 字段）
+  → HookSocketServer（GCD DispatchSource）→ SessionEvent
+  → SessionStore.process(_:)   ← actor，唯一的状态变更入口
+  → sessionsPublisher（Combine）→ ChatHistoryManager / ClaudeInstancesView …
+  → SwiftUI 重绘
+
+未装集成的会话：AgentSessionDiscovery 定时扫记录目录（或库）→ 登记会话 + 触发增量读取
+  → 状态由记录内容推断（SessionStore.applyTranscriptActivity）
+```
+
+- 所有会话状态变化都只经过 `SessionStore.process(_:)`；视图不直接改状态。
+- 权限审批是请求/响应：`HookSocketServer` 收到需要响应的事件后保持连接，等刘海上的批准/拒绝，再由 `ToolApprovalHandler` 通过 tmux 把键序发给正确的 pane。`PermissionRequest` 不带 `tool_use_id`，靠 `PreToolUse` 的 `sessionId:toolName:tool_input` 缓存做关联。
+
+### 新增一个 Agent 要动的地方（接入面）
+
+1. `Models/AgentKind.swift` 加 case（rawValue 即命令行名），补 displayName/shortName/图标/调色分支；
+2. `Services/Agents/`：实现 `AgentProvider`（`paths()`、`transcriptFile`、`isTranscriptFile`、`sessionId(fromTranscriptFile:)`、`cwd(fromTranscriptFile:)`、`subagentTranscriptFiles`、`integrationStatus()`），并在 `AgentRegistry.all` 注册；
+3. `Services/Session/`：加记录解析实现（`TranscriptSchema` 家族），接入 `ConversationParser` 的 schema 注册表；
+4. `Resources/` 放集成资源，并接 `AgentIntegrationInstaller` 的安装/卸载（安装与卸载必须一一对应）；
+5. `UI/` 的 `AgentBadge`/`AgentSettingsSection`/角标动效按 kind 自动生效，一般无需改动。
+
+### 本地化（必须遵守的不变量）
+
+- 界面文案一律 `LocalizationManager.t("…")`（`nonisolated` 静态入口供后台代码使用）；**键就是英文源文案**，`Localizable.xcstrings` 的 `sourceLanguage = en`，语言固定为 `en` / `zh-Hans`。
+- 禁止 `Text("…")` 字面量、`NSLocalizedString`、`String(localized:)`、`localizedString(forKey:)`：它们由平台按 `Bundle.main` 解析，读不到运行时选定的 `.lproj`，会出现「切了语言没变」。
+- 新增文案必须同时做两件事：写 `t("…")` 调用 + 在 catalog 里加键并补 `en`/`zh-Hans` 两侧；两侧格式符集合必须一致，复数变化的每一档都要有。
+- 数字/日期/度量衡走环境 `\.locale`（根视图 `LocalizedRoot` 注入），不要手写格式。
+- 以上规则已静态化在 `scripts/check-localization.py`：**改完文案必须跑它**（`build.sh` / `build-and-install.sh` 的第一步也是它）。
+
+### 刘海窗口
+
+- `WindowManager` + `NotchWindowController` 把 `NSPanel`（`NotchPanel`）贴在当前屏幕顶部；`NotchGeometry` 是纯几何（命中矩形 + 展开尺寸），`NotchViewModel` 持有 closed/open 状态、打开原因、内容类型（会话列表 / 聊天 / 设置）与动画。
+- 有真实刘海的屏按 `deviceNotchRect` 定位；无刘海屏（外接显示器）改为与菜单栏等高，高度也可在设置里固定（`NotchHeightSelector`）。
+- 关闭态只画左侧标记 + 右侧计数；**计数颜色与标记同源**（`headerAgent?.brandColor`），状态由标记动效与琥珀色审批指示表达 —— 不要用颜色编码状态。
+- 悬停/点击靠 `EventMonitors` 的全局鼠标监听 + `NotchGeometry` 命中判定；`PassThroughHostingView` 保证非交互区域不吞事件。
+
+### 集成安装面（AgentIsland 唯一会写入的 Agent 侧文件）
+
+| Agent | 写入位置 |
+|---|---|
+| Claude Code | `~/.claude/hooks/agent-island-state.py` + `~/.claude/settings.json` 里的 hook 条目 |
+| omp / pi | `<agent 目录>/extensions/agent-island-state.ts` |
+| OpenCode | `~/.config/opencode/plugins/agent-island-state.js` |
+
+停用某个 Agent 时对应集成必须删干净，包括改名前的旧脚本名 `claude-island-state.py`（`HookInstaller.legacyHookScriptNames`），否则旧脚本会继续往废弃 socket 发状态。
+
+### 更新与发布
+
+- Sparkle：`Info.plist` 的 `SUFeedURL` 指向 GitHub Pages（`gh-pages` 分支根目录的 `appcast.xml`），`SUPublicEDKey` 是本仓库自有 EdDSA 公钥；私钥在 `.sparkle-keys/`（gitignore，**绝不提交、也不要贴进日志或提交信息**）。`NotchUserDriver` 把更新提示做在刘海内。
+- 发版前必须 bump `CURRENT_PROJECT_VERSION`（appcast 里的 `sparkle:version` 就是它）：build 号不变，已装用户收不到更新提示。
+- 发布验收要独立复核：release 附件字节与本地 DMG 一致（`shasum`）、appcast 的 `length`/`edSignature` 与产物一致、`sign_update --verify` 通过。
+
+## 约束
+
+- **注释一律中文**：新增文件、被改动代码的注释（含 `///` 文档注释与 `// MARK:` 标题）。文件头保留既有「文件路径 + 中文简述」注释块风格。
+- 并发：跨隔离域使用的类型/协议/值类型显式 `nonisolated`（工程默认 `MainActor` 隔离，漏标会出隔离错误或整树告警）；共享可变状态用 actor 或 `@Observable`；UI 相关协议与视图代码留在主 actor。
+- 日志用 `os.Logger`，subsystem 统一 `com.celestial.AgentIsland`，category 取组件名（`Session`/`Hooks`/`Integration`/`Discovery`/`OpenCode`/`Window`/`ProcessExecutor`…）。新代码不用 `print`（`AppDelegate` 里几处是遗留，别跟着写）。
+- 资源命名：`.ts` 会被 Xcode 判成源码而不进 Resources，所以随包资源叫 `agent-island-pi-extension.ts.txt`，安装时再写成 `agent-island-state.ts`。
+- 偏好域跟着 bundle id（`com.celestial.AgentIsland`）。改名/换 id 时必须保留并扩展 `AppSettings.migrateLegacyDefaultsIfNeeded()`、`HookInstaller.legacyHookScriptNames` 这类迁移入口 —— 它们是兼容层，不是待清理的残留。
+- 版面常量集中在 `NotchGeometry` / `Core/NotchMenuLayout.swift` / `UI/Components/SettingsKit.swift` / `AgentPalette.swift`，不要散落魔法数字；关闭态与展开态的尺寸是对齐像素调出来的，改动要有截图取证。
+
+## 已知坑
+
+- 本机 Xcode 在 `/Applications/Xcode.app` 且许可已接受，直接用 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`。只有 CommandLineTools 的机器上 `xcodebuild` 会报未接受许可，此时用 `swiftc -typecheck -swift-version 5 -default-isolation MainActor`（`-default-isolation MainActor` 必需，缺它会报一堆幻影隔离错误）兜底。
+- 本机 OMP 配置开启了写文件格式化：用编辑工具直接改 Swift 文件会被整文件重排（4 空格 ↔ 2 空格），外科手术式改动请用 python 精确替换后核对 `git diff --stat`。
+- 想验证刘海 UI 行为，可往 `/tmp/agent-island.sock` 灌一条合成事件（字段为 snake_case，如 `{"session_id":"x","cwd":"/tmp","event":"SessionStart","status":"running"}`）驱动真实运行中的应用，再截图取帧。
+- 共享工作树里常有多会话并行：易冲突文件是 `Localizable.xcstrings`、`UI/Views/NotchMenuPages.swift`、`README*.md`。
+
+<delegation_rules>
+何时委托子代理 vs 直接处理：
+
+- 新增 Agent、改事件流/状态机、跨层重构 -> 先 planner 出文件级方案，再 executor 实现
+- 单文件 UI 调整、文案、设置项、README -> 直接处理
+- 编译失败、运行期崩溃、socket/解析异常 -> troubleshooter
+- 实现完成后的独立审查 -> code-reviewer（审查者不参与编写，保持视角分离）
+- 探索陌生子系统（记录格式、socket 协议、窗口行为）-> scout 只读侦察，再动手
+</delegation_rules>
+
+<model_routing>
+- haiku / sonic：找文件、改配置、机械替换
+- sonnet：常规 SwiftUI 视图、Provider/schema 实现、脚本改动、代码审查
+- opus：并发与隔离设计、事件流/状态机改动、跨 Agent 抽象、发版链路
+</model_routing>
+
+<verification>
+声称完成前必须确认：
+
+- 编译改动 -> 跑上面的 xcodebuild 门禁，`(error|warning)` 计数为 0（含警告；只看到 BUILD SUCCEEDED 不算过）
+- 文案/本地化改动 -> `python3 scripts/check-localization.py`，0 错误
+- 刘海可见行为（关闭态形态、动效、计数、面板高度）-> 装到 /Applications 上实机观察 + 截图取证（没有测试 target，纯逻辑覆盖不到）
+- 集成安装/卸载改动 -> 确认 Agent 侧文件确实写入/删除，且未破坏用户既有配置（`~/.claude/settings.json` 等）
+- 发布 -> build 号已 bump、release 附件与本地产物字节一致、appcast 签名校验通过
+- 没跑过对应命令前，不得声称「应该能编译 / 应该没问题」
+</verification>
+
+<execution_protocols>
+- 范围不明确 -> 先读该层现有实现（`Services/`、`UI/`）再给方案
+- 2 个以上互不依赖的任务 -> 并行 subagent；共享文件（catalog、`NotchMenuPages.swift`）由单一写者独占
+- 工作树常被多个会话同时修改：提交只用显式 pathspec（`git commit -- <文件>`），不要 `git add -A` / `git add .`，不要把别人未提交的改动卷进自己的提交
+- 耗时的构建/发布脚本 -> 后台跑并落日志文件，再从日志取判据
+- 结束前确认：门禁 0 诊断、守卫通过、实机证据到手
+</execution_protocols>
+
+## 行为准则
+
+1. **先想再写**：不臆测；有歧义先读代码或提问；暴露权衡，必要时反驳。
+2. **简洁优先**：用最少的代码解决问题，不做投机性抽象、不加未被要求的开关。
+3. **外科手术式改动**：只动与任务相关的代码；触碰到的代码按本文件规范写，不复制坏模式；自己造成的孤儿（未用变量/导入）要清掉，别人的死代码只提出不动手。
+4. **目标驱动**：「让它能编译」不算成功标准 —— 写成可验证判据（门禁 0 诊断、守卫通过、截图里看到什么），然后循环到通过。
+5. **并行提速**：可拆即拆，但子任务必须有清晰的文件边界；并行结束后统一跑一次门禁。
+6. **及时提交**：每个有意义的单元就 commit；提交前检查只包含自己的文件；完成后派独立审查者复核，循环到无严重问题。
+7. **交付前多维度审查**：功能完整性、代码质量、安全（socket/权限/集成写文件）、兼容与回归（改名遗留、偏好迁移）。任一维度有缺陷即未完成。
+8. **消融验证**：「说得通」不等于「有必要」——怀疑某个开关/参数有用时，删掉重跑对比，用证据决定去留。
+9. **独立判断先行**：派发并行 subagent 前自己先形成判断；对齐时以证据为准，不因结论来自某个 Agent 或听起来合理就放行。
