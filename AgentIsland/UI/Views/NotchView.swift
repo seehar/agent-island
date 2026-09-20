@@ -420,7 +420,7 @@ struct NotchView: View {
     }
    } label: {
     ZStack(alignment: .topTrailing) {
-     Image(systemName: viewModel.contentType == .menu ? "xmark" : "line.3.horizontal")
+     Image(systemName: viewModel.contentType == .menu ? "xmark" : "gearshape")
       .font(.system(size: 11, weight: .medium))
       .foregroundColor(.white.opacity(0.4))
 
