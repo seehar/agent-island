@@ -530,7 +530,7 @@ struct NotchView: View {
    guard viewModel.hasPhysicalNotch else { return }
    // 「空闲时的胶囊」为「一直显示」时不隐藏
    guard idleVisibility.option.hidesWhenIdle else { return }
-   DispatchQueue.main.asyncAfter(deadline: .now() + idleVisibility.option.lingerWindow) {
+   DispatchQueue.main.asyncAfter(deadline: .now() + idleVisibility.option.closeDelay) {
     if viewModel.status == .closed && !isAnyProcessing && !hasPendingPermission
      && !hasWaitingForInput && !activityCoordinator.expandingActivity.show
     {

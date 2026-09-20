@@ -183,10 +183,21 @@ nonisolated enum IdleNotchVisibility: String, PreferenceOption {
     static var defaultValue: IdleNotchVisibility { .whenActive }
 
     /// 活动结束后再留一会儿的时长；`always` 不参与（永不隐藏）。
+    /// 0.5s 是改造前 `handleProcessingChange` 的硬编码值。
     var lingerWindow: TimeInterval {
         switch self {
         case .always: return 0
         case .whenActive: return 0.5
+        case .linger: return 3
+        }
+    }
+
+    /// 用户关掉设置面板后再收起的延时。与上面分开：改造前这条路径是 0.35s
+    /// （等收起动画走完），比活动结束那条 0.5s 更急；合并成一个数会改变既有手感。
+    var closeDelay: TimeInterval {
+        switch self {
+        case .always: return 0
+        case .whenActive: return 0.35
         case .linger: return 3
         }
     }
@@ -293,6 +304,22 @@ nonisolated enum SessionRowClickAction: String, PreferenceOption {
 
     static let preferenceKey = "sessionRowClickAction"
     static var defaultValue: SessionRowClickAction { .none }
+
+    /// 单击这一行该做什么；`nil` 表示什么都不做（默认档＝改造前行为）。
+    /// 定位终端只对 tmux 会话有意义，其余退回打开聊天，避免点了没反应。
+    func singleTapTarget(isInTmux: Bool) -> SessionRowTapTarget? {
+        switch self {
+        case .none: return nil
+        case .openChat: return .chat
+        case .focusTerminal: return isInTmux ? .terminal : .chat
+        }
+    }
+}
+
+/// 单击会话行的落点。
+nonisolated enum SessionRowTapTarget: Equatable, Sendable {
+    case chat
+    case terminal
 }
 
 // MARK: - 类型别名（设置行按这个名字取用）

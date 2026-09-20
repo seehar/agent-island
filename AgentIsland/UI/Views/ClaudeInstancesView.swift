@@ -169,20 +169,15 @@ struct InstanceRow: View {
         AgentRegistry.enabled.count > 1
     }
 
-    /// 单击的动作。默认什么都不做——列表行的单击不做事，双击才进聊天。
+    /// 单击的落点由档位决定（见 `SessionRowClickAction.singleTapTarget`）。
     private func handleSingleTap() {
-        switch clickAction.option {
-        case .none:
-            return
-        case .openChat:
+        switch clickAction.option.singleTapTarget(isInTmux: session.isInTmux) {
+        case .chat:
             onChat()
-        case .focusTerminal:
-            // 只有 tmux 会话能定位终端；其余退回打开聊天，避免点了没反应
-            if session.isInTmux {
-                onFocus()
-            } else {
-                onChat()
-            }
+        case .terminal:
+            onFocus()
+        case nil:
+            return
         }
     }
 
@@ -390,13 +385,15 @@ struct InstanceRow: View {
         .padding(.trailing, 14)
         .padding(.vertical, 10)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            onChat()
-        }
-        // 单击的动作按设置；默认「无」——列表行的单击不做事，双击才进聊天。
-        // 双击手势在单击之前声明，SwiftUI 会先等双击窗口过去再触发单击。
-        .onTapGesture(count: 1) {
-            handleSingleTap()
+        // 手势只挂一层，不叠 `count: 1` + `count: 2`：SwiftUI 对两者同时存在时的
+        // 仲裁没有明确契约，而默认档下双击是进聊天的唯一入口，不能拿它赌。
+        // 默认档（无单击动作）保持改造前的「双击进聊天」，设了动作才改成单击。
+        .onTapGesture(count: clickAction.option == .none ? 2 : 1) {
+            if clickAction.option == .none {
+                onChat()
+            } else {
+                handleSingleTap()
+            }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isWaitingForApproval)
         .background(

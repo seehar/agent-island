@@ -169,8 +169,32 @@ struct BehaviorPreferencesTests {
         #expect(NotificationScope.readyAndApprovals.coversApprovals)
     }
 
-    @Test("单击动作默认不做事（保持双击进聊天）")
-    func clickActionDefaultsToNone() {
+    @Test("单击落点：默认不做事；定位终端在非 tmux 会话上退回聊天")
+    func singleTapTargets() {
+        #expect(SessionRowClickAction.none.singleTapTarget(isInTmux: true) == nil)
+        #expect(SessionRowClickAction.openChat.singleTapTarget(isInTmux: false) == .chat)
+        #expect(SessionRowClickAction.focusTerminal.singleTapTarget(isInTmux: true) == .terminal)
+        #expect(SessionRowClickAction.focusTerminal.singleTapTarget(isInTmux: false) == .chat)
+    }
+
+    @Test("默认档逐值保留改造前的行为（升级不改变观感与手感）")
+    func defaultsPreservePreviousBehavior() {
+        // 悬停 1s 自动展开；完成提示 30s；活动结束 0.5s 收起；关掉面板 0.35s 收起
+        #expect(HoverExpand.defaultValue.delay == 1)
+        #expect(CompletionBadge.defaultValue.window == 30)
+        #expect(IdleNotchVisibility.defaultValue.lingerWindow == 0.5)
+        #expect(IdleNotchVisibility.defaultValue.closeDelay == 0.35)
+        // 状态复核 3s、目录扫描 4s；已结束会话立即移除；面板尺寸 100%
+        #expect(RefreshCadence.defaultValue.statusSeconds == 3)
+        #expect(RefreshCadence.defaultValue.discoverySeconds == 4)
+        #expect(SessionRetention.defaultValue.window == 0)
+        #expect(PanelSize.defaultValue.scale == 1)
+        // 列表标准档＝改造前的渲染：活动行 + token 用量，不显示工作目录
+        #expect(SessionRowDensity.defaultValue.showsActivityLine)
+        #expect(SessionRowDensity.defaultValue.showsTokenUsage)
+        #expect(!SessionRowDensity.defaultValue.showsWorkingDirectory)
+        // 提示音仍只覆盖就绪；单击仍什么都不做（双击才进聊天）
+        #expect(!NotificationScope.defaultValue.coversApprovals)
         #expect(SessionRowClickAction.defaultValue == .none)
     }
 }
