@@ -14,6 +14,8 @@
   </p>
 </div>
 
+**English** | [简体中文](README.zh-CN.md)
+
 > **🟢 Actively maintained**
 >
 > Launched v1.2 in December 2025, then took a 4-month break. v1.3 (April 2026) works through the backlog of contributor PRs and bug reports and kicks off a regular cadence again. Open PRs and issues are being reviewed — thanks for your patience.
