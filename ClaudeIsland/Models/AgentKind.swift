@@ -43,16 +43,6 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
         }
     }
 
-    /// 角标使用的 SF Symbol。
-    var symbolName: String {
-        switch self {
-        case .claudeCode: return "asterisk"
-        case .ohMyPi: return "pi"
-        case .pi: return "pi"
-        case .opencode: return "chevron.left.forwardslash.chevron.right"
-        }
-    }
-
     /// CLI 可执行文件名，用于进程发现。
     var binaryName: String {
         switch self {

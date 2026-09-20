@@ -88,9 +88,7 @@ private struct AgentSettingsRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: kind.symbolName)
-                .font(.system(size: 12))
-                .foregroundColor(textColor)
+            AgentLogo(agent: kind, size: 12, color: textColor)
                 .frame(width: 16)
 
             Text(kind.displayName)

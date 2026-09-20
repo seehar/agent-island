@@ -29,17 +29,17 @@ struct NotchView: View {
 
  @Namespace private var activityNamespace
 
- /// Whether any Claude session is currently processing or compacting
+ /// 是否有任意 Agent 的会话正在处理或压缩上下文
  private var isAnyProcessing: Bool {
   sessionMonitor.instances.contains { $0.phase == .processing || $0.phase == .compacting }
  }
 
- /// Whether any Claude session has a pending permission request
+ /// 是否有任意 Agent 的会话正在等待审批
  private var hasPendingPermission: Bool {
   sessionMonitor.instances.contains { $0.phase.isWaitingForApproval }
  }
 
- /// Whether any Claude session is waiting for user input (done/ready state) within the display window
+ /// 是否有任意 Agent 的会话处于等待输入（完成/就绪）状态且还在展示窗口内
  private var hasWaitingForInput: Bool {
   let now = Date()
   let displayDuration: TimeInterval = 30  // Show checkmark for 30 seconds
@@ -71,7 +71,7 @@ struct NotchView: View {
   // Expand for processing activity
   if activityCoordinator.expandingActivity.show {
    switch activityCoordinator.expandingActivity.type {
-   case .claude:
+   case .processing:
     let baseWidth = 2 * max(0, closedNotchSize.height - 12) + 20
     return baseWidth + permissionIndicatorWidth
    case .none:
@@ -215,7 +215,7 @@ struct NotchView: View {
 
  private var isProcessing: Bool {
   activityCoordinator.expandingActivity.show
-   && activityCoordinator.expandingActivity.type == .claude
+   && activityCoordinator.expandingActivity.type == .processing
  }
 
  /// Whether to show the expanded closed state (processing, pending permission, or waiting for input)
@@ -248,14 +248,55 @@ struct NotchView: View {
 
  // MARK: - Header Row (persists across states)
 
+ /// 头部标记归属的 Agent：当前正在查看的聊天会话优先，其次是最需要用户注意的
+ /// 会话，最后退到实例列表首行；都无法归属时不画标记，以免张冠李戴。
+ private var headerAgent: AgentKind? {
+  if case .chat(let session) = viewModel.contentType {
+   return session.agent
+  }
+  return attentionSession?.agent ?? sessionMonitor.instances.first?.agent
+ }
+
+ /// 最需要用户注意的会话：待审批 > 处理中 > 等待输入，同级取最近活动的那个。
+ private var attentionSession: SessionState? {
+  var best: (session: SessionState, rank: Int)?
+  for session in sessionMonitor.instances {
+   guard let rank = attentionRank(session) else { continue }
+   if let current = best,
+    current.rank < rank || (current.rank == rank && current.session.lastActivity >= session.lastActivity)
+   {
+    continue
+   }
+   best = (session, rank)
+  }
+  return best?.session
+ }
+
+ /// 会话的注意力优先级：待审批 0、处理中 1、等待输入 2；其余状态不参与排序。
+ private func attentionRank(_ session: SessionState) -> Int? {
+  if session.phase.isWaitingForApproval { return 0 }
+  if session.phase == .processing || session.phase == .compacting { return 1 }
+  if session.phase == .waitingForInput { return 2 }
+  return nil
+ }
+
+ /// 头部左侧的 Agent 标记。`isSource` 交给 matchedGeometryEffect，
+ /// 让标记在关闭态与展开态的头部之间平滑过渡。
+ @ViewBuilder
+ private func headerLogo(isSource: Bool) -> some View {
+  if let agent = headerAgent {
+   AgentLogo(agent: agent, size: 14, animateLegs: isAnyProcessing)
+    .matchedGeometryEffect(id: "agent-logo", in: activityNamespace, isSource: isSource)
+  }
+ }
+
  @ViewBuilder
  private var headerRow: some View {
   HStack(spacing: 0) {
-   // Left side - crab + optional permission indicator (visible when processing, pending, or waiting for input)
+   // 左侧 - Agent 标记 + 可选审批指示（处理中、待审批、等待输入时可见）
    if showClosedActivity {
     HStack(spacing: 4) {
-     ClaudeCrabIcon(size: 14, animateLegs: isProcessing)
-      .matchedGeometryEffect(id: "crab", in: activityNamespace, isSource: showClosedActivity)
+     headerLogo(isSource: showClosedActivity)
 
      // Permission indicator only (amber) - waiting for input shows checkmark on right
      if hasPendingPermission {
@@ -315,8 +356,7 @@ struct NotchView: View {
    // Show static crab only if not showing activity in headerRow
    // (headerRow handles crab + indicator when showClosedActivity is true)
    if !showClosedActivity {
-    ClaudeCrabIcon(size: 14)
-     .matchedGeometryEffect(id: "crab", in: activityNamespace, isSource: !showClosedActivity)
+    headerLogo(isSource: !showClosedActivity)
      .padding(.leading, 8)
    }
 
@@ -387,7 +427,7 @@ struct NotchView: View {
  private func handleProcessingChange() {
   if isAnyProcessing || hasPendingPermission {
    // Show claude activity when processing or waiting for permission
-   activityCoordinator.showActivity(type: .claude)
+   activityCoordinator.showActivity(type: .processing)
    isVisible = true
   } else if hasWaitingForInput {
    // Keep visible for waiting-for-input but hide the processing spinner

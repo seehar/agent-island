@@ -10,9 +10,10 @@ import SwiftUI
 
 // MARK: - Activity Types
 
-/// Types of activities that can be shown in the notch
+/// 会展开刘海的活动类型。所有 Agent 的处理中状态都走同一条路径，因此这里按
+/// 状态而不是按 Agent 命名。
 enum NotchActivityType: Equatable {
-    case claude      // Claude is processing
+    case processing  // 有会话正在处理
     case none
 }
 
