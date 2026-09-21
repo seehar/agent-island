@@ -81,6 +81,20 @@ nonisolated enum AgentIntegrationInstaller {
     }
   }
 
+  /// 是否有任何一个 Agent 开着「刘海审批闸门」：闸门的两个全局档位（问什么、
+  /// 应用未运行时）没有开着的闸门时没有意义，设置页据此整行禁用。
+  static var hasEnabledGate: Bool {
+    AgentKind.allCases.contains { supportsApprovalGate($0) && AppSettings.isApprovalGateEnabled($0) }
+  }
+
+  /// 重装**已开启闸门**的 Agent 的扩展。档位值烘焙在扩展文件里，换档必须重装才会生效。
+  static func reinstallGateExtensions() {
+    for kind in AgentKind.allCases
+    where supportsApprovalGate(kind) && AppSettings.isApprovalGateEnabled(kind) {
+      install(kind)
+    }
+  }
+
   /// 该集成是否带版本戳：pi 系扩展与 OpenCode 插件都有；Claude 的 hook 脚本没有。
   static func hasVersionedIntegration(_ kind: AgentKind) -> Bool {
     switch kind {

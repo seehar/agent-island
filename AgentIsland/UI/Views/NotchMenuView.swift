@@ -17,7 +17,6 @@ struct NotchMenuView: View {
     @ObservedObject var statsViewModel: UsageStatsViewModel
     @ObservedObject private var updateManager = UpdateManager.shared
     @ObservedObject private var screenSelector = ScreenSelector.shared
-    @ObservedObject private var soundSelector = SoundSelector.shared
     @ObservedObject private var l10n = LocalizationManager.shared
 
     @State private var isBackHovered = false
@@ -51,9 +50,10 @@ struct NotchMenuView: View {
 
     // MARK: - 页眉
 
-    /// 页眉：返回会话列表的箭头 + 页面标题。面板右上角的关闭按钮也在做同一件事，
+    /// 页眉：返回会话列表的箭头 + 当前分组的标题。面板右上角的关闭按钮也在做同一件事，
     /// 但设置页自己需要一条导航式的返回与一个能说明「这是哪一页」的标题。
-    /// 标题保持「设置」不变：当前在哪一分组由顶部的分段控件表达（统计分组也一样）。
+    /// 标题取当前分组名（与分段条同一份映射，见 `NotchMenuSection.title(_:)`）：
+    /// 只说「设置」等于让页眉、分段条、返回箭头三条信息说同一件事，标题本身不表达位置。
     private var pageHeader: some View {
         HStack(spacing: 6) {
             Button {
@@ -73,7 +73,7 @@ struct NotchMenuView: View {
             .onHover { isBackHovered = $0 }
             .accessibilityLabel(Text(l10n.t("Back")))
 
-            Text(l10n.t("Settings"))
+            Text(viewModel.menuSection.title(l10n))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(AppPalette.primaryText)
 
@@ -89,7 +89,7 @@ struct NotchMenuView: View {
     private var page: some View {
         switch viewModel.menuSection {
         case .general:
-            GeneralSettingsPage(screenSelector: screenSelector, soundSelector: soundSelector)
+            GeneralSettingsPage(screenSelector: screenSelector)
         case .behavior:
             BehaviorSettingsPage()
         case .agents:

@@ -15,10 +15,10 @@ import SwiftUI
 
 // MARK: - 通用
 
-/// 「通用」页：语言、显示屏幕、胶囊高度、通知音效，以及登录时启动与辅助功能授权。
+/// 「通用」页：语言、显示屏幕、胶囊高度、胶囊宽度、内容字号、面板尺寸，
+/// 以及登录时启动与辅助功能授权。通知音效在「行为」页的「通知」组里（与提示音覆盖范围同组）。
 struct GeneralSettingsPage: View {
     @ObservedObject var screenSelector: ScreenSelector
-    @ObservedObject var soundSelector: SoundSelector
     @ObservedObject private var l10n = LocalizationManager.shared
 
     /// 登录时启动的实时状态，进入页面与回到应用时按系统状态刷新。
@@ -34,7 +34,18 @@ struct GeneralSettingsPage: View {
                 NotchHeightPickerRow()
                 NotchWidthPickerRow()
                 TextSizePickerRow()
-                SoundPickerRow(soundSelector: soundSelector, showsSeparator: false)
+                // 「面板尺寸」与胶囊高度、宽度、字号同属「面板长什么样」，从行为页搬来：
+                // 它同时是行为页高度的对价——行为页让出一行，音效那一行才装得下。
+                PreferencePickerRow(
+                    badge: SettingsBadge(
+                        source: .symbol(
+                            name: "arrow.up.left.and.arrow.down.right", tint: AppPalette.accent)),
+                    title: l10n.t("Panel Size"),
+                    selector: PanelSizeSelector.shared,
+                    label: panelSizeLabel,
+                    detail: panelSizeDetail,
+                    showsSeparator: false
+                )
             }
 
             SettingsGroup(title: l10n.t("System")) {
@@ -83,15 +94,33 @@ struct GeneralSettingsPage: View {
             launchAtLoginError = l10n.t("Failed to update login item")
         }
     }
+
+    // MARK: - 文案
+
+    /// 面板尺寸档位文案（随那一行一起从行为页搬来，只被它使用）。
+    private func panelSizeLabel(_ option: PanelSize) -> String {
+        switch option {
+        case .compact: return l10n.t("Compact")
+        case .standard: return l10n.t("Standard")
+        case .wide: return l10n.t("Wide")
+        }
+    }
+
+    private func panelSizeDetail(_ option: PanelSize) -> String? {
+        settingsPercentLabel(option.scale)
+    }
 }
 
 // MARK: - 智能体
 
-/// 「智能体」页：各 Agent CLI 的监控开关与实时集成状态，以及 Claude Code 的
-/// 配置目录。Claude Code 一行同时负责其 hook 集成的安装与卸载，因此设置里
-/// 不再单独提供 Hooks 开关。
+/// 「智能体」页：各 Agent CLI 的监控开关与实时集成状态、全局的审批闸门策略，
+/// 以及 Claude Code 的配置目录。Claude Code 一行同时负责其 hook 集成的安装与
+/// 卸载，因此设置里不再单独提供 Hooks 开关。
 struct AgentsSettingsPage: View {
     @ObservedObject private var l10n = LocalizationManager.shared
+    /// 有没有开着的闸门：闸门卡片的两行据此启用/禁用。由 Agent 行的闸门开关回调刷新
+    /// （兄弟视图不会因为对方改了自己的 `@State` 而重画，所以这条得由页面来记）。
+    @State private var hasEnabledGate = AgentIntegrationInstaller.hasEnabledGate
 
     var body: some View {
         VStack(alignment: .leading, spacing: NotchMenuMetrics.groupSpacing) {
@@ -99,22 +128,36 @@ struct AgentsSettingsPage: View {
                 title: l10n.t("Monitored Agents"),
                 footnote: l10n.t("Turning an agent off also uninstalls its live integration.")
             ) {
-                AgentSettingsSection()
+                AgentSettingsSection(
+                    onGateStateChanged: {
+                        hasEnabledGate = AgentIntegrationInstaller.hasEnabledGate
+                    }
+                )
+            }
+
+            // 闸门策略是**全局**的（问什么 / 应用未运行时 / 待批时自动展开），不属于任何
+            // 单个 Agent，因此从 Agent 列表卡片里拎出来单独成卡。
+            SettingsGroup(title: l10n.t("Approval Gate")) {
+                ApprovalGateSettingsGroup(isEnabled: hasEnabledGate)
             }
 
             SettingsGroup(title: l10n.t("Claude Code")) {
                 ClaudeDirPickerRow(showsSeparator: false)
             }
         }
+        .onAppear { hasEnabledGate = AgentIntegrationInstaller.hasEnabledGate }
     }
 }
 
 // MARK: - 行为
 
-/// 「行为」页：胶囊的交互与空闲表现、会话列表的内容与刷新频率、提示音的覆盖范围。
+/// 「行为」页：胶囊的交互与空闲表现、会话列表的内容与刷新频率、通知（音效与覆盖范围）。
 /// 每行都是一个枚举档位；选项文案在本文件里按字面量取键，本地化守卫才能审计到。
+/// 「待批时自动展开」是审批策略，在「智能体」页的「审批闸门」卡片里（见 `ApprovalGateSettingsGroup`）。
 struct BehaviorSettingsPage: View {
     @ObservedObject private var l10n = LocalizationManager.shared
+    /// 通知音效行（在「通知」组里，与提示音覆盖范围同组）。
+    @ObservedObject private var soundSelector = SoundSelector.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: NotchMenuMetrics.groupSpacing) {
@@ -136,27 +179,10 @@ struct BehaviorSettingsPage: View {
                 )
                 PreferencePickerRow(
                     badge: SettingsBadge(
-                        source: .symbol(
-                            name: "exclamationmark.circle", tint: AppPalette.accent)),
-                    title: l10n.t("Approval Auto Expand"),
-                    selector: ApprovalAutoExpandSelector.shared,
-                    label: approvalAutoExpandLabel
-                )
-                PreferencePickerRow(
-                    badge: SettingsBadge(
                         source: .symbol(name: "checkmark.circle", tint: AppPalette.accent)),
                     title: l10n.t("Completion Badge"),
                     selector: CompletionBadgeSelector.shared,
-                    label: completionBadgeLabel
-                )
-                PreferencePickerRow(
-                    badge: SettingsBadge(
-                        source: .symbol(
-                            name: "arrow.up.left.and.arrow.down.right", tint: AppPalette.accent)),
-                    title: l10n.t("Panel Size"),
-                    selector: PanelSizeSelector.shared,
-                    label: panelSizeLabel,
-                    detail: panelSizeDetail,
+                    label: completionBadgeLabel,
                     showsSeparator: false
                 )
             }
@@ -195,6 +221,8 @@ struct BehaviorSettingsPage: View {
             }
 
             SettingsGroup(title: l10n.t("Notifications")) {
+                // 音效与「提示音覆盖哪些事件」是同一件事的两半，放在同一组里
+                SoundPickerRow(soundSelector: soundSelector)
                 PreferencePickerRow(
                     badge: SettingsBadge(
                         source: .symbol(name: "bell", tint: AppPalette.accent)),
@@ -230,16 +258,6 @@ struct BehaviorSettingsPage: View {
         }
     }
 
-    private func approvalAutoExpandLabel(_ option: ApprovalAutoExpand) -> String {
-        switch option {
-        // 不复用空闲胶囊那行的 "Always" / "Never"：键就是英文原文，复用会让中文渲染成
-        // 「一直显示 / 从不」，与「自动展开」这件事不是一回事。
-        case .whenTerminalIsSilent: return l10n.t("Only When the Notch Decides")
-        case .always: return l10n.t("Always Expand")
-        case .never: return l10n.t("Never Expand")
-        }
-    }
-
     private func completionBadgeLabel(_ option: CompletionBadge) -> String {
         switch option {
         case .short: return l10n.t("10 Seconds")
@@ -247,18 +265,6 @@ struct BehaviorSettingsPage: View {
         case .long: return l10n.t("1 Minute")
         case .persistent: return l10n.t("Always")
         }
-    }
-
-    private func panelSizeLabel(_ option: PanelSize) -> String {
-        switch option {
-        case .compact: return l10n.t("Compact")
-        case .standard: return l10n.t("Standard")
-        case .wide: return l10n.t("Wide")
-        }
-    }
-
-    private func panelSizeDetail(_ option: PanelSize) -> String? {
-        settingsPercentLabel(option.scale)
     }
 
     private func sessionRetentionLabel(_ option: SessionRetention) -> String {

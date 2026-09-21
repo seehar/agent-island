@@ -148,20 +148,22 @@ class NotchViewModel: ObservableObject {
     private func expandedPickerHeight(for section: NotchMenuSection) -> CGFloat {
         switch section {
         case .general:
-            // 通用页有六个可展开的选择器：语言、屏幕、胶囊高度、胶囊宽度、内容字号、通知音效。
+            // 通用页有六个可展开的选择器：语言、屏幕、胶囊高度、胶囊宽度、内容字号、面板尺寸。
+            // 音效不在这里——它已归到行为页的「通知」组（见 NotchMenuPages）。
             return languageSelector.expandedPickerHeight
                 + screenSelector.expandedPickerHeight
                 + heightSelector.expandedPickerHeight
                 + widthSelector.expandedPickerHeight
                 + textSizeSelector.expandedPickerHeight
-                + soundSelector.expandedPickerHeight
+                + PanelSizeSelector.shared.expandedPickerHeight
         case .behavior:
-            // 行为页的选择器都是同一个骨架，逐个累加各自的展开高度
+            // 行为页的选择器都是同一个骨架，逐个累加各自的展开高度。
+            // 通知音效那一行也在这里（4 档可见，超出的在选项列表里滚动）。
             return [
                 HoverExpandSelector.shared.expandedPickerHeight,
                 IdleNotchVisibilitySelector.shared.expandedPickerHeight,
                 CompletionBadgeSelector.shared.expandedPickerHeight,
-                PanelSizeSelector.shared.expandedPickerHeight,
+                SoundSelector.shared.expandedPickerHeight,
                 SessionRetentionSelector.shared.expandedPickerHeight,
                 SessionRowDensitySelector.shared.expandedPickerHeight,
                 SessionRowClickActionSelector.shared.expandedPickerHeight,
@@ -169,9 +171,12 @@ class NotchViewModel: ObservableObject {
                 NotificationScopeSelector.shared.expandedPickerHeight,
             ].reduce(0, +)
         case .agents:
-            // 智能体页有两个可展开的选择器：Claude 配置目录、审批降级档
+            // 智能体页有四个可展开的行：三个闸门档位（问什么 / 应用未运行时 /
+            // 待批时自动展开）与 Claude 配置目录。
             return claudeDirSelector.expandedPickerHeight
                 + ApprovalDegradationSelector.shared.expandedPickerHeight
+                + ApprovalAskScopeSelector.shared.expandedPickerHeight
+                + ApprovalAutoExpandSelector.shared.expandedPickerHeight
         case .statistics:
             // 统计页没有选择器：时间窗口是页内控件（滑块），不占面板高度增量。
             return 0
@@ -235,6 +240,8 @@ class NotchViewModel: ObservableObject {
 
         // 行为类偏好：展开态影响面板高度，取值影响面板尺寸等派生值，
         // 因此统一按「任一变化即重发布」订阅。
+        // 「待批时自动展开」与「问什么」也跟着「智能体」页的高度走：它们在那一页展开时
+        // 同样要撑高面板。
         observe(PanelSizeSelector.shared)
         observe(HoverExpandSelector.shared)
         observe(IdleNotchVisibilitySelector.shared)
@@ -244,6 +251,8 @@ class NotchViewModel: ObservableObject {
         observe(RefreshCadenceSelector.shared)
         observe(NotificationScopeSelector.shared)
         observe(SessionRowClickActionSelector.shared)
+        observe(ApprovalAskScopeSelector.shared)
+        observe(ApprovalAutoExpandSelector.shared)
     }
 
     /// 订阅一个枚举偏好的任何变化（取值或展开态），让读到它的视图重算。

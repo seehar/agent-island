@@ -45,9 +45,14 @@ struct NotchMenuTabBar: View {
                 Image(systemName: section.symbolName)
                     .font(.system(size: 10, weight: .semibold))
 
-                Text(title(for: section))
+                // 缩字而不是截断：面板 480 宽时每段 108pt（标签内容 45~53pt，宽裕），
+                // 但「面板尺寸」档 compact（0.88 → 面板 422）时每段只剩约 79pt，
+                // 而英文 Statistics 标签约 76pt——已经顶满，靠这档缩放兜底。
+                Text(section.title(l10n))
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .allowsTightening(true)
             }
             .foregroundColor(foregroundColor(for: section))
             .frame(maxWidth: .infinity)
@@ -69,27 +74,31 @@ struct NotchMenuTabBar: View {
                 hoveredSection = nil
             }
         }
-        .accessibilityLabel(Text(title(for: section)))
+        .accessibilityLabel(Text(section.title(l10n)))
     }
 
     // MARK: - 表现
 
-    /// 段标题。在视图里解析而不是放进 `NotchMenuSection`：key 保持字面量，
-    /// 本地化守卫才能审计到；同时在观察 `LocalizationManager` 的视图内解析，
-    /// 切换语言才会重新渲染。
-    private func title(for section: NotchMenuSection) -> String {
-        switch section {
+    private func foregroundColor(for section: NotchMenuSection) -> Color {
+        if section == selection { return AppPalette.primaryText }
+        if hoveredSection == section { return Color.white.opacity(0.75) }
+        return AppPalette.secondaryText
+    }
+}
+
+// MARK: - 分组标题
+
+extension NotchMenuSection {
+    /// 分组标题：分段条与设置面板的页眉共用同一份映射（页眉要说清「现在在哪一页」）。
+    /// 在视图里解析而不是放进 `NotchMenuSection`：key 保持字面量，本地化守卫才能审计到；
+    /// 同时在观察 `LocalizationManager` 的视图内解析，切换语言才会重新渲染。
+    func title(_ l10n: LocalizationManager) -> String {
+        switch self {
         case .general: return l10n.t("General")
         case .behavior: return l10n.t("Behavior")
         case .agents: return l10n.t("Agents")
         case .statistics: return l10n.t("Statistics")
         case .about: return l10n.t("About")
         }
-    }
-
-    private func foregroundColor(for section: NotchMenuSection) -> Color {
-        if section == selection { return AppPalette.primaryText }
-        if hoveredSection == section { return Color.white.opacity(0.75) }
-        return AppPalette.secondaryText
     }
 }

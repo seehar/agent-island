@@ -4519,6 +4519,22 @@
         }
       }
     },
+    "Approval Gate" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Approval Gate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "审批闸门"
+          }
+        }
+      }
+    },
     "Only When the Notch Decides" : {
       "localizations" : {
         "en" : {

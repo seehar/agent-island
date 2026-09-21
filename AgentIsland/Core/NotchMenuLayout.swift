@@ -111,13 +111,17 @@ nonisolated enum NotchMenuMetrics {
     /// 关于页的标识块（图标 + 名称 + 版本）的高度。
     static let appIdentityHeight: CGFloat = 99
     /// 面板高度上限：分组内容超出时由页内滚动接管，面板不再继续变长。
-    /// 上限取 728 是为了保证「展开的东西看得见」：通用页最高的单个展开是音效
-    /// （6 行选项，718）；行为页内容更高（536），最高的单个展开是 4 档（138），
-    /// 加刘海屏默认的固定开销（44~50）是 718~724，仍在上限内。
+    ///
+    /// 判据可核算：**每页都要满足「内容高 + 该页最高的单个展开 + 44 ≤ 728」**
+    /// （44 是外部屏的固定开销，刘海屏是 50）。改任何一页的行数、档位数或某个选择器
+    /// 的可见选项数，都要重核这一条——`NotchMenuMetricsTests` 有一条表驱动的用例钉着它。
+    /// 现状：通用 654、行为 718、智能体 698、统计 696（刘海屏 50 时是 660 / 724 /
+    /// 704 / 702，仍在上限内）。行为页的最高展开由音效选择器的
+    /// `SoundSelector.maxVisibleOptions`（4 档）与 4 档枚举共同决定：把任一项改大，
+    /// 最后一个档位就落到可视区外（页内滚动条是隐藏的，用户看不到还有内容）。
     /// 固定开销不是常数——它含胶囊高度，而胶囊高度可调（自定义最高 64 → 开销 76）：
     /// 那时行为页 674 + 76 = 750 会超出上限 22pt，由页内滚动接管。
     /// 再多一起展开同样交给页内滚动——没有哪个上限能容下所有组合。
-    /// **行为页的单个选择器不要超过 4 档**：5 档（170）连默认开销都放不下。
     static let maxPanelHeight: CGFloat = 728
 
     // MARK: - 推导
@@ -185,29 +189,29 @@ nonisolated enum NotchMenuMetrics {
         switch section {
         case .general:
             return [
-                // 界面：语言 / 屏幕 / 胶囊高度 / 胶囊宽度 / 内容字号 / 通知音效
+                // 界面：语言 / 屏幕 / 胶囊高度 / 胶囊宽度 / 内容字号 / 面板尺寸
                 Block(rows: [rowHeight, rowHeight, rowHeight, rowHeight, rowHeight, rowHeight]),
                 // 系统：登录时启动（开关行，带副标题）/ 辅助功能
                 Block(rows: [twoLineRowHeight, rowHeight]),
             ]
         case .behavior:
             return [
-                // 胶囊：悬停展开 / 空闲可见性 / 待批时自动展开 / 完成提示 / 面板尺寸
-                Block(rows: Array(repeating: rowHeight, count: 5)),
+                // 胶囊：悬停展开 / 空闲可见性 / 完成提示
+                Block(rows: Array(repeating: rowHeight, count: 3)),
                 // 会话：保留已结束的会话 / 列表信息密度 / 单击动作 / 刷新频率
                 Block(rows: Array(repeating: rowHeight, count: 4)),
-                // 通知：提示音覆盖哪些事件
-                Block(rows: [rowHeight]),
+                // 通知：音效 / 提示音覆盖哪些事件
+                Block(rows: Array(repeating: rowHeight, count: 2)),
             ]
         case .agents:
             return [
-                // 监控的智能体：每个 Agent 一行（标题 + 集成状态），末尾接两行选择器
-                // （闸门问什么 / 降级档，都是单行选择行），带一行脚注
+                // 监控的智能体：每个 Agent 一行（标题 + 集成状态），带一行脚注
                 Block(
-                    rows: Array(repeating: twoLineRowHeight, count: AgentKind.allCases.count)
-                        + [rowHeight, rowHeight],
+                    rows: Array(repeating: twoLineRowHeight, count: AgentKind.allCases.count),
                     hasFootnote: true
                 ),
+                // 审批闸门：问什么 / 应用未运行时 / 待批时自动展开（三个全局档位）
+                Block(rows: Array(repeating: rowHeight, count: 3)),
                 // Claude Code：配置目录
                 Block(rows: [rowHeight]),
             ]

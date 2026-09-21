@@ -66,15 +66,30 @@ struct NotchMenuMetricsTests {
         }
     }
 
-    @Test("智能体分组为每个受支持的 Agent 各留一行，末尾接两行选择器")
-    func agentsSectionCoversEveryAgent() {
+    @Test("智能体分组：每个 Agent 一行带脚注，闸门策略与 Claude 目录各一张卡")
+    func agentsSectionSplitsGateIntoSeparateCard() {
         let blocks = NotchMenuMetrics.blocks(for: .agents)
-        // 四个 Agent 各一行（两行行高），末尾是「闸门问什么」与「降级档」两个选择行。
-        let expectedRows =
-            Array(repeating: NotchMenuMetrics.twoLineRowHeight, count: AgentKind.allCases.count)
-            + [NotchMenuMetrics.rowHeight, NotchMenuMetrics.rowHeight]
-        #expect(blocks.first?.rows == expectedRows)
-        #expect(blocks.first?.hasFootnote == true)
+        #expect(blocks.count == 3)
+
+        // 监控的智能体：每个受支持的 Agent 一行（标题 + 集成状态）+ 一行脚注
+        #expect(
+            blocks[0].rows
+                == Array(repeating: NotchMenuMetrics.twoLineRowHeight, count: AgentKind.allCases.count))
+        #expect(blocks[0].hasFootnote == true)
+
+        // 审批闸门：问什么 / 应用未运行时 / 待批时自动展开（三个全局档位）
+        #expect(blocks[1].rows == Array(repeating: NotchMenuMetrics.rowHeight, count: 3))
+
+        // Claude Code：配置目录
+        #expect(blocks[2].rows == [NotchMenuMetrics.rowHeight])
+    }
+
+    @Test("行为分组：胶囊 3 行、会话 4 行、通知 2 行（音效与覆盖范围同组）")
+    func behaviorSectionRowsMatchRegroupedPages() {
+        let blocks = NotchMenuMetrics.blocks(for: .behavior)
+        // 音效从通用页搬进来、面板尺寸搬出去：通知组因此是两行，胶囊组是三行。
+        #expect(blocks.map(\.rows.count) == [3, 4, 2])
+        #expect(blocks.allSatisfy { $0.rows.allSatisfy { $0 == NotchMenuMetrics.rowHeight } })
     }
 
     @Test("没到上限时面板高度就是固定开销加内容加展开量")
@@ -101,12 +116,44 @@ struct NotchMenuMetricsTests {
                 for: .general, expandedPickerHeight: cap - 44 - content, chromeHeight: 44) == cap)
     }
 
-    @Test("上限容得下通用页最高的单个展开（音效的 6 行选项）")
-    func capFitsTallestSingleExpansion() {
-        let expanded = NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 6)
-        let height = NotchMenuMetrics.panelHeight(for: .general, expandedPickerHeight: expanded, chromeHeight: 44)
-        #expect(height == 44 + NotchMenuMetrics.contentHeight(for: .general) + expanded)
-        #expect(height < NotchMenuMetrics.maxPanelHeight)
+    @Test("每页「内容 + 该页最高的单个展开 + 固定开销」都不越过夹取上限")
+    func everySectionFitsCapWithTallestSingleExpansion() {
+        // 每页最高的**单个**展开。改任何一页的行数、某个选择器的档位数（或可见选项数）
+        // 都要跟着改这张表——被夹取意味着最后一个档位落到可视区外（页内滚动条是隐藏的）。
+        let tallestExpansion: [NotchMenuSection: CGFloat] = [
+            // 胶囊高度：3 个来源 + 1 行微调
+            .general: NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 4),
+            // 音效（`SoundSelector.maxVisibleOptions`）与 4 档枚举同高
+            .behavior: NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 4),
+            // 闸门问什么 / 应用未运行时 / 待批时自动展开都是 3 档
+            .agents: NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 3),
+            .statistics: 0,
+            .about: 0,
+        ]
+
+        for section in NotchMenuSection.allCases {
+            let expanded = tallestExpansion[section] ?? 0
+            // 44 = 外部屏的固定开销；刘海屏是 50，两种都要装得下。
+            for chrome in [CGFloat(44), CGFloat(50)] {
+                let height = NotchMenuMetrics.panelHeight(
+                    for: section, expandedPickerHeight: expanded, chromeHeight: chrome)
+                #expect(
+                    height == chrome + NotchMenuMetrics.contentHeight(for: section) + expanded,
+                    "\(section.rawValue) 的最高单个展开被夹取（固定开销 \(chrome)）")
+                #expect(height <= NotchMenuMetrics.maxPanelHeight)
+            }
+        }
+    }
+
+    @Test("音效选择器展开后仍装得进行为页的预算")
+    func soundPickerFitsBehaviorBudget() {
+        // 音效行在行为页的「通知」组里：它的可见档位数就是那一页最高的单个展开。
+        let expanded = NotchMenuMetrics.pickerOptionsHeight(
+            visibleOptions: SoundSelector.maxVisibleOptions)
+        let height = NotchMenuMetrics.panelHeight(
+            for: .behavior, expandedPickerHeight: expanded, chromeHeight: 44)
+        #expect(height == 44 + NotchMenuMetrics.contentHeight(for: .behavior) + expanded)
+        #expect(height <= NotchMenuMetrics.maxPanelHeight)
     }
 
     @Test("选项块高度随选项数线性增长，空列表只留内边距")

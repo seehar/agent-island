@@ -506,6 +506,9 @@ struct NotchView: View {
      .onHover { isMenuButtonHovered = $0 }
     }
     .buttonStyle(SettingsCompactButtonStyle())
+    // 齿轮按钮原本没有无障碍标签（统计按钮有），顺带让 "Settings" 这个键仍有落点：
+    // 设置页眉改成显示当前分组名后，这里是它唯一的引用处。
+    .accessibilityLabel(Text(l10n.t("Settings")))
 
     if showClosedActivity {
      // 计数与齿轮之间补上图标字形在悬停框里的留白，三种元素的字形间距才读得一致。
