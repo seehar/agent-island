@@ -48,6 +48,12 @@ nonisolated enum UsageStatsMetrics {
     static let rangeActionIconGap: CGFloat = 4
     /// 范围分段控件与按钮之间的间距。
     static let rangeActionGap: CGFloat = 8
+    /// 范围段之间的间距（七档范围的宽度预算按它算，见 `UsageStatsLayoutTests`）。
+    static let segmentSpacing: CGFloat = 2
+    /// 范围段文字的缩字下限：七档时每段约 54pt（面板 480），最长的标签是英文
+    /// This Month（11 号 medium 约 60pt），缩到这个比例仍排得下——到不了就截断。
+    /// `UsageStatsLayoutTests` 用真实字体度量钉住这条预算。
+    static let segmentMinimumScale: CGFloat = 0.7
 
     // MARK: - 总览卡
 

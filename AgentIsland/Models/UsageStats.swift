@@ -15,8 +15,18 @@
 
 import Foundation
 
-/// 统计的时间窗口。
+/// 统计的时间窗口。七档分两组：
+///   · **滚动窗口**（近一天 / 近一周 / 近一月）以「现在」为终点，按整桶往回数，
+///     所以桶数与起点都固定（24 / 7 / 30）；
+///   · **日历窗口**（今天 / 本周 / 本月）从本地自然日的边界起算，桶数随当前时刻
+///     在窗口中的位置变化；末尾是「全部」（不限起点，柱图按 `trendDayLimit` 截断）。
 nonisolated enum StatsRange: String, CaseIterable, Identifiable, Sendable {
+  /// 最近 24 小时（含当前小时，按整点对齐）。
+  case lastDay
+  /// 最近 7 天（含今天）。
+  case lastWeek
+  /// 最近 30 天（含今天）。
+  case lastMonth
   /// 今天（本地时区自然日）。
   case today
   /// 本周（起点跟随系统「周起始日」设置）。
@@ -28,16 +38,33 @@ nonisolated enum StatsRange: String, CaseIterable, Identifiable, Sendable {
 
   var id: String { rawValue }
 
-  /// 趋势粒度：当天按小时，其余按天。
+  /// 趋势粒度：一天以内的窗口按小时，其余按天。
   var trendGranularity: TrendGranularity {
-    self == .today ? .hour : .day
+    switch self {
+    case .lastDay, .today:
+      return .hour
+    case .lastWeek, .lastMonth, .week, .month, .all:
+      return .day
+    }
   }
 
   /// 窗口起点；`nil` 表示不限起点（仅「全部」）。
+  ///
+  /// 「近 X」的起点落在整桶上（小时窗口对齐到整点、天窗口对齐到零点），因此首桶
+  /// 总是完整的——对齐到当前分钟会让柱图多出一根只有半截数据的柱子。
   func start(now: Date = Date(), calendar: Calendar = .current) -> Date? {
     switch self {
     case .all:
       return nil
+    case .lastDay:
+      // 24 个整点桶：首桶是 23 小时前的那一小时。
+      return calendar.date(byAdding: .hour, value: -23, to: Self.hourStart(now, calendar: calendar))
+    case .lastWeek:
+      // 7 个自然日（含今天）：首日是 6 天前。
+      return calendar.date(byAdding: .day, value: -6, to: calendar.startOfDay(for: now))
+    case .lastMonth:
+      // 30 个自然日（含今天）：首日是 29 天前。
+      return calendar.date(byAdding: .day, value: -29, to: calendar.startOfDay(for: now))
     case .today:
       return calendar.startOfDay(for: now)
     case .week:
@@ -45,6 +72,70 @@ nonisolated enum StatsRange: String, CaseIterable, Identifiable, Sendable {
     case .month:
       return calendar.dateInterval(of: .month, for: now)?.start
     }
+  }
+
+  /// 趋势的桶计划（粒度 + 首尾桶）。视图的柱子数就是计划里的桶数。
+  ///
+  /// 首尾桶都落在粒度边界上；「全部」只回溯 `trendDayLimit` 天（几百根柱子看不出
+  /// 形状，更早的数据仍计入总量与各 Agent 拆分，只是不进柱图）。
+  func trendPlan(now: Date = Date(), calendar: Calendar = .current) -> TrendPlan {
+    let day = calendar.startOfDay(for: now)
+
+    let first: Date
+    let last: Date
+    switch self {
+    case .lastDay:
+      // 到当前小时为止的 24 个小时桶：右端跟着时钟走。
+      let hour = Self.hourStart(now, calendar: calendar)
+      first = calendar.date(byAdding: .hour, value: -23, to: hour) ?? hour
+      last = hour
+    case .today:
+      // 画满一整天（未来的钟点留空柱）：柱子数与横轴两端不随时钟漂移。
+      first = day
+      last = calendar.date(byAdding: .hour, value: 23, to: day) ?? day
+    case .lastWeek:
+      first = calendar.date(byAdding: .day, value: -6, to: day) ?? day
+      last = day
+    case .lastMonth:
+      first = calendar.date(byAdding: .day, value: -29, to: day) ?? day
+      last = day
+    case .week, .month:
+      let windowStart = start(now: now, calendar: calendar) ?? day
+      first = calendar.startOfDay(for: windowStart)
+      last = day
+    case .all:
+      first = calendar.date(byAdding: .day, value: -(Self.trendDayLimit - 1), to: day) ?? day
+      last = day
+    }
+    return TrendPlan(granularity: trendGranularity, firstBucket: first, lastBucket: last)
+  }
+
+  /// 日粒度柱图最多回溯的天数（含今天）。再往前的数据只有总量与拆分看得到。
+  static let trendDayLimit = 60
+
+  /// 当前小时桶的起点。
+  private static func hourStart(_ now: Date, calendar: Calendar) -> Date {
+    calendar.dateInterval(of: .hour, for: now)?.start ?? now
+  }
+}
+
+/// 趋势桶的计划：粒度（小时 / 天）+ 首尾桶（都落在粒度边界上）。
+nonisolated struct TrendPlan: Equatable, Sendable {
+  var granularity: TrendGranularity
+  var firstBucket: Date
+  var lastBucket: Date
+
+  /// 桶起点序列（升序，含空桶）——数据层据此补空桶，视图直接画。
+  func bucketStarts(calendar: Calendar = .current) -> [Date] {
+    let unit: Calendar.Component = granularity == .hour ? .hour : .day
+    var starts: [Date] = []
+    var cursor = firstBucket
+    while cursor <= lastBucket {
+      starts.append(cursor)
+      guard let next = calendar.date(byAdding: unit, value: 1, to: cursor) else { break }
+      cursor = next
+    }
+    return starts
   }
 }
 
@@ -141,8 +232,12 @@ nonisolated struct UsageStatsSnapshot: Equatable, Sendable {
 
 /// 用量数字的短格式。
 ///
-/// 中文界面按「万 / 亿」（12,488 → 1.2万；69,538,549,758 → 695.4亿），其余语言沿用
-/// K / M 公制词头（词头各语言通用）。小数点符号跟随界面语言。
+/// **缩写后的数字一律保留 2 位小数**（整页数字因此位数一致，也让「万 / 亿」这一档
+/// 的截断误差落到 0.5% 以内——1 位小数时 12,488 会显示成 1.2万，误差 3.9%）；不足
+/// 一个量级的原数按整数显示，不给整数补 `.00`（token 数本身是整数）。
+///
+/// 中文界面按「万 / 亿」（12,488 → 1.25万；69,538,549,758 → 695.39亿），其余语言沿用
+/// K / M 公制词头（词头各语言通用）。小数点符号与千分位跟随界面语言。
 nonisolated enum UsageTokenFormat {
     /// 短格式的 token 数量。
     static func short(_ value: Int, languageCode: String, locale: Locale) -> String {
@@ -150,10 +245,10 @@ nonisolated enum UsageTokenFormat {
             return chineseShort(value, locale: locale)
         }
         if value >= 1_000_000 {
-            return String(format: "%.1fM", locale: locale, Double(value) / 1_000_000)
+            return scaled(Double(value) / 1_000_000, suffix: "M", locale: locale)
         }
         if value >= 1_000 {
-            return String(format: "%.1fK", locale: locale, Double(value) / 1_000)
+            return scaled(Double(value) / 1_000, suffix: "K", locale: locale)
         }
         return value.formatted(.number.locale(locale))
     }
@@ -169,14 +264,9 @@ nonisolated enum UsageTokenFormat {
         return value.formatted(.number.locale(locale))
     }
 
-    /// 保留一位小数；整数结果不带小数点（480 万而不是 480.0 万）。
+    /// 保留 2 位小数（四舍五入）。
     private static func scaled(_ value: Double, suffix: String, locale: Locale) -> String {
-        let rounded = (value * 10).rounded() / 10
-        let text =
-            rounded == rounded.rounded()
-            ? String(Int(rounded))
-            : String(format: "%.1f", locale: locale, rounded)
-        return text + suffix
+        String(format: "%.2f", locale: locale, value) + suffix
     }
 }
 
@@ -194,9 +284,18 @@ nonisolated enum UsageStatsKey {
     String(hourKey.prefix(10))
   }
 
-  /// 把小时键还原成桶起点。
-  static func date(fromHourKey hourKey: String, calendar: Calendar = .current) -> Date? {
-    formatter(for: calendar).date(from: hourKey)
+  /// 趋势用的桶键：小时粒度给 `2026-09-20T14`，天粒度给 `2026-09-20`。
+  /// 统计库的分组表达式（`hour_key` / `substr(hour_key, 1, 10)`）与此一一对应。
+  static func bucket(
+    for date: Date, granularity: TrendGranularity, calendar: Calendar = .current
+  ) -> String {
+    let hourKey = hour(for: date, calendar: calendar)
+    switch granularity {
+    case .hour:
+      return hourKey
+    case .day:
+      return day(of: hourKey)
+    }
   }
 
   private static var cachedFormatter: DateFormatter?

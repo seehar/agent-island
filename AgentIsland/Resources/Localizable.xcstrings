@@ -3988,6 +3988,57 @@
         }
       }
     },
+    "Last 24h" : {
+      "comment" : "统计页的范围段：最近 24 小时（含当前小时，按整点对齐）。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last 24h"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "近一天"
+          }
+        }
+      }
+    },
+    "Last 7d" : {
+      "comment" : "统计页的范围段：最近 7 天（含今天）。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last 7d"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "近一周"
+          }
+        }
+      }
+    },
+    "Last 30d" : {
+      "comment" : "统计页的范围段：最近 30 天（含今天）。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last 30d"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "近一月"
+          }
+        }
+      }
+    },
     "Today" : {
       "localizations" : {
         "en" : {

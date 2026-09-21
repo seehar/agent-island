@@ -44,14 +44,16 @@ struct UsageStatsView: View {
 
     // MARK: - 范围分段控件
 
-    /// 范围切换。只用文字不用图标：四个图标挨在一起反而看不清段的边界，而这个宽度下
-    /// 四种语言的标签都读得全。滑块、悬停与选中色的取法与 `NotchMenuTabBar` 一致，
+    /// 范围切换。只用文字不用图标：图标挨在一起反而看不清段的边界，而这个宽度下各语言
+    /// 的标签都读得全。七档按「滚动窗口（近一天 / 近一周 / 近一月）→ 日历窗口（今天 /
+    /// 本周 / 本月）→ 全部」排，宽度因此是预算过的（见 `rangeSegment` 的缩放下限与
+    /// `UsageStatsLayoutTests`）。滑块、悬停与选中色的取法与 `NotchMenuTabBar` 一致，
     /// 但**不画轨道**——它与设置页的分组切换是上下相邻的两条，轨道相同会被读成同一层。
     private var rangeBar: some View {
         HStack(spacing: UsageStatsMetrics.rangeActionGap) {
             // 不画轨道：设置页顶部已有一条分组分段控件，同一形状再叠一条会被读成
             // 「第二层导航」。这里只留滑块与文字色差，层级因此从属于分组切换。
-            HStack(spacing: 2) {
+            HStack(spacing: UsageStatsMetrics.segmentSpacing) {
                 ForEach(StatsRange.allCases) { range in
                     rangeSegment(range)
                 }
@@ -111,7 +113,9 @@ struct UsageStatsView: View {
                 .appFont(11, weight: .medium)
                 .foregroundColor(foregroundColor(for: range))
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                // 缩字下限按七段的宽度预算给（见 UsageStatsMetrics.segmentMinimumScale）：
+                // 到不了下限就会截断成「This Mont…」。
+                .minimumScaleFactor(UsageStatsMetrics.segmentMinimumScale)
                 .frame(maxWidth: .infinity)
                 .frame(height: UsageStatsMetrics.tabBarHeight - 4)
                 .background {
@@ -141,6 +145,9 @@ struct UsageStatsView: View {
     /// 的视图里解析，切换语言后才会重新渲染。
     private func title(for range: StatsRange) -> String {
         switch range {
+        case .lastDay: return l10n.t("Last 24h")
+        case .lastWeek: return l10n.t("Last 7d")
+        case .lastMonth: return l10n.t("Last 30d")
         case .today: return l10n.t("Today")
         case .week: return l10n.t("This Week")
         case .month: return l10n.t("This Month")
@@ -540,9 +547,10 @@ struct UsageStatsView: View {
     }
 
     /// 缓存命中率：分母为 0 时数据层给 nil（没走过缓存就谈不上命中率），这里显示占位符。
+    /// 小数位与 token 的短格式一致（2 位），整页数字的位数因此统一。
     private var cacheHitRateText: String {
         guard let rate = totals.cacheHitRate else { return Self.unavailableValue }
-        return rate.formatted(.percent.precision(.fractionLength(1)).locale(locale))
+        return rate.formatted(.percent.precision(.fractionLength(2)).locale(locale))
     }
 }
 

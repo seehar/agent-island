@@ -7,6 +7,7 @@
 //  （`NotchWindowController`）——两者都要装得下，且行内两列 + 柱图要排得开。
 //
 
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -73,6 +74,54 @@ struct UsageStatsLayoutTests {
     let barWidth = (contentWidth - spacing * CGFloat(barCount - 1)) / CGFloat(barCount)
 
     #expect(barWidth > 0)
+  }
+
+  @Test("七档范围标签在自己的段宽内排得下（默认档与 compact 档）")
+  func rangeLabelsFitTheirSegments() {
+    // 键与 `UsageStatsView.title(for:)` 一一对应；文案从打包后的 .lproj 取，因此本地化
+    // 改长（或加一档范围）都会让这条用例失败——那时要重新算段宽，而不是让它截断。
+    let keys = ["Last 24h", "Last 7d", "Last 30d", "Today", "This Week", "This Month", "All"]
+    #expect(keys.count == StatsRange.allCases.count)
+
+    let panels: [(name: String, width: CGFloat)] = [
+      ("standard", NotchMenuMetrics.panelWidthMax),
+      ("compact", NotchMenuMetrics.panelWidthMax * PanelSize.compact.scale),
+    ]
+    for panel in panels {
+      let segment = rangeSegmentWidth(panelWidth: panel.width)
+      for key in keys {
+        for code in ["en", "zh-Hans"] {
+          let label = LocalizationManager.bundle(for: code)
+            .localizedString(forKey: key, value: nil, table: nil)
+          // 中文必须真的翻译过：解析不到时会静默回落到英语源文案。
+          if code != "en" {
+            #expect(label != key, "\(key) 没有 \(code) 文案")
+          }
+          let needed = labelWidth(label) * UsageStatsMetrics.segmentMinimumScale
+          #expect(
+            needed <= segment,
+            "\(panel.name) 档下 \(code) 的「\(label)」排不下：需要 \(needed)pt，段宽 \(segment)pt")
+        }
+      }
+    }
+  }
+
+  /// 范围段在给定面板宽度下的可见宽度：内容宽 - 「重新统计」按钮与其间距 - 段间间距。
+  private func rangeSegmentWidth(panelWidth: CGFloat) -> CGFloat {
+    // 统计页不做额外内边距，左右各 8（与 `UsageStatsMetrics.contentWidth` 同源）。
+    let contentWidth = panelWidth - NotchMenuMetrics.listPaddingHeight
+    let barWidth =
+      contentWidth - UsageStatsMetrics.rangeActionWidth - UsageStatsMetrics.rangeActionGap
+    let count = CGFloat(StatsRange.allCases.count)
+    return (barWidth - UsageStatsMetrics.segmentSpacing * (count - 1)) / count
+  }
+
+  /// 标签在统计页字号（11 号 medium）下的排版宽度。设置面板不注入字号档位，
+  /// 所以这里与视图里的 `appFont(11, weight: .medium)` 是同一把尺子。
+  private func labelWidth(_ text: String) -> CGFloat {
+    (text as NSString).size(
+      withAttributes: [.font: NSFont.systemFont(ofSize: 11, weight: .medium)]
+    ).width
   }
 
   @Test("统计入口：图表按钮进统计分组，两个入口的 xmark 不重叠")

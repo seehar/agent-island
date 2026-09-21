@@ -358,11 +358,13 @@ nonisolated final class UsageStatsStore {
     return snapshot
   }
 
-  /// 趋势桶：当天按小时、其余按天，**补齐空桶**，视图直接画。
+  /// 趋势桶：粒度与首尾桶都取自 `StatsRange.trendPlan`（与视图的横轴、桶数同源），
+  /// **补齐空桶**，视图直接画。
   private func trend(
     range: StatsRange, startKey: String?, calendar: Calendar, now: Date
   ) throws -> [TrendPoint] {
-    let grouping = range.trendGranularity == .hour ? "hour_key" : "substr(hour_key, 1, 10)"
+    let plan = range.trendPlan(now: now, calendar: calendar)
+    let grouping = plan.granularity == .hour ? "hour_key" : "substr(hour_key, 1, 10)"
     let rows = try query(
       """
       SELECT \(grouping) AS bucket,
@@ -382,38 +384,10 @@ nonisolated final class UsageStatsStore {
     let byKey = Dictionary(
       rows.map { ($0.0, ($0.1, $0.2)) }, uniquingKeysWith: { first, _ in first })
 
-    let today = calendar.startOfDay(for: now)
-    switch range.trendGranularity {
-    case .hour:
-      return (0..<24).compactMap { offset in
-        guard let date = calendar.date(byAdding: .hour, value: offset, to: today) else {
-          return nil
-        }
-        let key = UsageStatsKey.hour(for: date, calendar: calendar)
-        let value = byKey[key] ?? (0, 0)
-        return TrendPoint(start: date, total: value.0, calls: value.1)
-      }
-    case .day:
-      // 「全部」不能画成几百根柱子：最多回溯 60 天；有更早的数据时以「最早有效起点」为准。
-      let hardStart = calendar.startOfDay(
-        for: calendar.date(byAdding: .day, value: -59, to: today) ?? today)
-      let startDay: Date = {
-        guard let startKey,
-          let earliest = UsageStatsKey.date(fromHourKey: startKey, calendar: calendar)
-        else { return hardStart }
-        return max(calendar.startOfDay(for: earliest), hardStart)
-      }()
-
-      var points: [TrendPoint] = []
-      var cursor = startDay
-      while cursor <= today {
-        let key = UsageStatsKey.day(of: UsageStatsKey.hour(for: cursor, calendar: calendar))
-        let value = byKey[key] ?? (0, 0)
-        points.append(TrendPoint(start: cursor, total: value.0, calls: value.1))
-        guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
-        cursor = next
-      }
-      return points
+    return plan.bucketStarts(calendar: calendar).map { start in
+      let key = UsageStatsKey.bucket(for: start, granularity: plan.granularity, calendar: calendar)
+      let value = byKey[key] ?? (0, 0)
+      return TrendPoint(start: start, total: value.0, calls: value.1)
     }
   }
 

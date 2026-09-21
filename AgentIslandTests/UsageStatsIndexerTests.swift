@@ -180,6 +180,31 @@ struct UsageStatsIndexerTests {
     #expect(all.tools.first?.name == "grep" || all.tools.contains { $0.name == "grep" })
   }
 
+  @Test("滚动窗口：近一天 / 近一周 / 近一月按整桶截断，老记录只进更长的窗口")
+  func rollingRangesWindowTheRecords() throws {
+    let root = try makeFixtureTree()
+    let store = try makeStore(in: root)
+    pass(store).ingest(sources: sources(root: root))
+
+    let now = Date()
+    // 夹具：今天的记录（omp 根 + 子代理 + Claude 主/子代理，输入 161）与 8 天前的一条
+    // （输入 1000）。8 天前在「近一周」窗口外、在「近一月」窗口内。
+    let day = try store.snapshot(range: .lastDay, calendar: calendar, now: now, isIndexing: false)
+    #expect(day.totals.input == 161)
+    #expect(day.trend.count == 24)
+
+    let week = try store.snapshot(range: .lastWeek, calendar: calendar, now: now, isIndexing: false)
+    #expect(week.totals.input == 161)
+    #expect(week.totals.sessions == 2)
+    #expect(week.trend.count == 7)
+
+    let month = try store.snapshot(
+      range: .lastMonth, calendar: calendar, now: now, isIndexing: false)
+    #expect(month.totals.input == 161 + 1000)
+    #expect(month.totals.sessions == 3)
+    #expect(month.trend.count == 30)
+  }
+
   @Test("扫描两次与扫描一次结果相同")
   func ingestIsIdempotent() throws {
     let root = try makeFixtureTree()

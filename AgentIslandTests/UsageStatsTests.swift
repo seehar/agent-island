@@ -69,22 +69,22 @@ struct UsageStatsTests {
     #expect(sum.calls == 3)
   }
 
-  @Test("中文界面按「万 / 亿」，其余语言按 K / M")
+  @Test("中文界面按「万 / 亿」，其余语言按 K / M，缩写后一律 2 位小数")
   func tokenShortFormatFollowsLanguage() {
     let zh = Locale(identifier: "zh-Hans")
     let en = Locale(identifier: "en-US")
 
-    // 中文：不足一万给原数，一万以上「万」，一亿以上「亿」。
+    // 中文：不足一万给原数（整数不补 .00），一万以上「万」，一亿以上「亿」。
     #expect(UsageTokenFormat.short(9_999, languageCode: "zh", locale: zh) == "9,999")
-    #expect(UsageTokenFormat.short(12_488, languageCode: "zh", locale: zh) == "1.2万")
-    #expect(UsageTokenFormat.short(4_800_000, languageCode: "zh", locale: zh) == "480万")
-    #expect(UsageTokenFormat.short(100_000_000, languageCode: "zh", locale: zh) == "1亿")
-    #expect(UsageTokenFormat.short(3_239_364_009, languageCode: "zh", locale: zh) == "32.4亿")
-    #expect(UsageTokenFormat.short(69_538_549_758, languageCode: "zh", locale: zh) == "695.4亿")
+    #expect(UsageTokenFormat.short(12_488, languageCode: "zh", locale: zh) == "1.25万")
+    #expect(UsageTokenFormat.short(4_800_000, languageCode: "zh", locale: zh) == "480.00万")
+    #expect(UsageTokenFormat.short(100_000_000, languageCode: "zh", locale: zh) == "1.00亿")
+    #expect(UsageTokenFormat.short(3_239_364_009, languageCode: "zh", locale: zh) == "32.39亿")
+    #expect(UsageTokenFormat.short(69_538_549_758, languageCode: "zh", locale: zh) == "695.39亿")
 
     // 其它语言沿用公制词头。
-    #expect(UsageTokenFormat.short(12_488, languageCode: "en", locale: en) == "12.5K")
-    #expect(UsageTokenFormat.short(4_800_000, languageCode: "en", locale: en) == "4.8M")
+    #expect(UsageTokenFormat.short(12_488, languageCode: "en", locale: en) == "12.49K")
+    #expect(UsageTokenFormat.short(4_800_000, languageCode: "en", locale: en) == "4.80M")
     #expect(UsageTokenFormat.short(999, languageCode: "en", locale: en) == "999")
   }
 
@@ -100,16 +100,6 @@ struct UsageStatsTests {
     utc.timeZone = .gmt
     #expect(UsageStatsKey.hour(for: newYear, calendar: utc) == "2025-12-31T16")
     #expect(UsageStatsKey.day(of: UsageStatsKey.hour(for: newYear, calendar: utc)) == "2025-12-31")
-  }
-
-  @Test("小时键可以还原成桶起点")
-  func hourKeyRoundTrip() {
-    let shanghai = calendar()
-    let date = Date(timeIntervalSince1970: 1_767_198_600)
-    let key = UsageStatsKey.hour(for: date, calendar: shanghai)
-    let restored = UsageStatsKey.date(fromHourKey: key, calendar: shanghai)
-
-    #expect(restored == Date(timeIntervalSince1970: 1_767_196_800))  // 当地 00:00
   }
 
   @Test("今天从当地零点开始")
@@ -156,8 +146,75 @@ struct UsageStatsTests {
   @Test("只有「全部」没有起点")
   func allRangeHasNoStart() {
     #expect(StatsRange.all.start() == nil)
+    #expect(StatsRange.lastDay.trendGranularity == .hour)
     #expect(StatsRange.today.trendGranularity == .hour)
+    #expect(StatsRange.lastWeek.trendGranularity == .day)
+    #expect(StatsRange.lastMonth.trendGranularity == .day)
     #expect(StatsRange.week.trendGranularity == .day)
     #expect(StatsRange.all.trendGranularity == .day)
+  }
+
+  @Test("「近 X」：窗口长度与桶数固定，起点落在桶边界上")
+  func rollingWindowsHaveFixedSpans() {
+    let shanghai = calendar()
+    // 2026-01-05 12:34 +08:00（周一）。
+    let now = Date(timeIntervalSince1970: 1_767_585_600 + 34 * 60)
+
+    // 滚动窗口的桶数固定（24 / 7 / 30）：柱图的形状不随当前时刻漂移。
+    let cases: [(range: StatsRange, buckets: Int)] = [
+      (.lastDay, 24), (.lastWeek, 7), (.lastMonth, 30),
+    ]
+    for (range, buckets) in cases {
+      guard let start = range.start(now: now, calendar: shanghai) else {
+        Issue.record("\(range.rawValue) 缺起点")
+        continue
+      }
+      // 窗口覆盖「桶数」个粒度单位，且首桶是完整的桶（起点因此落在整点 / 零点上）。
+      let unitHours = range.trendGranularity == .hour ? 1.0 : 24.0
+      let spanHours = now.timeIntervalSince(start) / 3600
+      #expect(spanHours <= Double(buckets) * unitHours)
+      #expect(spanHours > Double(buckets - 1) * unitHours)
+      #expect(shanghai.component(.minute, from: start) == 0)
+      if range.trendGranularity == .day {
+        #expect(shanghai.component(.hour, from: start) == 0)
+      }
+
+      let plan = range.trendPlan(now: now, calendar: shanghai)
+      #expect(plan.bucketStarts(calendar: shanghai).count == buckets)
+      // 窗口起点就是柱图的首桶：柱图不会画出窗口外的数据，总量也不会把首桶漏掉。
+      #expect(plan.firstBucket == start)
+    }
+  }
+
+  @Test("每个窗口的起点都等于柱图首桶（「全部」按 60 天截断）")
+  func trendFirstBucketMatchesWindowStart() {
+    let shanghai = calendar()
+    let now = Date(timeIntervalSince1970: 1_767_585_600 + 34 * 60)
+
+    for range in StatsRange.allCases where range != .all {
+      guard let start = range.start(now: now, calendar: shanghai) else {
+        Issue.record("\(range.rawValue) 缺起点")
+        continue
+      }
+      #expect(range.trendPlan(now: now, calendar: shanghai).firstBucket == start)
+    }
+
+    // 「全部」没有起点：柱图只回溯 trendDayLimit 天，更早的数据只有总量看得到。
+    let plan = StatsRange.all.trendPlan(now: now, calendar: shanghai)
+    let starts = plan.bucketStarts(calendar: shanghai)
+    #expect(starts.count == StatsRange.trendDayLimit)
+    #expect(plan.lastBucket == shanghai.startOfDay(for: now))
+  }
+
+  @Test("「今天」画满 24 个小时桶，右端不随时钟漂移")
+  func todayKeepsFullDayAxis() {
+    let shanghai = calendar()
+    let noon = Date(timeIntervalSince1970: 1_767_585_600)  // 2026-01-05 12:00 +08:00
+    let plan = StatsRange.today.trendPlan(now: noon, calendar: shanghai)
+    let starts = plan.bucketStarts(calendar: shanghai)
+
+    #expect(starts.count == 24)
+    #expect(starts.first == shanghai.startOfDay(for: noon))
+    #expect(starts.last == (shanghai.date(byAdding: .hour, value: 23, to: starts[0]) ?? starts[0]))
   }
 }
