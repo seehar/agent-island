@@ -15,6 +15,16 @@ private let cornerRadiusInsets = (
  closed: (top: CGFloat(6), bottom: CGFloat(14))
 )
 
+// 头部行的间距（实测校准）。展开态右端是「图表 · 齿轮 · 计数」：
+//   · 两个按钮之间用 `headerControlSpacing`（原先固定 12，字形之间因此有 ~22pt）；
+//   · 计数与齿轮之间再多给 `headerGlyphMargin`——按钮是 22pt 的方形悬停框、图标字形
+//     只占中间约 12pt（左右各留约 5pt），而计数是字形直接起笔；不多给这 5pt，计数会
+//     看起来比两个图标之间更近（原先的算式甚至把计数贴到齿轮上，实测间距 ~6pt）。
+// 关闭态没有按钮，计数沿用胶囊自己的 4pt 尾距。
+private let headerControlSpacing: CGFloat = 8
+private let headerGlyphMargin: CGFloat = 5
+private let headerBadgeTrailing: CGFloat = 4
+
 struct NotchView: View {
  @ObservedObject var viewModel: NotchViewModel
  @StateObject private var sessionMonitor = ClaudeSessionMonitor()
@@ -384,11 +394,13 @@ struct NotchView: View {
      .frame(width: closedNotchSize.width - cornerRadiusInsets.closed.top + (isBouncing ? 16 : 0))
    }
 
-   // Right side - 关闭态展示「活跃数/总数」，状态由计数取色与左侧 logo 表达
-   if showClosedActivity {
+   // Right side - **只画关闭态**的「活跃数/总数」：状态由计数取色与左侧 logo 表达。
+   // 展开态的计数在 `openedHeaderContent` 里（与两个按钮同一个 HStack，间距才统一）；
+   // 两处都画会重叠成两个计数。
+   if showClosedActivity && viewModel.status != .opened {
     sessionCountBadge
-     .frame(width: viewModel.status == .opened ? nil : sideWidth)
-     .padding(.trailing, viewModel.status == .opened ? 0 : 4)
+     .frame(width: sideWidth)
+     .padding(.trailing, headerBadgeTrailing)
    }
   }
   .frame(height: closedNotchSize.height)
@@ -434,62 +446,73 @@ struct NotchView: View {
 
    Spacer()
 
-   // 统计入口：与设置按钮并列，两个按钮各自遵循同一互斥规则——内容面就是自己的
-   // 目标面时显示 xmark（点击退回会话列表），否则显示自己的图标。统计页是设置面板里的
-   // 一个分组，因此这个按钮等价于「设置面板 → 统计」；设置页自己的返回箭头仍负责
-   // 「回到会话列表」。
-   Button {
-    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-     viewModel.toggleStatistics()
+   // 右端：图表 · 齿轮 · 计数。三者放进一个 HStack，间距取 headerControlSpacing——
+   // 计数之前是 headerRow 的直接子项，被「固定槽宽 + 内边距」的算式推到了齿轮身上
+   // （实测 6pt，而图表↔齿轮是 22pt）。
+   HStack(spacing: headerControlSpacing) {
+    // 统计入口：与设置按钮并列，两个按钮各自遵循同一互斥规则——内容面就是自己的
+    // 目标面时显示 xmark（点击退回会话列表），否则显示自己的图标。统计页是设置面板里的
+    // 一个分组，因此这个按钮等价于「设置面板 → 统计」；设置页自己的返回箭头仍负责
+    // 「回到会话列表」。
+    Button {
+     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+      viewModel.toggleStatistics()
+     }
+    } label: {
+     Image(systemName: viewModel.isShowingStatistics ? "xmark" : "chart.bar.xaxis")
+      .font(.system(size: 11, weight: .medium))
+      .foregroundColor(.white.opacity(0.4))
+      .frame(width: 22, height: 22)
+      .background(
+       RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous)
+        .fill(isStatsButtonHovered ? AppPalette.rowHover : Color.clear)
+      )
+      .contentShape(Rectangle())
+      .onHover { isStatsButtonHovered = $0 }
     }
-   } label: {
-    Image(systemName: viewModel.isShowingStatistics ? "xmark" : "chart.bar.xaxis")
-     .font(.system(size: 11, weight: .medium))
-     .foregroundColor(.white.opacity(0.4))
+    .buttonStyle(SettingsCompactButtonStyle())
+    .accessibilityLabel(Text(l10n.t("Statistics")))
+
+    // Menu toggle
+    Button {
+     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+      viewModel.toggleMenu()
+      if viewModel.isShowingSettings {
+       updateManager.markUpdateSeen()
+      }
+     }
+    } label: {
+     ZStack(alignment: .topTrailing) {
+      Image(systemName: viewModel.isShowingSettings ? "xmark" : "gearshape")
+       .font(.system(size: 11, weight: .medium))
+       .foregroundColor(.white.opacity(0.4))
+
+      // 有未看过的更新：用形状（向下箭头徽标）承载状态，颜色只作辅助——
+      // 只靠颜色区分状态，在黑白截图与色觉障碍下都会丢信息。
+      if updateManager.hasUnseenUpdate && !viewModel.isShowingSettings {
+       Image(systemName: "arrow.down.circle.fill")
+        .font(.system(size: 9, weight: .semibold))
+        .foregroundColor(AppPalette.accent)
+        .offset(x: -2, y: 2)
+        .accessibilityHidden(true)
+      }
+     }
      .frame(width: 22, height: 22)
      .background(
       RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous)
-       .fill(isStatsButtonHovered ? AppPalette.rowHover : Color.clear)
+       .fill(isMenuButtonHovered ? AppPalette.rowHover : Color.clear)
      )
      .contentShape(Rectangle())
-     .onHover { isStatsButtonHovered = $0 }
-   }
-   .buttonStyle(SettingsCompactButtonStyle())
-   .accessibilityLabel(Text(l10n.t("Statistics")))
-
-   // Menu toggle
-   Button {
-    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-     viewModel.toggleMenu()
-     if viewModel.isShowingSettings {
-      updateManager.markUpdateSeen()
-     }
+     .onHover { isMenuButtonHovered = $0 }
     }
-   } label: {
-    ZStack(alignment: .topTrailing) {
-     Image(systemName: viewModel.isShowingSettings ? "xmark" : "gearshape")
-      .font(.system(size: 11, weight: .medium))
-      .foregroundColor(.white.opacity(0.4))
+    .buttonStyle(SettingsCompactButtonStyle())
 
-     // 有未看过的更新：用形状（向下箭头徽标）承载状态，颜色只作辅助——
-     // 只靠颜色区分状态，在黑白截图与色觉障碍下都会丢信息。
-     if updateManager.hasUnseenUpdate && !viewModel.isShowingSettings {
-      Image(systemName: "arrow.down.circle.fill")
-       .font(.system(size: 9, weight: .semibold))
-       .foregroundColor(AppPalette.accent)
-       .offset(x: -2, y: 2)
-       .accessibilityHidden(true)
-     }
+    if showClosedActivity {
+     // 计数与齿轮之间补上图标字形在悬停框里的留白，三种元素的字形间距才读得一致。
+     sessionCountBadge
+      .padding(.leading, headerGlyphMargin)
     }
-    .frame(width: 22, height: 22)
-    .background(
-     RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous)
-      .fill(isMenuButtonHovered ? AppPalette.rowHover : Color.clear)
-    )
-    .contentShape(Rectangle())
-    .onHover { isMenuButtonHovered = $0 }
    }
-   .buttonStyle(SettingsCompactButtonStyle())
   }
  }
 
