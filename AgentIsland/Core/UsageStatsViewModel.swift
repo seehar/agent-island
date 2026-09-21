@@ -57,6 +57,16 @@ final class UsageStatsViewModel: ObservableObject {
         isActive = false
     }
 
+    /// 手动触发一次「重新统计」：让索引器把每个 Agent 的历史记录从头重读一遍并
+    /// 重放（绕过索引器的节流）。这也是唯一能改掉已经统计过的数字的路径——增量
+    /// 扫描只读文件的尾巴。进度与结果都由上面的订阅推回来，这里只发请求。
+    func rescan() {
+        Task {
+            await indexer.rebuildNow()
+            reload()
+        }
+    }
+
     /// 切换时间窗口并重取快照。
     func select(_ range: StatsRange) {
         self.range = range

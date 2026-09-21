@@ -170,6 +170,46 @@ struct OpenCodeUsageStatsTests {
     #expect(first.tools.contains { $0.name == "grep" && $0.calls == 1 })
   }
 
+  @Test("重新统计：游标归零后全库重走一遍，修得回已经统计过的数字")
+  func rebuildingReplaysEveryMessage() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("usage-opencode-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let database = try makeDatabase(in: root)
+
+    try insertSession("ses_root", parentId: nil, at: database)
+    try insertMessage(
+      id: "m1", session: "ses_root", created: 1_000, updated: 1_000,
+      tokens: (10, 1, 100, 0), at: database)
+    try insertMessage(
+      id: "m2", session: "ses_root", created: 2_000, updated: 2_000,
+      tokens: (20, 2, 200, 0), at: database)
+    try insertPart(
+      id: "p1", message: "m1", session: "ses_root", created: 1_000, updated: 1_000, tool: "bash",
+      at: database)
+
+    let store = try makeStore(in: root)
+    // 每页 2 条：重算也要能跨页走完。
+    let pass = UsageStatsPass(store: store, calendar: .current, openCodeBatchLimit: 2)
+    try pass.ingestOpenCode(databaseURL: database)
+    let first = try snapshot(store)
+
+    // 重算：游标归零、每条消息按整源重放写入 —— 不重复计数。
+    try pass.ingestOpenCode(databaseURL: database, rebuilding: true)
+    let rebuilt = try snapshot(store)
+    #expect(first.totals == rebuilt.totals)
+    #expect(first.tools == rebuilt.tools)
+
+    // 桶丢了、游标还在：增量扫描不会再读到任何消息，只有重算能救回来。
+    try clearUsageBuckets(in: root)
+    try pass.ingestOpenCode(databaseURL: database)
+    #expect(try snapshot(store).totals.isEmpty)
+
+    try pass.ingestOpenCode(databaseURL: database, rebuilding: true)
+    #expect(try snapshot(store).totals == first.totals)
+    #expect(try snapshot(store).tools == first.tools)
+  }
+
   @Test("游标只向前走")
   func cursorsOnlyMoveForward() {
     let start = OpenCodeUsageCursor.empty

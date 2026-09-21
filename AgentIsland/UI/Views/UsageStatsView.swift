@@ -24,6 +24,8 @@ struct UsageStatsView: View {
     @Namespace private var rangeThumb
     /// 悬停的范围段（只影响文字颜色）。
     @State private var hoveredRange: StatsRange?
+    /// 是否悬停在「重新统计」按钮上（只影响文字颜色）。
+    @State private var isRescanHovered = false
 
     /// 数值缺失时的占位符（命中率的分母为 0 就没法算）。破折号是排版符号、不随语言
     /// 变化，因此不占一个本地化键。
@@ -46,14 +48,55 @@ struct UsageStatsView: View {
     /// 四种语言的标签都读得全。滑块、悬停与选中色的取法与 `NotchMenuTabBar` 一致，
     /// 但**不画轨道**——它与设置页的分组切换是上下相邻的两条，轨道相同会被读成同一层。
     private var rangeBar: some View {
-        HStack(spacing: 2) {
-            ForEach(StatsRange.allCases) { range in
-                rangeSegment(range)
+        HStack(spacing: UsageStatsMetrics.rangeActionGap) {
+            // 不画轨道：设置页顶部已有一条分组分段控件，同一形状再叠一条会被读成
+            // 「第二层导航」。这里只留滑块与文字色差，层级因此从属于分组切换。
+            HStack(spacing: 2) {
+                ForEach(StatsRange.allCases) { range in
+                    rangeSegment(range)
+                }
             }
+
+            rescanButton
         }
-        // 不画轨道：设置页顶部已有一条分组分段控件，同一形状再叠一条会被读成
-        // 「第二层导航」。这里只留滑块与文字色差，层级因此从属于分组切换。
         .frame(height: UsageStatsMetrics.tabBarHeight)
+    }
+
+    /// 手动「重新统计」：把各 Agent 的历史记录从头重读一遍并重放（增量扫描只读
+    /// 文件的尾巴，所以数字对不上时只有这条路能改）。索引进行中时按钮禁用并改说
+    /// 「正在索引…」，用户不必去页脚看状态；宽度固定，两种文案切换时左边的分段
+    /// 控件不会跟着抖。行高由 `rangeBar` 钉死，因此这个按钮不改变面板高度。
+    private var rescanButton: some View {
+        let isIndexing = viewModel.snapshot.isIndexing
+
+        return Button {
+            viewModel.rescan()
+        } label: {
+            HStack(spacing: UsageStatsMetrics.rangeActionIconGap) {
+                Image(systemName: "arrow.clockwise")
+                    .appFont(10, weight: .semibold)
+                Text(isIndexing ? l10n.t("Indexing…") : l10n.t("Rescan"))
+                    .appFont(10, weight: .semibold)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .foregroundColor(rescanTint(isIndexing: isIndexing))
+            .frame(width: UsageStatsMetrics.rangeActionWidth, alignment: .trailing)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(SettingsCompactButtonStyle())
+        .disabled(isIndexing)
+        .onHover { isHovering in
+            isRescanHovered = isHovering
+        }
+        .help(l10n.t("Re-read every session record and recompute the statistics."))
+        .accessibilityLabel(Text(l10n.t("Rescan")))
+    }
+
+    /// 按钮的文字色：索引中（禁用）降到最弱一级，与设置面板的禁用态同口径。
+    private func rescanTint(isIndexing: Bool) -> Color {
+        if isIndexing { return AppPalette.subtleText }
+        return isRescanHovered ? AppPalette.primaryText : AppPalette.secondaryText
     }
 
     private func rangeSegment(_ range: StatsRange) -> some View {

@@ -41,6 +41,13 @@ nonisolated enum UsageStatsMetrics {
     /// 范围滑块的圆角，与设置页分组切换的滑块一致（轨道已不再画：两条相邻的
     /// 分段控件共用同一形状会被读成同层导航）。
     static let segmentedThumbRadius: CGFloat = 7
+    /// 「重新统计」按钮的宽度：取固定值，两种文案（重新统计 / 正在索引…）切换时
+    /// 左边的分段控件不该跟着抖；`minimumScaleFactor` 兜住更长的那一档。
+    static let rangeActionWidth: CGFloat = 64
+    /// 按钮内图标与文字的间距。
+    static let rangeActionIconGap: CGFloat = 4
+    /// 范围分段控件与按钮之间的间距。
+    static let rangeActionGap: CGFloat = 8
 
     // MARK: - 总览卡
 

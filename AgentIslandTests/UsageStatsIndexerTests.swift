@@ -11,6 +11,7 @@
 //
 
 import Foundation
+import SQLite3
 import Testing
 
 @testable import AgentIsland
@@ -236,6 +237,37 @@ struct UsageStatsIndexerTests {
         .totals.input == 35)
   }
 
+  @Test("重新统计：把每个源从头重读一遍，修得回已经统计过的数字")
+  func rebuildingReplaysEverySource() throws {
+    let root = try makeFixtureTree()
+    let store = try makeStore(in: root)
+    let pass = pass(store)
+    let discovered = sources(root: root)
+
+    pass.ingest(sources: discovered)
+    let first = try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
+
+    // 重算不该重复计数：同一批文件从头再读一遍，结果必须一模一样。
+    pass.ingest(sources: discovered, rebuilding: true)
+    let rebuilt = try store.snapshot(
+      range: .all, calendar: calendar, now: Date(), isIndexing: false)
+    #expect(first.totals == rebuilt.totals)
+    #expect(comparable(first) == comparable(rebuilt))
+
+    // 桶丢了、进度还在：增量扫描认为「没有变化」而什么都不做——这一步正是
+    // 「手动重算」存在的理由。
+    try clearUsageBuckets(in: root)
+    pass.ingest(sources: discovered)
+    #expect(
+      try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
+        .totals.isEmpty)
+
+    pass.ingest(sources: discovered, rebuilding: true)
+    let recovered = try store.snapshot(
+      range: .all, calendar: calendar, now: Date(), isIndexing: false)
+    #expect(comparable(first) == comparable(recovered))
+  }
+
   @Test("记录被截断时整源重放，不留旧值")
   func truncatedFileIsReplayed() throws {
     let root = try tempRoot()
@@ -349,5 +381,22 @@ struct UsageStatsIndexerTests {
 
   private func ompRootPath(_ root: URL) -> URL {
     root.appendingPathComponent("omp")
+  }
+}
+
+/// 清空用量桶但**保留读取进度**（模拟最坏情形：桶丢了、进度还在）。两个统计
+/// 套件都用它造「增量扫描救了不回来、只有重算能救」的现场。
+func clearUsageBuckets(in root: URL) throws {
+  var handle: OpaquePointer?
+  let path = root.appendingPathComponent("usage.sqlite").path
+  guard sqlite3_open_v2(path, &handle, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK,
+    let handle
+  else {
+    throw UsageStatsStoreError.openFailed(path)
+  }
+  defer { sqlite3_close(handle) }
+  guard sqlite3_exec(handle, "DELETE FROM usage_bucket;", nil, nil, nil) == SQLITE_OK
+  else {
+    throw UsageStatsStoreError.stepFailed(String(cString: sqlite3_errmsg(handle)))
   }
 }

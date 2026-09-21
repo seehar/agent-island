@@ -9,7 +9,8 @@
 //    · 首轮要读全部历史的尾部（本机 JSONL 约 5 GB），因此整个扫描跑在**独立于
 //      actor 的 utility 任务**里，分批进行、批间让出，不阻塞 UI 的查询；
 //    · 统计库用两条连接：扫描侧写、UI 侧读（WAL 允许读写并发）；
-//    · 每 60 秒一轮增量扫描；打开统计页可请求立即扫描（30 秒节流）。
+//    · 每 60 秒一轮增量扫描；打开统计页可请求立即扫描（30 秒节流）；
+//    · 统计页的「重新统计」按钮可手动触发一次全量重算（`rebuildNow()`）。
 //
 
 import Combine
@@ -62,16 +63,22 @@ nonisolated final class UsageStatsPass {
   /// 单源失败（库忙、磁盘满、文件读到一半消失）只跳过它自己：否则一次失败会中断整轮，
   /// 它后面的所有文件永远排不上队——页面会长期显示一份看起来正常、实则不全、且此后不再
   /// 长大的数字。
+  ///
+  /// - Parameter rebuilding: 手动「重新统计」：不认库里的读取进度，每个源都从头
+  ///   重读一遍并整源重放。增量路径只读文件的尾巴，所以它是**唯一**能改掉已经
+  ///   统计过的数字的路径（桶丢了、数字对不上时用）。
   @discardableResult
-  func ingest(sources: [UsageSourceFile]) -> Int {
+  func ingest(sources: [UsageSourceFile], rebuilding: Bool = false) -> Int {
     var failures = 0
     for source in sources {
       do {
-        let previous = try store.state(ofSource: source.path)
+        let previous = rebuilding ? nil : try store.state(ofSource: source.path)
         let result = TranscriptUsageScanner.read(
           source: source, previous: previous?.state, calendar: calendar)
 
-        if result.needsReplace {
+        // 重放：重算时无条件走这条（进度被丢弃，读到的就是全量）；增量时只在
+        // 文件被截断 / 整体重写时走。
+        if rebuilding || result.needsReplace {
           try store.replace(
             result.deltas, sourceId: source.path, agent: source.agent, state: result.state)
           continue
@@ -101,7 +108,10 @@ nonisolated final class UsageStatsPass {
   /// 每轮最多读 `openCodeBatchIterations` 页；首次回填就是靠这一批批读完的
   /// （每页 4000 条），期间不会长时间占住 I/O。游标按页推进，**只认已处理过的
   /// 位置**，所以中途退出也不会丢消息。
-  func ingestOpenCode(databaseURL: URL) throws {
+  ///
+  /// - Parameter rebuilding: 手动「重新统计」：游标归零、全库重走一遍。每条消息
+  ///   在统计库里是独立数据源、按整源重放写库，因此重走是幂等的。
+  func ingestOpenCode(databaseURL: URL, rebuilding: Bool = false) throws {
     let reader: OpenCodeUsageReader
     if let openCodeReader {
       reader = openCodeReader
@@ -112,9 +122,20 @@ nonisolated final class UsageStatsPass {
     }
 
     let sweepId = Self.openCodeSweepId
-    var cursors = Self.parseCursors(try store.state(ofSource: sweepId)?.state.cursor)
+    // 重算时丢掉游标（`parseCursors(nil)` 即全零）：从最早的消息重新走一遍。
+    let storedCursor =
+      rebuilding ? nil : try store.state(ofSource: sweepId)?.state.cursor
+    var cursors = Self.parseCursors(storedCursor)
     let subagentSessions = try reader.subagentSessionIds()
     let now = Date().timeIntervalSince1970
+
+    if rebuilding {
+      // 归零的游标先落库：这一轮只跑了一半就退出时，下一轮仍从零继续，而不是
+      // 从半途的游标往后走——那样游标之前的消息就再也回不到重算路径上了。
+      try store.replace(
+        [], sourceId: sweepId, agent: .opencode,
+        state: UsageSourceState(cursor: Self.serializeCursors(cursors), updatedAt: now))
+    }
 
     for _ in 0..<Self.openCodeBatchIterations {
       let page = try reader.dirtyMessages(
@@ -193,6 +214,8 @@ actor UsageStatsIndexer {
   private var passTask: Task<Void, Never>?
   private var periodicTask: Task<Void, Never>?
   private var pendingRefresh = false
+  /// 下一轮扫描是否按「重新统计」的语义跑（见 `rebuildNow()`）。
+  private var rebuildRequested = false
   private var lastPassFinishedAt: Date?
   private(set) var isIndexing = false
 
@@ -229,6 +252,10 @@ actor UsageStatsIndexer {
     passTask?.cancel()
     passTask = nil
     isIndexing = false
+    // 停掉时放弃还排着队的那一轮（含「重新统计」的请求）：下次启动不该莫名其妙地
+    // 做一次全量重算。
+    pendingRefresh = false
+    rebuildRequested = false
   }
 
   /// 请求立即扫描一次（打开统计页时用）；30 秒内的重复请求只发一次通知。
@@ -244,6 +271,15 @@ actor UsageStatsIndexer {
       updatesSubject.send(())
       return
     }
+    runPass()
+  }
+
+  /// 手动触发一次「重新统计历史」：让下一轮扫描把每个记录源从头重读一遍并整源
+  /// 重放，绕过打开页面时的 30 秒节流（手动按钮的语义就是「现在就重算」）。
+  /// 正在跑的那轮扫完接着跑，不会被打断；重复点击合并成一次（重算期间按钮禁用）。
+  func rebuildNow() {
+    rebuildRequested = true
+    updatesSubject.send(())
     runPass()
   }
 
@@ -269,6 +305,10 @@ actor UsageStatsIndexer {
       pendingRefresh = true
       return
     }
+    // 重算语义只属于「这一轮」：下一轮恢复增量，否则每 60 秒都要重读一次全量。
+    let rebuilding = rebuildRequested
+    rebuildRequested = false
+
     isIndexing = true
     updatesSubject.send(())
 
@@ -293,7 +333,8 @@ actor UsageStatsIndexer {
         while scanned < sources.count {
           if Task.isCancelled { break }
           let end = min(scanned + chunkLimit, sources.count)
-          failures += pass.ingest(sources: Array(sources[scanned..<end]))
+          failures += pass.ingest(
+            sources: Array(sources[scanned..<end]), rebuilding: rebuilding)
           scanned = end
           await self?.notifyProgress()
           try? await Task.sleep(nanoseconds: chunkPause)
@@ -311,7 +352,7 @@ actor UsageStatsIndexer {
 
         if let database = roots.openCodeDatabase {
           do {
-            try pass.ingestOpenCode(databaseURL: database)
+            try pass.ingestOpenCode(databaseURL: database, rebuilding: rebuilding)
           } catch {
             failures += 1
             Self.logger.error(

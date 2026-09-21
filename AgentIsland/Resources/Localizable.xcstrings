@@ -4260,6 +4260,40 @@
         }
       }
     },
+    "Rescan" : {
+      "comment" : "统计页「重新统计」按钮：重读全部会话记录并重放，修正已经统计过的数字。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rescan"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新统计"
+          }
+        }
+      }
+    },
+    "Re-read every session record and recompute the statistics." : {
+      "comment" : "「重新统计」按钮的悬停说明：说清它是全量重读（增量扫描只读文件尾部）。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Re-read every session record and recompute the statistics."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重读全部会话记录并重新统计。"
+          }
+        }
+      }
+    },
     "Run an agent to collect usage. If nothing appears, check that its integration is installed." : {
       "localizations" : {
         "en" : {

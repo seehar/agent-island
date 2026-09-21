@@ -64,7 +64,7 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
 
 ![Usage stats: totals, per-agent split, trend and tools](docs/images/notch-stats.png)
 
-The page lives in **Settings → Statistics** (the chart button in the panel header jumps straight to it) and reads the same records the chat view does, keeping only aggregate counters in its own store. Totals include cached tokens (hit rate = cache read / (input + cache read + cache write)); session counts exclude subagents. The index runs in the background on first open, and the page reports when it last indexed.
+The page lives in **Settings → Statistics** (the chart button in the panel header jumps straight to it) and reads the same records the chat view does, keeping only aggregate counters in its own store. Totals include cached tokens (hit rate = cache read / (input + cache read + cache write)); session counts exclude subagents. The index runs in the background on first open, and the page reports when it last indexed. The ↻ **Rescan** button beside the range switch re-reads every session record and recomputes the numbers — the background pass only reads the tail of each record, so this is the way to fix totals that look off.
 
 ## Supported agents
 
