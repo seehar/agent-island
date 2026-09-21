@@ -6,6 +6,7 @@
 //  两者一旦漂移，面板就会裁掉页面底部或留出空白；这里把等价关系钉死。
 //
 
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -116,31 +117,69 @@ struct NotchMenuMetricsTests {
                 for: .general, expandedPickerHeight: cap - 44 - content, chromeHeight: 44) == cap)
     }
 
+    /// 面板固定开销的可达集合（`chromeHeight = max(24, 胶囊高度) + 12`）：
+    /// 外接屏自动档（菜单栏 24/25）→ 36/37、内置刘海 32 → 44、
+    /// `notch` 档在没有内置刘海的屏上 38 → 50、胶囊高度自定义最高 64 → 76。
+    private static let reachableChrome: [CGFloat] = [36, 37, 44, 50, 76]
+
+    /// 已知被夹取（超出上限、改由页内滚动接管）的组合。**新增组合必须显式登记在这里**，
+    /// 否则测试失败——那正是「又加了一行/一档，最后一个档位落到可视区外」的信号。
+    private static let clampedPairs: Set<String> = ["behavior@76", "agents@76"]
+
+    @MainActor
     @Test("每页「内容 + 该页最高的单个展开 + 固定开销」都不越过夹取上限")
     func everySectionFitsCapWithTallestSingleExpansion() {
-        // 每页最高的**单个**展开。改任何一页的行数、某个选择器的档位数（或可见选项数）
-        // 都要跟着改这张表——被夹取意味着最后一个档位落到可视区外（页内滚动条是隐藏的）。
+        // 每页最高的**单个**展开全部从真实来源推导（枚举的 allCases、选择器自己的
+        // `visibleOptions`），不写死数字：枚举加一档、屏幕数变多都会在这里体现出来。
         let tallestExpansion: [NotchMenuSection: CGFloat] = [
-            // 胶囊高度：3 个来源 + 1 行微调
-            .general: NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 4),
-            // 音效（`SoundSelector.maxVisibleOptions`）与 4 档枚举同高
-            .behavior: NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 4),
-            // 闸门问什么 / 应用未运行时 / 待批时自动展开都是 3 档
-            .agents: NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 3),
+            .general: NotchMenuMetrics.pickerOptionsHeight(
+                visibleOptions: max(
+                    AppLanguage.allCases.count,
+                    NSScreen.screens.count + 1,  // 自动 + 每块屏幕
+                    NotchHeightSelector.visibleOptions,
+                    NotchWidthSelector.visibleOptions,
+                    TextSizeOption.allCases.count,
+                    PanelSize.allCases.count)),
+            .behavior: NotchMenuMetrics.pickerOptionsHeight(
+                visibleOptions: max(
+                    SoundSelector.maxVisibleOptions,
+                    HoverExpand.allCases.count,
+                    IdleNotchVisibility.allCases.count,
+                    CompletionBadge.allCases.count,
+                    SessionRetention.allCases.count,
+                    SessionRowDensity.allCases.count,
+                    SessionRowClickAction.allCases.count,
+                    RefreshCadence.allCases.count,
+                    NotificationScope.allCases.count)),
+            .agents: NotchMenuMetrics.pickerOptionsHeight(
+                visibleOptions: max(
+                    ClaudeDirSelector.visibleOptions,
+                    ApprovalAskScope.allCases.count,
+                    ApprovalDegradation.allCases.count,
+                    ApprovalAutoExpand.allCases.count)),
             .statistics: 0,
             .about: 0,
         ]
 
         for section in NotchMenuSection.allCases {
             let expanded = tallestExpansion[section] ?? 0
-            // 44 = 外部屏的固定开销；刘海屏是 50，两种都要装得下。
-            for chrome in [CGFloat(44), CGFloat(50)] {
+            let content = NotchMenuMetrics.contentHeight(for: section)
+
+            for chrome in Self.reachableChrome {
+                let key = "\(section.rawValue)@\(Int(chrome))"
                 let height = NotchMenuMetrics.panelHeight(
                     for: section, expandedPickerHeight: expanded, chromeHeight: chrome)
-                #expect(
-                    height == chrome + NotchMenuMetrics.contentHeight(for: section) + expanded,
-                    "\(section.rawValue) 的最高单个展开被夹取（固定开销 \(chrome)）")
-                #expect(height <= NotchMenuMetrics.maxPanelHeight)
+
+                if Self.clampedPairs.contains(key) {
+                    #expect(
+                        height == NotchMenuMetrics.maxPanelHeight,
+                        "\(key) 应当被夹到上限（内容 \(content) + 展开 \(expanded) + 开销 \(chrome)）")
+                } else {
+                    #expect(
+                        height == chrome + content + expanded,
+                        "\(key) 的最高单个展开被夹取：内容 \(content) + 展开 \(expanded) + 开销 \(chrome)")
+                    #expect(height <= NotchMenuMetrics.maxPanelHeight)
+                }
             }
         }
     }

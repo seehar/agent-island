@@ -87,10 +87,17 @@ nonisolated enum AgentIntegrationInstaller {
     AgentKind.allCases.contains { supportsApprovalGate($0) && AppSettings.isApprovalGateEnabled($0) }
   }
 
-  /// 重装**已开启闸门**的 Agent 的扩展。档位值烘焙在扩展文件里，换档必须重装才会生效。
+  /// 重装**已开启闸门且仍在监控**的 Agent 的扩展。档位值烘焙在扩展文件里，
+  /// 换档必须重装才会生效。
+  ///
+  /// 必须带上 `isAgentEnabled`：关闭某个 Agent 会卸掉它的集成，但不清闸门标志
+  /// （见 `AgentSettingsSection.toggle`）。少了这一条，关掉 Agent 之后再改闸门档位
+  /// 会把扩展写回它的目录，和「关掉即卸载」这条不变量冲突。
   static func reinstallGateExtensions() {
     for kind in AgentKind.allCases
-    where supportsApprovalGate(kind) && AppSettings.isApprovalGateEnabled(kind) {
+    where supportsApprovalGate(kind) && AppSettings.isApprovalGateEnabled(kind)
+      && AppSettings.isAgentEnabled(kind)
+    {
       install(kind)
     }
   }

@@ -112,10 +112,14 @@ final class NotchWidthSelector: ObservableObject {
 
     // MARK: - 面板高度
 
-    /// 展开时面板需要多出来的高度：1 个「自动」选项 + 1 行微调。
+    /// 展开后可见的选项行数：1 个「自动」选项 + 1 行微调。
+    /// 面板高度按它算，预算核对（`NotchMenuMetricsTests`）也读它，不要再写数字。
+    nonisolated static let visibleOptions = 2
+
+    /// 展开时面板需要多出来的高度。
     var expandedPickerHeight: CGFloat {
         guard isPickerExpanded else { return 0 }
-        return NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 2)
+        return NotchMenuMetrics.pickerOptionsHeight(visibleOptions: Self.visibleOptions)
     }
 
     // MARK: - 持久化

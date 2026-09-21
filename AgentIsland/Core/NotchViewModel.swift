@@ -251,7 +251,12 @@ class NotchViewModel: ObservableObject {
         observe(RefreshCadenceSelector.shared)
         observe(NotificationScopeSelector.shared)
         observe(SessionRowClickActionSelector.shared)
+        // 参与「智能体」页高度的每一行都必须在这里订阅：面板内的点击不会走
+        // handleMouseDown（落在面板内直接 return），漏订阅就等于「展开不撑高面板，
+        // 选项被面板下边缘裁掉」。新增可展开行时，这里与 expandedPickerHeight(for:)
+        // 必须同时改。
         observe(ApprovalAskScopeSelector.shared)
+        observe(ApprovalDegradationSelector.shared)
         observe(ApprovalAutoExpandSelector.shared)
     }
 
