@@ -126,7 +126,7 @@ Open **Settings → Agents** (the gear button in the panel, then the *Agents* pa
 |---|---|
 |**General**|Language, screen, notch height, notch width, content text size, notification sound · launch at login, accessibility status|
 |**Agents**|Enable switch per agent, integration status and path, approval-gate shield (`omp` / `pi`), Claude Code config directory|
-|**Behavior**|Hover expand (Never / Fast / Standard / Slow), idle capsule (Always / When Active / Keep 3 Seconds), completion badge (10 s / 30 s / 1 min / Always), panel size (Compact / Standard / Wide) · ended-session retention, row density, click action (None / Open Chat / Focus Terminal), refresh rate · notification scope (Ready only / Ready and approvals)|
+|**Behavior**|Hover expand (Never / Fast / Standard / Slow), idle capsule (Always / When Active / Keep 3 Seconds), approval auto-expand (Only when the notch decides / Always / Never), completion badge (10 s / 30 s / 1 min / Always), panel size (Compact / Standard / Wide) · ended-session retention, row density, click action (None / Open Chat / Focus Terminal), refresh rate · notification scope (Ready only / Ready and approvals)|
 |**About**|Version, check for updates, automatic update checks, star on GitHub, quit|
 
 Single-clicking a session row follows the *click action* above; double-click always opens its chat.
