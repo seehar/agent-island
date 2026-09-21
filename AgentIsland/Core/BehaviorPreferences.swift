@@ -122,6 +122,43 @@ nonisolated enum HoverExpand: String, PreferenceOption {
     }
 }
 
+// MARK: - 待批自动展开
+
+/// 新的待批许可到来时，刘海要不要自己展开。
+///
+/// 背景（实测）：闸门版集成（omp / pi / opencode）把工具调用拦在自己手里，**终端侧不画任何
+/// 提问**，刘海上的卡片是唯一入口；而「当前空间里有终端」时刘海原本不自动展开，于是用户
+/// 在终端里工作就只剩关闭态的一枚小指示——工具调用会一直等到客户端预算耗尽，然后被静默
+/// 拒绝。这一档默认只对「终端里没有入口」的待批生效，Claude 的体验保持不变。
+nonisolated enum ApprovalAutoExpand: String, CaseIterable, PreferenceOption {
+    /// 只在待批的入口就在刘海时展开（闸门类 Agent，且终端没有在问）。
+    case whenTerminalIsSilent
+    /// 任何待批都展开（含 Claude 的 `PermissionRequest`：终端里也有对话框）。
+    case always
+    /// 从不自动展开：只留关闭态的指示。
+    case never
+
+    static let preferenceKey = "approvalAutoExpand"
+    static var defaultValue: ApprovalAutoExpand { .whenTerminalIsSilent }
+
+    /// 新的待批到来时是否展开刘海。
+    ///
+    /// - Parameters:
+    ///   - decisionOnlyOnNotch: 这批新待批里有没有「决定只能在刘海上给」的（闸门类 Agent
+    ///     且终端没有在问）。
+    ///   - terminalVisible: 当前空间里有没有终端的窗口。
+    nonisolated func shouldExpand(decisionOnlyOnNotch: Bool, terminalVisible: Bool) -> Bool {
+        switch self {
+        case .never:
+            return false
+        case .always:
+            return true
+        case .whenTerminalIsSilent:
+            return decisionOnlyOnNotch || !terminalVisible
+        }
+    }
+}
+
 // MARK: - 完成提示
 
 /// 会话进入「就绪」后，关闭态右侧的勾与活动态保留多久。
@@ -319,6 +356,7 @@ nonisolated enum SessionRowTapTarget: Equatable, Sendable {
 
 // MARK: - 类型别名（设置行按这个名字取用）
 
+typealias ApprovalAutoExpandSelector = EnumPreference<ApprovalAutoExpand>
 typealias HoverExpandSelector = EnumPreference<HoverExpand>
 typealias CompletionBadgeSelector = EnumPreference<CompletionBadge>
 typealias PanelSizeSelector = EnumPreference<PanelSize>

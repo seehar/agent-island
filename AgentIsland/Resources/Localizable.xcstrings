@@ -4502,6 +4502,38 @@
           }
         }
       }
+    },
+    "Approval Auto Expand" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Approval Auto Expand"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "待批时自动展开"
+          }
+        }
+      }
+    },
+    "Only When the Notch Decides" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only When the Notch Decides"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅当决定只能在刘海上给"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

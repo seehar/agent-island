@@ -153,7 +153,20 @@ actor SessionStore {
 
         let newPhase = event.determinePhase()
 
-        if session.phase.canTransition(to: newPhase) {
+        // 有活着的待批时，状态类事件不许把相位从「等待审批」拉走。
+        //
+        // 闸门版集成**先发闸门信封、后发 PreToolUse**（两条独立连接、彼此不保序）：实测
+        // PreToolUse 会在 74ms 后把相位推回 `processing`，卡片随之消失——而应用还攥着那条
+        // 连接等一个再也点不到的决定，工具一直挂到客户端预算耗尽被静默拒绝，用户侧毫无反馈
+        // （这正是「工具调用没反应」那条报障的根因）。待批是**已经发生的事实**（服务端持有
+        // 那条 fd），状态上报只是描述，冲突时以事实为准。
+        let heldByPending = SessionPhase.statusUpdateBlockedByPending(
+            current: session.phase, next: newPhase, hasLivePending: event.hasLivePending)
+
+        if heldByPending {
+            Self.logger.debug(
+                "Keeping waitingForApproval: \(event.event, privacy: .public) arrived while a pending decision is live")
+        } else if session.phase.canTransition(to: newPhase) {
             session.phase = newPhase
         } else {
             Self.logger.debug("Invalid transition: \(String(describing: session.phase), privacy: .public) -> \(String(describing: newPhase), privacy: .public), ignoring")
@@ -416,7 +429,8 @@ actor SessionStore {
         )
 
         if session.subagentState.runningSubagentCount > 0 {
-            if session.phase.canTransition(to: .processing) {
+            // 同上：待批在手时，子 Agent 的进度也不许把「等待审批」拉走。
+            if session.phase.canTransition(to: .processing), !event.hasLivePending {
                 session.phase = .processing
             }
         } else if session.phase == .processing, session.phase.canTransition(to: .waitingForInput) {

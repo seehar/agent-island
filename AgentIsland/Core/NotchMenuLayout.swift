@@ -180,8 +180,8 @@ nonisolated enum NotchMenuMetrics {
             ]
         case .behavior:
             return [
-                // 胶囊：悬停展开 / 空闲可见性 / 完成提示 / 面板尺寸
-                Block(rows: Array(repeating: rowHeight, count: 4)),
+                // 胶囊：悬停展开 / 空闲可见性 / 待批时自动展开 / 完成提示 / 面板尺寸
+                Block(rows: Array(repeating: rowHeight, count: 5)),
                 // 会话：保留已结束的会话 / 列表信息密度 / 单击动作 / 刷新频率
                 Block(rows: Array(repeating: rowHeight, count: 4)),
                 // 通知：提示音覆盖哪些事件

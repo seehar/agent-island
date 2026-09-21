@@ -163,6 +163,18 @@ nonisolated enum SessionPhase: Sendable {
         canTransition(to: next) ? next : nil
     }
 
+    /// 有活着的待批时，一条「状态上报」要不要被相位机挡下。
+    ///
+    /// 待批是**已经发生的事实**（服务端还攥着那条等应答的连接），状态上报只是描述；两者
+    /// 冲突时以事实为准。现实里这条冲突很常见：闸门版集成先发闸门信封、后发 `PreToolUse`
+    /// （两条独立连接、彼此不保序），实测 `PreToolUse` 会在 74ms 后把相位推回 `processing`，
+    /// 卡片随之消失——工具于是一直挂到客户端预算耗尽被静默拒绝，用户侧毫无反馈。
+    nonisolated static func statusUpdateBlockedByPending(
+        current: SessionPhase, next: SessionPhase, hasLivePending: Bool
+    ) -> Bool {
+        current.isWaitingForApproval && next == .processing && hasLivePending
+    }
+
     /// Whether this phase indicates the session needs user attention
     var needsAttention: Bool {
         switch self {

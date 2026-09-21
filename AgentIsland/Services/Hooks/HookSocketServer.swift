@@ -226,6 +226,20 @@ nonisolated struct HookEvent: Codable, Sendable {
   return event == "ToolApproval" && status == "waiting_for_approval" && wantsResponse == true
  }
 
+ /// 交付这一条事件时，该会话**是否正有待批在等**。
+ ///
+ /// 由 `HookSocketServer` 在交给事件处理者之前盖章：待批是已经发生的事实（服务端还攥着
+ /// 那条等应答的连接），状态上报只是描述。相位机据此把「等待审批」钉住（见
+ /// `SessionStore.processHookEvent`）。**不是线上字段**：不进 `CodingKeys`，只在进程内传递。
+ var hasLivePending = false
+
+ /// 复制一份并盖上「该会话此刻有待批在等」的章。
+ func withLivePending(_ value: Bool) -> HookEvent {
+  var copy = self
+  copy.hasLivePending = value
+  return copy
+ }
+
  /// 是否为「危险命令」档：卡片据此用警示色；未知档位一律按普通档处理。
  nonisolated var isCriticalApproval: Bool {
   approvalKind == Self.criticalApprovalKind
@@ -423,6 +437,11 @@ class HookSocketServer {
  static let shared = HookSocketServer()
  static let socketPath = "/tmp/agent-island.sock"
 
+ /// 本进程是否赢得了这条 socket 的归属（`bind` 成功才算）。败者不启动服务。
+ /// 见 `startServer()` 的 bind 分支：这条 socket 是**单实例资源**，跑测试的宿主进程
+ /// 绝不能把它抢走。
+ private var ownsListener = false
+
  private var serverSocket: Int32 = -1
  private var acceptSource: DispatchSourceRead?
  private var eventHandler: HookEventHandler?
@@ -481,10 +500,16 @@ class HookSocketServer {
  ) {
   guard serverSocket < 0 else { return }
 
+  // 测试宿主**绝不**绑这条 socket：它和真实应用共用同一个路径，unlink + rebind 会把用户
+  // 正在用的那条连接面整条抢过来，让「闸门请求送不到任何人手里」——集成侧只会等到客户端
+  // 预算耗尽，然后被静默拒绝（实测：`xcodebuild test` 的宿主就干过这件事）。
+  guard !AppEnvironment.isRunningTests else {
+   logger.info("Skipping hook socket server (running in a test host)")
+   return
+  }
+
   eventHandler = onEvent
   permissionFailureHandler = onPermissionFailure
-
-  unlink(Self.socketPath)
 
   serverSocket = socket(AF_UNIX, SOCK_STREAM, 0)
   guard serverSocket >= 0 else {
@@ -505,6 +530,20 @@ class HookSocketServer {
    }
   }
 
+  // 先探一次：路径已存在且**有活着的监听者**说明另一份应用正占着这条 socket
+  // （`bind` 会以 EADDRINUSE 失败，而这里先探是为了把话说清楚，不是让 `bind` 去撞）。
+  if Self.listenerIsAlive(at: Self.socketPath) {
+   logger.error(
+    "Another AgentIsland instance already listens on \(Self.socketPath, privacy: .public); this instance will not rebind it"
+   )
+   close(serverSocket)
+   serverSocket = -1
+   return
+  }
+
+  // 到这里路径要么不存在，要么是上次崩溃留下的死 socket，清掉再绑。
+  unlink(Self.socketPath)
+
   let bindResult = withUnsafePointer(to: &addr) { ptr in
    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
     bind(serverSocket, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
@@ -517,6 +556,8 @@ class HookSocketServer {
    serverSocket = -1
    return
   }
+
+  ownsListener = true
 
   chmod(Self.socketPath, 0o600)
 
@@ -545,10 +586,17 @@ class HookSocketServer {
  }
 
  /// Stop the socket server
+ ///
+ /// 只撤自己那份：**没赢过 bind 的进程不许 unlink**，否则会把正主儿正在服务的 socket 文件
+ /// 摘掉，正主儿此后收不到任何连接，而路径看起来又是「存在但没人应答」。
  func stop() {
   acceptSource?.cancel()
   acceptSource = nil
-  unlink(Self.socketPath)
+
+  if ownsListener {
+   unlink(Self.socketPath)
+   ownsListener = false
+  }
 
   reaperTimer?.cancel()
   reaperTimer = nil
@@ -673,6 +721,31 @@ class HookSocketServer {
 
  // MARK: - Pending Permission Reaper
 
+ /// 这条路径上是否已有活着的监听者。
+ ///
+ /// 判据是**连一下**而不是看文件是否存在：上次崩溃会留下一个死 socket 文件，那种情况必须
+ /// 允许接管。`connect` 到没人监听的文件会立刻拿到 ECONNREFUSED，因此这个探针不会挂住。
+ private static func listenerIsAlive(at path: String) -> Bool {
+  let probe = socket(AF_UNIX, SOCK_STREAM, 0)
+  guard probe >= 0 else { return false }
+  defer { close(probe) }
+
+  var addr = sockaddr_un()
+  addr.sun_family = sa_family_t(AF_UNIX)
+  path.withCString { ptr in
+   _ = withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
+    strcpy(
+     UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self), ptr)
+   }
+  }
+  let result = withUnsafePointer(to: &addr) { ptr in
+   ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+    connect(probe, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+   }
+  }
+  return result == 0
+ }
+
  /// 关闭客户端连接并维护连接计数（只在 `queue` 上调用）
  private func closeClient(_ fd: Int32) {
   openClientCount = max(0, openClientCount - 1)
@@ -713,13 +786,37 @@ class HookSocketServer {
   }
   permissionsLock.unlock()
 
+  let seconds = String(format: "%.1f", self.pendingTTL)
   for (pendingKey, pending) in expired {
+   // 收割 = 「问了没人答」。给集成一条**显式拒绝**再关连接：原来只关 fd，集成侧只能报
+   // 「AgentIsland is no longer available」——与应用真的崩了/退出了不可区分，排查时会把
+   // 方向带偏到「版本错配 / 进程死了」（实测踩到）。理由原文也会回灌给模型。
+   let reason = "No decision on AgentIsland within \(seconds)s — denied."
    logger.warning(
-    "Reaped pending permission after \(String(format: "%.1f", self.pendingTTL), privacy: .public)s - agent:\(pendingKey.key.agent.rawValue, privacy: .public) session:\(pendingKey.key.sessionId.prefix(8), privacy: .public) tool:\(pendingKey.toolUseId.prefix(12), privacy: .public)"
+    "Reaped pending permission after \(seconds, privacy: .public)s - agent:\(pendingKey.key.agent.rawValue, privacy: .public) session:\(pendingKey.key.sessionId.prefix(8), privacy: .public) tool:\(pendingKey.toolUseId.prefix(12), privacy: .public) reason:\(reason, privacy: .public)"
    )
-   closeClient(pending.clientSocket)
-   permissionFailureHandler?(pending.key, pending.toolUseId)
+   respondToExpired(pending, reason: reason)
   }
+ }
+
+ /// 给超时未决的待批写回一条显式拒绝，再关连接。
+ ///
+ /// 失败回调照旧要发：会话得离开「等待审批」，否则卡片会一直挂在列表里。
+ private func respondToExpired(_ pending: PendingPermission, reason: String) {
+  let response = AskAnswerBuilder.normalized(
+   decision: AskAnswerBuilder.decisionDeny, answers: nil, reason: reason)
+  if let data = try? Self.responseEncoder.encode(response) {
+   data.withUnsafeBytes { bytes in
+    guard let baseAddress = bytes.baseAddress else { return }
+    if write(pending.clientSocket, baseAddress, data.count) < 0 {
+     logger.error(
+      "Write failed for reaped pending - agent:\(pending.key.agent.rawValue, privacy: .public) errno:\(errno, privacy: .public)"
+     )
+    }
+   }
+  }
+  closeClient(pending.clientSocket)
+  permissionFailureHandler?(pending.key, pending.toolUseId)
  }
 
  // MARK: - Tool Use ID Cache
@@ -965,13 +1062,15 @@ class HookSocketServer {
     )
    }
 
-   eventHandler?(updatedEvent)
+   eventHandler?(updatedEvent.withLivePending(hasPendingPermission(key: sessionKey)))
    return
   } else {
    closeClient(clientSocket)
   }
 
-  eventHandler?(event)
+  // 普通事件也带上「这条会话此刻有没有待批」：闸门版集成先发闸门信封、后发 PreToolUse，
+  // 那条 PreToolUse 若不带这个事实就会把「等待审批」推回 processing（实测 74ms）。
+  eventHandler?(event.withLivePending(hasPendingPermission(key: event.sessionKey)))
  }
 
  private func sendPermissionResponse(

@@ -50,6 +50,7 @@ struct BehaviorPreferencesTests {
         try roundTrip(RefreshCadence.self)
         try roundTrip(NotificationScope.self)
         try roundTrip(SessionRowClickAction.self)
+        try roundTrip(ApprovalAutoExpand.self)
     }
 
     @Test("选择器：选择后落盘，展开高度按档位数算")
@@ -80,6 +81,7 @@ struct BehaviorPreferencesTests {
             RefreshCadence.allCases.count,
             NotificationScope.allCases.count,
             SessionRowClickAction.allCases.count,
+            ApprovalAutoExpand.allCases.count,
         ]
         #expect(counts.allSatisfy { $0 <= 4 })
     }
@@ -175,6 +177,29 @@ struct BehaviorPreferencesTests {
         #expect(SessionRowClickAction.openChat.singleTapTarget(isInTmux: false) == .chat)
         #expect(SessionRowClickAction.focusTerminal.singleTapTarget(isInTmux: true) == .terminal)
         #expect(SessionRowClickAction.focusTerminal.singleTapTarget(isInTmux: false) == .chat)
+    }
+
+    @Test("待批自动展开：默认档只在入口就在刘海上时展开，且不被终端可见挡下")
+    func approvalAutoExpandPrecedence() {
+        // 报障场景：omp 闸门待批（终端侧没有任何提问）+ 当前空间里有终端 → 必须展开，
+        // 否则用户唯一能看到的就是关闭态那枚小指示，工具会一直挂到客户端预算耗尽被拒。
+        #expect(
+            ApprovalAutoExpand.whenTerminalIsSilent.shouldExpand(
+                decisionOnlyOnNotch: true, terminalVisible: true))
+        // Claude 的 PermissionRequest（终端里有对话框）仍是老口径：终端可见就别抢焦点。
+        #expect(
+            !ApprovalAutoExpand.whenTerminalIsSilent.shouldExpand(
+                decisionOnlyOnNotch: false, terminalVisible: true))
+        #expect(
+            ApprovalAutoExpand.whenTerminalIsSilent.shouldExpand(
+                decisionOnlyOnNotch: false, terminalVisible: false))
+        // 用户显式选的另外两档：总是 / 从不，与终端状态无关。
+        #expect(
+            ApprovalAutoExpand.always.shouldExpand(
+                decisionOnlyOnNotch: false, terminalVisible: true))
+        #expect(
+            !ApprovalAutoExpand.never.shouldExpand(
+                decisionOnlyOnNotch: true, terminalVisible: false))
     }
 
     @Test("默认档逐值保留改造前的行为（升级不改变观感与手感）")

@@ -28,6 +28,8 @@ struct NotchView: View {
  @ObservedObject private var completionBadge = CompletionBadgeSelector.shared
  @ObservedObject private var idleVisibility = IdleNotchVisibilitySelector.shared
  @ObservedObject private var notificationScope = NotificationScopeSelector.shared
+ /// 待批到来时是否自动展开（档位见 `ApprovalAutoExpand`）
+ @ObservedObject private var autoExpand = ApprovalAutoExpandSelector.shared
  @ObservedObject private var l10n = LocalizationManager.shared
  @State private var previousPendingIds: Set<String> = []
  @State private var previousWaitingForInputIds: Set<String> = []
@@ -571,13 +573,40 @@ struct NotchView: View {
   }
  }
 
+ /// 新的待批要不要把刘海自己展开。
+ ///
+ /// - `.never`：从不。
+ /// - `.always`：任何待批都展开。
+ /// - `.whenTerminalIsSilent`（默认）：**入口在刘海上**的待批一定展开——闸门版集成
+ ///   （omp / pi / opencode）把工具调用拦在自己手里，终端侧不画提问，等待期间用户唯一
+ ///   能作答的地方就是刘海；其余待批（Claude 的 `PermissionRequest`：终端里有对话框）
+ ///   沿用「当前空间没有终端时才展开」的老口径，不去抢正在看终端的用户。
+ private func shouldAutoExpand(_ newSessions: [SessionState]) -> Bool {
+  autoExpand.option.shouldExpand(
+   decisionOnlyOnNotch: newSessions.contains(where: decisionOnlyOnNotch),
+   terminalVisible: TerminalVisibilityDetector.isTerminalVisibleOnCurrentSpace())
+ }
+
+ /// 这条待批的决定**只能在刘海**上给：不是 Claude 的终端对话框，也不是「让位」态
+ /// （那时终端正在问），并且不是交互式提问（`ask` 类在终端有自己的弹窗）。
+ private func decisionOnlyOnNotch(_ session: SessionState) -> Bool {
+  guard session.phase.isWaitingForApproval else { return false }
+  guard session.agent.approval.requestEvent == "ToolApproval" else { return false }
+  guard sessionMonitor.approvalDisplay(for: session.sessionKey)?.terminalIsAsking != true else {
+   return false
+  }
+  guard let tool = session.pendingToolName, !session.agent.isInteractiveTool(tool) else {
+   return false
+  }
+  return true
+ }
+
  private func handlePendingSessionsChange(_ sessions: [SessionState]) {
   let currentIds = Set(sessions.map { $0.stableId })
   let newPendingIds = currentIds.subtracting(previousPendingIds)
 
-  if !newPendingIds.isEmpty && viewModel.status == .closed
-   && !TerminalVisibilityDetector.isTerminalVisibleOnCurrentSpace()
-  {
+  let newSessions = sessions.filter { newPendingIds.contains($0.stableId) }
+  if !newSessions.isEmpty && viewModel.status == .closed && shouldAutoExpand(newSessions) {
    viewModel.notchOpen(reason: .notification)
   }
 

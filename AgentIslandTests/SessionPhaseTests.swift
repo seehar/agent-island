@@ -77,6 +77,26 @@ struct SessionPhaseTests {
         #expect(!SessionPhase.waitingForInput.isPausableWhenProcessGone())
     }
 
+    @Test("待批在手时，状态上报不许把相位从「等待审批」推回处理中")
+    func pendingHoldsApprovalPhase() {
+        // 闸门版集成先发闸门信封、后发 PreToolUse：那条 PreToolUse 若把相位推回 processing，
+        // 卡片就消失了，而应用还攥着连接等一个点不到的决定（报障的根因）。
+        #expect(
+            SessionPhase.statusUpdateBlockedByPending(
+                current: approval, next: .processing, hasLivePending: true))
+        // 没有待批在等时，状态上报照旧生效（应用重启后丢了待批的连接也走这条）。
+        #expect(
+            !SessionPhase.statusUpdateBlockedByPending(
+                current: approval, next: .processing, hasLivePending: false))
+        // 别的相位、别的目标相位都不归这条判据管。
+        #expect(
+            !SessionPhase.statusUpdateBlockedByPending(
+                current: .processing, next: .processing, hasLivePending: true))
+        #expect(
+            !SessionPhase.statusUpdateBlockedByPending(
+                current: approval, next: .waitingForInput, hasLivePending: true))
+    }
+
     @Test("审批上下文只按工具 id、工具名与到达时间比较")
     func approvalContextIdentity() {
         let receivedAt = Date()

@@ -136,6 +136,14 @@ struct BehaviorSettingsPage: View {
                 )
                 PreferencePickerRow(
                     badge: SettingsBadge(
+                        source: .symbol(
+                            name: "exclamationmark.circle", tint: AppPalette.accent)),
+                    title: l10n.t("Approval Auto Expand"),
+                    selector: ApprovalAutoExpandSelector.shared,
+                    label: approvalAutoExpandLabel
+                )
+                PreferencePickerRow(
+                    badge: SettingsBadge(
                         source: .symbol(name: "checkmark.circle", tint: AppPalette.accent)),
                     title: l10n.t("Completion Badge"),
                     selector: CompletionBadgeSelector.shared,
@@ -219,6 +227,14 @@ struct BehaviorSettingsPage: View {
         case .always: return l10n.t("Always")
         case .whenActive: return l10n.t("When Active")
         case .linger: return l10n.t("Keep 3 Seconds")
+        }
+    }
+
+    private func approvalAutoExpandLabel(_ option: ApprovalAutoExpand) -> String {
+        switch option {
+        case .whenTerminalIsSilent: return l10n.t("Only When the Notch Decides")
+        case .always: return l10n.t("Always")
+        case .never: return l10n.t("Never")
         }
     }
 

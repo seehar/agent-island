@@ -53,7 +53,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
   // 用量统计索引：首轮要把历史记录读一遍，跑在后台低优先级任务里，不阻塞界面。
   // 测试宿主里不启动：单测不需要读几个 GB 的历史，也不该污染用户统计库。
-  if !isRunningTests {
+  if !AppEnvironment.isRunningTests {
    Task { await UsageStatsIndexer.shared.start() }
   }
 
@@ -81,18 +81,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
   Task { await UsageStatsIndexer.shared.stop() }
  }
 
- /// 是否运行在单元测试宿主里。
- ///
- /// `xcodebuild test` 会启动一份 App 作为测试宿主，它与用户正在运行的实例 bundle id
- /// 完全一样；单实例守卫一拦，整轮测试就会因为宿主被终止而失败。
- private var isRunningTests: Bool {
-  NSClassFromString("XCTestCase") != nil
-   || Foundation.ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-   || Foundation.ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
- }
-
  private func ensureSingleInstance() -> Bool {
-  if isRunningTests { return true }
+  // 判定见 `AppEnvironment.isRunningTests`：`xcodebuild test` 的宿主与用户实例
+  // bundle id 相同，这里必须放行，否则整轮测试会因宿主被终止而失败。
+  if AppEnvironment.isRunningTests { return true }
 
   let bundleID = Bundle.main.bundleIdentifier ?? "com.celestial.AgentIsland"
   let runningApps = NSWorkspace.shared.runningApplications.filter {
