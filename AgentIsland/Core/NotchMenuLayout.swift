@@ -189,11 +189,11 @@ nonisolated enum NotchMenuMetrics {
             ]
         case .agents:
             return [
-                // 监控的智能体：每个 Agent 一行（标题 + 集成状态），末尾接一行审批降级档
-                // 选择器（单行选择行），带一行脚注
+                // 监控的智能体：每个 Agent 一行（标题 + 集成状态），末尾接两行选择器
+                // （闸门问什么 / 降级档，都是单行选择行），带一行脚注
                 Block(
                     rows: Array(repeating: twoLineRowHeight, count: AgentKind.allCases.count)
-                        + [rowHeight],
+                        + [rowHeight, rowHeight],
                     hasFootnote: true
                 ),
                 // Claude Code：配置目录

@@ -25,6 +25,8 @@
 #   enoent-critical  不启刘海（默认 notify-only）      → 危险命令仍被拒
 #   enoent-strict    不启刘海（strict 档）             → 一律拒绝
 #   enoent-readonly  不启刘海（read-only-allow 档）    → 写 / 执行档拒绝
+#   scope-critical-exec   只问危险命令档 + 普通命令      → 工具照跑，且从未发过闸门信封
+#   scope-critical-danger 只问危险命令档 + 危险命令      → 仍被拦 + 信封带 critical
 #   tui-no-dual-prompt 真 omp TUI（tmux）下触发一次待批 → 帧里没有 omp 自己的审批弹窗，
 #                      而刘海替身收到了请求（说明唯一入口是刘海）
 #   tui-enoent      真 omp TUI + socket 不存在（闸门离线）→ 帧里能看到「gate offline」可见提示、
@@ -197,21 +199,22 @@ YAML
 
 # 渲染某一版扩展：与安装器做同样替换（只上报版没有闸门策略占位符）。
 render_extension() {
-  local variant="$1" destination="$2" degradation="$3"
+  local variant="$1" destination="$2" degradation="$3" scope="${4:-all}"
   local source="$EXT_SOURCE"
   if [ "$variant" = "report-only" ]; then
     source="$EXT_SOURCE_REPORT_ONLY"
   fi
-  python3 - "$source" "$destination" "$degradation" <<'PY'
+  python3 - "$source" "$destination" "$degradation" "$scope" <<'PY'
 import pathlib, sys
 
-source, destination, degradation = sys.argv[1], sys.argv[2], sys.argv[3]
+source, destination, degradation, scope = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 text = pathlib.Path(source).read_text(encoding="utf-8")
 text = text.replace("__AGENT_ISLAND_AGENT__", "omp")
 text = text.replace("__AGENT_ISLAND_DEGRADATION__", degradation)
+text = text.replace("__AGENT_ISLAND_ASK_SCOPE__", scope)
 text = text.replace(
     "__AGENT_ISLAND_GATE_CONFIG__",
-    '{"degradation":"%s","timeoutMs":120000}' % degradation,
+    '{"degradation":"%s","timeoutMs":120000,"askScope":"%s"}' % (degradation, scope),
 )
 assert "__AGENT_ISLAND_" not in text, "占位符没替换完"
 pathlib.Path(destination).write_text(text, encoding="utf-8")
@@ -219,12 +222,12 @@ PY
 }
 
 prepare_case() {
-  local run="$1" degradation="$2" variant="${3:-gate}"
+  local run="$1" degradation="$2" variant="${3:-gate}" scope="${4:-all}"
   rm -rf "$run"
   mkdir -p "$run/home" "$run/agent/extensions" "$run/out" "$run/guard"
   write_models "$run/agent/models.yml"
   write_config "$run/agent/config.yml"
-  render_extension "$variant" "$run/agent/extensions/agent-island-state.ts" "$degradation"
+  render_extension "$variant" "$run/agent/extensions/agent-island-state.ts" "$degradation" "$scope"
   # 危险命令的可观测替身：命中 critical 时它必须还在（说明命令被拦下）。
   printf 'payload\n' > "$run/guard/payload"
   printf '{}' > "$run/ask_answers.json"
@@ -419,9 +422,9 @@ PY
 # ---------------------------------------------------------------------------
 
 run_case() {
-  local name="$1" degradation="$2" server_mode="$3" timeout_ms="$4" kind="$5"
+  local name="$1" degradation="$2" server_mode="$3" timeout_ms="$4" kind="$5" scope="${6:-all}"
   local run="$ROOT/case-$name"
-  prepare_case "$run" "$degradation"
+  prepare_case "$run" "$degradation" "" "$scope"
   SERVER_PID=""
   if [ "$server_mode" = "none" ]; then
     log "=== case=${name}（不启刘海替身，闸门离线；降级档 ${degradation}）"
@@ -487,6 +490,20 @@ run_case() {
     enoent-readonly)
       assert_file_absent "$run/ran.txt" "$name 写/执行档拒绝"
       assert_transcript "$run" "approval gate offline (read-only-allow)" "$name 拒绝理由"
+      ;;
+    scope-critical-exec)
+      # 「只问危险命令」档：普通写/执行调用照跑，且**从来没有发过闸门信封**
+      # （发过就说明还在阻塞等人点按）。
+      assert_file_exists "$run/ran.txt" "$name 普通命令照跑"
+      assert_absent "$run/out/server.jsonl" '"event": "ToolApproval"' "$name 没走闸门"
+      assert_payload "$run" '"event": "PreToolUse"' "$name 仍然上报（行里看得到工具在跑）"
+      ;;
+    scope-critical-danger)
+      # 同一档位下危险命令仍要问：拦下 + 信封带 critical + 理由回灌。
+      assert_guard_intact "$run" "$name 危险命令仍被拦"
+      assert_payload "$run" '"event": "ToolApproval"' "$name 危险命令走闸门"
+      assert_payload "$run" '"approval_kind": "critical"' "$name"
+      assert_transcript "$run" "denied by notch test double" "$name 理由回灌"
       ;;
   esac
   assert_isolation "$run" "$name"
@@ -851,6 +868,9 @@ spec() {
     enoent-critical) printf '%s %s %s %s %s' "$1" notify-only      none     120000 critical ;;
     enoent-strict)   printf '%s %s %s %s %s' "$1" strict           none     120000 exec ;;
     enoent-readonly) printf '%s %s %s %s %s' "$1" read-only-allow  none     120000 exec ;;
+    # 「只问危险命令」：写/执行档照跑、危险命令仍要问
+    scope-critical-exec)   printf '%s %s %s %s %s %s' "$1" notify-only allow  120000 exec     critical-only ;;
+    scope-critical-danger) printf '%s %s %s %s %s %s' "$1" notify-only deny   120000 critical critical-only ;;
   esac
 }
 
@@ -861,7 +881,7 @@ pgrep -f "$OMP" > "$ROOT/pids-before.txt" 2>/dev/null || true
 
 selected=("$@")
 if [ "${#selected[@]}" -eq 0 ]; then
-  selected=(allow deny silence deny-critical enoent-exec enoent-critical enoent-strict enoent-readonly tui tui-enoent report-only-ask zero-select-multi zero-select-mixed ask-deny-control)
+  selected=(allow deny silence deny-critical enoent-exec enoent-critical enoent-strict enoent-readonly scope-critical-exec scope-critical-danger tui tui-enoent report-only-ask zero-select-multi zero-select-mixed ask-deny-control)
 fi
 
 for name in "${selected[@]}"; do

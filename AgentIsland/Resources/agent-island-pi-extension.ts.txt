@@ -1,7 +1,8 @@
 // agent-island-pi-extension.ts —— 由 AgentIsland 安装的 pi / Oh My Pi 扩展
-// agent-island-extension-version: 3
+// agent-island-extension-version: 4
 // agent-island-extension-kind: gate
 // agent-island-extension-degradation: __AGENT_ISLAND_DEGRADATION__
+// agent-island-extension-ask-scope: __AGENT_ISLAND_ASK_SCOPE__
 // 本文件由 AgentIsland 安装并管理，勿手改：开关切换、档位变更或应用升级都会整体重写。
 //
 // 作用：把会话生命周期与工具调用实时上报给 notch 应用（unix socket），
@@ -31,13 +32,14 @@ const AGENT: string = "__AGENT_ISLAND_AGENT__";
 const SOCKET_PATH = process.env.AGENT_ISLAND_SOCKET || "/tmp/agent-island.sock";
 
 /** 本文件期望的版本（安装器按它比对，见 AgentIntegrationInstaller）。 */
-const EXTENSION_VERSION = 3;
+const EXTENSION_VERSION = 4;
 
 /** 降级档：应用不可达时怎么办（用户在设置面板选，安装本文件时注入）。 */
 type Degradation = "strict" | "notify-only" | "read-only-allow";
 
 /** 闸门策略：由安装器注入 JSON；用户改设置后重装本文件即生效。 */
-const GATE_CONFIG: { degradation?: unknown; timeoutMs?: unknown } = __AGENT_ISLAND_GATE_CONFIG__;
+const GATE_CONFIG: { degradation?: unknown; timeoutMs?: unknown; askScope?: unknown } =
+  __AGENT_ISLAND_GATE_CONFIG__;
 
 /** 取一个正整数；非法取值返回 undefined。 */
 function readPositiveInt(raw: unknown): number | undefined {
@@ -51,6 +53,29 @@ function normalizeDegradation(raw: unknown): Degradation {
 }
 
 const DEGRADATION: Degradation = normalizeDegradation(GATE_CONFIG.degradation);
+
+/**
+ * 闸门问什么：写档与执行档要不要阻塞等人点按。
+ *
+ * `all`（缺省，闸门的原始形态）——写档与执行档都问；
+ * `critical-only`——只问危险命令档，其余写/执行调用照跑（仍然上报，行里看得到工具在跑）。
+ *
+ * 「只问危险命令」不是「不问」：`critical` 在任何档位下都要问，且应用不可达时一律拒绝。
+ * 缺省取 `all`：老应用不会注入这个字段，缺省必须与它期待的行为一致。
+ */
+type AskScope = "all" | "critical-only";
+
+/** 归一化适用范围；缺失或非法取值退回 `all`。 */
+function normalizeAskScope(raw: unknown): AskScope {
+  return raw === "critical-only" ? "critical-only" : "all";
+}
+
+const ASK_SCOPE: AskScope = normalizeAskScope(GATE_CONFIG.askScope);
+
+/** 该档位要不要问刘海。 */
+function asksByScope(tier: ApprovalTier): boolean {
+  return tier === "critical" || ASK_SCOPE === "all";
+}
 
 /**
  * 客户端等刘海的时限。
@@ -1556,6 +1581,11 @@ export default function (pi: ExtensionApi) {
 
       tier = classifyToolCall(toolName, input);
       if (tier === "allow") {
+        return;
+      }
+      // 「只问危险命令」档：写档与执行档照跑——上面那条 PreToolUse 已经上报过，
+      // 行里仍看得到工具在跑，只是不再等刘海点按。
+      if (!asksByScope(tier)) {
         return;
       }
       // 子会话默认不拦（`task` 本身已是授权边界，逐条上卡会刷屏并阻塞子代理）；危险命令例外。

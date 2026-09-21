@@ -51,6 +51,7 @@ struct BehaviorPreferencesTests {
         try roundTrip(NotificationScope.self)
         try roundTrip(SessionRowClickAction.self)
         try roundTrip(ApprovalAutoExpand.self)
+        try roundTrip(ApprovalAskScope.self)
     }
 
     @Test("选择器：选择后落盘，展开高度按档位数算")
@@ -82,6 +83,7 @@ struct BehaviorPreferencesTests {
             NotificationScope.allCases.count,
             SessionRowClickAction.allCases.count,
             ApprovalAutoExpand.allCases.count,
+            ApprovalAskScope.allCases.count,
         ]
         #expect(counts.allSatisfy { $0 <= 4 })
     }
@@ -200,6 +202,15 @@ struct BehaviorPreferencesTests {
         #expect(
             !ApprovalAutoExpand.never.shouldExpand(
                 decisionOnlyOnNotch: true, terminalVisible: false))
+    }
+
+    @Test("闸门适用范围：默认仍是「都问」，只问危险命令是可选档位")
+    func approvalAskScopeDefaults() {
+        // 默认值必须与闸门原始形态一致：升级不改变既有用户的手感。
+        #expect(ApprovalAskScope.defaultValue == .writesAndExec)
+        // 原值会写进扩展文件（文件头标记 + 策略常量），且被扩展读取判定，不能悄悄改名。
+        #expect(ApprovalAskScope.writesAndExec.rawValue == "all")
+        #expect(ApprovalAskScope.criticalOnly.rawValue == "critical-only")
     }
 
     @Test("默认档逐值保留改造前的行为（升级不改变观感与手感）")

@@ -169,6 +169,14 @@ nonisolated enum AppSettings {
     set { defaults.set(Array(newValue).sorted(), forKey: Keys.approvalGateAgents) }
   }
 
+  /// 闸门问什么（写/执行档要不要阻塞等人点按）；默认「都问」。
+  /// 随扩展文件下发（写进闸门版扩展文件头的标记与策略常量），不写用户的 agent 配置。
+  /// 读写走偏好骨架（`PreferenceStore`），设置行里改档位与本入口落同一处。
+  static var approvalAskScope: ApprovalAskScope {
+    get { PreferenceStore.read(ApprovalAskScope.self, defaults: defaults) }
+    set { PreferenceStore.write(newValue, defaults: defaults) }
+  }
+
   /// 应用不可达时闸门怎么办；默认 `notify-only`。
   /// 随扩展文件下发（写进扩展里的策略常量），不写用户的 agent 配置。
   /// 读写走偏好骨架（`PreferenceStore`），设置行里改档位与本入口落同一处。

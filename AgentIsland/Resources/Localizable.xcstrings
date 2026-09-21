@@ -4566,6 +4566,102 @@
           }
         }
       }
+    },
+    "Ask before running" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ask before running"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运行前询问什么"
+          }
+        }
+      }
+    },
+    "Writes and commands" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Writes and commands"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "写与命令"
+          }
+        }
+      }
+    },
+    "Dangerous commands only" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dangerous commands only"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只问危险命令"
+          }
+        }
+      }
+    },
+    "Ask for every write and command (default)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ask for every write and command (default)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "写档与执行档都问（默认）"
+          }
+        }
+      }
+    },
+    "Ask for dangerous commands only" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ask for dangerous commands only"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只问危险命令"
+          }
+        }
+      }
+    },
+    "Dangerous commands are always asked, and are rejected whenever AgentIsland cannot be reached — in every scope." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dangerous commands are always asked, and are rejected whenever AgentIsland cannot be reached — in every scope."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "危险命令在任何档位下都会被问；AgentIsland 不可达时一律拒绝。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

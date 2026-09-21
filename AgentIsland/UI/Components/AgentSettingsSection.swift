@@ -35,6 +35,12 @@ struct AgentSettingsSection: View {
                 )
             }
 
+            ApprovalAskScopePickerRow(
+                isEnabled: hasEnabledGate,
+                showsSeparator: true,
+                onSelect: { _ in reinstallGateExtensions() }
+            )
+
             ApprovalDegradationPickerRow(
                 isEnabled: hasEnabledGate,
                 showsSeparator: installError != nil,
@@ -141,6 +147,7 @@ struct AgentSettingsSection: View {
         // （禁用的行点不动），面板会一直留着那份高度。
         if hasEnabledGate == false {
             ApprovalDegradationSelector.shared.isPickerExpanded = false
+            ApprovalAskScopeSelector.shared.isPickerExpanded = false
         }
     }
 
@@ -287,6 +294,87 @@ private struct AgentSettingsRow: View {
         let home = NSHomeDirectory()
         guard raw.hasPrefix(home) else { return raw }
         return "~" + raw.dropFirst(home.count)
+    }
+}
+
+// MARK: - 闸门问什么
+
+/// 「闸门问哪些调用」选择行。
+///
+/// 档位是**全局**的（`ApprovalAskScope`）：它决定写档与执行档要不要阻塞等人点按。与降级档
+/// 一样，换档 = 重装闸门版扩展（档位值烘焙进扩展文件头的标记与策略常量）。没有开启任何
+/// 闸门时这一行没有意义，因此禁用并说明原因（禁用不影响面板高度：行仍占一行）。
+private struct ApprovalAskScopePickerRow: View {
+    /// 是否至少有一个 Agent 开着闸门。
+    let isEnabled: Bool
+    let showsSeparator: Bool
+    /// 选中某个档位后的回调（区段用它重装闸门版扩展）。
+    let onSelect: (ApprovalAskScope) -> Void
+
+    @ObservedObject private var selector = ApprovalAskScopeSelector.shared
+    @ObservedObject private var l10n = LocalizationManager.shared
+
+    var body: some View {
+        SettingsPickerRow(
+            badge: SettingsBadge(
+                source: .symbol(name: "questionmark.shield", tint: AppPalette.accent)),
+            title: l10n.t("Ask before running"),
+            // 禁用时这一列改成原因，用户不必猜为什么点不动。
+            value: isEnabled ? compactTitle(for: selector.option) : l10n.t("Requires an approval gate"),
+            isExpanded: selector.isPickerExpanded,
+            showsSeparator: showsSeparator,
+            onToggle: {
+                withAnimation(SettingsMotion.expand) {
+                    selector.isPickerExpanded.toggle()
+                }
+            }
+        ) {
+            ForEach(ApprovalAskScope.allCases, id: \.self) { option in
+                SettingsOptionRow(
+                    label: optionTitle(option),
+                    isSelected: selector.option == option
+                ) {
+                    selector.select(option)
+                    onSelect(option)
+                    collapseAfterDelay()
+                }
+            }
+        }
+        .disabled(isEnabled == false)
+        .opacity(isEnabled ? 1 : 0.5)
+        .help(explanation)
+    }
+
+    /// 行内取值：短文案（完整文案在选项列表里，行内放不下）。
+    private func compactTitle(for scope: ApprovalAskScope) -> String {
+        switch scope {
+        case .writesAndExec: return l10n.t("Writes and commands")
+        case .criticalOnly: return l10n.t("Dangerous commands only")
+        }
+    }
+
+    /// 档位文案。在视图里按字面量取键，本地化守卫才能审计到（与其它选择器同一约定）。
+    private func optionTitle(_ scope: ApprovalAskScope) -> String {
+        switch scope {
+        case .writesAndExec: return l10n.t("Ask for every write and command (default)")
+        case .criticalOnly: return l10n.t("Ask for dangerous commands only")
+        }
+    }
+
+    /// 选择后短暂延迟再收起，让用户看到选中态的变化（与其它选择行同一手感）。
+    private func collapseAfterDelay() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            withAnimation(SettingsMotion.expand) {
+                selector.isPickerExpanded = false
+            }
+        }
+    }
+
+    /// 悬停说明：说清「只问危险命令」不是「不问」，以及底线仍然在。
+    private var explanation: String {
+        l10n.t(
+            "Dangerous commands are always asked, and are rejected whenever AgentIsland cannot be reached — in every scope."
+        )
     }
 }
 

@@ -32,12 +32,13 @@ nonisolated enum AgentIntegrationInstaller {
 
   /// 当前应用期望的扩展版本戳：改 pi/omp 扩展时必须同步 +1。
   /// `isInstalled` 按它比对（不再只看「文件在不在」），用户手改过或升级未重写都能被发现。
-  static let piFamilyExtensionVersion = 3
+  static let piFamilyExtensionVersion = 4
 
   /// 扩展源码里声明版本 / 变体 / 降级档的三行注释标记。
   private static let versionMarkerPrefix = "// agent-island-extension-version:"
   private static let kindMarkerPrefix = "// agent-island-extension-kind:"
   private static let degradationMarkerPrefix = "// agent-island-extension-degradation:"
+  private static let askScopeMarkerPrefix = "// agent-island-extension-ask-scope:"
 
   /// 占位符前缀：安装后不该再出现（渲染漏了就拒绝安装）。
   private static let placeholderPrefix = "__AGENT_ISLAND_"
@@ -49,6 +50,7 @@ nonisolated enum AgentIntegrationInstaller {
   private static let agentToken = "__AGENT_ISLAND_AGENT__"
   private static let gateConfigToken = "__AGENT_ISLAND_GATE_CONFIG__"
   private static let degradationToken = "__AGENT_ISLAND_DEGRADATION__"
+  private static let askScopeToken = "__AGENT_ISLAND_ASK_SCOPE__"
   /// OpenCode 插件文件名。
   static let openCodePluginName = "agent-island-state.js"
 
@@ -201,6 +203,13 @@ nonisolated enum AgentIntegrationInstaller {
     {
       return false
     }
+    // 适用范围同理：换档位等于换文件，界面不能继续显示「已安装」。
+    if variant == .gate,
+      markerValue(in: contents, prefix: askScopeMarkerPrefix)
+        != AppSettings.approvalAskScope.rawValue
+    {
+      return false
+    }
     return true
   }
 
@@ -261,9 +270,9 @@ nonisolated enum AgentIntegrationInstaller {
     }
   }
 
-  /// 把随包资源渲染成可安装的扩展：替换 Agent 名；闸门版再把降级档与策略常量注入。
+  /// 把随包资源渲染成可安装的扩展：替换 Agent 名；闸门版再把降级档、适用范围与策略常量注入。
   ///
-  /// 策略写进文件而不是运行时下发：扩展在 `tool_call` 里需要立刻知道降级档，而
+  /// 策略写进文件而不是运行时下发：扩展在 `tool_call` 里需要立刻知道降级档与适用范围，而
   /// 此时未必还能跟应用通话（应用不在正是降级档的适用场景）。
   private static func renderPiFamilyExtension(
     _ contents: String,
@@ -273,10 +282,13 @@ nonisolated enum AgentIntegrationInstaller {
     var rendered = contents.replacingOccurrences(of: agentToken, with: kind.rawValue)
     guard variant == .gate else { return rendered }
     let degradation = AppSettings.approvalDegradation.rawValue
+    let askScope = AppSettings.approvalAskScope.rawValue
     rendered = rendered.replacingOccurrences(of: degradationToken, with: degradation)
+    rendered = rendered.replacingOccurrences(of: askScopeToken, with: askScope)
     rendered = rendered.replacingOccurrences(
       of: gateConfigToken,
-      with: #"{"degradation":"\#(degradation)","timeoutMs":\#(gateApprovalTimeoutMs)}"#
+      with:
+        #"{"degradation":"\#(degradation)","timeoutMs":\#(gateApprovalTimeoutMs),"askScope":"\#(askScope)"}"#
     )
     return rendered
   }

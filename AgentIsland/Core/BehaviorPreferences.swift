@@ -122,6 +122,23 @@ nonisolated enum HoverExpand: String, PreferenceOption {
     }
 }
 
+// MARK: - 闸门问什么
+
+/// 闸门的**适用范围**：哪些档位的工具调用要阻塞等人点按（omp / pi 的阻塞闸门）。
+///
+/// 档位由集成侧判定（`classifyToolCall`：`allow` = 只读/协议工具、`write` = 写类工具、
+/// `exec` = 执行类、`critical` = 命中危险命令名单），应用只把这一档位烘焙进扩展文件。
+/// 「只问危险命令」不是「不问」：`critical` 永远要问——那是底线，且在应用不可达时仍然拒绝。
+nonisolated enum ApprovalAskScope: String, CaseIterable, PreferenceOption {
+    /// 写档与执行档都问（默认；闸门的原始形态）。
+    case writesAndExec = "all"
+    /// 只问危险命令档；其余写/执行调用照跑（仍会上报，行里看得到工具在跑）。
+    case criticalOnly = "critical-only"
+
+    static let preferenceKey = "approvalAskScope"
+    static var defaultValue: ApprovalAskScope { .writesAndExec }
+}
+
 // MARK: - 待批自动展开
 
 /// 新的待批许可到来时，刘海要不要自己展开。
@@ -356,6 +373,7 @@ nonisolated enum SessionRowTapTarget: Equatable, Sendable {
 
 // MARK: - 类型别名（设置行按这个名字取用）
 
+typealias ApprovalAskScopeSelector = EnumPreference<ApprovalAskScope>
 typealias ApprovalAutoExpandSelector = EnumPreference<ApprovalAutoExpand>
 typealias HoverExpandSelector = EnumPreference<HoverExpand>
 typealias CompletionBadgeSelector = EnumPreference<CompletionBadge>
