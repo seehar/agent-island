@@ -27,6 +27,8 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
 - **Hover** — it expands into one live list across every agent you run.
 - **Approval** — a tool call that needs permission opens the panel with Allow / Deny, and your answer travels back to the agent.
 
+- **Stats** — one more header button opens a usage page: tokens, sessions and tool calls, per agent, for today, this week, this month or all time.
+
 <table>
   <tr>
     <td width="50%"><img src="docs/images/notch-closed.png" alt="Closed capsule"></td>
@@ -46,6 +48,8 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
 
 **Approvals on the notch.** Allow / Deny for all four agents: Claude Code through its hook, `omp`/`pi` through a blocking extension gate (opt-in), OpenCode through its plugin. Calls classified as dangerous — `rm -rf /`, `sudo rm`, `mkfs`, `dd … of=/dev/…`, `curl … | sh`, reverse shells, `kill -9 1` — are flagged in red, and their fail-open path is never used.
 
+**Usage stats.** The header's chart button opens a stats page: total tokens with input / output / cache read / cache write and hit rate, session and tool-call counts, for **Today / This Week / This Month / All** — split per agent, with a trend chart and a tool leaderboard. The numbers are indexed from the agents' own session records, so finished sessions still count.
+
 **Chat history, rendered.** The full conversation with Markdown, tool call cards with their results, subagent runs inline, and the question when a tool is waiting for your input.
 
 ![The chat view: Markdown, tool calls and subagents](docs/images/notch-chat.png)
@@ -55,6 +59,12 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
 **Small by design.** No Dock icon, no menu bar item, no daemon: a local Unix socket, one `NSPanel` on the notch, and your agents' own files.
 
 **Yours to tune.** Hover delay, idle behaviour, panel size, row density, click action, refresh cadence, notification scope, content text size, notch height and width, and the language (English / 简体中文) — all switchable at runtime.
+
+## Usage stats
+
+![Usage stats: totals, per-agent split, trend and tools](docs/images/notch-stats.png)
+
+The page reads the same records the chat view does and keeps only aggregate counters in its own store. Totals include cached tokens (hit rate = cache read / (input + cache read + cache write)); session counts exclude subagents. The index runs in the background on first open, and the page reports when it last indexed.
 
 ## Supported agents
 
@@ -147,9 +157,10 @@ Every state change goes through a single entry point (`SessionStore.process(_:)`
 ## Privacy
 
 - Agents talk to the app over a local Unix socket; the app opens no ports and sends nothing anywhere.
-- There is no analytics of any kind — the usage-tracking dependency was removed from the app.
+- There is no analytics and no telemetry: the only counters the app keeps are the local usage aggregates described above, computed on your machine.
 - The only network call is the Sparkle update check against this repository's appcast on GitHub Pages.
 - The app reads the session records your agents already write; it never modifies them.
+- Usage stats are aggregate counters kept in the app's own store; session records are only read, never rewritten.
 
 ## FAQ
 
