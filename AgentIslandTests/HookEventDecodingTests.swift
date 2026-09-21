@@ -16,6 +16,53 @@ import Testing
 
 @testable import AgentIsland
 
+/// `HookEvent` 的**进程内字段**必须在所有复制路径上保真（评审 F2）。
+///
+/// `hasLivePending` 决定相位机要不要把「等待审批」钉住；`owning(...)` 曾经是全参重建，
+/// 会把它（以及 `expects_response` / `ask`）静默丢成默认值——子代理进度事件因此又能把相位
+/// 推回 `processing`，卡片消失而服务端仍持有待批连接。
+@Suite("HookEvent 复制路径保真")
+struct HookEventCopyFidelityTests {
+    private func stamped() throws -> HookEvent {
+        let json = """
+            {"session_id":"s1","cwd":"/tmp","event":"SubagentProgress","status":"processing",
+             "agent":"omp","subagent_id":"job-a","parent_tool_call_id":"call_p","expects_response":true}
+            """
+        return try JSONDecoder().decode(HookEvent.self, from: Data(json.utf8)).withLivePending(true)
+    }
+
+    @Test("owning 改键不丢进程内字段与信封字段")
+    func owningPreservesFields() throws {
+        let event = try stamped()
+        let moved = event.owning(
+            sessionKey: SessionKey(agent: .pi, sessionId: "s2"), parentToolCallId: "call_q")
+
+        #expect(moved.sessionId == "s2")
+        #expect(moved.agentKind == .pi)
+        #expect(moved.parentToolCallId == "call_q")
+        #expect(moved.hasLivePending)
+        // 信封字段也要带过去：旧实现的全参重建没把它列进参数，`expects_response` 因此
+        // 静默变成 nil（子代理事件本来不该有它，但这类字段一旦被重建丢掉就再也查不出来）。
+        #expect(moved.wantsResponse == true)
+        #expect(moved.subagentId == "job-a")
+    }
+
+    @Test("withToolUseId 与 withLivePending 都保住进程内字段")
+    func simpleCopiesPreserveStamp() throws {
+        let event = try stamped()
+        #expect(event.withToolUseId("call_z").hasLivePending)
+        #expect(!event.withLivePending(false).hasLivePending)
+    }
+
+    @Test("进程内字段不上线：编码里不出现它")
+    func stampIsNotEncoded() throws {
+        let encoded = try JSONEncoder().encode(try stamped())
+        let text = String(decoding: encoded, as: UTF8.self)
+        #expect(!text.contains("hasLivePending"))
+        #expect(!text.contains("has_live_pending"))
+    }
+}
+
 @Suite("HookEvent.expectsResponse 判定矩阵")
 struct HookEventExpectsResponseTests {
     /// 用 JSON 构造事件：socket 上就是这么到达的，顺带覆盖解码路径。

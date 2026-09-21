@@ -587,14 +587,18 @@ struct NotchView: View {
    terminalVisible: TerminalVisibilityDetector.isTerminalVisibleOnCurrentSpace())
  }
 
- /// 这条待批的决定**只能在刘海**上给：不是 Claude 的终端对话框，也不是「让位」态
- /// （那时终端正在问），并且不是交互式提问（`ask` 类在终端有自己的弹窗）。
+ /// 这条待批的决定**只能在刘海**上给。
+ ///
+ /// 四个条件都要：相位在等待审批、Agent 用的是闸门信封（`ToolApproval`；Claude 的
+ /// `PermissionRequest` 意味着终端里本来就有对话框）、刘海**真的持有**这条待批（让位态
+ /// `omp_owns_approval` 的信封不登记待批，因此在这里被排除——它代表「终端正在问」，
+ /// 不该抢用户的视线）、且不是交互式提问（`ask` 类在终端有自己的弹窗）。
  private func decisionOnlyOnNotch(_ session: SessionState) -> Bool {
   guard session.phase.isWaitingForApproval else { return false }
   guard session.agent.approval.requestEvent == "ToolApproval" else { return false }
-  guard sessionMonitor.approvalDisplay(for: session.sessionKey)?.terminalIsAsking != true else {
-   return false
-  }
+  guard let display = sessionMonitor.approvalDisplay(for: session.sessionKey),
+   !display.terminalIsAsking
+  else { return false }
   guard let tool = session.pendingToolName, !session.agent.isInteractiveTool(tool) else {
    return false
   }

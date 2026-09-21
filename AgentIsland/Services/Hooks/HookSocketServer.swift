@@ -20,7 +20,9 @@ nonisolated struct HookEvent: Codable, Sendable {
  private static let criticalApprovalKind = "critical"
  /// 集成侧的默认降级档；不是这一档就要在卡片上提示「闸门已降级」。
  private static let defaultDegradationTier = "notify-only"
- let sessionId: String
+ /// 会话身份三件套与 `toolUseId` 一样是 `var`：三处「复制并改写」的入口
+ /// （`withToolUseId` / `withLivePending` / `owning`）都靠副本语义保真，不再走全参重建。
+ var sessionId: String
  let cwd: String
  let event: String
  let status: String
@@ -28,7 +30,7 @@ nonisolated struct HookEvent: Codable, Sendable {
  let tty: String?
  let tool: String?
  let toolInput: [String: AnyCodable]?
- /// 工具调用 id；`var` 只为 `withToolUseId(_:)` 的副本语义，其余字段保持不可变。
+ /// 工具调用 id；`var` 只为 `withToolUseId(_:)` 的副本语义（见 `sessionId` 的说明）。
  var toolUseId: String?
  let notificationType: String?
  let message: String?
@@ -45,7 +47,7 @@ nonisolated struct HookEvent: Codable, Sendable {
  /// 集成侧 `ask` 工具的问题负载（`ask`）；其它工具有待批时该字段缺省。
  let ask: AskPayload?
  /// 上报方所属 Agent；旧版 Claude hook 脚本不带该字段，按 Claude 处理。
- let agent: String?
+ var agent: String?
  /// 记录文件路径，由非 Claude 集成上报，避免应用再按目录反推。
  let sessionFile: String?
  /// 子 Agent 实例标识（omp 的 job 名，如 `EchoAlpha`）。
@@ -59,7 +61,7 @@ nonisolated struct HookEvent: Codable, Sendable {
  /// 子 Agent 的任务描述（`SubagentLifecycle` 带 `description`，进度事件带 `task`）。
  let subagentTask: String?
  /// 派生该子 Agent 的父会话工具调用（task 工具的 tool_use_id）。
- let parentToolCallId: String?
+ var parentToolCallId: String?
  /// 子 Agent 自己的记录文件路径。
  let subagentSessionFile: String?
 
@@ -159,16 +161,16 @@ nonisolated struct HookEvent: Codable, Sendable {
  ///
  /// 子代理实例上报的是「它自己派出的子代理」，事件里的 `parent_tool_call_id` 指向上一层
  /// 会话里的工具调用（本应用没有那张卡片），因此折算落点时统一改成「上报者所属卡片」。
+ ///
+ /// **用复制语义而不是全参重建**（评审 F2）：重建会把没列进参数的字段静默丢成默认值——
+ /// 其中就有进程内的 `hasLivePending`（子代理进度事件因此又能把相位推回 `processing`，
+ /// 正是本次要修的症状）以及 `expects_response` / `ask` 这类信封字段。
  nonisolated func owning(sessionKey: SessionKey, parentToolCallId: String?) -> HookEvent {
-  HookEvent(
-   sessionId: sessionKey.sessionId, cwd: cwd, event: event, status: status, pid: pid, tty: tty,
-   tool: tool, toolInput: toolInput, toolUseId: toolUseId, notificationType: notificationType,
-   message: message, agent: sessionKey.agent.rawValue, sessionFile: sessionFile,
-   subagentId: subagentId, subagentAgent: subagentAgent, subagentStatus: subagentStatus,
-   subagentCurrentTool: subagentCurrentTool, subagentTask: subagentTask,
-   parentToolCallId: parentToolCallId ?? self.parentToolCallId,
-   subagentSessionFile: subagentSessionFile
-  )
+  var copy = self
+  copy.sessionId = sessionKey.sessionId
+  copy.agent = sessionKey.agent.rawValue
+  copy.parentToolCallId = parentToolCallId ?? copy.parentToolCallId
+  return copy
  }
 
  /// 复制事件并只替换 `toolUseId`，其余字段（含 `agent` / `sessionFile` / 子 Agent
@@ -530,23 +532,31 @@ class HookSocketServer {
    }
   }
 
-  // 先探一次：路径已存在且**有活着的监听者**说明另一份应用正占着这条 socket
-  // （`bind` 会以 EADDRINUSE 失败，而这里先探是为了把话说清楚，不是让 `bind` 去撞）。
-  if Self.listenerIsAlive(at: Self.socketPath) {
-   logger.error(
-    "Another AgentIsland instance already listens on \(Self.socketPath, privacy: .public); this instance will not rebind it"
-   )
-   close(serverSocket)
-   serverSocket = -1
-   return
-  }
-
-  // 到这里路径要么不存在，要么是上次崩溃留下的死 socket，清掉再绑。
-  unlink(Self.socketPath)
-
-  let bindResult = withUnsafePointer(to: &addr) { ptr in
+  var bindResult = withUnsafePointer(to: &addr) { ptr in
    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
     bind(serverSocket, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+   }
+  }
+
+  // 先绑、后清（评审 F5）：无条件 `unlink` + `bind` 会留下「探活 → unlink → bind」的竞态
+  // 窗口——两份实例同时启动时，后者能把前者刚绑好的 dentry 删掉，路径指向后者，而前者
+  // 自认持有监听却已不可达，退出时还会把后者的路径摘掉。
+  if bindResult != 0, errno == EADDRINUSE {
+   // 路径被占：有活着的监听者就不抢（这正是「测试宿主/第二实例静默夺走连接面」的根因），
+   // 只是上次崩溃留下的死 socket 才清掉重绑。
+   if Self.listenerIsAlive(at: Self.socketPath) {
+    logger.error(
+     "Another AgentIsland instance already listens on \(Self.socketPath, privacy: .public); this instance will not rebind it (a relaunch is needed to take over)"
+    )
+    close(serverSocket)
+    serverSocket = -1
+    return
+   }
+   unlink(Self.socketPath)
+   bindResult = withUnsafePointer(to: &addr) { ptr in
+    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+     bind(serverSocket, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+    }
    }
   }
 
@@ -724,11 +734,15 @@ class HookSocketServer {
  /// 这条路径上是否已有活着的监听者。
  ///
  /// 判据是**连一下**而不是看文件是否存在：上次崩溃会留下一个死 socket 文件，那种情况必须
- /// 允许接管。`connect` 到没人监听的文件会立刻拿到 ECONNREFUSED，因此这个探针不会挂住。
+ /// 允许接管。探针自身带 50ms 上限（非阻塞 + `poll`）：它在串行 socket 队列上同步调用，
+ /// 不能因为对端 accept backlog 排满而把整条集成面挂住（评审 F6）。
  private static func listenerIsAlive(at path: String) -> Bool {
   let probe = socket(AF_UNIX, SOCK_STREAM, 0)
   guard probe >= 0 else { return false }
   defer { close(probe) }
+
+  let flags = fcntl(probe, F_GETFL)
+  _ = fcntl(probe, F_SETFL, flags | O_NONBLOCK)
 
   var addr = sockaddr_un()
   addr.sun_family = sa_family_t(AF_UNIX)
@@ -743,7 +757,15 @@ class HookSocketServer {
     connect(probe, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
    }
   }
-  return result == 0
+  if result == 0 { return true }
+  guard errno == EINPROGRESS else { return false }
+
+  var descriptor = pollfd(fd: probe, events: Int16(POLLOUT), revents: 0)
+  guard poll(&descriptor, 1, 50) > 0 else { return false }
+  var error: Int32 = 0
+  var length = socklen_t(MemoryLayout<Int32>.size)
+  guard getsockopt(probe, SOL_SOCKET, SO_ERROR, &error, &length) == 0 else { return false }
+  return error == 0
  }
 
  /// 关闭客户端连接并维护连接计数（只在 `queue` 上调用）
@@ -808,9 +830,15 @@ class HookSocketServer {
   if let data = try? Self.responseEncoder.encode(response) {
    data.withUnsafeBytes { bytes in
     guard let baseAddress = bytes.baseAddress else { return }
-    if write(pending.clientSocket, baseAddress, data.count) < 0 {
+    let written = write(pending.clientSocket, baseAddress, data.count)
+    if written < 0 {
      logger.error(
       "Write failed for reaped pending - agent:\(pending.key.agent.rawValue, privacy: .public) errno:\(errno, privacy: .public)"
+     )
+    } else if written < data.count {
+     // 这里是「问了没人答」唯一的通道，短写会让对端 JSON 解析失败（等于退回旧行为），必须留痕。
+     logger.error(
+      "Short write for reaped pending - agent:\(pending.key.agent.rawValue, privacy: .public) wrote:\(written, privacy: .public)/\(data.count, privacy: .public)"
      )
     }
    }
@@ -991,6 +1019,17 @@ class HookSocketServer {
 
   if event.event == "SessionEnd" {
    cleanupCache(sessionId: event.sessionId)
+  }
+
+  // 「终结这条待批」的事件必须**先撤批、再盖章**（评审 F1）：`PostToolUse` /
+  // `PostToolUseFailure` 的 status 也是 `processing`，若它们带着「这条会话有待批在等」
+  // 的章进状态机，相位就会被钉在 waitingForApproval——工具明明已经跑完/被拒，行上却还
+  // 挂着点了没用的 Allow/Deny。撤批与盖章在同一条串行队列上，先后因此是确定的；
+  // 会话监视器随后那次撤批（按同一个 tool_use_id）会命中空条目，是无害的重复调用。
+  if (event.event == "PostToolUse" || event.event == "PostToolUseFailure"),
+   let toolUseId = event.toolUseId
+  {
+   cleanupSpecificPermission(key: event.sessionKey, toolUseId: toolUseId)
   }
 
   if event.expectsResponse {

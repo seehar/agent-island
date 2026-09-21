@@ -232,9 +232,11 @@ struct BehaviorSettingsPage: View {
 
     private func approvalAutoExpandLabel(_ option: ApprovalAutoExpand) -> String {
         switch option {
+        // 不复用空闲胶囊那行的 "Always" / "Never"：键就是英文原文，复用会让中文渲染成
+        // 「一直显示 / 从不」，与「自动展开」这件事不是一回事。
         case .whenTerminalIsSilent: return l10n.t("Only When the Notch Decides")
-        case .always: return l10n.t("Always")
-        case .never: return l10n.t("Never")
+        case .always: return l10n.t("Always Expand")
+        case .never: return l10n.t("Never Expand")
         }
     }
 
