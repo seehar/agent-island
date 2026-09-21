@@ -27,7 +27,7 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
 - **Hover** — it expands into one live list across every agent you run.
 - **Approval** — a tool call that needs permission opens the panel with Allow / Deny, and your answer travels back to the agent.
 
-- **Stats** — one more header button opens a usage page: tokens, sessions and tool calls, per agent, for today, this week, this month or all time.
+- **Stats** — a usage page inside **Settings → Statistics**: tokens, sessions and tool calls, per agent, for today, this week, this month or all time. The header's chart button jumps straight to it.
 
 <table>
   <tr>
@@ -64,7 +64,7 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
 
 ![Usage stats: totals, per-agent split, trend and tools](docs/images/notch-stats.png)
 
-The page reads the same records the chat view does and keeps only aggregate counters in its own store. Totals include cached tokens (hit rate = cache read / (input + cache read + cache write)); session counts exclude subagents. The index runs in the background on first open, and the page reports when it last indexed.
+The page lives in **Settings → Statistics** (the chart button in the panel header jumps straight to it) and reads the same records the chat view does, keeping only aggregate counters in its own store. Totals include cached tokens (hit rate = cache read / (input + cache read + cache write)); session counts exclude subagents. The index runs in the background on first open, and the page reports when it last indexed.
 
 ## Supported agents
 
