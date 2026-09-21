@@ -156,16 +156,18 @@ nonisolated enum OpenCodeSessionStore {
     ) -> T? {
         guard let databaseURL else { return nil }
 
-        var database: OpaquePointer?
-        guard sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
-            let database
-        else {
-            if let database { sqlite3_close(database) }
-            logger.debug("opencode 数据库打不开，降级到旧版 JSON 目录")
+        // 打开方式与失败原因见 `OpenCodeDatabase`：WAL 库在没有 -shm 时纯只读连接会失败。
+        let database: OpaquePointer
+        do {
+            database = try OpenCodeDatabase.openReadOnly(
+                url: databaseURL, busyTimeoutMilliseconds: Self.busyTimeoutMilliseconds)
+        } catch {
+            logger.debug(
+                "opencode 数据库打不开，降级到旧版 JSON 目录：\(String(describing: error), privacy: .public)"
+            )
             return nil
         }
         defer { sqlite3_close(database) }
-        sqlite3_busy_timeout(database, busyTimeoutMilliseconds)
 
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,

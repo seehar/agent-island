@@ -3,7 +3,7 @@
 //  AgentIsland
 //
 //  OpenCode 的历史不在文件里而在 SQLite（`opencode.db`）里，因此按天统计要单独
-//  走一条数据库路径。这里**只读**打开（与 `OpenCodeSessionStore` 相同的姿势），
+//  走一条数据库路径。这里**只读**打开（走 `OpenCodeDatabase`，与会话列表同一套），
 //  按「消息」为粒度取增量：
 //    · token 在 `message.data.tokens` 里（`cache.read` / `cache.write` 对应缓存读/写）；
 //    · 工具调用是 `part` 表里 `type == "tool"` 的行，工具名取 `data.tool`；
@@ -37,17 +37,9 @@ nonisolated final class OpenCodeUsageReader {
   private var database: OpaquePointer?
 
   init(url: URL) throws {
-    var handle: OpaquePointer?
-    guard
-      sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
-      let handle
-    else {
-      let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "未知原因"
-      if let handle { sqlite3_close(handle) }
-      throw UsageStatsStoreError.openFailed(message)
-    }
-    database = handle
-    sqlite3_busy_timeout(handle, 2_000)
+    // 打开方式与失败原因见 `OpenCodeDatabase`：WAL 库在没有 -shm 时纯只读连接会失败。
+    database = try OpenCodeDatabase.openReadOnly(
+      url: url, busyTimeoutMilliseconds: 2_000)
   }
 
   deinit {
@@ -204,12 +196,12 @@ nonisolated final class OpenCodeUsageReader {
   private func query<T>(
     _ sql: String, values: [SQLiteValue], row: (OpaquePointer) -> T?
   ) throws -> [T] {
-    guard let database else { throw UsageStatsStoreError.openFailed("opencode 库未打开") }
+    guard let database else { throw OpenCodeDatabaseError.openFailed("库未打开") }
     var handle: OpaquePointer?
     guard sqlite3_prepare_v2(database, sql, -1, &handle, nil) == SQLITE_OK,
       let statement = handle
     else {
-      throw UsageStatsStoreError.prepareFailed(String(cString: sqlite3_errmsg(database)))
+      throw OpenCodeDatabaseError.prepareFailed(String(cString: sqlite3_errmsg(database)))
     }
     defer { sqlite3_finalize(statement) }
 
@@ -231,7 +223,7 @@ nonisolated final class OpenCodeUsageReader {
       let status = sqlite3_step(statement)
       if status == SQLITE_DONE { break }
       guard status == SQLITE_ROW else {
-        throw UsageStatsStoreError.stepFailed(String(cString: sqlite3_errmsg(database)))
+        throw OpenCodeDatabaseError.stepFailed(String(cString: sqlite3_errmsg(database)))
       }
       if let value = row(statement) { results.append(value) }
     }

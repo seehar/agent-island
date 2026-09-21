@@ -116,6 +116,8 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 
 停用某个 Agent 时对应集成必须删干净，包括改名前的旧脚本名 `claude-island-state.py`（`HookInstaller.legacyHookScriptNames`），否则旧脚本会继续往废弃 socket 发状态。
 
+除集成文件外，应用还会**读** OpenCode 自己的库 `~/.local/share/opencode/opencode.db`（会话列表与用量统计都读它，走 `OpenCodeDatabase.openReadOnly`）。那个库是 WAL 模式，wal-index（`-shm`）不存在时纯只读连接连 prepare 都会失败，所以打开方式是「读写 + `PRAGMA query_only = 1`」：SQLite 因此会在它的目录里留下 `-shm` 与空的 `-wal`（与 OpenCode 自己运行时留下的相同），**数据本身绝不会被我们改**（`OpenCodeDatabaseTests` 钉住了这条）。
+
 ### 更新与发布
 
 - Sparkle：`Info.plist` 的 `SUFeedURL` 指向 GitHub Pages（`gh-pages` 分支根目录的 `appcast.xml`），`SUPublicEDKey` 是本仓库自有 EdDSA 公钥；私钥在 `.sparkle-keys/`（gitignore，**绝不提交、也不要贴进日志或提交信息**）。`NotchUserDriver` 把更新提示做在刘海内。
