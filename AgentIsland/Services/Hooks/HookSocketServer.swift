@@ -18,6 +18,10 @@ private let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "H
 nonisolated struct HookEvent: Codable, Sendable {
  /// 集成侧判定「命中危险命令名单」的档位取值（`approval_kind`）；只影响刘海展示强度。
  private static let criticalApprovalKind = "critical"
+
+ /// 集成侧「写档」与「执行档」的取值（`approval_kind`）：这两档在「只问危险命令」档下放行。
+ private static let writeApprovalKind = "write"
+ private static let execApprovalKind = "exec"
  /// 集成侧的默认降级档；不是这一档就要在卡片上提示「闸门已降级」。
  private static let defaultDegradationTier = "notify-only"
  /// 会话身份三件套与 `toolUseId` 一样是 `var`：三处「复制并改写」的入口
@@ -252,6 +256,31 @@ nonisolated struct HookEvent: Codable, Sendable {
   if gateEnabled == false { return true }
   guard let degradation else { return false }
   return degradation != Self.defaultDegradationTier
+ }
+
+ /// 这一条待批是否落在用户当前档位之外（落在档位外 = 应用直接放行、不上卡）。
+ ///
+ /// **判定权最终在应用**：档位是应用自己的设置，集成只是把它烘焙进扩展文件。而集成是
+ /// **进程启动时求值一次**的——改档位前启动的会话会继续按旧档位问（实测症状：改完
+ /// 「只问危险命令」后，已经跑着的会话仍旧每条写 / 执行都上卡）。应用在这里按当前档位
+ /// 再判一次，与集成侧同一口径，只是让档位对已跑的会话也立刻生效；这也是 CodeIsland 的
+ /// 做法：政策（自动批准）留在应用侧，由应用自己决定哪些许可不必弹出来。
+ ///
+ /// 只管闸门信封（`ToolApproval` + `expects_response`）：
+ /// * Claude 的 `PermissionRequest` 是它自己的对话框，档位管不着；
+ /// * 带 `ask` 载荷的信封是「要回答」而不是「要许可」——放行等于把提问取消掉。
+ ///
+ /// 会拦的档位只有两种：`writesAndExec`（写 / 执行都拦）与 `criticalOnly`（只拦危险命令）。
+ /// 其余档位（当前只有「始终允许」）语义就是「一律不问」，一律放行——判定按**取值**而不是
+ /// 逐个列出，档位取值本身由 `ApprovalAskScope` 收口。
+ ///
+ /// 档位取值缺失或不认识时在会拦的档位下**照常上卡**：宁可多问一次，也不静默放行一条
+ /// 看不懂的调用。
+ nonisolated func isAutoAllowedByScope(_ scope: ApprovalAskScope) -> Bool {
+  guard event == "ToolApproval", expectsResponse, ask == nil else { return false }
+  if scope == .writesAndExec { return false }
+  guard scope == .criticalOnly else { return true }
+  return approvalKind == Self.writeApprovalKind || approvalKind == Self.execApprovalKind
  }
 }
 
@@ -1033,6 +1062,13 @@ class HookSocketServer {
   }
 
   if event.expectsResponse {
+   // 应用侧兜底：档位外的调用直接回 `allow`，不登记待批（没有卡片，也没有等应答的悬挂连接）。
+   // 判据见 `HookEvent.isAutoAllowedByScope`。
+   if event.isAutoAllowedByScope(AppSettings.approvalAskScope) {
+    autoAllow(event: event, clientSocket: clientSocket)
+    return
+   }
+
    let toolUseId: String
    if let eventToolUseId = event.toolUseId {
     toolUseId = eventToolUseId
@@ -1110,6 +1146,32 @@ class HookSocketServer {
   // 普通事件也带上「这条会话此刻有没有待批」：闸门版集成先发闸门信封、后发 PreToolUse，
   // 那条 PreToolUse 若不带这个事实就会把「等待审批」推回 processing（实测 74ms）。
   eventHandler?(event.withLivePending(hasPendingPermission(key: event.sessionKey)))
+ }
+
+ /// 档位外的调用：立刻回 `allow` 并关闭连接。
+ ///
+ /// 回传体与「用户点了 Allow」逐字相同（`{"decision":"allow"}`），集成侧因此走同一条放行
+ /// 分支。写失败不重试：集成侧拿不到决定会按自己的降级档回落（不会挂住）。
+ private func autoAllow(event: HookEvent, clientSocket: Int32) {
+  let response = AskAnswerBuilder.normalized(decision: "allow", answers: nil, reason: nil)
+  guard let data = try? Self.responseEncoder.encode(response) else {
+   closeClient(clientSocket)
+   return
+  }
+
+  logger.info(
+   "Auto-allowed outside scope - agent:\(event.sessionKey.agent.rawValue, privacy: .public) session:\(event.sessionId.prefix(8), privacy: .public) tool:\(event.tool ?? "-", privacy: .public) kind:\(event.approvalKind ?? "-", privacy: .public) scope:\(AppSettings.approvalAskScope.rawValue, privacy: .public)"
+  )
+
+  data.withUnsafeBytes { bytes in
+   guard let baseAddress = bytes.baseAddress else { return }
+   let result = write(clientSocket, baseAddress, data.count)
+   if result < 0 {
+    logger.error("Auto-allow write failed with errno: \(errno)")
+   }
+  }
+
+  closeClient(clientSocket)
  }
 
  private func sendPermissionResponse(
