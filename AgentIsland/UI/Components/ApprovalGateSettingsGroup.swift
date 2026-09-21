@@ -55,7 +55,7 @@ private struct ApprovalAskScopePickerRow: View {
     var body: some View {
         SettingsPickerRow(
             badge: SettingsBadge(
-                source: .symbol(name: "questionmark.shield", tint: AppPalette.accent)),
+                source: .symbol(name: "questionmark.circle", tint: AppPalette.accent)),
             title: l10n.t("Ask before running"),
             // 禁用时这一列改成原因，用户不必猜为什么点不动。
             value: isEnabled ? compactTitle(for: selector.option) : l10n.t("Requires an approval gate"),
