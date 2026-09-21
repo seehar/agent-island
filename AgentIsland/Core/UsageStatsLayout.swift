@@ -6,34 +6,40 @@
 //  token（`NotchMenuMetrics` 的行几何、`AppPalette`、`AppRadius`），视图里不散落
 //  魔法数。
 //
+//  统计页是设置面板的一个分组（`NotchMenuSection.statistics`），因此这里给的是
+//  「内容高」而不是「面板高」：面板高由 `NotchMenuMetrics` 按分组算出来，滚动由
+//  设置页的滚动接管（页面自己不再套一层 ScrollView）。
+//
 
 import CoreGraphics
 
 /// 统计页的版面常量与推导。
 ///
-/// 面板高度是硬约束：宿主窗口高固定 **750**（`UI/Window/NotchWindowController.swift`），
-/// 而设置面板那条 `NotchMenuMetrics.maxPanelHeight` 夹取只作用于 `.menu`，统计页不继承，
-/// 因此这里的高度自己守住余量；内容放不下由页内滚动接管（见 `UsageStatsView`）。
+/// 高度是**固定值**而不是由内容撑出来的：面板高由 `NotchMenuMetrics` 的解析式给出
+/// （`chromeHeight + contentHeight(for: .statistics)`，含这里的 `sectionHeight`），
+/// 数据多少不改变面板高度；放不下的部分由设置页的滚动接管（见 `UsageStatsView`）。
 nonisolated enum UsageStatsMetrics {
-    // MARK: - 面板
+    // MARK: - 版面
 
-    /// 统计页的面板高度。窗口 750 − 头部行与面板内边距 − 展开动画余量。
-    static let panelHeight: CGFloat = 560
-    /// 面板宽度上限：与实例列表、设置面板同宽。
-    static let panelWidthMax: CGFloat = 480
+    /// 统计页的内容高度。取 560 与「面板 + 分组页眉 + 分段控件」的固定开销相加后仍在
+    /// `NotchMenuMetrics.maxPanelHeight` 之内（有实测：见 UsageStatsLayoutTests）。
+    static let sectionHeight: CGFloat = 560
+    /// 页面内容宽度：面板宽上限减去设置页的左右内边距（统计页与设置行左右对齐，
+    /// 自己不再加内边距）。工具榜两列与柱图都要在这个宽度内排下。
+    static var contentWidth: CGFloat {
+        NotchMenuMetrics.panelWidthMax - NotchMenuMetrics.listPaddingHeight
+    }
 
     // MARK: - 页面容器
 
-    /// 页面四周内边距，与设置面板容器一致。
-    static let pagePadding: CGFloat = 8
     /// 各分组之间的间距。
     static let groupSpacing: CGFloat = NotchMenuMetrics.groupSpacing
     /// 范围分段控件与内容之间的间距。
     static let contentTopGap: CGFloat = NotchMenuMetrics.contentTopGap
     /// 范围分段控件的高度：与设置面板的分组切换同规格。
     static let tabBarHeight: CGFloat = NotchMenuMetrics.tabBarHeight
-    /// 分段控件的轨道与滑块圆角，与 `NotchMenuTabBar` 保持一致。
-    static let segmentedTrackRadius: CGFloat = 9
+    /// 范围滑块的圆角，与设置页分组切换的滑块一致（轨道已不再画：两条相邻的
+    /// 分段控件共用同一形状会被读成同层导航）。
     static let segmentedThumbRadius: CGFloat = 7
 
     // MARK: - 总览卡
@@ -91,9 +97,10 @@ nonisolated enum UsageStatsMetrics {
 
     /// 脚注（口径说明与索引时间）的行距。
     static let footnoteLineSpacing: CGFloat = 5
-    /// 空态的最小高度：面板内容区约 450，留出这个高度后提示块落在视觉居中处，
-    /// 而不是贴着分段控件。
-    static let emptyStateMinHeight: CGFloat = 380
+    /// 空态的最小高度：设置面板给本分组的可视内容区约 516（分组内容高减去范围控件
+    /// 与间距），留出这个高度后提示块落在视觉居中处，而不是贴着范围控件。
+    /// 有数据时统计页内容通常高于可视区（由设置页的滚动接管），空态则刚好贴近一屏。
+    static let emptyStateMinHeight: CGFloat = 460
 
     // MARK: - 推导
 

@@ -26,15 +26,12 @@ enum NotchOpenReason {
 enum NotchContentType: Equatable {
     case instances
     case menu
-    /// 用量统计页。
-    case stats
     case chat(SessionState)
 
     var id: String {
         switch self {
         case .instances: return "instances"
         case .menu: return "menu"
-        case .stats: return "stats"
         case .chat(let session): return "chat-\(session.sessionKey.rawValue)"
         }
     }
@@ -48,7 +45,17 @@ class NotchViewModel: ObservableObject {
     @Published var openReason: NotchOpenReason = .unknown
     @Published var contentType: NotchContentType = .instances
     /// 设置面板当前所在的分组。设置项按分组分页，面板只按当前分组撑高。
-    @Published var menuSection: NotchMenuSection = .general
+    ///
+    /// 顺带记住上一次待过的**非统计**分组：统计分组是「看数据」的页，用户从它用齿轮
+    /// 回到设置时应当回到原来的位置（见 `toggleMenu()`）。
+    @Published var menuSection: NotchMenuSection = .general {
+        didSet {
+            if menuSection != .statistics { lastSettingsSection = menuSection }
+        }
+    }
+
+    /// 上一次待过的非统计分组（`menuSection` 的 didSet 维护）。
+    private var lastSettingsSection: NotchMenuSection = .general
     @Published var isHovering: Bool = false
 
     // MARK: - Dependencies
@@ -105,23 +112,16 @@ class NotchViewModel: ObservableObject {
             // 只按当前分组算高度：固定开销 + 该分组的设置行 + 该分组里展开的
             // 选择器增量（见 NotchMenuMetrics）。分组越短，面板越矮。
             return CGSize(
-                width: scaledPanelWidth(min(screenRect.width * 0.4, 480)),
+                width: scaledPanelWidth(min(screenRect.width * 0.4, NotchMenuMetrics.panelWidthMax)),
                 height: NotchMenuMetrics.panelHeight(
                     for: menuSection,
                     expandedPickerHeight: expandedPickerHeight(for: menuSection),
                     chromeHeight: panelChromeHeight
                 )
             )
-        case .stats:
-            // 统计页高度固定：窗口高 750 是这个内容面的硬顶（设置面板的 maxPanelHeight
-            // 夹取只作用于 .menu），内容超出由页内滚动接管（见 UsageStatsMetrics）。
-            return CGSize(
-                width: min(screenRect.width * 0.4, UsageStatsMetrics.panelWidthMax),
-                height: UsageStatsMetrics.panelHeight
-            )
         case .instances:
             return CGSize(
-                width: scaledPanelWidth(min(screenRect.width * 0.4, 480)),
+                width: scaledPanelWidth(min(screenRect.width * 0.4, NotchMenuMetrics.panelWidthMax)),
                 height: scaledPanelHeight(320)
             )
         }
@@ -172,6 +172,9 @@ class NotchViewModel: ObservableObject {
             // 智能体页有两个可展开的选择器：Claude 配置目录、审批降级档
             return claudeDirSelector.expandedPickerHeight
                 + ApprovalDegradationSelector.shared.expandedPickerHeight
+        case .statistics:
+            // 统计页没有选择器：时间窗口是页内控件（滑块），不占面板高度增量。
+            return 0
         case .about:
             return 0
         }
@@ -268,12 +271,6 @@ class NotchViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    /// Whether we're in chat mode (sticky behavior)
-    private var isInChatMode: Bool {
-        if case .chat = contentType { return true }
-        return false
-    }
-
     /// The chat session we're viewing (persists across close/open)
     private var currentChatSession: SessionState?
 
@@ -307,20 +304,23 @@ class NotchViewModel: ObservableObject {
     }
 
     private func handleMouseDown() {
-        let location = NSEvent.mouseLocation
+        handleMouseDown(at: NSEvent.mouseLocation)
+    }
 
+    /// 一次鼠标按下（位置可注入，便于单测）。
+    ///
+    /// 面板**内部**的点击一律不在这里处理，交给 SwiftUI 自己分派（见 `NotchView` 头部
+    /// 条带上的手势）。原因：这里的判定带是**关闭态胶囊**矩形（`notchScreenRect`），
+    /// 而「点胶囊收起」这个手势会连头部条带上的按钮一起吃掉——用户把胶囊调宽到 300pt
+    /// 后，统计按钮（命中区 [1089, 1111]）整个落进带里（带右边缘 1110），点击被抢走，
+    /// 灵动岛收起而不是切页；再宽一点设置按钮与设置页的返回箭头也会中招。
+    func handleMouseDown(at location: CGPoint) {
         switch status {
         case .opened:
-            if geometry.isPointOutsidePanel(location, size: openedSize) {
-                notchClose()
-                // Re-post the click so it reaches the window/app behind us
-                repostClickAt(location)
-            } else if geometry.notchScreenRect.contains(location) {
-                // Clicking notch while opened - only close if NOT in chat mode
-                if !isInChatMode {
-                    notchClose()
-                }
-            }
+            guard geometry.isPointOutsidePanel(location, size: openedSize) else { return }
+            notchClose()
+            // Re-post the click so it reaches the window/app behind us
+            repostClickAt(location)
         case .closed, .popping:
             if geometry.isPointInNotch(location) {
                 notchOpen(reason: .click)
@@ -330,6 +330,10 @@ class NotchViewModel: ObservableObject {
 
     /// Re-posts a mouse click at the given screen location so it reaches windows behind us
     private func repostClickAt(_ location: CGPoint) {
+        // 测试宿主里不派发合成点击：单测会在没有真实点击的情况下走这条路径，
+        // 否则会真的点到用户当前的屏幕上。
+        guard !AppEnvironment.isRunningTests else { return }
+
         // Small delay to let the window's ignoresMouseEvents update
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             // Convert to CGEvent coordinate system (screen coordinates with Y from top-left)
@@ -400,14 +404,62 @@ class NotchViewModel: ObservableObject {
         status = .closed
     }
 
-    func toggleMenu() {
-        contentType = contentType == .menu ? .instances : .menu
+    // MARK: - 内容面的入口
+
+    /// 内容面就是统计页（设置面板的统计分组）。头部图表按钮据此显示 xmark。
+    var isShowingStatistics: Bool {
+        contentType == .menu && menuSection == .statistics
     }
 
-    /// 在会话列表与统计页之间翻转（与 `toggleMenu()` 同形，两者互不干扰：
-    /// 在设置面板里点统计直接切到统计页，在统计页里点设置直接切到设置页）。
-    func toggleStats() {
-        contentType = contentType == .stats ? .instances : .stats
+    /// 内容面在设置面板里、且不在统计分组。头部齿轮按钮据此显示 xmark——
+    /// 它与 `isShowingStatistics` 正好把「在设置里」分完，两个按钮不会同时显示 xmark。
+    var isShowingSettings: Bool {
+        contentType == .menu && menuSection != .statistics
+    }
+
+    /// 图表按钮：进统计页；已经在统计页时退回会话列表。
+    func toggleStatistics() {
+        if isShowingStatistics {
+            exitMenu()
+        } else {
+            contentType = .menu
+            menuSection = .statistics
+        }
+    }
+
+    /// 齿轮按钮：进设置面板；已经在设置里时退回会话列表；在统计分组或从统计页回来时，
+    /// 回到上一次待过的设置分组，而不是从「通用」重来。
+    func toggleMenu() {
+        if isShowingSettings {
+            exitMenu()
+        } else {
+            contentType = .menu
+            if menuSection == .statistics {
+                menuSection = lastSettingsSection
+            }
+        }
+    }
+
+    /// 离开设置面板回到会话列表（设置页页眉的返回箭头与两个按钮的 xmark 共用）。
+    func exitMenu() {
+        contentType = .instances
+    }
+
+    /// 点面板的头部条带（面板的「标题栏」）：收起面板。
+    ///
+    /// 这条手势挂在头部条带上而不是鼠标监听里：按钮自己会吃掉点击，因此不必再知道
+    /// 「按钮在哪」——用几何去算按钮范围正是上一版的缺陷来源（见 `handleMouseDown`）。
+    func collapseFromHeaderTap() {
+        guard Self.collapsesOnHeaderTap(status: status, contentType: contentType) else { return }
+        notchClose()
+    }
+
+    /// 点头部条带要不要收起面板（纯函数，便于单测）：展开中，且不在聊天面——
+    /// 聊天是粘性的，读到一半不该被头部误关（点面板外面仍然会收起）。
+    static func collapsesOnHeaderTap(status: NotchStatus, contentType: NotchContentType) -> Bool {
+        guard status == .opened else { return false }
+        if case .chat = contentType { return false }
+        return true
     }
 
     func showChat(for session: SessionState) {

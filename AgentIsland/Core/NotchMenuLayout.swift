@@ -19,6 +19,8 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
     case behavior
     /// 各 Agent CLI 的监控开关、集成状态与 Claude 配置目录。
     case agents
+    /// 用量统计：token、会话与工具调用的汇总读数（只读页，不是配置）。
+    case statistics
     /// 版本与更新、GitHub、退出。
     case about
 
@@ -30,6 +32,7 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
         case .general: return "slider.horizontal.3"
         case .behavior: return "switch.2"
         case .agents: return "cpu"
+        case .statistics: return "chart.bar.xaxis"
         case .about: return "info.circle"
         }
     }
@@ -41,6 +44,12 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
 /// 面板高度因此可以直接由常量推出；`blocks(for:)` 的分组表与页面里分组的顺序一致。
 /// 数值经离屏渲染实测校准（把面板撑到 2000pt 再量页面内容的真实底边）。
 nonisolated enum NotchMenuMetrics {
+    // MARK: - 面板
+
+    /// 面板宽度上限：实例列表、设置面板与统计页共用同一个宽度
+    /// （`NotchViewModel.openedSize` 与版面测试都读它，不要再写字面量）。
+    static let panelWidthMax: CGFloat = 480
+
     // MARK: - 行的几何
 
     /// 行左侧图标块的边长与圆角。
@@ -133,6 +142,7 @@ nonisolated enum NotchMenuMetrics {
     }
 
     /// 当前分组的内容高度：页眉 + 分段控件 + 各分组（标题 + 卡片 + 页脚）+ 组间距。
+    /// 分组内容按行累加；`fixedHeight` 的块（统计页）按它自己的高度算——两者不同时出现。
     static func contentHeight(for section: NotchMenuSection) -> CGFloat {
         var height =
             listPaddingHeight + pageHeaderHeight + rowSpacing + tabBarHeight + rowSpacing
@@ -143,7 +153,7 @@ nonisolated enum NotchMenuMetrics {
             if block.hasHeader {
                 height += sectionHeaderHeight + sectionHeaderGap
             }
-            height += block.rows.reduce(0, +)
+            height += block.fixedHeight ?? block.rows.reduce(0, +)
             if block.hasFootnote {
                 height += footnoteHeight
             }
@@ -163,7 +173,9 @@ nonisolated enum NotchMenuMetrics {
         /// 是否画分组标题（无标题时不占标题行的高度）。
         var hasHeader: Bool = true
         /// 卡片内从上到下的行高。
-        var rows: [CGFloat]
+        var rows: [CGFloat] = []
+        /// 固定高的整块内容（统计页这类整页）：给值时按它算高度，不再按行累加。
+        var fixedHeight: CGFloat?
         /// 卡片下方是否有脚注。
         var hasFootnote: Bool = false
     }
@@ -199,6 +211,10 @@ nonisolated enum NotchMenuMetrics {
                 // Claude Code：配置目录
                 Block(rows: [rowHeight]),
             ]
+        case .statistics:
+            // 统计页是整页读数：高度由 UsageStatsMetrics.sectionHeight 给出（与页面实际
+            // 排版一致），不按设置行算——它没有行，面板高度也不随数据多少变化。
+            return [Block(hasHeader: false, fixedHeight: UsageStatsMetrics.sectionHeight)]
         case .about:
             return [
                 // 标识块（图标 + 名称 + 版本）：不画卡片也没有标题

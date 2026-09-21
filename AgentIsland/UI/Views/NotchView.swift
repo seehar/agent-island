@@ -18,8 +18,9 @@ private let cornerRadiusInsets = (
 struct NotchView: View {
  @ObservedObject var viewModel: NotchViewModel
  @StateObject private var sessionMonitor = ClaudeSessionMonitor()
- /// 统计页的视图模型：与 `sessionMonitor` 同款，由内容根持有，
- /// 内容面切换时不重建（切回统计页时不会重新取一次数据）。
+ /// 统计页的视图模型：与 `sessionMonitor` 同款，由内容根持有——统计页在设置面板
+ /// 里，分组切走再切回来（或从头部图标与齿轮两个入口进）都不重建：时间窗口、
+ /// 已取到的快照都留着。
  @StateObject private var usageStatsViewModel = UsageStatsViewModel()
  @StateObject private var activityCoordinator = NotchActivityCoordinator.shared
  @ObservedObject private var updateManager = UpdateManager.shared
@@ -267,6 +268,18 @@ struct NotchView: View {
    // Header row - always present, contains crab and spinner that persist across states
    headerRow
     .frame(height: max(24, closedNotchSize.height))
+    // 头部条带就是面板的「标题栏」：点它收起。它挂在视图上而不是鼠标监听里——
+    // 条带里的按钮自己会吃掉点击，因此这里不必知道按钮在哪（用几何去算按钮范围正是
+    // 上一版的缺陷来源：胶囊宽度超过约 260pt 后，图表按钮的命中区就整个落进
+    // 「点刘海收起」的判定带里，点击被抢走）。命中区因此跟随真实版面，而不是胶囊宽度。
+    // 展开态的头部行里有 Spacer，本来就会被撑满内容宽；这里**不要**再给
+    // `maxWidth: .infinity`——那会在关闭态把胶囊拉成整屏宽（父容器是宽度不定的）。
+    .contentShape(Rectangle())
+    .onTapGesture {
+     withAnimation(closeAnimation) {
+      viewModel.collapseFromHeaderTap()
+     }
+    }
 
    // Main content only when opened
    if viewModel.status == .opened {
@@ -422,14 +435,15 @@ struct NotchView: View {
    Spacer()
 
    // 统计入口：与设置按钮并列，两个按钮各自遵循同一互斥规则——内容面就是自己的
-   // 目标面时显示 xmark（点击退回会话列表），否则显示自己的图标。设置按钮因此仍是最右侧
-   // 那个，它在设置面板里承担的「唯一返回键」语义不受影响。
+   // 目标面时显示 xmark（点击退回会话列表），否则显示自己的图标。统计页是设置面板里的
+   // 一个分组，因此这个按钮等价于「设置面板 → 统计」；设置页自己的返回箭头仍负责
+   // 「回到会话列表」。
    Button {
     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-     viewModel.toggleStats()
+     viewModel.toggleStatistics()
     }
    } label: {
-    Image(systemName: viewModel.contentType == .stats ? "xmark" : "chart.bar.xaxis")
+    Image(systemName: viewModel.isShowingStatistics ? "xmark" : "chart.bar.xaxis")
      .font(.system(size: 11, weight: .medium))
      .foregroundColor(.white.opacity(0.4))
      .frame(width: 22, height: 22)
@@ -447,19 +461,19 @@ struct NotchView: View {
    Button {
     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
      viewModel.toggleMenu()
-     if viewModel.contentType == .menu {
+     if viewModel.isShowingSettings {
       updateManager.markUpdateSeen()
      }
     }
    } label: {
     ZStack(alignment: .topTrailing) {
-     Image(systemName: viewModel.contentType == .menu ? "xmark" : "gearshape")
+     Image(systemName: viewModel.isShowingSettings ? "xmark" : "gearshape")
       .font(.system(size: 11, weight: .medium))
       .foregroundColor(.white.opacity(0.4))
 
      // 有未看过的更新：用形状（向下箭头徽标）承载状态，颜色只作辅助——
      // 只靠颜色区分状态，在黑白截图与色觉障碍下都会丢信息。
-     if updateManager.hasUnseenUpdate && viewModel.contentType != .menu {
+     if updateManager.hasUnseenUpdate && !viewModel.isShowingSettings {
       Image(systemName: "arrow.down.circle.fill")
        .font(.system(size: 9, weight: .semibold))
        .foregroundColor(AppPalette.accent)
@@ -493,11 +507,7 @@ struct NotchView: View {
     // 内容面按用户的字号档位缩放；设置面板（.menu）不注入，保持解析式高度
     .environment(\.appTextScale, textSizeSelector.scale)
    case .menu:
-    NotchMenuView(viewModel: viewModel)
-   case .stats:
-    UsageStatsView(viewModel: usageStatsViewModel)
-     // 内容面按用户的字号档位缩放；统计页自带滚动，放大也不会被裁掉
-     .environment(\.appTextScale, textSizeSelector.scale)
+    NotchMenuView(viewModel: viewModel, statsViewModel: usageStatsViewModel)
    case .chat(let session):
     ChatView(
      key: session.sessionKey,

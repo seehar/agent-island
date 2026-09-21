@@ -82,6 +82,7 @@ struct NotchMenuTabBar: View {
         case .general: return l10n.t("General")
         case .behavior: return l10n.t("Behavior")
         case .agents: return l10n.t("Agents")
+        case .statistics: return l10n.t("Statistics")
         case .about: return l10n.t("About")
         }
     }

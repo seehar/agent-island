@@ -5,7 +5,10 @@
 //  统计页：范围切换 + 总览 + 各 Agent 拆分 + 趋势柱图 + 工具榜 + 口径脚注。
 //  视图只消费 `UsageStatsSnapshot`——总量、缓存命中率、排序都由数据层给出，
 //  这里不重算口径（口径写在 Models/UsageStats.swift 的注释里）。
-//  面板不会自己长高，因此整页自带滚动（先例：NotchMenuView、ClaudeInstancesView）。
+//
+//  它是设置面板的一个分组（`NotchMenuSection.statistics`），因此**不套自己的滚动**：
+//  滚动由设置页的 `ScrollView` 接管，否则会出现嵌套滚动（内层吃走滚轮）。面板高度由
+//  `NotchMenuMetrics` 按本分组的固定高算出，不随数据多少变化。
 //
 
 import SwiftUI
@@ -30,41 +33,27 @@ struct UsageStatsView: View {
         VStack(spacing: NotchMenuMetrics.rowSpacing) {
             rangeBar
 
-            ScrollView(.vertical, showsIndicators: false) {
-                content
-                    .padding(.top, UsageStatsMetrics.contentTopGap)
-                    .frame(maxWidth: .infinity, alignment: .top)
-            }
-            .scrollBounceBehavior(.basedOnSize)
+            content
+                .padding(.top, UsageStatsMetrics.contentTopGap)
+                .frame(maxWidth: .infinity, alignment: .top)
         }
-        .padding(UsageStatsMetrics.pagePadding)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        // 进页即让索引器做一次增量扫描（内部有节流）；新数据到达后视图模型会重取快照。
-        .onAppear {
-            viewModel.onAppear()
-        }
-        .onDisappear {
-            viewModel.onDisappear()
-        }
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 
     // MARK: - 范围分段控件
 
-    /// 范围切换。分段比设置面板多一段，因此只用文字不用图标：四个图标挨在一起反而
-    /// 看不清段的边界，而这个宽度下四种语言的标签都读得全。轨道、滑块、悬停与选中色
-    /// 的取法与 `NotchMenuTabBar` 一致。
+    /// 范围切换。只用文字不用图标：四个图标挨在一起反而看不清段的边界，而这个宽度下
+    /// 四种语言的标签都读得全。滑块、悬停与选中色的取法与 `NotchMenuTabBar` 一致，
+    /// 但**不画轨道**——它与设置页的分组切换是上下相邻的两条，轨道相同会被读成同一层。
     private var rangeBar: some View {
         HStack(spacing: 2) {
             ForEach(StatsRange.allCases) { range in
                 rangeSegment(range)
             }
         }
-        .padding(2)
+        // 不画轨道：设置页顶部已有一条分组分段控件，同一形状再叠一条会被读成
+        // 「第二层导航」。这里只留滑块与文字色差，层级因此从属于分组切换。
         .frame(height: UsageStatsMetrics.tabBarHeight)
-        .background(
-            RoundedRectangle(cornerRadius: UsageStatsMetrics.segmentedTrackRadius, style: .continuous)
-                .fill(AppPalette.segmentedTrack)
-        )
     }
 
     private func rangeSegment(_ range: StatsRange) -> some View {
@@ -511,5 +500,27 @@ struct UsageStatsView: View {
     private var cacheHitRateText: String {
         guard let rate = totals.cacheHitRate else { return Self.unavailableValue }
         return rate.formatted(.percent.precision(.fractionLength(1)).locale(locale))
+    }
+}
+
+// MARK: - 设置面板里的统计分组
+
+/// 统计页作为设置面板一个分组时的外壳：只负责进/离页的生命周期钩子。
+///
+/// 高度与滚动都由设置面板负责（分组内容高见 `NotchMenuMetrics.blocks(for:)`），
+/// 视图模型由内容根持有（`NotchView`），因此切走再切回来不会重置时间窗口、也不会
+/// 重新取一次快照——两个入口（头部图标 / 设置面板）看到的是同一份状态。
+struct UsageStatisticsSettingsPage: View {
+    @ObservedObject var viewModel: UsageStatsViewModel
+
+    var body: some View {
+        UsageStatsView(viewModel: viewModel)
+            // 进页即让索引器做一次增量扫描（内部有节流）；新数据到达后视图模型会重取快照。
+            .onAppear {
+                viewModel.onAppear()
+            }
+            .onDisappear {
+                viewModel.onDisappear()
+            }
     }
 }

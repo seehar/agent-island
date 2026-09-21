@@ -12,6 +12,9 @@ import SwiftUI
 
 struct NotchMenuView: View {
     @ObservedObject var viewModel: NotchViewModel
+    /// 统计页的视图模型：由内容根（`NotchView`）持有并透传——头部图标与设置面板两个
+    /// 入口共用同一份状态（时间窗口、快照），从分组切回来不会重新取一次数据。
+    @ObservedObject var statsViewModel: UsageStatsViewModel
     @ObservedObject private var updateManager = UpdateManager.shared
     @ObservedObject private var screenSelector = ScreenSelector.shared
     @ObservedObject private var soundSelector = SoundSelector.shared
@@ -50,10 +53,11 @@ struct NotchMenuView: View {
 
     /// 页眉：返回会话列表的箭头 + 页面标题。面板右上角的关闭按钮也在做同一件事，
     /// 但设置页自己需要一条导航式的返回与一个能说明「这是哪一页」的标题。
+    /// 标题保持「设置」不变：当前在哪一分组由顶部的分段控件表达（统计分组也一样）。
     private var pageHeader: some View {
         HStack(spacing: 6) {
             Button {
-                viewModel.toggleMenu()
+                viewModel.exitMenu()
             } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 11, weight: .semibold))
@@ -90,6 +94,8 @@ struct NotchMenuView: View {
             BehaviorSettingsPage()
         case .agents:
             AgentsSettingsPage()
+        case .statistics:
+            UsageStatisticsSettingsPage(viewModel: statsViewModel)
         case .about:
             AboutSettingsPage(updateManager: updateManager)
         }

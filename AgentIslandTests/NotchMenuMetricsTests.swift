@@ -14,7 +14,8 @@ import Testing
 
 @Suite("设置面板高度公式")
 struct NotchMenuMetricsTests {
-    /// 独立按常量重算内容高度：页眉 + 分段控件 + 各分组（标题 + 行 + 页脚）+ 组间距。
+    /// 独立按常量重算内容高度：页眉 + 分段控件 + 各分组（标题 + 行或固定高块 + 页脚）
+    /// + 组间距。
     private func derivedContentHeight(_ section: NotchMenuSection) -> CGFloat {
         var height =
             NotchMenuMetrics.listPaddingHeight + NotchMenuMetrics.pageHeaderHeight
@@ -26,7 +27,7 @@ struct NotchMenuMetricsTests {
             if block.hasHeader {
                 height += NotchMenuMetrics.sectionHeaderHeight + NotchMenuMetrics.sectionHeaderGap
             }
-            height += block.rows.reduce(0, +)
+            height += block.fixedHeight ?? block.rows.reduce(0, +)
             if block.hasFootnote {
                 height += NotchMenuMetrics.footnoteHeight
             }
@@ -37,7 +38,26 @@ struct NotchMenuMetricsTests {
         return height
     }
 
-    @Test("三个分组的高度都等于行表重算的结果")
+    @Test("统计分组是固定高的一整块，不按设置行算")
+    func statisticsSectionIsFixedHeightBlock() {
+        let blocks = NotchMenuMetrics.blocks(for: .statistics)
+        #expect(blocks.count == 1)
+        #expect(blocks.first?.hasHeader == false)
+        #expect(blocks.first?.rows.isEmpty == true)
+        #expect(blocks.first?.fixedHeight == UsageStatsMetrics.sectionHeight)
+    }
+
+    @Test("统计分组在最高固定开销下也不越过夹取上限")
+    func statisticsSectionFitsPanelCap() {
+        // 固定开销含胶囊高度（自定义最高 64 → 开销 76）。统计分组是整页内容，
+        // 越上限就只能靠页内滚动，这里钉住「默认与最高开销都在上限内」。
+        let low = NotchMenuMetrics.panelHeight(for: .statistics, expandedPickerHeight: 0, chromeHeight: 42)
+        let high = NotchMenuMetrics.panelHeight(for: .statistics, expandedPickerHeight: 0, chromeHeight: 76)
+        #expect(low < NotchMenuMetrics.maxPanelHeight)
+        #expect(high <= NotchMenuMetrics.maxPanelHeight)
+    }
+
+    @Test("每个分组的高度都等于行表重算的结果")
     func contentHeightMatchesBlockTable() {
         for section in NotchMenuSection.allCases {
             #expect(
