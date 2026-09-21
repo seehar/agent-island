@@ -125,7 +125,7 @@ Open **Settings → Agents** (the gear button in the panel, then the *Agents* pa
 |Page|What's in it|
 |---|---|
 |**General**|Language, screen, notch height, notch width, content text size, notification sound · launch at login, accessibility status|
-|**Agents**|Enable switch per agent, integration status and path, approval-gate shield (`omp` / `pi`) with what it asks about (writes and commands / dangerous commands only), Claude Code config directory|
+|**Agents**|Enable switch per agent, integration status and path, approval-gate shield (`omp` / `pi`) with what it asks about (writes and commands / dangerous commands only / always allow), Claude Code config directory|
 |**Behavior**|Hover expand (Never / Fast / Standard / Slow), idle capsule (Always / When Active / Keep 3 Seconds), approval auto-expand (Only when the notch decides / Always / Never), completion badge (10 s / 30 s / 1 min / Always), panel size (Compact / Standard / Wide) · ended-session retention, row density, click action (None / Open Chat / Focus Terminal), refresh rate · notification scope (Ready only / Ready and approvals)|
 |**About**|Version, check for updates, automatic update checks, star on GitHub, quit|
 
@@ -152,7 +152,7 @@ flowchart LR
 
 Every state change goes through a single entry point (`SessionStore.process(_:)`); views never mutate state. Approvals are request and response: the integration keeps the connection open until you decide, and the decision travels back over the same socket — Claude Code gets it through its hook's stdout, `omp`/`pi` by unblocking the tool call, OpenCode through its HTTP reply endpoint.
 
-**When the app isn't running**, integrations stay out of your way: Claude Code falls back to its own prompt, OpenCode hands the approval back to its TUI, and the `omp`/`pi` gate applies its own degradation tier (default `notify-only`: allow, with a visible notice in the terminal; `strict` denies; `read-only-allow` denies write and exec). Dangerous commands are denied in every tier. And when the app *is* running but you don't answer within the timeout, the gate denies — an unanswered prompt is not a yes.
+**When the app isn't running**, integrations stay out of your way: Claude Code falls back to its own prompt, OpenCode hands the approval back to its TUI, and the `omp`/`pi` gate applies its own degradation tier (default `notify-only`: allow, with a visible notice in the terminal; `strict` denies; `read-only-allow` denies write and exec). Dangerous commands are denied in every tier — unless the ask scope is **Always allow**, which asks nothing at all and therefore has no dangerous-command floor either. And when the app *is* running but you don't answer within the timeout, the gate denies — an unanswered prompt is not a yes.
 
 ## Privacy
 

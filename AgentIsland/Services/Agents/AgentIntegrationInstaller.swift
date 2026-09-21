@@ -32,7 +32,7 @@ nonisolated enum AgentIntegrationInstaller {
 
   /// 当前应用期望的扩展版本戳：改 pi/omp 扩展时必须同步 +1。
   /// `isInstalled` 按它比对（不再只看「文件在不在」），用户手改过或升级未重写都能被发现。
-  static let piFamilyExtensionVersion = 4
+  static let piFamilyExtensionVersion = 5
 
   /// 扩展源码里声明版本 / 变体 / 降级档的三行注释标记。
   private static let versionMarkerPrefix = "// agent-island-extension-version:"
@@ -51,6 +51,7 @@ nonisolated enum AgentIntegrationInstaller {
   private static let gateConfigToken = "__AGENT_ISLAND_GATE_CONFIG__"
   private static let degradationToken = "__AGENT_ISLAND_DEGRADATION__"
   private static let askScopeToken = "__AGENT_ISLAND_ASK_SCOPE__"
+  private static let versionToken = "__AGENT_ISLAND_VERSION__"
   /// OpenCode 插件文件名。
   static let openCodePluginName = "agent-island-state.js"
 
@@ -280,6 +281,10 @@ nonisolated enum AgentIntegrationInstaller {
     variant: Variant
   ) -> String {
     var rendered = contents.replacingOccurrences(of: agentToken, with: kind.rawValue)
+    // 版本号由这里写入：模板里的版本标记与 `EXTENSION_VERSION` 都用同一个占位符，
+    // 版本因此只有一个来源（`piFamilyExtensionVersion`）——两个变体、两处写法都不会漂。
+    rendered = rendered.replacingOccurrences(
+      of: versionToken, with: String(piFamilyExtensionVersion))
     guard variant == .gate else { return rendered }
     let degradation = AppSettings.approvalDegradation.rawValue
     let askScope = AppSettings.approvalAskScope.rawValue

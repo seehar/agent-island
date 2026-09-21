@@ -204,13 +204,16 @@ struct BehaviorPreferencesTests {
                 decisionOnlyOnNotch: true, terminalVisible: false))
     }
 
-    @Test("闸门适用范围：默认仍是「都问」，只问危险命令是可选档位")
+    @Test("闸门适用范围：默认仍是「都问」，更宽松的两档都是可选")
     func approvalAskScopeDefaults() {
         // 默认值必须与闸门原始形态一致：升级不改变既有用户的手感。
         #expect(ApprovalAskScope.defaultValue == .writesAndExec)
         // 原值会写进扩展文件（文件头标记 + 策略常量），且被扩展读取判定，不能悄悄改名。
         #expect(ApprovalAskScope.writesAndExec.rawValue == "all")
         #expect(ApprovalAskScope.criticalOnly.rawValue == "critical-only")
+        // 「始终允许」是唯一会让危险命令也照跑的一档：名字与取值都不能漂。
+        #expect(ApprovalAskScope.alwaysAllow.rawValue == "always-allow")
+        #expect(ApprovalAskScope.allCases.count == 3)
     }
 
     @Test("默认档逐值保留改造前的行为（升级不改变观感与手感）")

@@ -128,12 +128,16 @@ nonisolated enum HoverExpand: String, PreferenceOption {
 ///
 /// 档位由集成侧判定（`classifyToolCall`：`allow` = 只读/协议工具、`write` = 写类工具、
 /// `exec` = 执行类、`critical` = 命中危险命令名单），应用只把这一档位烘焙进扩展文件。
-/// 「只问危险命令」不是「不问」：`critical` 永远要问——那是底线，且在应用不可达时仍然拒绝。
+/// 前两档里「只问危险命令」不是「不问」：`critical` 在那两档下永远要问，且在应用不可达时
+/// 仍然拒绝。第三档「始终允许」是用户明确选择的例外：它连 `critical` 都不问——闸门在那档下
+/// 等于关闭，危险命令名单不再有兜底，应用没在运行时也不阻塞。默认值不变（升级不动老用户的手感）。
 nonisolated enum ApprovalAskScope: String, CaseIterable, PreferenceOption {
     /// 写档与执行档都问（默认；闸门的原始形态）。
     case writesAndExec = "all"
     /// 只问危险命令档；其余写/执行调用照跑（仍会上报，行里看得到工具在跑）。
     case criticalOnly = "critical-only"
+    /// 始终允许：任何档位都不问（含危险命令）。选它即放弃闸门本身。
+    case alwaysAllow = "always-allow"
 
     static let preferenceKey = "approvalAskScope"
     static var defaultValue: ApprovalAskScope { .writesAndExec }

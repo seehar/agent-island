@@ -4423,18 +4423,18 @@
         }
       }
     },
-    "When AgentIsland is not running the agent prints “gate offline” in the terminal; known-dangerous commands are rejected in every mode." : {
+    "When AgentIsland is not running the agent prints “gate offline” in the terminal; the two asking scopes still reject known-dangerous commands." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "When AgentIsland is not running the agent prints “gate offline” in the terminal; known-dangerous commands are rejected in every mode."
+            "value" : "When AgentIsland is not running the agent prints “gate offline” in the terminal; the two asking scopes still reject known-dangerous commands."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "AgentIsland 未运行时，agent 会在终端打印“gate offline”；已知的危险命令在任何档位下都会被拒绝。"
+            "value" : "AgentIsland 未运行时，agent 会在终端打印“gate offline”；会询问的那两档仍会拒绝已知的危险命令。"
           }
         }
       }
@@ -4647,18 +4647,53 @@
         }
       }
     },
-    "Dangerous commands are always asked, and are rejected whenever AgentIsland cannot be reached — in every scope." : {
+    "Always allow" : {
+      "comment" : "闸门「问什么」档位的行内短文案。",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dangerous commands are always asked, and are rejected whenever AgentIsland cannot be reached — in every scope."
+            "value" : "Always allow"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "危险命令在任何档位下都会被问；AgentIsland 不可达时一律拒绝。"
+            "value" : "始终允许"
+          }
+        }
+      }
+    },
+    "Always allow (never ask)" : {
+      "comment" : "「始终允许」档：任何工具调用都不问（含危险命令），等于关掉闸门本身。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Always allow (never ask)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "始终允许（不再询问）"
+          }
+        }
+      }
+    },
+    "Always allow never asks — dangerous commands run too, even when AgentIsland cannot be reached. The two asking scopes always ask for dangerous commands." : {
+      "comment" : "「问什么」选择行的悬停说明：说清「始终允许」放弃了危险命令兜底。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Always allow never asks — dangerous commands run too, even when AgentIsland cannot be reached. The two asking scopes always ask for dangerous commands."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「始终允许」不再询问任何调用 —— 危险命令也照跑，应用没在运行时也不阻塞。另外两档在任何情况下都会问危险命令。"
           }
         }
       }

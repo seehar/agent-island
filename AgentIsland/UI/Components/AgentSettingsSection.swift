@@ -350,6 +350,7 @@ private struct ApprovalAskScopePickerRow: View {
         switch scope {
         case .writesAndExec: return l10n.t("Writes and commands")
         case .criticalOnly: return l10n.t("Dangerous commands only")
+        case .alwaysAllow: return l10n.t("Always allow")
         }
     }
 
@@ -358,6 +359,7 @@ private struct ApprovalAskScopePickerRow: View {
         switch scope {
         case .writesAndExec: return l10n.t("Ask for every write and command (default)")
         case .criticalOnly: return l10n.t("Ask for dangerous commands only")
+        case .alwaysAllow: return l10n.t("Always allow (never ask)")
         }
     }
 
@@ -370,10 +372,10 @@ private struct ApprovalAskScopePickerRow: View {
         }
     }
 
-    /// 悬停说明：说清「只问危险命令」不是「不问」，以及底线仍然在。
+    /// 悬停说明：说清两个会问的档位为什么不是「不问」，以及「始终允许」放弃了什么。
     private var explanation: String {
         l10n.t(
-            "Dangerous commands are always asked, and are rejected whenever AgentIsland cannot be reached — in every scope."
+            "Always allow never asks — dangerous commands run too, even when AgentIsland cannot be reached. The two asking scopes always ask for dangerous commands."
         )
     }
 }
@@ -453,10 +455,10 @@ private struct ApprovalDegradationPickerRow: View {
         }
     }
 
-    /// 悬停说明：说清「降级时终端会打出 gate offline」与「危险命令在任何档都被拒」。
+    /// 悬停说明：说清「降级时终端会打出 gate offline」与「会问的那两档仍拒危险命令」。
     private var explanation: String {
         l10n.t(
-            "When AgentIsland is not running the agent prints “gate offline” in the terminal; known-dangerous commands are rejected in every mode."
+            "When AgentIsland is not running the agent prints “gate offline” in the terminal; the two asking scopes still reject known-dangerous commands."
         )
     }
 }

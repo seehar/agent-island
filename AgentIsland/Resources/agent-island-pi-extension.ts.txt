@@ -1,5 +1,5 @@
 // agent-island-pi-extension.ts —— 由 AgentIsland 安装的 pi / Oh My Pi 扩展
-// agent-island-extension-version: 4
+// agent-island-extension-version: __AGENT_ISLAND_VERSION__
 // agent-island-extension-kind: gate
 // agent-island-extension-degradation: __AGENT_ISLAND_DEGRADATION__
 // agent-island-extension-ask-scope: __AGENT_ISLAND_ASK_SCOPE__
@@ -23,7 +23,9 @@
 // 发送一个 JSON 对象即断开。应用不可用时静默失败，绝不阻塞 Agent。
 
 import { execSync } from "node:child_process";
+import { readFileSync, statSync } from "node:fs";
 import net from "node:net";
+import { fileURLToPath } from "node:url";
 
 // 上报方标识：安装器会替换成具体 Agent 名（omp / pi）。
 // 显式标注成 string：渲染后它是字面量类型（"omp"/"pi"），会让按 Agent 分支的判断
@@ -32,12 +34,15 @@ const AGENT: string = "__AGENT_ISLAND_AGENT__";
 const SOCKET_PATH = process.env.AGENT_ISLAND_SOCKET || "/tmp/agent-island.sock";
 
 /** 本文件期望的版本（安装器按它比对，见 AgentIntegrationInstaller）。 */
-const EXTENSION_VERSION = 4;
+const EXTENSION_VERSION = __AGENT_ISLAND_VERSION__;
 
 /** 降级档：应用不可达时怎么办（用户在设置面板选，安装本文件时注入）。 */
 type Degradation = "strict" | "notify-only" | "read-only-allow";
 
-/** 闸门策略：由安装器注入 JSON；用户改设置后重装本文件即生效。 */
+/**
+ * 闸门策略：由安装器注入 JSON。用户改档位后应用会重写本文件，而本扩展会活读文件头的
+ * 标记（见 `livePolicy`）——已跑的会话因此也会立刻换档，不必重启会话。
+ */
 const GATE_CONFIG: { degradation?: unknown; timeoutMs?: unknown; askScope?: unknown } =
   __AGENT_ISLAND_GATE_CONFIG__;
 
@@ -52,29 +57,109 @@ function normalizeDegradation(raw: unknown): Degradation {
   return raw === "strict" || raw === "read-only-allow" || raw === "notify-only" ? raw : "notify-only";
 }
 
-const DEGRADATION: Degradation = normalizeDegradation(GATE_CONFIG.degradation);
+/** 进程启动时从 `GATE_CONFIG` 读到的降级档（安装器写进文件的那一份）。 */
+const BAKED_DEGRADATION: Degradation = normalizeDegradation(GATE_CONFIG.degradation);
 
 /**
- * 闸门问什么：写档与执行档要不要阻塞等人点按。
+ * 闸门问什么：哪些档位的工具调用要阻塞等人点按。
  *
  * `all`（缺省，闸门的原始形态）——写档与执行档都问；
- * `critical-only`——只问危险命令档，其余写/执行调用照跑（仍然上报，行里看得到工具在跑）。
+ * `critical-only`——只问危险命令档，其余写/执行调用照跑（仍然上报，行里看得到工具在跑）；
+ * `always-allow`——任何档位都不问，连危险命令也不问（选它就是关掉闸门本身）。
  *
- * 「只问危险命令」不是「不问」：`critical` 在任何档位下都要问，且应用不可达时一律拒绝。
+ * 前两档里「只问危险命令」不是「不问」：`critical` 都要问，且应用不可达时一律拒绝。
  * 缺省取 `all`：老应用不会注入这个字段，缺省必须与它期待的行为一致。
  */
-type AskScope = "all" | "critical-only";
+type AskScope = "all" | "critical-only" | "always-allow";
 
-/** 归一化适用范围；缺失或非法取值退回 `all`。 */
+/** 归一化适用范围；缺失或非法取值退回 `all`（不认识的值一律退回**最会问**的那一档）。 */
 function normalizeAskScope(raw: unknown): AskScope {
-  return raw === "critical-only" ? "critical-only" : "all";
+  return raw === "critical-only" || raw === "always-allow" ? raw : "all";
 }
 
-const ASK_SCOPE: AskScope = normalizeAskScope(GATE_CONFIG.askScope);
+/** 进程启动时的档位（`GATE_CONFIG` 的烘焙值）。 */
+const BAKED_ASK_SCOPE: AskScope = normalizeAskScope(GATE_CONFIG.askScope);
+
+/**
+ * 本扩展文件自身的路径；拿不到就不做活读（退回烘焙值）。
+ * Bun 提供 `import.meta.path`，其它宿主退回 `file:` URL。
+ */
+const SELF_PATH: string | undefined = (() => {
+  try {
+    const meta = import.meta as { path?: unknown; url?: unknown };
+    if (typeof meta.path === "string" && meta.path.length > 0) {
+      return meta.path;
+    }
+    if (typeof meta.url === "string" && meta.url.startsWith("file:")) {
+      return fileURLToPath(meta.url);
+    }
+  } catch {
+    // 取不到路径：活读不可用，退回烘焙值。
+  }
+  return undefined;
+})();
+
+/** 活读到的生效策略。 */
+interface LivePolicy {
+  askScope: AskScope;
+  degradation: Degradation;
+}
+
+let livePolicyCache: { mtimeMs: number; policy: LivePolicy } | undefined;
+
+/**
+ * 从本文件当前的文件头标记读出生效档位（按 mtime 缓存，每条工具调用一次 stat）。
+ *
+ * 为什么要活读：扩展是**进程启动时求值一次**的，而用户改档位时应用只重写文件——已跑的
+ * 会话会一直用旧档位（实测症状：改完「只问危险命令」后，跑着的会话仍旧每条写/执行都上卡）。
+ * 活读让档位对已跑会话立刻生效。
+ *
+ * 文件读不到、标记缺失或取值不认识时返回 undefined，退回启动时的烘焙值——**绝不放宽**。
+ */
+function livePolicy(): LivePolicy | undefined {
+  if (SELF_PATH === undefined) {
+    return undefined;
+  }
+  try {
+    const mtimeMs = statSync(SELF_PATH).mtimeMs;
+    if (livePolicyCache !== undefined && livePolicyCache.mtimeMs === mtimeMs) {
+      return livePolicyCache.policy;
+    }
+    const text = readFileSync(SELF_PATH, "utf8");
+    const rawScope = /^\/\/ agent-island-extension-ask-scope:[ \t]*(\S+)[ \t]*$/m.exec(text)?.[1];
+    const rawDegradation =
+      /^\/\/ agent-island-extension-degradation:[ \t]*(\S+)[ \t]*$/m.exec(text)?.[1];
+    if (rawScope === undefined || rawDegradation === undefined) {
+      return undefined;
+    }
+    const policy: LivePolicy = {
+      askScope: normalizeAskScope(rawScope),
+      degradation: normalizeDegradation(rawDegradation),
+    };
+    livePolicyCache = { mtimeMs, policy };
+    return policy;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 生效的问询范围。 */
+function askScope(): AskScope {
+  return livePolicy()?.askScope ?? BAKED_ASK_SCOPE;
+}
+
+/** 生效的降级档。 */
+function degradation(): Degradation {
+  return livePolicy()?.degradation ?? BAKED_DEGRADATION;
+}
 
 /** 该档位要不要问刘海。 */
 function asksByScope(tier: ApprovalTier): boolean {
-  return tier === "critical" || ASK_SCOPE === "all";
+  const scope = askScope();
+  if (scope === "always-allow") {
+    return false;
+  }
+  return tier === "critical" || scope === "all";
 }
 
 /**
@@ -750,7 +835,7 @@ function resolveOutcome(
       reason: "Blocked on AgentIsland: known-dangerous command while the approval gate is unreachable",
     };
   }
-  switch (DEGRADATION) {
+  switch (degradation()) {
     case "strict":
       return { allowed: false, reason: "Blocked on AgentIsland: approval gate offline (strict)" };
     case "read-only-allow":
@@ -1499,7 +1584,7 @@ export default function (pi: ExtensionApi) {
       gate_enabled: gateEnabled,
       gate_disabled_reason: gateDisabledReason,
       integration_version: EXTENSION_VERSION,
-      degradation: DEGRADATION,
+      degradation: degradation(),
       approval_mode: approvalMode,
     });
     if (!gateEnabled) {
@@ -1609,7 +1694,7 @@ export default function (pi: ExtensionApi) {
           approval_kind: tier,
           parent_session: hasParentSession(ctx),
           gate_enabled: gateEnabled,
-          degradation: DEGRADATION,
+          degradation: degradation(),
           approval_mode: approvalMode,
         },
         { sessionId: readSessionIdFrom(ctx), sessionFile: currentSessionFilePath(ctx) },
@@ -1623,7 +1708,7 @@ export default function (pi: ExtensionApi) {
       if (verdict.allowed) {
         if (outcome.kind === "unreachable") {
           // 降级放行：TUI 留一行可见提示 + 排队一条审计事件（应用回来后补投）。
-          const notice = `AgentIsland gate offline — degraded to ${DEGRADATION}`;
+          const notice = `AgentIsland gate offline — degraded to ${degradation()}`;
           if (ctx?.hasUI === true) {
             notifyGateDegraded(ctx, notice);
           }

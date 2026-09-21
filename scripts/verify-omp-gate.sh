@@ -27,6 +27,9 @@
 #   enoent-readonly  不启刘海（read-only-allow 档）    → 写 / 执行档拒绝
 #   scope-critical-exec   只问危险命令档 + 普通命令      → 工具照跑，且从未发过闸门信封
 #   scope-critical-danger 只问危险命令档 + 危险命令      → 仍被拦 + 信封带 critical
+#   scope-always-exec     始终允许档 + 普通命令          → 工具照跑，且从未发过闸门信封
+#   scope-always-danger   始终允许档 + 危险命令          → 连危险命令也照跑（不再拦）
+#   live-scope            同一会话里改写档位标记          → 第一条上闸门、第二条不上（活读生效）
 #   tui-no-dual-prompt 真 omp TUI（tmux）下触发一次待批 → 帧里没有 omp 自己的审批弹窗，
 #                      而刘海替身收到了请求（说明唯一入口是刘海）
 #   tui-enoent      真 omp TUI + socket 不存在（闸门离线）→ 帧里能看到「gate offline」可见提示、
@@ -45,6 +48,13 @@ ROOT="${ROOT:-/tmp/ai-approve/p1-run}"
 OMP="${OMP:-$HOME/.bun/bin/omp}"
 EXT_SOURCE="$REPO_ROOT/AgentIsland/Resources/agent-island-pi-extension.ts.txt"
 EXT_SOURCE_REPORT_ONLY="$REPO_ROOT/AgentIsland/Resources/agent-island-pi-extension-report-only.ts.txt"
+# 版本号从安装器常量取：模板里的版本标记是占位符，渲染时必须填同一个数字。
+EXT_VERSION="$(grep -oE 'piFamilyExtensionVersion = [0-9]+' \
+  "$REPO_ROOT/AgentIsland/Services/Agents/AgentIntegrationInstaller.swift" | grep -oE '[0-9]+' | head -1)"
+if [ -z "$EXT_VERSION" ]; then
+  printf '找不到 piFamilyExtensionVersion（安装器常量）\n' >&2
+  exit 2
+fi
 MODEL="localgw/gpt-5.6-luna"
 GATEWAY="http://127.0.0.1:15721/v1"
 FAKE_KEY="sk-fake-agent-island-p1-sandbox"
@@ -204,12 +214,15 @@ render_extension() {
   if [ "$variant" = "report-only" ]; then
     source="$EXT_SOURCE_REPORT_ONLY"
   fi
-  python3 - "$source" "$destination" "$degradation" "$scope" <<'PY'
+  python3 - "$source" "$destination" "$degradation" "$scope" "$EXT_VERSION" <<'PY'
 import pathlib, sys
 
-source, destination, degradation, scope = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+source, destination, degradation, scope, version = (
+    sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5],
+)
 text = pathlib.Path(source).read_text(encoding="utf-8")
 text = text.replace("__AGENT_ISLAND_AGENT__", "omp")
+text = text.replace("__AGENT_ISLAND_VERSION__", version)
 text = text.replace("__AGENT_ISLAND_DEGRADATION__", degradation)
 text = text.replace("__AGENT_ISLAND_ASK_SCOPE__", scope)
 text = text.replace(
@@ -292,6 +305,23 @@ assert_guard_intact() {
 
 assert_file_absent() {
   if [ -f "$1" ]; then fail "${2}：${1} 不该存在"; else pass "${2}：工具被拦下（${1} 不在）"; fi
+}
+
+# 「始终允许」档的观测点与 assert_guard_intact 相反：命令真的跑了，decoy 才会消失。
+assert_guard_removed() {
+  if [ -f "$1/guard/payload" ]; then
+    fail "${2}：guard/payload 仍在，说明危险命令又被拦下了"
+  else
+    pass "${2}：危险命令真的执行了（guard/payload 已消失）"
+  fi
+}
+
+# 闸门信封（ToolApproval）条数：断言「问了几次」时用它，比「含/不含」更精确。
+count_tool_approvals() {
+  local file="$1/out/server.jsonl" n
+  if [ ! -f "$file" ]; then printf 0; return; fi
+  n="$(grep -cF '"event": "ToolApproval"' "$file" 2>/dev/null)"
+  printf '%s' "${n:-0}"
 }
 
 # 沙箱会话记录里是否出现某段文本（确定性证人：不依赖模型复述）。
@@ -504,6 +534,17 @@ run_case() {
       assert_payload "$run" '"event": "ToolApproval"' "$name 危险命令走闸门"
       assert_payload "$run" '"approval_kind": "critical"' "$name"
       assert_transcript "$run" "denied by notch test double" "$name 理由回灌"
+      ;;
+    scope-always-exec)
+      # 「始终允许」档：普通写/执行调用照跑，且**从来没有发过闸门信封**。
+      assert_file_exists "$run/ran.txt" "$name 普通命令照跑"
+      assert_absent "$run/out/server.jsonl" '"event": "ToolApproval"' "$name 没走闸门"
+      assert_payload "$run" '"event": "PreToolUse"' "$name 仍然上报（行里看得到工具在跑）"
+      ;;
+    scope-always-danger)
+      # 同一档位下危险命令也照跑：这是该档唯一与「只问危险命令」不同的地方。
+      assert_guard_removed "$run" "$name"
+      assert_absent "$run/out/server.jsonl" '"event": "ToolApproval"' "$name 危险命令也没走闸门"
       ;;
   esac
   assert_isolation "$run" "$name"
@@ -855,6 +896,76 @@ run_case_report_only_ask() {
 }
 
 # ---------------------------------------------------------------------------
+# 档位活读：已跑的会话也要立刻换档
+# ---------------------------------------------------------------------------
+
+# 扩展在**进程启动时求值一次**，但会活读本文件头的档位标记（见扩展里的 livePolicy）：
+# 用户改档位时应用只重写文件，跑着的会话因此也能立刻换档，不必重启。
+# 本 case 用一个跑着的 omp 会话证明：第一条工具调用按**烘焙档**（all）上闸门等点按；
+# 闸门收到请求后把文件头的档位标记改写成 always-allow；第二条工具调用因此不再上闸门。
+run_case_live_scope() {
+  local name="live-scope" run="$ROOT/case-$name"
+  prepare_case "$run" notify-only "" all
+  local extension="$run/agent/extensions/agent-island-state.ts"
+
+  SERVER_PID=""
+  start_server "$run" allow || { assert_isolation "$run" "$name"; return; }
+
+  # 翻转器：看到第一条 PreToolUse 就改写档位标记。
+  #
+  # 判据用 PreToolUse 而不是 ToolApproval：PreToolUse 先发（闸门信封在它之后几十毫秒），
+  # 因此「已发过 PreToolUse 而档位标记还是 all」意味着第一条调用**一定已经问过**；反过来等
+  # ToolApproval 就得靠猜（模型起手慢时翻转会抢在第一条调用之前，那一轮就一条都不问了）。
+  # 第一条命令是 sleep 4，给翻转留出确定的 4 秒窗口。
+  (
+    for _i in $(seq 1 600); do
+      if grep -qF '"event": "PreToolUse"' "$run/out/server.jsonl" 2>/dev/null; then break; fi
+      sleep 0.1
+    done
+    python3 - "$extension" <<'PY'
+import pathlib, re, sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+patched = re.sub(
+    r"^(// agent-island-extension-ask-scope:).*$",
+    r"\1 always-allow",
+    text,
+    count=1,
+    flags=re.M,
+)
+assert patched != text, "档位标记没被改写"
+path.write_text(patched, encoding="utf-8")
+PY
+  ) &
+
+  # 两步必须分两次工具调用：第一步够慢（sleep 4），给翻转器留出确定的时间窗。
+  local prompt="沙箱测试：请分两步，每一步都单独调用一次 bash 工具（不要把两步用 && 或 ; 合并）：第一步运行 sleep 4 ; printf FIRST > $run/first.txt ；第二步运行 printf SECOND > $run/second.txt 。最后把第二步工具返回的内容作为最后一行复述。"
+  run_omp "$run" "$prompt" 120000
+  local code=$?
+  stop_server
+  wait 2>/dev/null
+  log "    omp 退出码 ${code}"
+  log "    ---- omp 输出（尾 8 行）----"
+  tail -8 "$run/out/omp.txt" 2>/dev/null | sed 's/^/    /'
+  log "    ---- 断言 ----"
+
+  assert_file_exists "$run/first.txt" "$name 烘焙档下第一条命令上闸门后被放行"
+  assert_file_exists "$run/second.txt" "$name 改档后第二条命令照跑"
+  local approvals
+  approvals="$(count_tool_approvals "$run")"
+  if [ "$approvals" = "1" ]; then
+    pass "${name}：两条调用里只问过第一条（活读生效）"
+  else
+    fail "${name}：闸门信封数 ${approvals}（期望 1）"
+  fi
+  assert_contains "$extension" "ask-scope: always-allow" "$name 文件头标记已改写"
+
+  assert_isolation "$run" "$name"
+  log ""
+}
+
+# ---------------------------------------------------------------------------
 # 入口
 # ---------------------------------------------------------------------------
 
@@ -871,6 +982,9 @@ spec() {
     # 「只问危险命令」：写/执行档照跑、危险命令仍要问
     scope-critical-exec)   printf '%s %s %s %s %s %s' "$1" notify-only allow  120000 exec     critical-only ;;
     scope-critical-danger) printf '%s %s %s %s %s %s' "$1" notify-only deny   120000 critical critical-only ;;
+    # 「始终允许」：写/执行档与危险命令都不问
+    scope-always-exec)   printf '%s %s %s %s %s %s' "$1" notify-only allow  120000 exec     always-allow ;;
+    scope-always-danger) printf '%s %s %s %s %s %s' "$1" notify-only deny   120000 critical always-allow ;;
   esac
 }
 
@@ -881,7 +995,7 @@ pgrep -f "$OMP" > "$ROOT/pids-before.txt" 2>/dev/null || true
 
 selected=("$@")
 if [ "${#selected[@]}" -eq 0 ]; then
-  selected=(allow deny silence deny-critical enoent-exec enoent-critical enoent-strict enoent-readonly scope-critical-exec scope-critical-danger tui tui-enoent report-only-ask zero-select-multi zero-select-mixed ask-deny-control)
+  selected=(allow deny silence deny-critical enoent-exec enoent-critical enoent-strict enoent-readonly scope-critical-exec scope-critical-danger scope-always-exec scope-always-danger live-scope tui tui-enoent report-only-ask zero-select-multi zero-select-mixed ask-deny-control)
 fi
 
 for name in "${selected[@]}"; do
@@ -895,6 +1009,10 @@ for name in "${selected[@]}"; do
   fi
   if [ "$name" = "report-only-ask" ]; then
     run_case_report_only_ask
+    continue
+  fi
+  if [ "$name" = "live-scope" ]; then
+    run_case_live_scope
     continue
   fi
   if [ "$name" = "zero-select-multi" ]; then

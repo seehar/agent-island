@@ -1,5 +1,5 @@
 // agent-island-pi-extension.ts —— 由 AgentIsland 安装的 pi / Oh My Pi 扩展
-// agent-island-extension-version: 3
+// agent-island-extension-version: __AGENT_ISLAND_VERSION__
 // agent-island-extension-kind: report-only
 // 本文件由 AgentIsland 安装并管理，勿手改：开关切换、档位变更或应用升级都会整体重写。
 //
