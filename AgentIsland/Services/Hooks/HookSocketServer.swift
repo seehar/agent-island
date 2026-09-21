@@ -210,11 +210,20 @@ nonisolated struct HookEvent: Codable, Sendable {
  /// Whether this event expects a response (permission request)
  /// 该事件是否要求应用回传决定。
  /// - Claude 旧契约：`PermissionRequest` + `waiting_for_approval`（逐字不变）。
- /// - omp / pi / opencode：`ToolApproval` + 显式 `expects_response`；只展示的集成
- ///   不满足该条件，因此不会被登记成待批。
+ /// - omp / pi / opencode：`ToolApproval` + **等待态** + 显式 `expects_response`；
+ ///   只展示的集成（`expects_response: false` / 缺省）不满足该条件，因此不会被
+ ///   登记成待批。
+ ///
+ /// 三个条件都要。只认 `expects_response` 时，一条 `status != waiting_for_approval`
+ /// 的信封也会被登记成待批——那条连接的卡片与相位来源（`determinePhase` 的
+ /// `ToolApproval` 兜底分支）不是同一判据，长期看会漂移成「登记了但没人能撤」的
+ /// 悬挂连接。集成侧三处带 `expects_response: true` 的信封（闸门 `pi-extension:1230`、
+ /// 影子 ask `:1557`、opencode 插件 `:234`）status 都是 `waiting_for_approval`，
+ /// 因此收紧不影响任何既有集成；真收到不合规信封时的降级是**立即关闭 fd**，
+ /// 集成侧按「拿不到决定」回落自己的原生路径（不会挂住）。
  nonisolated var expectsResponse: Bool {
   if event == "PermissionRequest" && status == "waiting_for_approval" { return true }
-  return event == "ToolApproval" && wantsResponse == true
+  return event == "ToolApproval" && status == "waiting_for_approval" && wantsResponse == true
  }
 
  /// 是否为「危险命令」档：卡片据此用警示色；未知档位一律按普通档处理。
@@ -333,8 +342,9 @@ nonisolated enum AskAnswerBuilder {
  static let decisionDeny = "deny"
 
  /// 归一化一个回传决定：`allow` / `deny` / `ask` **原样透传**（既有语义逐字不变，
- /// 编码结果里不会多出 `answers` 键）；`answer` 且没有任何答案时折成 `deny`。
- /// 放在服务端这一层是为了让「空答案」不可能被发出去——写回 socket 前必过这里。
+ /// 编码结果里不会多出 `answers` 键）；`answer` 且**一个键都没有**时折成 `deny`。
+ /// 放在服务端这一层是为了让「整题都没答」不可能以 `answer` 发出去——写回 socket 前必过这里。
+ /// 注意「值为空数组」不是「没答」：那是多选题的「明确一个都不选」，要原样发出（见 `response`）。
  static func normalized(
   decision: String, answers: [String: [String]]?, reason: String?
  ) -> HookResponse {
@@ -344,18 +354,23 @@ nonisolated enum AskAnswerBuilder {
   return response(answers: answers ?? [:], reason: reason)
  }
 
- /// 由「问题 id → 选中的 label」构造回传响应。
+ /// 由「问题 id → 答案」构造回传响应。
  ///
- /// 逐题丢掉空数组：集成侧对「键存在但为空」与「键缺失」的处理是两回事，只发真的
- /// 选到了答案的问题。一个问题都没作答（用户直接跳过、或只点了空的自由文本）时
- /// **不发 `answer`**——空答案到了集成侧会变成「模型收到空回答」，语义不明；按放弃
- /// 处理（`deny`）更接近用户意图，也让集成侧的闸门走既有的拒绝分支。
+ /// **不变量（与集成侧冻结的语义，逐条对应）**：
+ /// * **键存在** = 该题被作答；
+ /// * **值为空数组** = 多选题的「明确一个都不选」，必须**原样**带着走；
+ /// * **键缺失** = 该题未作答。
+ /// 因此这里**不再过滤空数组**：把空数组当「没答」会让「明确不选」退化成「缺键」，
+ /// 集成侧就再也区分不出这两件事了。
+ ///
+ /// 只有**所有键都缺失**（字典为空：用户直接跳过，或自由文本只输了空白）时才不发
+ /// `answer`——那才是「放弃作答」，折成 `deny` 更接近用户意图，也让集成侧的闸门走
+ /// 既有的拒绝分支。
  static func response(answers: [String: [String]], reason: String? = nil) -> HookResponse {
-  let chosen = answers.filter { !$0.value.isEmpty }
-  guard !chosen.isEmpty else {
+  guard !answers.isEmpty else {
    return HookResponse(decision: decisionDeny, answers: nil, reason: reason)
   }
-  return HookResponse(decision: decisionAnswer, answers: chosen, reason: reason)
+  return HookResponse(decision: decisionAnswer, answers: answers, reason: reason)
  }
 }
 

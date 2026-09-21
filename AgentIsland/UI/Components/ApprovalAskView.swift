@@ -51,22 +51,61 @@ nonisolated struct AskSelection: Equatable, Sendable {
         freeTexts[questionId] ?? ""
     }
 
+    /// 该题是否有用户的**输入**：勾了选项，或（该题允许自由文本且）输入了非空文本。
+    ///
+    /// 注意它与 wire 上的「该题已作答」**不是**一回事：多选题没有任何输入时，提交也会
+    /// 以零选 `[]` 作答（见 `answers(for:)`）。这里的判据只用于两处界面逻辑——
+    /// 「单选的提交门槛」与「未勾选提示行是否出现」。
+    func hasInput(in question: AskQuestion) -> Bool {
+        if picked[question.id]?.isEmpty == false { return true }
+        return question.freeText && !trimmedText(in: question).isEmpty
+    }
+
+    /// 提交可用性。规则贴原生语义，且任何一次按键都不「替用户做决定」：
+    /// * **全部都是多选** → 恒可提交（有题可答时）：未勾选的题就是**零选**——原生多选
+    ///   对话框从零交互直接 `Next →` 前移，返回 `selectedOptions = []`
+    ///   （`User did not select any options`），这条路径必须走得通；
+    /// * **存在单选** → 每道单选都必须已有输入（选中某项或输入文本）。有一道单选没选就
+    ///   不允许提交——用户要么选，要么走「跳过」（= 取消/终止本轮，折 `deny`）。
+    ///   此时未勾选的多选题仍按零选提交（卡片底部有提示说明）。
+    func canSubmit(for questions: [AskQuestion]) -> Bool {
+        guard !questions.isEmpty else { return false }
+        let singles = questions.filter { !$0.multiSelect }
+        if singles.isEmpty { return true }
+        return singles.allSatisfy { hasInput(in: $0) }
+    }
+
+    private func trimmedText(in question: AskQuestion) -> String {
+        freeText(for: question.id).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// 按「问题声明顺序 + 选项声明顺序」收集答案；自由文本排在选项之后。
-    /// 一题都没答的问题**不进字典**——集成侧对「键缺失」与「空数组」的处理不同，
-    /// 只发真的选到了答案的问题。
+    ///
+    /// 语义（与集成侧冻结的一致，也与 omp 原生对齐）：
+    /// * **键存在** = 该题被作答，其中**值为空数组 `[]`** = 「一个都没选」；
+    /// * **键缺失** = 该题未作答（`AskAnswerBuilder` 只在全部缺失时折 `deny`）。
+    ///
+    /// 所以：
+    /// * 有内容的题 → 正常值（选项按声明顺序，自由文本排最后）；
+    /// * **多选**题没有内容 → 以**空数组**进字典。这与原生完全等价：原生多选靠 `Next →`
+    ///   前移结束，零勾选照样返回 `selectedOptions = []`，文案是
+    ///   「User did not select any options」（工具正常完成、本轮继续），**不是取消**；
+    /// * **单选**题没有内容 → 不进字典。单选在原生里没有「零选」态：取消即
+    ///   「User cancelled the selection」并终止本轮，刘海侧对应的入口是「跳过」（→ `deny`）。
     func answers(for questions: [AskQuestion]) -> [String: [String]] {
         var result: [String: [String]] = [:]
         for question in questions {
-            let selected = picked[question.id] ?? []
-            var values = question.options.map(\.label).filter { selected.contains($0) }
-            let text = freeText(for: question.id)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            var values = question.options.map(\.label).filter {
+                picked[question.id]?.contains($0) == true
+            }
+            let text = trimmedText(in: question)
             if question.freeText && !text.isEmpty {
                 values.append(text)
             }
-            if !values.isEmpty {
-                result[question.id] = values
+            if values.isEmpty && !question.multiSelect {
+                continue
             }
+            result[question.id] = values
         }
         return result
     }
@@ -103,6 +142,13 @@ struct ApprovalAskView: View {
             }
             .frame(maxHeight: scrollMaxHeight)
             .scrollBounceBehavior(.basedOnSize)
+
+            if showsNoneHint {
+                Text(l10n.t("Unchecked questions count as none selected"))
+                    .appFont(10)
+                    .foregroundColor(AppPalette.subtleText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             actions
         }
@@ -291,11 +337,18 @@ struct ApprovalAskView: View {
         selection.answers(for: ask.questions)
     }
 
-    /// 有任意一题作答才允许提交；否则只剩「跳过」这一条路。
-    private var canSubmit: Bool { !collectedAnswers.isEmpty }
+    /// 提交可用性（规则在 `AskSelection.canSubmit` 里，纯函数、可单测）。
+    private var canSubmit: Bool { selection.canSubmit(for: ask.questions) }
+
+    /// 有未勾选的多选题时，把「它会按零选提交」显式说出来：否则用户会以为
+    /// 「没勾 = 这题不提交」。只在真的可提交时提示（不可提交时这句话没有意义）。
+    private var showsNoneHint: Bool {
+        canSubmit && ask.questions.contains { $0.multiSelect && !selection.hasInput(in: $0) }
+    }
 
     private func submit() {
         let answers = collectedAnswers
+        // 兜底：没有任何问题（畸形负载）时不发空答案，交给上层折成「放弃作答」。
         guard !answers.isEmpty else { return }
         onSubmit(answers)
     }

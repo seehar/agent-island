@@ -46,10 +46,14 @@ struct NotchMenuMetricsTests {
         }
     }
 
-    @Test("智能体分组为每个受支持的 Agent 各留一行")
+    @Test("智能体分组为每个受支持的 Agent 各留一行，末尾接审批降级档选择器")
     func agentsSectionCoversEveryAgent() {
         let blocks = NotchMenuMetrics.blocks(for: .agents)
-        #expect(blocks.first?.rows.count == AgentKind.allCases.count)
+        // 四个 Agent 各一行（两行行高），末尾是降级档选择器（单行选择行）。
+        let expectedRows =
+            Array(repeating: NotchMenuMetrics.twoLineRowHeight, count: AgentKind.allCases.count)
+            + [NotchMenuMetrics.rowHeight]
+        #expect(blocks.first?.rows == expectedRows)
         #expect(blocks.first?.hasFootnote == true)
     }
 

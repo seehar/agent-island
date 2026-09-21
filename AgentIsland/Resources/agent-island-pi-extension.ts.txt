@@ -598,7 +598,15 @@ interface DecisionRequest {
   cancel: () => void;
 }
 
-/** 归一化下行 `answers`：只保留「问题 id → 非空字符串数组」，其余一律丢掉。 */
+/**
+ * 归一化下行 `answers`：只保留「问题 id → 字符串数组」，其余一律丢掉。
+ *
+ * **键存在 = 该题已作答，值可以是空数组**：多选允许零勾选前移（omp 原生
+ * `ask-dialog.ts` 的 Submit 页 Enter 直接提交，可不勾任何项），应用侧因此会回
+ * `{"<id>": []}`。空数组必须原样保留——丢掉它会让「零选」被当成「未作答」，
+ * 进而落进取消分支（见 `raceIslandAndNativeAsk` 的判定）。
+ * 非字符串与空白项仍然过滤（它们不是合法的 label）。
+ */
 function parseAskAnswers(raw: unknown): AskAnswers | undefined {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return undefined;
@@ -609,9 +617,7 @@ function parseAskAnswers(raw: unknown): AskAnswers | undefined {
       continue;
     }
     const labels = value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
-    if (labels.length > 0) {
-      answers[key] = labels;
-    }
+    answers[key] = labels;
   }
   return Object.keys(answers).length > 0 ? answers : undefined;
 }
@@ -954,7 +960,12 @@ interface AskWireQuestion {
   options: AskWireOption[];
 }
 
-/** 下行作答：键为问题 id，值为选中的 label（自由文本则是原文）。 */
+/**
+ * 下行作答：键为问题 id，值为选中的 label（自由文本则是原文）。
+ * **空数组是合法值**——多选的「零选」：`{"<id>": []}` 表示该题已作答且一项都没选，
+ * 与「键缺失」（未作答）是两件事，映射到原生文案时分别是
+ * `User did not select any options`（单题）/ `<id>: []`（多题）。
+ */
 type AskAnswers = Record<string, string[]>;
 
 /** 工具结果的最小形状（原生 `AgentToolResult` 的可见字段）。 */
@@ -1131,6 +1142,10 @@ function formatSingleAskAnswer(item: AskAnswerItem): string {
  * `AskToolDetails` 的形状（单题是扁平字段、多题是 `results`），TUI 渲染因此与
  * 终端作答一致。
  */
+/**
+ * 该题在这次作答里有没有出现（键存在，值可以是空数组 = 零选）。
+ * 未出现的题沿用既有语义（按 items 里已作答的题组装）。
+ */
 function buildIslandAskResult(questions: AskWireQuestion[], answers: AskAnswers): AskToolResultLike {
   const items = toAskAnswers(questions, answers);
   if (items.length === 1) {
@@ -1266,6 +1281,9 @@ async function raceIslandAndNativeAsk(args: {
       island.cancel();
       return await settleNative();
     }
+    // 判定「刘海是否真的作答」：**键存在即已作答**，值可以是空数组（多选零选）。
+    // 这里若要求「非空」就会把零选误判成「没答」，落进下面的取消分支 →
+    // `ctx.abort()` + ToolAbortError，把本该「正常完成」的零选变成终止整轮。
     const answers =
       first.outcome.kind === "decision" && first.outcome.decision === "answer"
         ? first.outcome.answers

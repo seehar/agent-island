@@ -31,6 +31,10 @@
 #                      普通命令照跑、危险命令仍被拒、且帧里没有 omp 自己的审批弹窗
 #   report-only-ask 只上报版（不带闸门）装在沙箱 + 真 omp TUI → 普通工具**不被拦**，
 #                      且 ask 走影子路径把刘海的作答回灌模型（替身 answer 模式）
+#   zero-select-multi 替身回 {"pick": []}（多选零选）→ 文案为原生逐字
+#                      「User did not select any options」，且**没有 abort / 取消**（正常完成）
+#   zero-select-mixed 多题混合 {"qa": [], "qb": ["…"]} → `qa: []` 与另一题的选中结果
+#   ask-deny-control  替身回 deny → 既有的取消语义不变（不是「空答案」）
 #
 set -uo pipefail
 
@@ -124,8 +128,9 @@ def handle(conn: socket.socket) -> None:
 
     is_ask = isinstance(request, dict) and isinstance(request.get("ask"), dict)
     try:
-        if is_ask and mode != "silence":
+        if is_ask and mode == "answer":
             # ask 作答：与 Q1 的替身同一套下行形状（{"decision":"answer","answers":{...}}）。
+            # answers 里的空数组 = 该题零选，是合法作答（见扩展里的 parseAskAnswers）。
             payload = json.dumps({"decision": "answer", "answers": current_answers()})
             conn.sendall(payload.encode("utf-8"))
         elif mode == "allow":
@@ -293,6 +298,20 @@ assert_transcript() {
     pass "${label}：会话记录里有「${needle}」（已作为工具结果/错误文本回灌）"
   else
     fail "${label}：会话记录里没有「${needle}」"
+  fi
+}
+
+# 契约反向测试：会话记录里不能出现任何「取消 / 中断」痕迹。
+# 这是防 `cancelAskFromIsland`（ctx.abort() + ToolAbortError）把**零选**误判成「未作答」
+# 的守卫——零选按原生语义是「正常完成、本轮继续」。
+assert_no_abort() {
+  local run="$1" label="$2"
+  if grep -rqE "ToolAbortError|Ask tool was cancelled by the user|Ask input was cancelled" \
+    "$run/agent/sessions" 2>/dev/null; then
+    fail "${label}：出现取消/中断痕迹（零选被当成未作答）"
+    grep -rhoE "ToolAbortError|Ask tool was cancelled by the user|Ask input was cancelled" "$run/agent/sessions" | sort -u | head -3 | sed 's/^/        /'
+  else
+    pass "${label}：没有 abort / 取消痕迹"
   fi
 }
 
@@ -504,11 +523,17 @@ run_case_tui() {
   tmux $sock send-keys -t omp Escape
   sleep 2
   tmux $sock send-keys -t omp "Run the shell command \`printf TUI_MARK\` with the bash tool, then reply OK." Enter
-  sleep 15
-  t_frame1="$(date +%s)"
+  # 等闸门真的拦到这次调用再取帧：取帧必须落在待批窗口内，不能靠固定 sleep 猜模型速度
+  # （上一轮就是这样被慢模型判成「取帧不在待批窗口内」的）。
+  if wait_for_approval "$run" 120; then
+    log "    闸门已拦到工具调用，开始取帧（待批窗口内）"
+  else
+    log "    120s 内没等到 ToolApproval"
+  fi
+  t_frame1="$(python3 -c 'import time; print(int(time.time()))')"
   tmux $sock capture-pane -p -t omp > "$run/out/frame1.txt" 2>/dev/null
   sleep 8
-  t_frame2="$(date +%s)"
+  t_frame2="$(python3 -c 'import time; print(int(time.time()))')"
   tmux $sock capture-pane -p -t omp > "$run/out/frame2.txt" 2>/dev/null
   tmux $sock kill-server 2>/dev/null
   if [ -n "${pgid:-}" ]; then
@@ -546,7 +571,9 @@ for line in log.read_text(encoding="utf-8").splitlines():
 
 if not requests:
     print("OUTSIDE 没有 ToolApproval")
-elif requests[0] > first:
+elif requests[0] > first + 1:
+    # 取帧时刻是整秒 epoch，请求时刻是浮点 epoch：留 1 秒容差，
+    # 避免「同一秒内但小数更大」被误判成「请求晚于取帧」（快模型时真踩过）。
     print("OUTSIDE ToolApproval 晚于首次取帧")
 elif posts:
     print("OUTSIDE 工具已完成（有 PostToolUse），待批不成立")
@@ -658,7 +685,22 @@ run_case_tui_enoent() {
 # 影子 ask 只在 TUI 根会话接管（headless 交给原生，原生在 headless 下会拒绝），因此本 case 用真 TUI。
 
 # 与 Q1 的 e2e 同一句提示词（verbatim 参数，模型会照办）。
+# 混合场景：**一次调用、两个问题**（并行两次调用会变成两个单题 ask，拿不到多题摘要——实测踩到）
+MIXED_PROMPT_ASK='For this task call the ask tool exactly once with these verbatim parameters: questions=[{"id":"qa","question":"P1_QA?","options":[{"label":"P1_QA1"},{"label":"P1_QA2"}],"multi":true},{"id":"qb","question":"P1_QB?","options":[{"label":"Q1_OPT_ALPHA"},{"label":"P1_QB2"}]}]. After the tool returns, output its result text verbatim as your final line. Do not use any other tool.'''
+DUAL_PROMPT_ASK='For this task, in ONE assistant message, call the ask tool TWICE in parallel with exactly these two calls: 1) questions=[{"id":"qa","question":"P1_QA?","options":[{"label":"P1_QA1"},{"label":"P1_QA2"}],"multi":true}] 2) questions=[{"id":"qb","question":"P1_QB?","options":[{"label":"Q1_OPT_ALPHA"},{"label":"P1_QB2"}]}]. After both return, output each result text verbatim on its own line.'
 PROMPT_ASK='For this task call the ask tool exactly once with these verbatim parameters: questions=[{"id":"pick","question":"Q1_WHICH_COLOR?","header":"Q1_HDR","options":[{"label":"Q1_OPT_ALPHA","description":"Q1_DESC_ALPHA"},{"label":"Q1_OPT_BETA","description":"Q1_DESC_BETA"}]}]. After the tool returns, output its result text verbatim as your final line. Do not use any other tool.'
+# 零选必须打在多选问题上（multi: true）：单选零勾选在原生里不存在，
+# 我们的实现对它走「防御性 → User cancelled the selection」另一条文案。
+PROMPT_ASK_MULTI='For this task call the ask tool exactly once with these verbatim parameters: questions=[{"id":"pick","question":"P1_ZERO_SELECT?","header":"P1_HDR","options":[{"label":"P1_OPT_A"},{"label":"P1_OPT_B"}],"multi":true}]. After the tool returns, output its result text verbatim as your final line. Do not use any other tool.'''
+
+wait_for_approval() {
+  local run="$1" seconds="$2" i
+  for i in $(seq 1 "$seconds"); do
+    if grep -qF '"event": "ToolApproval"' "$run/out/server.jsonl" 2>/dev/null; then return 0; fi
+    sleep 1
+  done
+  return 1
+}
 
 wait_for_ask() {
   local run="$1" seconds="$2" i
@@ -667,6 +709,72 @@ wait_for_ask() {
     sleep 1
   done
   return 1
+}
+
+run_case_ask_answers() {
+  local name="$1" answers="$2" mode="$3" expect_kind="$4"
+  local sock="-L agent-island-p1-askans"
+  tmux $sock kill-server 2>/dev/null
+  sleep 1
+  local run="$ROOT/case-askans-$name-$$"
+  prepare_case "$run" notify-only
+  SERVER_PID=""
+  printf '%s' "$answers" > "$run/ask_answers.json"
+  log "=== case=${name}（真 omp TUI + 影子 ask；替身 mode=${mode} answers=${answers}）"
+  start_server "$run" "$mode" || { assert_isolation "$run" "$name"; return; }
+
+  tmux $sock new-session -d -s omp -x 200 -y 50 \
+    "env HOME=$run/home PI_CODING_AGENT_DIR=$run/agent AGENT_ISLAND_SOCKET=$run/approve.sock AGENT_ISLAND_ASK_TIMEOUT_MS=120000 $OMP --model $MODEL --smol $MODEL --slow $MODEL --plan $MODEL"
+  local pane_pid pgid
+  pane_pid="$(tmux $sock list-panes -t omp -F '#{pane_pid}' 2>/dev/null | head -1)"
+  pgid="$(ps -o pgid= -p "${pane_pid:-0}" 2>/dev/null | tr -d ' ')"
+  sleep 10
+  tmux $sock send-keys -t omp Escape
+  sleep 2
+
+  local prompt="$PROMPT_ASK"
+  if [ "$expect_kind" = "mixed" ]; then prompt="$MIXED_PROMPT_ASK"; fi
+  if [ "$expect_kind" = "zero" ]; then prompt="$PROMPT_ASK_MULTI"; fi
+  tmux $sock send-keys -t omp "$prompt" Enter
+  if wait_for_ask "$run" 120; then
+    log "    替身已收到 ask 信封"
+  else
+    log "    120s 内没看到 ask 信封"
+  fi
+  sleep 14
+  tmux $sock capture-pane -p -t omp > "$run/out/frame-ask.txt" 2>/dev/null
+  tmux $sock kill-server 2>/dev/null
+  if [ -n "${pgid:-}" ]; then
+    kill -TERM -"$pgid" 2>/dev/null
+    sleep 1
+    kill -KILL -"$pgid" 2>/dev/null
+  fi
+  stop_server
+
+  log "    ---- ask 结果的原始片段 ----"
+  grep -roE "User did not select any options|User selected: [^\"]{0,40}|[a-z_]+: \[\]|Ask tool was cancelled by the user" \
+    "$run/agent/sessions" 2>/dev/null | sort -u | head -8 | sed 's/^/    /'
+
+  log "    ---- 断言 ----"
+  assert_payload "$run" '"tool": "ask"' "${name} 影子 ask 请求"
+  case "$expect_kind" in
+    zero)
+      assert_transcript "$run" "User did not select any options" "${name} 零选文案（原生逐字）"
+      assert_absent "$run/out/server.jsonl" '"approval_kind"' "${name} 无闸门信封"
+      assert_no_abort "$run" "${name}（零选不是取消）"
+      ;;
+    mixed)
+      assert_transcript "$run" "qa: []" "${name} 多题里的零选题（原生逐字）"
+      assert_transcript "$run" "qb: Q1_OPT_ALPHA" "${name} 另一题的选中结果"
+      assert_no_abort "$run" "${name}"
+      ;;
+    deny)
+      assert_transcript "$run" "Ask tool was cancelled by the user" "${name} deny 仍是取消语义（既有行为不变）"
+      assert_absent "$run/out/server.jsonl" '"approval_kind"' "${name} 无闸门信封"
+      ;;
+  esac
+  assert_isolation "$run" "$name"
+  log ""
 }
 
 run_case_report_only_ask() {
@@ -753,7 +861,7 @@ pgrep -f "$OMP" > "$ROOT/pids-before.txt" 2>/dev/null || true
 
 selected=("$@")
 if [ "${#selected[@]}" -eq 0 ]; then
-  selected=(allow deny silence deny-critical enoent-exec enoent-critical enoent-strict enoent-readonly tui tui-enoent report-only-ask)
+  selected=(allow deny silence deny-critical enoent-exec enoent-critical enoent-strict enoent-readonly tui tui-enoent report-only-ask zero-select-multi zero-select-mixed ask-deny-control)
 fi
 
 for name in "${selected[@]}"; do
@@ -767,6 +875,18 @@ for name in "${selected[@]}"; do
   fi
   if [ "$name" = "report-only-ask" ]; then
     run_case_report_only_ask
+    continue
+  fi
+  if [ "$name" = "zero-select-multi" ]; then
+    run_case_ask_answers "$name" '{"pick": []}' answer zero
+    continue
+  fi
+  if [ "$name" = "zero-select-mixed" ]; then
+    run_case_ask_answers "$name" '{"qa": [], "qb": ["Q1_OPT_ALPHA"]}' answer mixed
+    continue
+  fi
+  if [ "$name" = "ask-deny-control" ]; then
+    run_case_ask_answers "$name" '{}' deny deny
     continue
   fi
   spec_line="$(spec "$name")"

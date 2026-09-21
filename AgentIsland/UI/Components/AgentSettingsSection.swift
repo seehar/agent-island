@@ -28,12 +28,18 @@ struct AgentSettingsSection: View {
                     kind: kind,
                     isEnabled: isEnabled[kind] ?? true,
                     isGateEnabled: isGateEnabled[kind] ?? false,
-                    showsSeparator: index < AgentKind.allCases.count - 1
-                        || installError != nil,
+                    // 下面永远跟着降级档选择器行，因此每个 Agent 行都画分隔线。
+                    showsSeparator: true,
                     onToggle: { toggle(kind) },
                     onToggleGate: { toggleGate(kind) }
                 )
             }
+
+            ApprovalDegradationPickerRow(
+                isEnabled: hasEnabledGate,
+                showsSeparator: installError != nil,
+                onSelect: { _ in reinstallGateExtensions() }
+            )
 
             if let installError {
                 SettingsNotice(message: installError)
@@ -110,10 +116,32 @@ struct AgentSettingsSection: View {
         refreshState()
     }
 
+    /// 是否有任何一个 Agent 开着闸门：没有的话降级档没有意义（整行禁用）。
+    private var hasEnabledGate: Bool {
+        AgentKind.allCases.contains { kind in
+            AgentIntegrationInstaller.supportsApprovalGate(kind) && (isGateEnabled[kind] ?? false)
+        }
+    }
+
+    /// 换档后的动作：只重装**已开启闸门**的 Agent 的扩展（档位值写在扩展文件里）。
+    private func reinstallGateExtensions() {
+        for kind in AgentKind.allCases
+        where AgentIntegrationInstaller.supportsApprovalGate(kind)
+            && AppSettings.isApprovalGateEnabled(kind)
+        {
+            AgentIntegrationInstaller.install(kind)
+        }
+    }
+
     /// 开关切换后重读两个状态表。
     private func refreshState() {
         isEnabled = AgentSettingsSection.currentEnabledMap()
         isGateEnabled = AgentSettingsSection.currentGateMap()
+        // 闸门全关时选择行会被禁用；此时把它收起来，否则用户没法再收起展开的选项
+        // （禁用的行点不动），面板会一直留着那份高度。
+        if hasEnabledGate == false {
+            ApprovalDegradationSelector.shared.isPickerExpanded = false
+        }
     }
 
     private static func currentEnabledMap() -> [AgentKind: Bool] {
@@ -259,5 +287,88 @@ private struct AgentSettingsRow: View {
         let home = NSHomeDirectory()
         guard raw.hasPrefix(home) else { return raw }
         return "~" + raw.dropFirst(home.count)
+    }
+}
+
+// MARK: - 审批降级档
+
+/// 「应用未运行时的审批策略」选择行。
+///
+/// 档位是**全局**的（`AppSettings.approvalDegradation`）：它决定闸门在应用不可达时怎么做，
+/// 换档 = 重装闸门版扩展（档位值烘焙进扩展文件头与策略常量）。没有开启任何闸门时这一行
+/// 没有意义，因此禁用并说明原因（禁用不影响面板高度：行仍占一行，只是不可交互）。
+private struct ApprovalDegradationPickerRow: View {
+    /// 是否至少有一个 Agent 开着闸门。
+    let isEnabled: Bool
+    let showsSeparator: Bool
+    /// 选中某个档位后的回调（区段用它重装闸门版扩展）。
+    let onSelect: (ApprovalDegradation) -> Void
+
+    @ObservedObject private var selector = ApprovalDegradationSelector.shared
+    @ObservedObject private var l10n = LocalizationManager.shared
+
+    var body: some View {
+        SettingsPickerRow(
+            badge: SettingsBadge(
+                source: .symbol(name: "shield.lefthalf.filled", tint: AppPalette.accent)),
+            title: l10n.t("When AgentIsland is not running"),
+            // 禁用时这一列改成原因，用户不必猜为什么点不动。
+            value: isEnabled ? compactTitle(for: selector.option) : l10n.t("Requires an approval gate"),
+            isExpanded: selector.isPickerExpanded,
+            showsSeparator: showsSeparator,
+            onToggle: {
+                withAnimation(SettingsMotion.expand) {
+                    selector.isPickerExpanded.toggle()
+                }
+            }
+        ) {
+            ForEach(ApprovalDegradation.allCases, id: \.self) { option in
+                SettingsOptionRow(
+                    label: optionTitle(option),
+                    isSelected: selector.option == option
+                ) {
+                    selector.select(option)
+                    onSelect(option)
+                    collapseAfterDelay()
+                }
+            }
+        }
+        .disabled(isEnabled == false)
+        .opacity(isEnabled ? 1 : 0.5)
+        .help(explanation)
+    }
+
+    /// 行内取值：短文案（完整文案在选项列表里，行内放不下）。
+    private func compactTitle(for degradation: ApprovalDegradation) -> String {
+        switch degradation {
+        case .strict: return l10n.t("Reject all")
+        case .notifyOnly: return l10n.t("Allow, show later")
+        case .readOnlyAllow: return l10n.t("Read-only tools")
+        }
+    }
+
+    /// 档位文案。在视图里按字面量取键，本地化守卫才能审计到（与其它选择器同一约定）。
+    private func optionTitle(_ degradation: ApprovalDegradation) -> String {
+        switch degradation {
+        case .strict: return l10n.t("Reject everything (strict)")
+        case .notifyOnly: return l10n.t("Allow, show afterwards (notify-only, default)")
+        case .readOnlyAllow: return l10n.t("Allow read-only tools only (read-only-allow)")
+        }
+    }
+
+    /// 选择后短暂延迟再收起，让用户看到选中态的变化（与其它选择行同一手感）。
+    private func collapseAfterDelay() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            withAnimation(SettingsMotion.expand) {
+                selector.isPickerExpanded = false
+            }
+        }
+    }
+
+    /// 悬停说明：说清「降级时终端会打出 gate offline」与「危险命令在任何档都被拒」。
+    private var explanation: String {
+        l10n.t(
+            "When AgentIsland is not running the agent prints “gate offline” in the terminal; known-dangerous commands are rejected in every mode."
+        )
     }
 }

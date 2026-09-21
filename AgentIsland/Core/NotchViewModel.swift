@@ -169,7 +169,9 @@ class NotchViewModel: ObservableObject {
                 NotificationScopeSelector.shared.expandedPickerHeight,
             ].reduce(0, +)
         case .agents:
+            // 智能体页有两个可展开的选择器：Claude 配置目录、审批降级档
             return claudeDirSelector.expandedPickerHeight
+                + ApprovalDegradationSelector.shared.expandedPickerHeight
         case .about:
             return 0
         }

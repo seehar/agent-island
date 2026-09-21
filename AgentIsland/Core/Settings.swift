@@ -35,7 +35,7 @@ enum NotificationSound: String, CaseIterable {
 ///
 /// 这一档只在「无人可问」时生效；「问了没答」（超时）永远是拒绝——omp 生效的
 /// `approvalMode` 已是 yolo，超时放行等于静默执行任意命令。
-nonisolated enum ApprovalDegradation: String, CaseIterable {
+nonisolated enum ApprovalDegradation: String, CaseIterable, PreferenceOption {
   /// 一律拒绝：把 agent 当生产工具，宁可停下也不误执行。
   case strict
   /// 放行 + 记录 + 刘海事后展示；已知危险命令仍然拒绝。（默认）
@@ -45,7 +45,17 @@ nonisolated enum ApprovalDegradation: String, CaseIterable {
   /// 注意：只读档（read/glob/grep…）在闸门之前就放行了，能走到闸门的都是写 / 执行档，
   /// 因此实际效果与 `strict` 相同——差别只在与用户心智模型对齐。
   case readOnlyAllow = "read-only-allow"
+
+  /// 偏好域里的键。与 `AppSettings.Keys.approvalDegradation` 是同一个键——
+  /// 档位既可以走偏好骨架读写，也可以走 AppSettings 的既有入口，两条路径落同一处。
+  static let preferenceKey = "approvalDegradation"
+
+  /// 默认档：不打断工作，同时危险命令仍有底线。
+  static var defaultValue: ApprovalDegradation { .notifyOnly }
 }
+
+/// 降级档的设置行载体（`EnumPreference` 的骨架 + 行内展开状态，见 BehaviorPreferences）。
+typealias ApprovalDegradationSelector = EnumPreference<ApprovalDegradation>
 
 nonisolated enum AppSettings {
   private static let defaults = UserDefaults.standard
@@ -161,18 +171,10 @@ nonisolated enum AppSettings {
 
   /// 应用不可达时闸门怎么办；默认 `notify-only`。
   /// 随扩展文件下发（写进扩展里的策略常量），不写用户的 agent 配置。
+  /// 读写走偏好骨架（`PreferenceStore`），设置行里改档位与本入口落同一处。
   static var approvalDegradation: ApprovalDegradation {
-    get {
-      guard let raw = defaults.string(forKey: Keys.approvalDegradation),
-        let tier = ApprovalDegradation(rawValue: raw)
-      else {
-        return .notifyOnly
-      }
-      return tier
-    }
-    set {
-      defaults.set(newValue.rawValue, forKey: Keys.approvalDegradation)
-    }
+    get { PreferenceStore.read(ApprovalDegradation.self, defaults: defaults) }
+    set { PreferenceStore.write(newValue, defaults: defaults) }
   }
 
   // MARK: - omp 配置写入记录

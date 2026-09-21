@@ -4342,6 +4342,166 @@
           }
         }
       }
+    },
+    "When AgentIsland is not running" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When AgentIsland is not running"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AgentIsland 未运行时"
+          }
+        }
+      }
+    },
+    "Reject everything (strict)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reject everything (strict)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一律拒绝（strict）"
+          }
+        }
+      }
+    },
+    "Allow, show afterwards (notify-only, default)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow, show afterwards (notify-only, default)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "放行并事后展示（notify-only，默认）"
+          }
+        }
+      }
+    },
+    "Allow read-only tools only (read-only-allow)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow read-only tools only (read-only-allow)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只放行只读工具（read-only-allow）"
+          }
+        }
+      }
+    },
+    "Requires an approval gate" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Requires an approval gate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需先开启审批闸门"
+          }
+        }
+      }
+    },
+    "When AgentIsland is not running the agent prints “gate offline” in the terminal; known-dangerous commands are rejected in every mode." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When AgentIsland is not running the agent prints “gate offline” in the terminal; known-dangerous commands are rejected in every mode."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AgentIsland 未运行时，agent 会在终端打印“gate offline”；已知的危险命令在任何档位下都会被拒绝。"
+          }
+        }
+      }
+    },
+    "Reject all" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reject all"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一律拒绝"
+          }
+        }
+      }
+    },
+    "Allow, show later" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow, show later"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "放行，事后展示"
+          }
+        }
+      }
+    },
+    "Read-only tools" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read-only tools"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只放行只读"
+          }
+        }
+      }
+    },
+    "Unchecked questions count as none selected" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unchecked questions count as none selected"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未勾选的题按「未选任何项」提交"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
