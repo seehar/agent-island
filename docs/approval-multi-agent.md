@@ -743,6 +743,9 @@ grep -c "Allow tool" /tmp/ai-approve/p1/frames/f1.txt   # 期望 0
 
 **上行**（扩展 → 应用）沿用 `ToolApproval` 信封（老信封字节不变，只新增两个可选键）：
 
+> 零选/取消的一手依据：omp 源码 `packages/coding-agent/src/tools/ask.ts`（`askSingleQuestion` 的多选分支、`formatSingleQuestionResponse`、`formatQuestionResult`），以及本机 omp 二进制内的两条文案 `User did not select any options` / `User cancelled the selection`（前者走 `multi` 分支、后者是取消）。
+
+
 ```
 event: "ToolApproval", status: "waiting_for_approval", expects_response: true,
 tool: "ask", tool_use_id: <该 ask 调用的 toolCallId>,
@@ -760,6 +763,10 @@ ask: { questions: [ { id, question, header?, multi_select, free_text, options: [
 ```
 
 - 用户放弃作答走既有的 `deny`；`allow` / `ask` 两个旧取值的语义与**字段集合**逐字不变（`HookResponse.encode` 是手写的，缺省键不会出现在字节里；写回统一经 `AskAnswerBuilder.normalized`，因此「`answer` 但一个答案都没有」在服务端就被折成 `deny`，空答案不可能被发出去）。编码器固定 `sortedKeys`，字节形态稳定。
+- **`answers` 的三种状态必须在字节上分得开（v5 冻结）**：**键存在** = 该题被作答；**值为空数组 `[]`** = 多选题的「一个都没选」；**键缺失** = 该题未作答。只有**所有键都缺失**时才折成 `deny`（= 跳过/取消）——**只要存在任一键（哪怕值是 `[]`）就发 `answer`**。
+- **「零选」与原生同义，且不是取消**：omp 原生多选靠 `Next →`（`navigation.allowForward`）前移结束，**零勾选照样返回**（`selectedOptions = []`），结果文案 `User did not select any options`（多题形态是 `<id>: []`）→ 工具**正常完成、本轮继续**；而**取消**（单选 `choice === undefined`）走 `User cancelled the selection` + `ToolAbortError` → **终止本轮**。因此在刘海里：「零选」= **多选题未勾选任何项时点「提交」**（与逐题 `Next →` 等价，不需要额外控件），「跳过」= 取消/放弃（→ `deny`）。**提交可用性**（贴原生规则、且任何一次按键都不替用户做决定）：**全部都是多选** → 零交互也能提交，未勾选的题即零选；**含任一单选** → 每道单选都必须已有输入（选中或输入文本），否则提交不可用（用户要么选，要么走「跳过」）。此时未勾选的多选题仍按零选提交，卡片底部有提示说明这件事。
+- **单选没有零选态**：未选中就是「不提交该题」（键缺失）。单选在原生里只有取消这一条出路，对应刘海侧的「跳过」。
+- **Claude 不适用上一条**：Claude 的 `answers` 是「问题正文 → 字符串（多选逗号连接）」，**没有空值语义**——在 `updatedInput.answers` 里给空串等于「答了空文本」，与「零选」不是一回事；Claude 自己的对话框也不允许留空提交（每问都要作答或输入文本）。因此 `AskUserQuestion` 的零选不可表达（见 §12.6）。
 
 ### 12.2 影子 ask 的竞速与取消（扩展侧）
 
@@ -797,9 +804,57 @@ ask: { questions: [ { id, question, header?, multi_select, free_text, options: [
 
 ### 12.5 仍然存在的边界
 
-- **多选「一个都不选」无法表达**：作答字典只带「真的选到了答案」的问题（空数组不进字典），而 `answer` 且全空会被折成 `deny`。所以「多选问题想表达『都不选』」目前只能整体跳过，无法逐题区分。
-- **Claude 的 `AskUserQuestion` 未接入**：Claude 链路是 `PermissionRequest` + hook 脚本，信封里没有 `ask` 负载；会话列表对它只给「去刘海上作答 / 定位终端」的入口（`isInteractiveTool` 分支），作答仍在终端。
+- **「零选」已可表达（v5）**：多选题在刘海**未勾选任何项**时点「提交」即以 `[]` 作答（与原生 `User did not select any options` 同义，见 §12.1）；**整单都是多选时零交互也能直接提交**（与原生从零交互 `Next →` 前移一致）。**一条硬边界**：题面里只要有单选，未选中的单选就不允许被当成任何答案——提交保持不可用，用户要么选，要么走「跳过」（= 取消，终止本轮）。**Claude 例外**：它的 `answers` 没有空值语义，零选不可表达。
 - **opencode 无提问通道**：插件不带 `ask`，本切片未改动它。
+
+### 12.6 Claude 的 `AskUserQuestion`（v4 新增）
+
+Claude 链路不是 TS 扩展，而是 hook 脚本 `AgentIsland/Resources/agent-island-state.py`（由
+`HookInstaller` 装到 `~/.claude/hooks`，注册在 `PermissionRequest`，hook `timeout: 86400`）。
+它在**同一条答案通道**上多做了两步：把提问归一成 `ask` 上行、把刘海的回答映射成 Claude 的
+`updatedInput` 下行。
+
+**与 omp 影子 ask 的差异**（同一条通道，两种接法）：
+
+| | omp / pi 影子 ask | Claude `AskUserQuestion` |
+| --- | --- | --- |
+| 承载 | 扩展注册同名影子工具，`tool_call` 阻塞询问 | hook 脚本在 `PermissionRequest` 里阻塞一次 `recv` |
+| 上行 | `ToolApproval` + `ask` | 同一个信封 + 同一份 `ask`（`event` 仍是 `PermissionRequest`，`tool` = `AskUserQuestion`） |
+| 下行 | 扩展把 `answers` 当**工具返回值**交回模型 | 脚本把它折成 `hookSpecificOutput.decision = {"behavior":"allow","updatedInput":{…,"answers":{…}}}`，由 PermissionRequest 的 allow 通道**直接满足这次交互**（Claude 侧日志：`Hook satisfied user interaction for AskUserQuestion via updatedInput`），不再弹原生提问 |
+| 放弃作答 | 扩展 `abort()` 原生那条并抛 `ToolAbortError` | 脚本回 `{"behavior":"deny"}`，Claude 按「被 hook 拒绝」处理 |
+| 竞速 | 刘海与终端两条路抢 | 无竞速：刘海作答就完全替代原生弹窗；超时/不可达则不输出，原生弹窗照旧 |
+
+**`answers` 的形状（Claude 侧）**：`Record<问题正文, 答案字符串>` ——
+
+- **键 = 问题正文**（不是 header、不是序号）。两个一手证据：工具 `outputSchema.answers` 的描述是
+  `"question text -> answer string; multi-select answers are comma-separated"`；工具结果的
+  `mapToolResultToToolResultBlockParam` 里就是 `answers[question.question]`。
+- **值 = 字符串**，多选用**逗号连接**；含 `", "` 或引号的项按 Claude 自己的编码加 JSON 引号
+  （`label.includes(", ") || label.includes('"') ? JSON.stringify(label) : label`，解析侧按
+  `", "` 切分并对 `"` 开头的段做 JSON.parse）——两端必须一致，否则标签会被拆错。
+- `updatedInput` 里**必须原样带上 `questions`**（Claude 对它直接调 `.map()`，缺键抛
+  `undefined is not an object (evaluating 'H.map')`）。
+- 不需要去重后缀：输入 schema 的 refine 硬性要求同一调用内问题正文唯一
+  （`"Question texts must be unique, option labels must be unique within each question"`），
+  因此正文天然是唯一键；`ask.questions[].id` 直接取问题正文，下行不需要再做 id → 正文映射。
+- 没有「不做答任何一题」的原生表达：Claude 自己用哨兵 `"(notes only)"` 表示「看完没选」。
+  本实现不发这个值——**一题不答就整体走 `deny`**（刘海点「跳过」），避免替用户编造一个状态。
+
+**上行归一（`build_ask_payload`）**：`question`→`question`+`id`、`header?`、`multiSelect`→`multi_select`、
+`options[{label, description?}]`（`preview` 不上行，刘海不渲染富预览），`free_text` **恒真** ——
+Claude 的原生弹窗对任何问题都提供自定义输入，且 `kind: "text" | "number"` 的问题本来就没有选项。
+
+**等待预算**：ask 分支取 **240s**，与 omp 侧同值（`AGENT_ISLAND_ASK_TIMEOUT_SECONDS` 可覆盖，
+正常路径不会触发）；普通审批分支保持 300s 逐字不变。四层链条不变：
+**app pending TTL 330s > 普通审批 300s（本脚本）> ask 240s（本脚本 / 扩展）> 闸门 120s**。
+
+**老客户端兼容**：旧版应用不认识 `ask` 键，会忽略它并照旧回 `allow`/`deny`；此时脚本按今天的语义
+输出（`behavior: "allow"`），只是白白采不到答案，不会崩。
+
+**真机验证的边界**：`claude -p`（headless）会话里 `AskUserQuestion` **不可用**——模型自报它不在
+deferred tool list 里、ToolSearch 也搜不到，因此 headless 跑不出这条链路；可行的方法是 tmux 里的
+交互式 `claude`（见附录 A 的 E8）。这也意味着：本通道只在交互式 Claude 会话里生效（与刘海的
+存在前提一致）。
 
 ## 附录 A：本方案新增的实测证据
 
@@ -812,6 +867,8 @@ ask: { questions: [ { id, question, header?, multi_select, free_text, options: [
 | E5 | omp 生效审批配置 | `omp config get tools.approvalMode` / `tools.approval` / `omp config list \| grep extensionHandlers` | `yolo` / `{}` / `extensionHandlers.toolCallTimeoutMs = 30000`；`~/.omp/agent/config.yml` 无 `tools:` 段 | §2.3/§6.3 |
 | E6 | 已安装集成与 Claude 契约 | 读 `~/.claude/settings.json`、`~/.omp/agent/extensions/`、`~/.pi/agent/extensions/` | `PermissionRequest` + `timeout: 86400`；`agent-island-state.ts` 两处（omp 9441 B / pi 9439 B）；同目录存在第三方扩展（不得整目录重写） | §2.5/§5.6 |
 | **E7（v2）** | 实验目录凭据加固 | `ls -l /tmp/ai-approve/agent/models.yml`；`chmod 600` 三处 | `models.yml` 原为 **644 且含明文 `sk-…`**；加固后 600；目录本身是 `0700`（此前不可被他人遍历）→ **规则见 §9.7** | §9.7/§10.1 |
+| **E8（v4）** | Claude `AskUserQuestion` 经刘海答案通道作答（真机，端到端） | `~/.claude/hooks` 临时装载本仓脚本（挂载前后 sha256 对账、测后还原）+ `/tmp/ai-approve/r1-probe/e2e-server.py` socket 替身 + tmux 交互式 `claude`（2.1.263） | 替身收到 `PermissionRequest` / `tool: AskUserQuestion`，`ask.questions[0]` 完整（`id`/`question`/`header`/`multi_select`/`free_text`/`options[].label,description`）；TUI 显示 `User answered Claude's questions: · Which option should we ship? → Option BETA` 与 `Allowed by PermissionRequest hook`，模型随后回 `You chose Option BETA.`，**未弹原生提问** | §12.6 |
+| **E9（v4）** | 同一链路的脚本级 harness（37 断言） | `/tmp/ai-approve/r1-probe/harness.py`（真 unix socket 替身 + 真脚本子进程） | `answer`→`behavior:"allow"` 且 `updatedInput.answers` 逐字段相符、`questions` 原样回带；`deny`→`behavior:"deny"`+message；沉默→2s（压小后的预算）到点、`exit 0` 且 **stdout 为空**；非 ask 的 `PermissionRequest`→字节与改造前逐字一致；旧应用只回 `allow`→字节不变；应用不可达→0.03s 返回且无输出；畸形/对不上的 `answer`→无输出回落原生 | §12.6 |
 
 **非本方案作者运行的实验（引用他人结果）**：`RUN A–J` / `TUI-1,2` / `RPC-1,2` 来自 WS-A 的隔离实验；`T1–T10` / `R1–R3` 来自 WS-E 的隔离实验（脚本 `/tmp/ai-approve/{run_probe.sh, ext/probe.ts, ws-e-rpc-probe.py, ws-e-rpc-plain.py}`，日志 `/tmp/ai-approve/logs/probe.jsonl`）。本方案只引用其结论并标注用途。</
 
