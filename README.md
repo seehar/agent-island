@@ -5,11 +5,11 @@
     <b>Your coding agents, on the MacBook notch.</b><br>
     Live session state, chat history and tool approvals for Claude Code, Oh My Pi, Pi and OpenCode — one glance, no window switching.
     <br><br>
-    <a href="https://github.com/seehar/agent-island/releases/latest"><img src="https://img.shields.io/github/v/release/seehar/agent-island?style=flat-square&labelColor=0d1117&color=1f6feb&label=release" alt="Release"></a>
-    <a href="https://github.com/seehar/agent-island/releases"><img src="https://img.shields.io/github/downloads/seehar/agent-island/total?style=flat-square&labelColor=0d1117&color=1f6feb&label=downloads" alt="Downloads"></a>
-    <img src="https://img.shields.io/badge/macOS-15.6%2B-0d1117?style=flat-square&labelColor=0d1117&color=1f6feb" alt="macOS 15.6+">
-    <img src="https://img.shields.io/badge/Apple%20Silicon-arm64-0d1117?style=flat-square&labelColor=0d1117&color=1f6feb" alt="Apple Silicon">
-    <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-Apache--2.0-0d1117?style=flat-square&labelColor=0d1117&color=1f6feb" alt="Apache-2.0"></a>
+    <a href="https://github.com/seehar/agent-island/releases/latest"><img src="https://img.shields.io/github/v/release/seehar/agent-island?style=flat&labelColor=0d1117&color=1f6feb&label=release" alt="Release"></a>
+    <a href="https://github.com/seehar/agent-island/releases"><img src="https://img.shields.io/github/downloads/seehar/agent-island/total?style=flat&labelColor=0d1117&color=1f6feb&label=downloads" alt="Downloads"></a>
+    <img src="https://img.shields.io/badge/macOS-15.6%2B-0d1117?style=flat&labelColor=0d1117&color=1f6feb" alt="macOS 15.6+">
+    <img src="https://img.shields.io/badge/Apple%20Silicon-arm64-0d1117?style=flat&labelColor=0d1117&color=1f6feb" alt="Apple Silicon">
+    <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-Apache--2.0-0d1117?style=flat&labelColor=0d1117&color=1f6feb" alt="Apache-2.0"></a>
   </p>
 </div>
 
