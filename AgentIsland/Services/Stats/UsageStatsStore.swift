@@ -8,7 +8,8 @@
 //
 //  所有指标都由 `usage_bucket` 聚合得出，写入语义只有两条：
 //    · `append`：只把新读到的字节 / 新处理的消息对应的增量累加进去（增量读取）；
-//    · `replace`：先删掉这个源的全部桶再重放（记录被截断 / 整体重写时）。
+//    · `replace` / `replaceBatch`：先删掉这些源的全部桶再重放（记录被截断 / 整体
+//      重写时；OpenCode 按页回填用批版，消息与游标因此同生共死）。
 //  这两条让「扫描两次 == 扫描一次」成为可测的不变量。
 //
 //  本类型不是线程安全的：只在 `UsageStatsIndexer` actor 内部使用。
@@ -57,6 +58,14 @@ nonisolated struct UsageSourceState: Equatable {
 /// 数据源在库里的行。
 nonisolated struct UsageSourceRecord: Equatable {
   var agent: AgentKind
+  var state: UsageSourceState
+}
+
+/// 一次「整源重放」要写的内容（`replaceBatch` 用）。
+nonisolated struct UsageSourceWrite {
+  var sourceId: String
+  var agent: AgentKind
+  var deltas: [UsageBucketDelta] = []
   var state: UsageSourceState
 }
 
@@ -161,14 +170,37 @@ nonisolated final class UsageStatsStore {
     }.first
   }
 
-  /// 某个 Agent 已登记的数据源 id（用于清理已经不存在的记录文件）。
-  func sourceIds(agent: AgentKind) throws -> Set<String> {
-    let ids = try query(
-      "SELECT source_id FROM indexed_source WHERE agent = ?;", values: [.text(agent.rawValue)]
-    ) { statement in
-      self.text(statement, 0)
+  /// 全部源的读取进度（一轮扫描开始时读一次）。
+  ///
+  /// 逐个源查一次是本机 3 万个源 × 10 µs ≈ 0.3 秒/轮；一次读完只要 20 毫秒上下——
+  /// 一轮里只有本进程在写统计库，因此这份快照就是那一轮的事实。
+  func sourceRecords() throws -> [String: UsageSourceRecord] {
+    let rows = try query(
+      """
+      SELECT source_id, agent, size_bytes, read_offset, mtime, cursor, updated_at
+      FROM indexed_source;
+      """,
+      values: []
+    ) { statement -> (String, UsageSourceRecord)? in
+      guard let sourceId = self.text(statement, 0),
+        let agentRaw = self.text(statement, 1),
+        let agent = AgentKind(rawValue: agentRaw)
+      else { return nil }
+      return (
+        sourceId,
+        UsageSourceRecord(
+          agent: agent,
+          state: UsageSourceState(
+            sizeBytes: UInt64(max(0, sqlite3_column_int64(statement, 2))),
+            readOffset: UInt64(max(0, sqlite3_column_int64(statement, 3))),
+            mtime: sqlite3_column_double(statement, 4),
+            cursor: self.text(statement, 5),
+            updatedAt: sqlite3_column_double(statement, 6)
+          )
+        )
+      )
     }
-    return Set(ids.compactMap { $0 })
+    return Dictionary(rows, uniquingKeysWith: { _, latest in latest })
   }
 
   func indexedSourceCount() throws -> Int {
@@ -193,10 +225,25 @@ nonisolated final class UsageStatsStore {
   func replace(
     _ deltas: [UsageBucketDelta], sourceId: String, agent: AgentKind, state: UsageSourceState
   ) throws {
+    try replaceBatch([
+      UsageSourceWrite(sourceId: sourceId, agent: agent, deltas: deltas, state: state)
+    ])
+  }
+
+  /// 一批源一起整源重放（同一个事务）。
+  ///
+  /// OpenCode 的按页回填用它：一页 4000 条消息逐条开事务太碎（实测 0.14 ms/条，整页
+  /// 一次事务快一个量级），而且「消息重放」与「游标推进」因此落在同一个事务里——写到
+  /// 一半崩掉不会留下「游标已过、消息没入库」的洞。
+  func replaceBatch(_ writes: [UsageSourceWrite]) throws {
+    guard !writes.isEmpty else { return }
     try transaction {
-      try execute("DELETE FROM usage_bucket WHERE source_id = ?;", values: [.text(sourceId)])
-      try upsert(deltas, sourceId: sourceId, agent: agent)
-      try writeSource(sourceId: sourceId, agent: agent, state: state)
+      for write in writes {
+        try execute(
+          "DELETE FROM usage_bucket WHERE source_id = ?;", values: [.text(write.sourceId)])
+        try upsert(write.deltas, sourceId: write.sourceId, agent: write.agent)
+        try writeSource(sourceId: write.sourceId, agent: write.agent, state: write.state)
+      }
     }
   }
 

@@ -351,8 +351,8 @@ struct UsageStatsIndexerTests {
     try FileManager.default.removeItem(at: vanished)
 
     let pass = pass(store)
-    let failures = pass.ingest(sources: discovered)
-    #expect(failures == 0)
+    let outcome = pass.ingest(sources: discovered)
+    #expect(outcome.failures == 0)
 
     // 其余记录的用量照常入库：omp 根会话 + 子代理（不含被删掉的 Claude 会话）。
     let snapshot = try store.snapshot(range: .today, calendar: calendar, now: Date(), isIndexing: false)

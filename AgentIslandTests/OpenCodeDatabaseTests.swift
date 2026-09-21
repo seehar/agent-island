@@ -84,6 +84,26 @@ struct OpenCodeDatabaseTests {
     #expect(try messageCount(handle) == 3)
   }
 
+  @Test("指纹：没人写就稳定，库被写过就变（「跳过扫描」的判据）")
+  func fingerprintTracksWrites() throws {
+    let url = try makeWALDatabase()
+    guard let before = OpenCodeDatabaseFingerprint.read(databaseURL: url) else {
+      Issue.record("指纹读不到：\(url.path)")
+      return
+    }
+    #expect(OpenCodeDatabaseFingerprint.read(databaseURL: url) == before)
+
+    // 另开一条连接提交一行（WAL 模式下落在 -wal 上，主库文件可能一动不动）：
+    // 指纹必须随之改变，否则我们会把「有新数据」误判成「没变化」而跳过扫描。
+    var handle: OpaquePointer?
+    #expect(sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK)
+    guard let handle else { return }
+    defer { sqlite3_close(handle) }
+    #expect(sqlite3_exec(handle, "INSERT INTO message(id) VALUES ('m4');", nil, nil, nil) == SQLITE_OK)
+
+    #expect(OpenCodeDatabaseFingerprint.read(databaseURL: url) != before)
+  }
+
   @Test("打开后的连接写不进去：不会改到 OpenCode 的数据")
   func openedConnectionRefusesWrites() throws {
     let url = try makeWALDatabase()

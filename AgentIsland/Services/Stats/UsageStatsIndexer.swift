@@ -12,6 +12,16 @@
 //    · 每 60 秒一轮增量扫描；打开统计页可请求立即扫描（30 秒节流）；
 //    · 统计页的「重新统计」按钮可手动触发一次全量重算（`rebuildNow()`）。
 //
+//  一轮增量的成本（本机 3 万个源、5 GB 记录实测）：枚举 + `stat` ≈ 0.3 s、读一次进度表
+//  ≈ 0.02 s、OpenCode 三条查询 ≈ 0.1 s，没变化就不写库、也不在批间让出——空轮合计
+//  约 0.4 s。真正的重活是首次回填与手动重算（全量读记录 + 重放）。
+//
+//  进度表按轮读一次后逐块复用（`ingest(sources:progress:rebuilding:)`）：快照必须显式
+//  传进来，别在 pass 里缓存——同一个 pass 被调用多次时缓存会陈旧。
+//
+//  OpenCode 那一半先看指纹（库 + `-wal` 的 size/mtime）再决定扫不扫：它的两条增量查询
+//  是全表扫描，冷缓存约 2 秒（采样实测），而库没被写过时注定查不出新数据。
+//
 
 import Combine
 import Foundation
@@ -38,6 +48,22 @@ nonisolated struct UsageScanRoots: Sendable {
     return UsageScanRoots(
       jsonlRoots: roots, openCodeDatabase: databaseExists ? database : nil)
   }
+}
+
+/// 一轮 OpenCode 扫描后的结果。
+nonisolated struct OpenCodeSweepOutcome: Equatable {
+  /// 重放过的消息数。
+  var messages = 0
+  /// 还有没读完的页（单轮页数有上限）：下一轮不能拿「库没变化」当借口跳过。
+  var morePagesRemain = false
+}
+
+/// 一批源索引后的结果。
+nonisolated struct UsageIngestOutcome: Equatable {
+  /// 跳过（读失败/写失败）的源数。
+  var failures = 0
+  /// 真正读或写过的源数：为 0 说明这一批只是 `stat` 了一圈，批间不必让出。
+  var changed = 0
 }
 
 /// 一轮索引的具体执行体。同步接口，由索引器在后台任务里驱动，测试可直接调用。
@@ -67,12 +93,28 @@ nonisolated final class UsageStatsPass {
   /// - Parameter rebuilding: 手动「重新统计」：不认库里的读取进度，每个源都从头
   ///   重读一遍并整源重放。增量路径只读文件的尾巴，所以它是**唯一**能改掉已经
   ///   统计过的数字的路径（桶丢了、数字对不上时用）。
+  ///
+  /// - Parameter progress: 本轮开始时的读取进度快照（索引器每轮读一次并逐块复用：
+  ///   本机 3 万个源逐个查是 0.31 s，一次读完约 0.02 s）。传 `nil` 表示「你自己现读
+  ///   一份」——单次调用（测试、临时脚本）走这条，语义永远是新鲜的。
   @discardableResult
-  func ingest(sources: [UsageSourceFile], rebuilding: Bool = false) -> Int {
-    var failures = 0
+  func ingest(
+    sources: [UsageSourceFile], progress: [String: UsageSourceRecord]? = nil,
+    rebuilding: Bool = false
+  ) -> UsageIngestOutcome {
+    let previousBySource: [String: UsageSourceRecord]
+    do {
+      previousBySource = try progress ?? store.sourceRecords()
+    } catch {
+      Self.logger.error(
+        "用量统计读进度表失败：\(String(describing: error), privacy: .public)")
+      return UsageIngestOutcome(failures: sources.count)
+    }
+
+    var outcome = UsageIngestOutcome()
     for source in sources {
       do {
-        let previous = rebuilding ? nil : try store.state(ofSource: source.path)
+        let previous = rebuilding ? nil : previousBySource[source.path]
         let result = TranscriptUsageScanner.read(
           source: source, previous: previous?.state, calendar: calendar)
 
@@ -81,10 +123,12 @@ nonisolated final class UsageStatsPass {
         if rebuilding || result.needsReplace {
           try store.replace(
             result.deltas, sourceId: source.path, agent: source.agent, state: result.state)
+          outcome.changed += 1
           continue
         }
 
-        // 没有任何变化就不写：避免每轮扫描都产生一次事务。
+        // 没有任何变化就不写：避免每轮扫描都产生一次事务。这一支也是「空轮」的全部
+        // 成本——一次 stat，连文件都不打开（见 `TranscriptUsageScanner.read`）。
         let unchanged =
           result.deltas.isEmpty
           && previous?.state.readOffset == result.state.readOffset
@@ -93,14 +137,15 @@ nonisolated final class UsageStatsPass {
 
         try store.append(
           result.deltas, sourceId: source.path, agent: source.agent, state: result.state)
+        outcome.changed += 1
       } catch {
-        failures += 1
+        outcome.failures += 1
         Self.logger.error(
           "用量统计：跳过 \(source.path, privacy: .public)（\(String(describing: error), privacy: .public)）"
         )
       }
     }
-    return failures
+    return outcome
   }
 
   /// 索引 OpenCode 的历史（按消息增量）。
@@ -111,7 +156,11 @@ nonisolated final class UsageStatsPass {
   ///
   /// - Parameter rebuilding: 手动「重新统计」：游标归零、全库重走一遍。每条消息
   ///   在统计库里是独立数据源、按整源重放写库，因此重走是幂等的。
-  func ingestOpenCode(databaseURL: URL, rebuilding: Bool = false) throws {
+  @discardableResult
+  func ingestOpenCode(
+    databaseURL: URL, rebuilding: Bool = false
+  ) throws -> OpenCodeSweepOutcome {
+    var outcome = OpenCodeSweepOutcome()
     let reader: OpenCodeUsageReader
     if let openCodeReader {
       reader = openCodeReader
@@ -144,25 +193,34 @@ nonisolated final class UsageStatsPass {
       let advanced = page.messageCursor.isAfter(cursors.message)
         || page.partCursor.isAfter(cursors.part)
 
+      var writes: [UsageSourceWrite] = []
       for messageId in page.messageIds {
         let deltas = try reader.contributions(
           messageId: messageId, subagentSessions: subagentSessions, calendar: calendar)
         // 没有 token 也没有工具调用的消息（用户消息）不入库。
         guard !deltas.isEmpty else { continue }
-        try store.replace(
-          deltas, sourceId: Self.openCodeSourcePrefix + messageId, agent: .opencode,
-          state: UsageSourceState(updatedAt: now))
+        writes.append(
+          UsageSourceWrite(
+            sourceId: Self.openCodeSourcePrefix + messageId, agent: .opencode, deltas: deltas,
+            state: UsageSourceState(updatedAt: now)))
       }
 
       cursors = (page.messageCursor, page.partCursor)
       guard advanced || !page.messageIds.isEmpty else { break }
-      try store.append(
-        [], sourceId: sweepId, agent: .opencode,
-        state: UsageSourceState(
-          cursor: Self.serializeCursors(cursors), updatedAt: now))
+      // 整页一个事务：这一页的消息重放与游标推进同生共死（崩在页面中间也不会留下
+      // 「游标已过、消息没入库」的洞），实测比每条消息一个事务快一个量级。
+      writes.append(
+        UsageSourceWrite(
+          sourceId: sweepId, agent: .opencode, deltas: [],
+          state: UsageSourceState(cursor: Self.serializeCursors(cursors), updatedAt: now)))
+      try store.replaceBatch(writes)
+      outcome.messages += writes.count - 1  // 去掉这一页末尾的游标行
+      // 页读满说明后面还有：记下来，别让下一轮的「库没变化」把它当成已经追平。
+      outcome.morePagesRemain = page.isMessagePageFull || page.isPartPageFull
 
       if !page.isMessagePageFull && !page.isPartPageFull { break }
     }
+    return outcome
   }
 
   private static let openCodeSweepId = "opencode:sweep"
@@ -205,6 +263,8 @@ actor UsageStatsIndexer {
   private static let sweepIntervalSeconds: UInt64 = 60
   /// 打开统计页触发的立即扫描的节流窗口（秒）。
   private static let refreshThrottleSeconds: TimeInterval = 30
+  /// 「索引有更新」通知的最小间隔（秒）：见 `notifyProgress()`。
+  private static let progressNotifyInterval: TimeInterval = 0.5
   /// 后台扫描每批处理的文件数，批间暂停以保持低占用。
   private static let passChunkFileLimit = 200
   private static let chunkPauseNanoseconds: UInt64 = 20_000_000
@@ -216,6 +276,11 @@ actor UsageStatsIndexer {
   private var pendingRefresh = false
   /// 下一轮扫描是否按「重新统计」的语义跑（见 `rebuildNow()`）。
   private var rebuildRequested = false
+  private var lastProgressNotifyAt: Date?
+  /// OpenCode 库上次扫描后的指纹（见 `OpenCodeDatabaseFingerprint`）。
+  private var openCodeFingerprint: OpenCodeDatabaseFingerprint?
+  /// 还没追平：首次扫描、上一轮没读完一页、或上次扫描失败时都要照常扫，不看指纹。
+  private var openCodeCatchUpPending = true
   private var lastPassFinishedAt: Date?
   private(set) var isIndexing = false
 
@@ -317,32 +382,61 @@ actor UsageStatsIndexer {
     let roots = UsageScanRoots.live
     let chunkLimit = Self.passChunkFileLimit
     let chunkPause = Self.chunkPauseNanoseconds
+    // 跨轮状态在 actor 上，后台任务只能读快照、只能通过方法回写（见 finishOpenCodeSweep）。
+    let openCodeFingerprintAtStart = openCodeFingerprint
+    let openCodeCatchUpPendingAtStart = openCodeCatchUpPending
 
     passTask = Task.detached(priority: .utility) { [weak self] in
+      let startedAt = Date()
+      // 各阶段耗时：进摘要行（info，日志里查得到）。排查「一轮为什么这么久」时不必再插桩。
+      var phaseSeconds: [String: TimeInterval] = [:]
+      var phaseStart = startedAt
+      func mark(_ phase: String) {
+        let now = Date()
+        phaseSeconds[phase, default: 0] += now.timeIntervalSince(phaseStart)
+        phaseStart = now
+      }
       do {
         let store = try UsageStatsStore(url: databaseURL)
         let pass = UsageStatsPass(store: store, calendar: calendar)
+        mark("开库")
 
         var sources: [UsageSourceFile] = []
         for (kind, kindRoots) in roots.jsonlRoots {
           sources.append(contentsOf: TranscriptUsageScanner.sources(for: kind, roots: kindRoots))
         }
+        mark("枚举")
+
+        // 一轮读一次进度表：本机 3 万个源逐个查是 0.31 s，一次读完约 0.02 s。
+        // 重建不看进度（`ingest` 里重建一律从零读），这份只为清理死源与逐块复用。
+        let progress = (try? store.sourceRecords()) ?? [:]
+        mark("读进度")
 
         var failures = 0
+        var changed = 0
         var scanned = 0
         while scanned < sources.count {
           if Task.isCancelled { break }
           let end = min(scanned + chunkLimit, sources.count)
-          failures += pass.ingest(
-            sources: Array(sources[scanned..<end]), rebuilding: rebuilding)
+          let outcome = pass.ingest(
+            sources: Array(sources[scanned..<end]), progress: rebuilding ? [:] : progress,
+            rebuilding: rebuilding)
+          failures += outcome.failures
+          changed += outcome.changed
           scanned = end
+          // 只有这一批真的读/写了才让出：一轮全是「没变化」的 stat 时不白等
+          // （本机 25 批 × 20 ms ≈ 0.5 秒纯延迟），也不必让页面白重取快照。
+          guard outcome.changed > 0 else { continue }
           await self?.notifyProgress()
           try? await Task.sleep(nanoseconds: chunkPause)
         }
 
+        mark("扫记录")
+
         // 已经不存在于磁盘上的记录：清掉进度行（历史用量保留）。
         do {
-          for sourceId in try Self.missingSourceIds(store: store, sources: sources) {
+          for sourceId in Self.missingSourceIds(progress: progress, sources: sources)
+          {
             try store.forgetCursor(sourceId: sourceId)
           }
         } catch {
@@ -350,14 +444,62 @@ actor UsageStatsIndexer {
           Self.logger.error("清理用量统计进度失败：\(String(describing: error), privacy: .public)")
         }
 
+        mark("清理")
+
+        var openCodeNote = "OpenCode 未启用"
         if let database = roots.openCodeDatabase {
-          do {
-            try pass.ingestOpenCode(databaseURL: database, rebuilding: rebuilding)
-          } catch {
-            failures += 1
-            Self.logger.error(
-              "OpenCode 用量索引失败：\(String(describing: error), privacy: .public)")
+          let fingerprint = OpenCodeDatabaseFingerprint.read(databaseURL: database)
+          // 库与它的 -wal 都没被写过、且上一轮已经追平：跳过整轮 OpenCode 扫描。这两条
+          // 查询在 message / part 上是全表扫描（本机 2.29 GB 库、冷缓存约 2 秒读盘），
+          // 而 OpenCode 没在跑时它们永远查不出新东西。
+          let canSkip =
+            fingerprint != nil && fingerprint == openCodeFingerprintAtStart
+            && !openCodeCatchUpPendingAtStart && !rebuilding
+          if canSkip {
+            openCodeNote = "OpenCode 跳过（库没有变化）"
+            Self.logger.debug("用量统计：OpenCode 库没有变化，跳过这一轮扫描")
+          } else {
+            // 扫一轮时把当前指纹记下来：连续两行的差异就是「为什么没跳过」。
+            Self.logger.debug(
+              "用量统计：OpenCode 需要扫一轮（库有变化 / 还没追平 / 重建）：\(String(describing: fingerprint), privacy: .public)"
+            )
+            do {
+              let sweep = try pass.ingestOpenCode(databaseURL: database, rebuilding: rebuilding)
+              changed += sweep.messages
+              openCodeNote = "OpenCode 扫 \(sweep.messages) 条"
+              await self?.finishOpenCodeSweep(
+                fingerprint: OpenCodeDatabaseFingerprint.read(databaseURL: database),
+                morePagesRemain: sweep.morePagesRemain)
+            } catch {
+              // 失败后不靠指纹跳过：下一轮必须重试（库可能正被写、或权限/热点问题）。
+              await self?.noteOpenCodeSweepFailed()
+              openCodeNote = "OpenCode 失败"
+              failures += 1
+              Self.logger.error(
+                "OpenCode 用量索引失败：\(String(describing: error), privacy: .public)")
+            }
           }
+        }
+
+        // 索引到底多贵，留一条可查的事实。两档：真干活/失败/重算时进持久日志（`info`），
+        // 空轮只进内存日志（`debug`，`log show --debug` 可见）——空轮每分钟一条，别把
+        // 持久日志灌满，但排查性能时又得量得到。
+        mark("OpenCode")
+        let elapsed = Date().timeIntervalSince(startedAt)
+        let phase = rebuilding ? "（全量重算）" : ""
+        let breakdown = ["开库", "枚举", "读进度", "扫记录", "清理", "OpenCode"]
+          .map { "\($0) \(Int((phaseSeconds[$0] ?? 0) * 1000))" }
+          .joined(separator: " / ")
+        // 两档共用同一句文案，但 `Logger` 只吃字面插值（没法先把摘要拼成 String），所以
+        // 这里只能各写一遍。
+        if changed > 0 || failures > 0 || rebuilding || elapsed >= 2 {
+          Self.logger.info(
+            "用量统计本轮：源 \(scanned, privacy: .public)，写 \(changed, privacy: .public)，跳过 \(failures, privacy: .public)，用时 \(Int(elapsed * 1000), privacy: .public) ms\(phase, privacy: .public)，\(openCodeNote, privacy: .public)｜\(breakdown, privacy: .public)"
+          )
+        } else {
+          Self.logger.debug(
+            "用量统计本轮：源 \(scanned, privacy: .public)，写 \(changed, privacy: .public)，跳过 \(failures, privacy: .public)，用时 \(Int(elapsed * 1000), privacy: .public) ms\(phase, privacy: .public)，\(openCodeNote, privacy: .public)｜\(breakdown, privacy: .public)"
+          )
         }
 
         if failures > 0 {
@@ -370,29 +512,49 @@ actor UsageStatsIndexer {
     }
   }
 
-  /// 找出库里登记、但磁盘上已经不存在的记录文件。
+  /// 找出库里登记、但磁盘上已经不存在的记录文件（用本轮的进度快照，不再逐 Agent 查库）。
   private static func missingSourceIds(
-    store: UsageStatsStore, sources: [UsageSourceFile]
-  ) throws -> Set<String> {
+    progress: [String: UsageSourceRecord], sources: [UsageSourceFile]
+  ) -> Set<String> {
     let discovered = Set(sources.map { $0.path })
-    var dead: Set<String> = []
-    for kind in AgentKind.allCases {
-      guard let known = try? store.sourceIds(agent: kind) else { continue }
-      // OpenCode 的数据源是「消息 id」而不是文件路径，不参与文件消失清理。
-      dead.formUnion(known.filter { !$0.hasPrefix("opencode:") }.subtracting(discovered))
-    }
-    return dead
+    // OpenCode 的数据源是「消息 id」而不是文件路径，不参与文件消失清理。
+    return Set(progress.keys.filter { !$0.hasPrefix("opencode:") }).subtracting(discovered)
   }
 
   /// 通知 UI「索引有更新」：页面收到后重新取快照（回填期间数字会长出来）。
+  ///
+  /// 节流：页面每收到一次就要做一遍全库聚合（实测 45~154 ms），回填时按批通知会把
+  /// UI 淹掉（本机 25 批 = 25 次聚合）。半秒一次足够「数字在长」的观感。
   fileprivate func notifyProgress() {
+    let now = Date()
+    if let lastProgressNotifyAt,
+      now.timeIntervalSince(lastProgressNotifyAt) < Self.progressNotifyInterval
+    {
+      return
+    }
+    lastProgressNotifyAt = now
     updatesSubject.send(())
+  }
+
+  /// 一轮 OpenCode 扫描收尾：记下指纹与「是否追平」，下一轮据此决定跳不跳。
+  fileprivate func finishOpenCodeSweep(
+    fingerprint: OpenCodeDatabaseFingerprint?, morePagesRemain: Bool
+  ) {
+    openCodeFingerprint = fingerprint
+    openCodeCatchUpPending = morePagesRemain
+  }
+
+  /// 一轮 OpenCode 扫描失败：下一轮照常重试，不看指纹。
+  fileprivate func noteOpenCodeSweepFailed() {
+    openCodeCatchUpPending = true
   }
 
   fileprivate func finishPass() {
     passTask = nil
     isIndexing = false
     lastPassFinishedAt = Date()
+    // 复位节流：下一轮的第一批（或页面打开时的刷新）要能立刻通知，别被上一轮的窗口吃掉。
+    lastProgressNotifyAt = nil
     updatesSubject.send()
 
     if pendingRefresh {
