@@ -210,6 +210,34 @@ struct OpenCodeUsageStatsTests {
     #expect(try snapshot(store).tools == first.tools)
   }
 
+  @Test("单轮页数用尽时报「还没读完」：指纹门不能把没追平的游标挡在门外")
+  func sweepReportsPendingCatchUp() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("usage-opencode-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let database = try makeDatabase(in: root)
+
+    try insertSession("ses_root", parentId: nil, at: database)
+    for index in 0..<25 {
+      try insertMessage(
+        id: "m\(index)", session: "ses_root", created: Int64(1_000 + index),
+        updated: Int64(1_000 + index), tokens: (1, 1, 0, 0), at: database)
+    }
+
+    let store = try makeStore(in: root)
+    // 每页 1 条 + 单轮 20 页上限：25 条一轮读不完 → 必须报 morePagesRemain（否则下一轮
+    // 会拿「库没变化」当理由跳过，剩下的消息永远进不来）。
+    let pass = UsageStatsPass(store: store, calendar: .current, openCodeBatchLimit: 1)
+    let first = try pass.ingestOpenCode(databaseURL: database)
+    #expect(first.messages == 20)
+    #expect(first.morePagesRemain)
+
+    let second = try pass.ingestOpenCode(databaseURL: database)
+    #expect(second.morePagesRemain == false)
+
+    #expect(try snapshot(store).totals.input == 25)
+  }
+
   @Test("游标只向前走")
   func cursorsOnlyMoveForward() {
     let start = OpenCodeUsageCursor.empty

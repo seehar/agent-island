@@ -206,7 +206,11 @@ nonisolated final class UsageStatsPass {
       }
 
       cursors = (page.messageCursor, page.partCursor)
-      guard advanced || !page.messageIds.isEmpty else { break }
+      guard advanced || !page.messageIds.isEmpty else {
+        // 这一页什么都没读到：追平了。收紧「还没读完」，否则指纹门会白扫一轮。
+        outcome.morePagesRemain = false
+        break
+      }
       // 整页一个事务：这一页的消息重放与游标推进同生共死（崩在页面中间也不会留下
       // 「游标已过、消息没入库」的洞），实测比每条消息一个事务快一个量级。
       writes.append(
