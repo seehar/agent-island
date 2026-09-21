@@ -67,6 +67,16 @@ struct SessionPhaseTests {
         #expect(!SessionPhase.idle.isWaitingForApproval)
     }
 
+    @Test("进程消失时的可结束判据：等用户输入的相位不标结束")
+    func pausabilityWhenProcessGone() {
+        #expect(SessionPhase.processing.isPausableWhenProcessGone())
+        #expect(SessionPhase.compacting.isPausableWhenProcessGone())
+        #expect(approval.isPausableWhenProcessGone())
+        #expect(SessionPhase.ended.isPausableWhenProcessGone())
+        #expect(!SessionPhase.idle.isPausableWhenProcessGone())
+        #expect(!SessionPhase.waitingForInput.isPausableWhenProcessGone())
+    }
+
     @Test("审批上下文只按工具 id、工具名与到达时间比较")
     func approvalContextIdentity() {
         let receivedAt = Date()

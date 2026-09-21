@@ -119,7 +119,18 @@ actor SessionStore {
         session.lastActivity = Date()
 
         if event.status == "ended" {
-            sessions.removeValue(forKey: key)
+            // 「已结束的会话」档位：立即档等于结束就移除；其余档把会话留在列表里，
+            // 由 recheckAllSessions 按保留窗口收割（此前这里无条件移除，
+            // 导致该档位与 .ended 分支全都不可达）。
+            guard PreferenceStore.read(SessionRetention.self).keepsEndedSessions else {
+                sessions.removeValue(forKey: key)
+                cancelPendingSync(key: key)
+                return
+            }
+            if session.phase.canTransition(to: .ended) {
+                session.phase = .ended
+            }
+            sessions[key] = session
             cancelPendingSync(key: key)
             return
         }
@@ -131,6 +142,13 @@ actor SessionStore {
             sessions[key] = session
             publishState()
             return
+        }
+
+        // 已结束的行可以被新一轮活动复活：`--resume` 会用同一个会话 id 继续，
+        // 而相位表里 .ended 是终态（事件驱动转不出去）。这里显式做一次「重开」，
+        // 先回空闲态，再由下面那张表决定这次事件该去哪里。
+        if session.phase == .ended {
+            session.phase = .idle
         }
 
         let newPhase = event.determinePhase()
@@ -1050,6 +1068,17 @@ actor SessionStore {
     // MARK: - Session End Processing
 
     private func processSessionEnd(key: SessionKey) async {
+        // 同上：保留窗口非零时把会话标成结束而不是直接删掉。
+        if PreferenceStore.read(SessionRetention.self).keepsEndedSessions,
+            var session = sessions[key]
+        {
+            if session.phase.canTransition(to: .ended) {
+                session.phase = .ended
+            }
+            sessions[key] = session
+            cancelPendingSync(key: key)
+            return
+        }
         sessions.removeValue(forKey: key)
         cancelPendingSync(key: key)
     }
@@ -1269,7 +1298,7 @@ actor SessionStore {
 
     /// 重新检查所有活跃会话
     private func recheckAllSessions() {
-        var removedSession = false
+        var stateChanged = false
         let now = Date()
         let staleCutoff = now.addingTimeInterval(-Self.staleSessionIdleTimeout)
         // 「已结束的会话」档位：立即档等于结束就移除，其余档按窗口保留
@@ -1281,20 +1310,33 @@ actor SessionStore {
                     Self.shouldDropEndedSession(
                         phase: session.phase, lastActivity: session.lastActivity,
                         retention: retention, now: now)
-                else { continue }
+                else {
+                    // 结束的会话不会再变，挂起的文件同步可以先收掉。
+                    cancelPendingSync(key: key)
+                    continue
+                }
                 sessions.removeValue(forKey: key)
                 cancelPendingSync(key: key)
-                removedSession = true
+                stateChanged = true
                 continue
             }
 
             if let pid = session.pid {
                 let isRunning = isProcessRunning(pid: pid)
                 if !isRunning {
+                    // 保留档：相位还看得见（在处理/待批/压缩）的会话标成结束留在列表里，
+                    // 等保留窗口到期再由上面的分支收割；其余情况立刻移除。
+                    if retention.keepsEndedSessions, session.phase.isPausableWhenProcessGone() {
+                        var ended = session
+                        ended.phase = .ended
+                        sessions[key] = ended
+                        stateChanged = true
+                        continue
+                    }
                     Self.logger.info("Process \(pid) no longer running, ending session \(key.rawValue, privacy: .public)")
                     sessions.removeValue(forKey: key)
                     cancelPendingSync(key: key)
-                    removedSession = true
+                    stateChanged = true
                     continue
                 }
             } else if session.lastActivity < staleCutoff {
@@ -1302,7 +1344,7 @@ actor SessionStore {
                 Self.logger.info("Session \(key.rawValue, privacy: .public) idle for too long, ending")
                 sessions.removeValue(forKey: key)
                 cancelPendingSync(key: key)
-                removedSession = true
+                stateChanged = true
                 continue
             }
 
@@ -1318,7 +1360,7 @@ actor SessionStore {
             }
         }
 
-        if removedSession {
+        if stateChanged {
             publishState()
         }
     }

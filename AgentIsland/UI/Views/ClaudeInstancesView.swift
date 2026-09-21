@@ -345,10 +345,13 @@ struct InstanceRow: View {
             } else if isWaitingForApproval {
                 HStack(spacing: 6) {
                     if isCriticalApproval {
-                        Text(l10n.t("Dangerous command"))
+                        // 危险档用符号表达（同一行左侧的状态图标），不再放一行文字：
+                        // 默认面板宽下这行文字会把 Allow / Deny 挤到换行。
+                        Image(systemName: "exclamationmark.triangle.fill")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundColor(AppPalette.danger)
-                            .lineLimit(1)
+                            .help(l10n.t("Dangerous command"))
+                            .accessibilityLabel(Text(l10n.t("Dangerous command")))
                     }
                     InlineApprovalButtons(
                         onChat: onChat,
@@ -463,6 +466,8 @@ struct InlineApprovalButtons: View {
             } label: {
                 Text(l10n.t("Deny"))
                     .appFont(11, weight: .medium)
+                    .lineLimit(1)
+                    .fixedSize()
                     .foregroundColor(AppPalette.secondaryText)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
@@ -478,6 +483,8 @@ struct InlineApprovalButtons: View {
             } label: {
                 Text(l10n.t("Allow"))
                     .appFont(11, weight: .medium)
+                    .lineLimit(1)
+                    .fixedSize()
                     .foregroundColor(.black)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)

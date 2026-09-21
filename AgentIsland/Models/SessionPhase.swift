@@ -82,6 +82,19 @@ nonisolated enum SessionPhase: Sendable {
     /// Session has ended
     case ended
 
+    /// 进程已经不在、但相位本身还看得见时，这个相位能不能标成「已结束」。
+    ///
+    /// 等用户输入的相位例外：那多半是终端仍开着、Agent 已经退出，标成结束会让人
+    /// 以为任务丢了；这些会话留在列表里，由空闲阈值回收（见 recheckAllSessions）。
+    nonisolated func isPausableWhenProcessGone() -> Bool {
+        switch self {
+        case .idle, .waitingForInput:
+            return false
+        case .processing, .waitingForApproval, .compacting, .ended:
+            return true
+        }
+    }
+
     // MARK: - State Machine Transitions
 
     /// Check if a transition to the target phase is valid

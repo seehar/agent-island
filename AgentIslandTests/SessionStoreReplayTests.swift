@@ -17,7 +17,9 @@ import Testing
 
 @testable import AgentIsland
 
-@Suite("会话状态机回放")
+//  注意：`endedSessionHonoursRetentionWindow` 必须动 standard 偏好域（SessionStore 只读它），
+//  因此本套件串行执行，避免与同套件里断言「结束即移除」的用例互相干扰。
+@Suite("会话状态机回放", .serialized)
 struct SessionStoreReplayTests {
     // MARK: - 夹具
 
@@ -190,7 +192,7 @@ struct SessionStoreReplayTests {
         await SessionStore.shared.process(.sessionEnded(key: key))
     }
 
-    @Test("status=ended 的 hook 事件直接移除会话")
+    @Test("立即档（默认）：status=ended 的 hook 事件直接移除会话")
     func endedStatusRemovesSession() async {
         let sessionId = makeSessionId("ended")
         let cwd = makeCwd("ended")
@@ -206,6 +208,85 @@ struct SessionStoreReplayTests {
 
         let session = await SessionStore.shared.session(for: key)
         #expect(session == nil)
+    }
+
+    @Test("保留档：结束的会话标成已结束留在列表里，切回立即档才移除")
+    func endedSessionHonoursRetentionWindow() async {
+        let sessionId = makeSessionId("retention")
+        let cwd = makeCwd("retention")
+        let key = SessionKey(agent: .claudeCode, sessionId: sessionId)
+
+        // SessionStore 从 standard 偏好域读档位，这里必须动真实域，跑完立刻还原。
+        let original = PreferenceStore.read(SessionRetention.self)
+        PreferenceStore.write(SessionRetention.tenMinutes, defaults: .standard)
+        defer { PreferenceStore.write(original, defaults: .standard) }
+
+        await SessionStore.shared.process(
+            .hookReceived(hook(sessionId: sessionId, cwd: cwd, event: "SessionStart", status: "starting")))
+        await SessionStore.shared.process(
+            .hookReceived(hook(sessionId: sessionId, cwd: cwd, event: "SessionEnd", status: "ended")))
+
+        let ended = await SessionStore.shared.session(for: key)
+        #expect(ended != nil)
+        #expect(phaseEquals(ended, .ended))
+
+        // 紧随其后的内部结束事件不该把已结束的会话又删掉或改回别的相位
+        await SessionStore.shared.process(.sessionEnded(key: key))
+        let afterEvent = await SessionStore.shared.session(for: key)
+        #expect(phaseEquals(afterEvent, .ended))
+
+        // 立即档：结束就是移除（默认档，也是改造前的行为）
+        PreferenceStore.write(SessionRetention.immediate, defaults: .standard)
+        await SessionStore.shared.process(.sessionEnded(key: key))
+        let afterImmediate = await SessionStore.shared.session(for: key)
+        #expect(afterImmediate == nil)
+    }
+
+    @Test("已结束的会话被新一轮活动复活（--resume 用同一个会话 id）")
+    func endedSessionRevivesOnNewActivity() async {
+        let sessionId = makeSessionId("revive")
+        let cwd = makeCwd("revive")
+        let key = SessionKey(agent: .claudeCode, sessionId: sessionId)
+
+        let original = PreferenceStore.read(SessionRetention.self)
+        PreferenceStore.write(SessionRetention.tenMinutes, defaults: .standard)
+        defer { PreferenceStore.write(original, defaults: .standard) }
+
+        await SessionStore.shared.process(
+            .hookReceived(hook(sessionId: sessionId, cwd: cwd, event: "SessionStart", status: "starting")))
+        await SessionStore.shared.process(
+            .hookReceived(hook(sessionId: sessionId, cwd: cwd, event: "SessionEnd", status: "ended")))
+        #expect(phaseEquals(await SessionStore.shared.session(for: key), .ended))
+
+        // 同一会话 id 又有活动：不能被终态卡住，要回到处理中
+        await SessionStore.shared.process(
+            .hookReceived(
+                hook(sessionId: sessionId, cwd: cwd, event: "UserPromptSubmit", status: "processing")))
+        let revived = await SessionStore.shared.session(for: key)
+        #expect(revived != nil)
+        #expect(phaseEquals(revived, .processing))
+
+        await SessionStore.shared.process(.sessionEnded(key: key))
+    }
+
+    @Test("已结束会话按保留窗口收割：窗口内留下、超窗移除、非结束相位不看窗口")
+    func endedSessionsAreCollectedByWindow() {
+        let now = Date()
+        let justEnded = now
+        let longAgo = now.addingTimeInterval(-11 * 60)
+
+        #expect(
+            SessionStore.shouldDropEndedSession(
+                phase: .ended, lastActivity: justEnded, retention: .tenMinutes, now: now) == false)
+        #expect(
+            SessionStore.shouldDropEndedSession(
+                phase: .ended, lastActivity: longAgo, retention: .tenMinutes, now: now))
+        #expect(
+            SessionStore.shouldDropEndedSession(
+                phase: .ended, lastActivity: longAgo, retention: .immediate, now: now))
+        #expect(
+            SessionStore.shouldDropEndedSession(
+                phase: .processing, lastActivity: longAgo, retention: .tenMinutes, now: now) == false)
     }
 
     @Test("记录新增的消息进入会话历史")
