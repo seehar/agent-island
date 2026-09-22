@@ -156,6 +156,10 @@ enum AgentMotion {
             case .opencode:
                 // 方框：内孔明暗脉冲，像机器在闪眼
                 motion.innerOpacity = 0.35 + 0.65 * pulse(t)
+            default:
+                // 其余 Agent 的标记是一整枚品牌字形（没有可独立运动的部件），
+                // 因此统一用「整枚原地弹跳」——运动只落在位移上，与形状无关。
+                motion.dy = -unit * 1.4 * hop(t, beat: 0.55)
             }
         }
         return motion

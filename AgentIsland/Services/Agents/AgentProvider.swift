@@ -35,6 +35,28 @@ nonisolated protocol AgentProvider: Sendable {
     func integrationStatus() -> AgentIntegrationStatus?
 }
 
+/// Provider 的根目录归一。
+///
+/// 必须做这一步：`FileManager` 的目录遍历返回的是**已解析符号链接**的路径，而调用方
+/// 传进来的可能是软链形式（macOS 的临时目录 `/var/…` 实际是 `/private/var/…`，
+/// 用户的 `$CODEX_HOME` 也可能指向软链）。不归一的话，provider 里
+/// `hasPrefix(自己的根)` 这类判定会与遍历结果对不上，记录被静默跳过——表现为
+/// 「工具明明在跑，面板里一个会话都没有」。
+nonisolated enum AgentProviderRoot {
+    /// 解析符号链接后的根目录。
+    ///
+    /// 用 POSIX `realpath` 而不是 `URL.resolvingSymlinksInPath()`：Foundation 那套
+    /// **不会**把 `/var` 展开成 `/private/var`（`/tmp`、`/etc` 同理），而
+    /// `FileManager` 的目录遍历返回的恰恰是展开后的写法。两者对不上时，provider 里
+    /// `hasPrefix(自己的根)` 的判定会全部失败——记录被静默跳过，界面上就是
+    /// 「工具在跑，面板里没有会话」。路径不存在时（还没装的工具）原样返回。
+    static func canonical(_ url: URL) -> URL {
+        guard let resolved = realpath(url.path, nil) else { return url }
+        defer { free(resolved) }
+        return URL(fileURLWithPath: String(cString: resolved))
+    }
+}
+
 /// 让 Agent 上报实时事件的辅助程序的安装状态。
 nonisolated struct AgentIntegrationStatus: Sendable, Equatable {
     enum Health: String, Sendable {

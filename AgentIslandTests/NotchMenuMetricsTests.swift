@@ -72,10 +72,13 @@ struct NotchMenuMetricsTests {
         let blocks = NotchMenuMetrics.blocks(for: .agents)
         #expect(blocks.count == 3)
 
-        // 监控的智能体：每个受支持的 Agent 一行（标题 + 集成状态）+ 一行脚注
+        // 监控的智能体：每个受支持的 Agent 一行（标题 + 集成状态）+ 一行脚注，
+        // 但卡片高度按 `visibleAgentRows` 封顶——受支持的 Agent 有十几个，
+        // 让卡片随接入面无限长高会把这一页撑出面板上限。
+        let expectedAgentRows = min(AgentKind.allCases.count, NotchMenuMetrics.visibleAgentRows)
         #expect(
             blocks[0].rows
-                == Array(repeating: NotchMenuMetrics.twoLineRowHeight, count: AgentKind.allCases.count))
+                == Array(repeating: NotchMenuMetrics.twoLineRowHeight, count: expectedAgentRows))
         #expect(blocks[0].hasFootnote == true)
 
         // 审批闸门：问什么 / 应用未运行时 / 待批时自动展开（三个全局档位）
@@ -83,6 +86,17 @@ struct NotchMenuMetricsTests {
 
         // Claude Code：配置目录
         #expect(blocks[2].rows == [NotchMenuMetrics.rowHeight])
+    }
+
+    @Test("受支持的 Agent 多于卡片可见行数时，卡片高度不再随 Agent 数量变化")
+    func agentsCardHeightIsCappedByVisibleRows() {
+        // 这条钉住「接入新 Agent 不会偷偷把智能体页撑长」：只要受支持的 Agent 数量
+        // 超过 `visibleAgentRows`，行数就固定成 `visibleAgentRows`，多出来的在卡内滚动。
+        #expect(AgentKind.allCases.count >= NotchMenuMetrics.visibleAgentRows)
+        let rows = NotchMenuMetrics.blocks(for: .agents)[0].rows
+        #expect(rows.count == NotchMenuMetrics.visibleAgentRows)
+        // 与接入面变大之前同高（4 × 48 = 192）：那一页的夹取组合因此保持原样。
+        #expect(rows.reduce(0, +) == 192)
     }
 
     @Test("行为分组：胶囊 3 行、会话 4 行、通知 2 行（音效与覆盖范围同组）")

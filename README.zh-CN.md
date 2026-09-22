@@ -3,7 +3,7 @@
   <h1 align="center">AgentIsland</h1>
   <p align="center">
     <b>你的编码 Agent，就挂在 MacBook 刘海上。</b><br>
-    为 Claude Code、Oh My Pi、Pi 与 OpenCode 提供实时会话状态、对话历史与工具审批 —— 抬眼即见，不用切窗口。
+    为 17 个编码 Agent（Claude Code、Codex、Gemini CLI、Cursor、Copilot、Qoder、Factory、CodeBuddy、Kimi Code CLI、Cline、Grok CLI、Trae、Trae CLI、DeepSeek Harness、Oh My Pi、Pi、OpenCode）提供实时会话状态、对话历史、用量统计与工具审批 —— 抬眼即见，不用切窗口。
     <br><br>
     <a href="https://github.com/seehar/agent-island/releases/latest"><img src="https://img.shields.io/github/v/release/seehar/agent-island?style=flat&color=0969da&label=release" alt="Release"></a>
     <a href="https://github.com/seehar/agent-island/releases"><img src="https://img.shields.io/github/downloads/seehar/agent-island/total?style=flat&color=0969da&label=downloads" alt="Downloads"></a>
@@ -42,11 +42,11 @@ tmux 里开两个 Agent，你就得在两个 pane 之间切来切去看谁在等
 
 ## 功能
 
-**所有 Agent 一张列表。** Claude Code、Oh My Pi（`omp`）、Pi、OpenCode 的会话并排显示，各自带品牌角标。不用的 Agent 关掉即从列表消失。
+**所有 Agent 一张列表。** 17 个 CLI 的会话并排显示 —— Claude Code、Codex、Gemini CLI、Cursor、Copilot、Qoder、Factory、CodeBuddy、Kimi Code CLI、Cline、Grok CLI、Trae、Trae CLI、DeepSeek Harness、Oh My Pi（`omp`）、Pi、OpenCode —— 各自带品牌标记与角标。不用的 Agent 关掉即从列表消失。
 
 **子代理也在列表里。** Claude Code 子代理内部的工具调用、以及 `omp`/`pi` 的子代理运行，都计入刘海计数，并列在派发它的 `task` 卡片下。
 
-**在刘海上审批。** 四个 Agent 都支持 Allow / Deny：Claude Code 走 hook，`omp`/`pi` 走扩展的阻塞闸门（需手动开启），OpenCode 走插件。被判为危险的调用（`rm -rf /`、`sudo rm`、`mkfs`、`dd … of=/dev/…`、`curl … | sh`、反弹 shell、`kill -9 1` 等）会标红，且**永不**走「不可达就放行」这条降级路径。
+**在刘海上审批。** 凡是能把决定回传的 Agent 都支持 Allow / Deny：Claude Code 及其分支（Qoder）、Codex、Gemini CLI、Trae CLI 走各自的权限 hook，`omp`/`pi` 走扩展的阻塞闸门（需手动开启），OpenCode 走插件；其余 Agent 照常出现在列表里，审批在它们自己的终端完成。被判为危险的调用（`rm -rf /`、`sudo rm`、`mkfs`、`dd … of=/dev/…`、`curl … | sh`、反弹 shell、`kill -9 1` 等）会标红，且**永不**走「不可达就放行」这条降级路径。
 
 **用量统计。** 统计页在设置面板的「统计」分组里（头部图表按钮一点直达）：token 总量（含输入 / 输出 / 缓存读 / 缓存写与命中率）、会话数与工具调用次数，按 **今天 / 本周 / 本月 / 全部** 分档，并按 Agent 拆分，另带趋势柱图与工具榜。数字来自对 Agent 自身会话记录的索引，已结束的会话也计入。
 
@@ -54,7 +54,7 @@ tmux 里开两个 Agent，你就得在两个 pane 之间切来切去看谁在等
 
 ![对话页：Markdown、工具调用与子代理](docs/images/notch-chat.png)
 
-**装不装集成都能用。** 会话通过读取 Agent 自己写的记录（JSONL 记录文件，或 OpenCode 的 SQLite 库）发现，状态从记录里推断；装上集成立刻有实时事件，`omp`/`pi` 的审批闸门也依赖它。
+**装不装集成都能用。** 会话通过读取 Agent 自己写的记录发现 —— JSONL 记录（Claude Code、Qoder、Factory、CodeBuddy、Codex、Gemini、Cursor、Copilot、Kimi、Cline、Grok），或 OpenCode 的 SQLite 库 —— 状态从记录里推断。Trae、Trae CLI 与 DSH 没有可解析的记录，依赖各自的集成（DSH 依赖外部 [dsh-island](https://github.com/cdxiaodong/dsh-island) 插件）。装上集成立刻有实时事件，`omp`/`pi` 的审批闸门也依赖它。
 
 **刻意的「小」。** 没有 Dock 图标、没有菜单栏项、没有常驻守护进程：一个本地 Unix socket、一块贴在刘海上的 `NSPanel`，以及 Agent 自己的文件。
 
@@ -74,6 +74,19 @@ tmux 里开两个 Agent，你就得在两个 pane 之间切来切去看谁在等
 |**Oh My Pi**（`omp`）|`~/.omp/agent/sessions/**`|`~/.omp/agent/extensions/agent-island-state.ts`|支持 —— 扩展闸门（需开启）|`task` 运行|
 |**Pi**|`~/.pi/agent/sessions/**`|`~/.pi/agent/extensions/agent-island-state.ts`|支持 —— 扩展闸门（需开启）|`task` 运行|
 |**OpenCode**|`~/.local/share/opencode/opencode.db`|`~/.config/opencode/plugins/agent-island-state.js`|支持 —— 插件|`task` 运行|
+|**Codex**|`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`|`$CODEX_HOME/hooks.json`（另需 `config.toml` 的 `[features] hooks = true`）|支持 —— hook `PermissionRequest`|—|
+|**Gemini CLI**|`~/.gemini/tmp/<项目>/chats/session-*.jsonl`|`~/.gemini/settings.json`|支持 —— hook `BeforeTool`|—|
+|**Cursor**|`~/.cursor/projects/**/agent-transcripts/**`|`~/.cursor/hooks.json`|—|—|
+|**Copilot**|`~/.copilot/jb/<id>/partition-*.jsonl`（当前）· `~/.copilot/session-state/<id>/events.jsonl`（旧版）|`~/.copilot/hooks/agent-island.json`|—|—|
+|**Qoder**|`~/.qoder/projects/**/*.jsonl`|`~/.qoder/settings.json`|支持 —— hook `PermissionRequest`|Claude 式子代理事件|
+|**Factory**（`droid`）|`~/.factory/sessions/**/*.jsonl`|`~/.factory/settings.json`|—|Claude 式子代理事件|
+|**CodeBuddy**|`~/.codebuddy/projects/**/*.jsonl`|`~/.codebuddy/settings.json`|—|Claude 式子代理事件|
+|**Kimi Code CLI**|`~/.kimi-code/sessions/**`|`~/.kimi-code/config.toml`|—|—|
+|**Cline**|VS Code 全局存储 `saoudrizwan.claude-dev`|`~/Documents/Cline/Hooks/<事件名>`（一个事件一个文件）|—|—|
+|**Grok CLI**|`$GROK_HOME/sessions/<编码 cwd>/<id>/chat_history.jsonl`|`$GROK_HOME/hooks/agent-island.json`|—|—|
+|**Trae**|—（没有可解析的记录）|`~/.trae/hooks.json`|—|—|
+|**Trae CLI**|—（没有可解析的记录）|`~/.trae/traecli.yaml`（托管块）|支持 —— hook `permission_request`|—|
+|**DeepSeek Harness**（`dsh`）|—（记录是 zstd 压缩）|不装：由外部 dsh 插件直接写 socket|—|—|
 
 ## 安装
 
@@ -106,10 +119,16 @@ AgentIsland 只为每个 Agent 写**一个**文件（它的集成），并在你
 
 |Agent|写入文件|还会动到|
 |---|---|---|
-|Claude Code|`~/.claude/hooks/agent-island-state.py`|往 `~/.claude/settings.json` 合并 hook 条目|
+|Claude Code|`~/.agent-island/hooks/agent-island-state.py`|往 `~/.claude/settings.json` 合并 hook 条目|
 |Oh My Pi|`~/.omp/agent/extensions/agent-island-state.ts`|仅当你开启闸门时：`~/.omp/agent/config.yml`（先备份）|
 |Pi|`~/.pi/agent/extensions/agent-island-state.ts`|—|
 |OpenCode|`~/.config/opencode/plugins/agent-island-state.js`|—|
+|Codex|`~/.agent-island/hooks/agent-island-state.py`（共用）|`$CODEX_HOME/hooks.json` 条目 + `$CODEX_HOME/config.toml` 的 `[features] hooks = true`|
+|Gemini CLI / Cursor / Copilot / Qoder / Factory / CodeBuddy|`~/.agent-island/hooks/agent-island-state.py`（共用）|`~/.gemini/settings.json` / `~/.cursor/hooks.json` / `~/.copilot/hooks/agent-island.json` / `~/.qoder/settings.json` / `~/.factory/settings.json` / `~/.codebuddy/settings.json`|
+|Kimi Code CLI|`~/.agent-island/hooks/agent-island-state.py`（共用）|`~/.kimi-code/config.toml` 的 `[[hooks]]` 块|
+|Cline|`~/.agent-island/hooks/agent-island-state.py`（共用）|`~/Documents/Cline/Hooks/<事件名>` 文件|
+|Grok CLI / Trae / Trae CLI|`~/.agent-island/hooks/agent-island-state.py`（共用）|`$GROK_HOME/hooks/agent-island.json` / `~/.trae/hooks.json` / `~/.trae/traecli.yaml`|
+|DeepSeek Harness|—|—（集成由 dsh 插件自己负责）|
 
 在 **设置 → 智能体**（面板里的齿轮按钮 → 「智能体」页）可以看到每个 Agent 的集成状态与落点。状态显示**「已过期 — 请重装」**表示磁盘上那份不是本构建期望的版本 —— 把该 Agent 关掉再打开即可重写。
 
@@ -135,7 +154,7 @@ AgentIsland 只为每个 Agent 写**一个**文件（它的集成），并在你
 
 ```mermaid
 flowchart LR
-  CLI["Agent CLI<br/>claude · omp · pi · opencode"]
+  CLI["Agent CLI<br/>claude · codex · gemini · cursor · copilot · qoder · droid · codebuddy · kimi · cline · grok · trae · traecli · dsh · omp · pi · opencode"]
   INT["集成<br/>hook · 扩展 · 插件"]
   SOCK["/tmp/agent-island.sock"]
   APP["AgentIsland<br/>贴在刘海上的 NSPanel"]

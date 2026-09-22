@@ -89,6 +89,35 @@ struct Glyph: View {
             PixelMark(shape: .pi, size: size, color: color)
         case .opencode:
             PixelMark(shape: .opencode, size: size, color: color, innerOpacity: motion.innerOpacity)
+        // 其余 Agent 的标记是官方资产的矢量几何（矩形组或 SVG path），
+        // 由 `AgentMarks.swift` 提供、`AgentMarkView` 渲染；这些标记没有可独立
+        // 运动的部件，动效只作用在整枚标记的位移上（见 AgentMotion）。
+        case .codex:
+            AgentMarkView(geometry: .codex, color: color, size: size)
+        case .gemini:
+            AgentMarkView(geometry: .gemini, color: color, size: size)
+        case .cursor:
+            AgentMarkView(geometry: .cursor, color: color, size: size)
+        case .copilot:
+            AgentMarkView(geometry: .copilot, color: color, size: size)
+        case .qoder:
+            AgentMarkView(geometry: .qoder, color: color, size: size)
+        case .factory:
+            AgentMarkView(geometry: .factory, color: color, size: size)
+        case .codeBuddy:
+            AgentMarkView(geometry: .codeBuddy, color: color, size: size)
+        case .kimi:
+            AgentMarkView(geometry: .kimi, color: color, size: size)
+        case .cline:
+            AgentMarkView(geometry: .cline, color: color, size: size)
+        case .grok:
+            AgentMarkView(geometry: .grok, color: color, size: size)
+        case .trae:
+            AgentMarkView(geometry: .trae, color: color, size: size)
+        case .traeCli:
+            AgentMarkView(geometry: .traeCli, color: color, size: size)
+        case .deepSeekHarness:
+            AgentMarkView(geometry: .deepSeekHarness, color: color, size: size)
         }
     }
 }

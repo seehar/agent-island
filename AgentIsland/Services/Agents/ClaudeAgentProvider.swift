@@ -35,7 +35,10 @@ nonisolated struct ClaudeAgentProvider: AgentProvider {
 
     func isTranscriptFile(_ path: String) -> Bool {
         guard path.hasSuffix(".jsonl") else { return false }
-        guard path.contains("/projects/") else { return false }
+        // 必须落在 Claude 自己的 projects 目录里：`/projects/` 这种松判定会把
+        // Claude 系 fork 的记录（`~/.qoder/projects/…`、`~/.codebuddy/projects/…`）
+        // 也算成 Claude 的。
+        guard path.hasPrefix(ClaudePaths.projectsDir.path + "/") else { return false }
         return !((path as NSString).lastPathComponent.hasPrefix("agent-"))
     }
 
@@ -91,7 +94,7 @@ nonisolated struct ClaudeAgentProvider: AgentProvider {
     // MARK: - 集成状态
 
     func integrationStatus() -> AgentIntegrationStatus? {
-        let script = ClaudePaths.hooksDir.appendingPathComponent(HookInstaller.hookScriptName)
+        let script = AgentHookScript.fileURL()
         let installed =
             FileManager.default.fileExists(atPath: script.path) && HookInstaller.isInstalled()
         return AgentIntegrationStatus(

@@ -93,7 +93,9 @@ final class AgentProcessScanner: @unchecked Sendable {
   /// 进程名经常被截断或改写（pi 实际以 node 运行），因此同时匹配可执行名
   /// 和磁盘上的启动路径。
   private func matches(_ agent: AgentKind, executable: String, command: String) -> Bool {
-    if executable == agent.binaryName { return true }
+    // 没有 CLI 的 Agent（Cline）`binaryName` 是空串：不加这个守卫，空的 `comm`
+    // 会被判成它。
+    if !agent.binaryName.isEmpty, executable == agent.binaryName { return true }
     switch agent {
     case .claudeCode:
       return command.contains("/claude") && !command.contains("agent-island")
@@ -104,6 +106,24 @@ final class AgentProcessScanner: @unchecked Sendable {
         || command.contains("/@earendil-works/")
     case .opencode:
       return command.contains("/opencode/") || command.contains("/bin/opencode")
+    case .cline:
+      // Cline 是 VSCode 扩展：没有独立 CLI 进程，永不匹配（也不认 VSCode 主进程）。
+      return false
+    case .cursor:
+      // IDE 与 CLI 都走 `cursor-agent`。
+      return command.contains("cursor-agent")
+    case .trae:
+      // Trae IDE 的可执行名是 `coco`（`binaryName`）——名字被截断时按路径包含认。
+      return command.contains("coco")
+    case .qoder:
+      return command.contains("qodercli")
+    case .kimi:
+      return command.contains("/kimi") || command.contains("kimi-cli")
+        || command.contains("kimi_cli")
+    case .codex, .gemini, .copilot, .factory, .codeBuddy, .grok, .traeCli, .deepSeekHarness:
+      // 这几个 CLI 以真实可执行文件运行，`ps` 的 `comm` 就是它的启动路径：
+      // 名字完整时上面的快路径已命中，这里再认「路径里含 /<二进制名>」。
+      return command.contains("/\(agent.binaryName)")
     }
   }
 }

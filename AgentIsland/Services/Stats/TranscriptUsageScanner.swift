@@ -103,8 +103,11 @@ nonisolated enum TranscriptUsageScanner {
     let file = url.lastPathComponent
 
     switch agent {
-    case .claudeCode:
-      // 子代理文件：`…/<会话 id>/subagents/agent-<id>.jsonl`，或旧版的扁平 `agent-<id>.jsonl`。
+    case .claudeCode, .qoder, .factory, .codeBuddy:
+      // Claude 系（含 Qoder / Factory / CodeBuddy 这类 fork）的布局一致：
+      // 根会话是 `<根>/<分桶>/<会话 id>.jsonl`，子代理另存为
+      // `…/<会话 id>/subagents/agent-<id>.jsonl`（或旧版扁平的 `agent-<id>.jsonl`）。
+      // fork 是否也有子代理目录未经验证：只有真出现 `subagents` 组件时才会命中。
       if let index = components.firstIndex(of: "subagents"), index >= 1 {
         return UsageSourceFile(
           path: url.path, agent: agent, sessionId: components[index - 1], isSubagentFile: true)
@@ -125,6 +128,23 @@ nonisolated enum TranscriptUsageScanner {
         ?? url.deletingPathExtension().lastPathComponent
       return UsageSourceFile(
         path: url.path, agent: agent, sessionId: sessionId, isSubagentFile: isSubagent)
+
+    case .codex, .gemini, .cursor, .copilot, .kimi, .grok, .cline:
+      // 这几家各有各的布局（codex 按 `YYYY/MM/DD` 分桶、copilot 是 `<会话 id>/events.jsonl`、
+      // cursor 有 `subagents/` 目录……），会话 id 的命名规则也各不相同，因此交给各自的
+      // Provider 解析（它同时管路径与会话 id）；取不到时退化为文件名。
+      let sessionId =
+        AgentRegistry.provider(for: agent).sessionId(fromTranscriptFile: url.path)
+        ?? url.deletingPathExtension().lastPathComponent
+      return UsageSourceFile(
+        path: url.path, agent: agent, sessionId: sessionId,
+        isSubagentFile: components.contains("subagents"))
+
+    case .trae, .traeCli, .deepSeekHarness:
+      // 没有可解析的记录（不落盘 / zstd 压缩），不会出现在扫描源里；
+      // 这里只保证 switch 穷举，行为与「按文件名当会话 id」一致。
+      return UsageSourceFile(
+        path: url.path, agent: agent, sessionId: url.deletingPathExtension().lastPathComponent)
     }
   }
 
@@ -179,6 +199,10 @@ nonisolated enum TranscriptUsageScanner {
     var deltas: [String: UsageBucketDelta] = [:]
     let markers = Self.markers(for: source.agent)
     let fallbackDate = Date(timeIntervalSince1970: mtime)
+    // codex 的 token 行不带模型名（模型只写在同一个 `turn_context` 行里），因此按文件
+    // 顺序记住最近一次看到的模型，并随进度标记（`cursor`）带到下一次读取：否则应用
+    // 重启后新追加的 token 会落进空模型桶，模型榜就不等于全库总量了。
+    var model = source.agent == .codex ? (previous?.cursor ?? "") : ""
 
     while true {
       guard let chunk = try? handle.read(upToCount: chunkBytes), !chunk.isEmpty else { break }
@@ -191,15 +215,31 @@ nonisolated enum TranscriptUsageScanner {
 
       for line in complete.split(separator: 0x0A, omittingEmptySubsequences: true) {
         guard containsMarker(line, markers) else { continue }
+        // codex：模型写在 `turn_context` 行上，先记下来再处理 token 行。
+        if source.agent == .codex, let turnModel = Self.codexTurnModel(lineData: line) {
+          model = turnModel
+          continue
+        }
         Self.appendDeltas(
           from: line, source: source, fallbackDate: fallbackDate, calendar: calendar,
-          into: &deltas)
+          model: model, into: &deltas)
       }
     }
 
     result.state.readOffset += consumed
+    if source.agent == .codex { result.state.cursor = model }
     result.deltas = Array(deltas.values)
     return result
+  }
+
+  /// codex `turn_context` 行里的模型名（token 行本身不带模型）。
+  private static func codexTurnModel(lineData: Data) -> String? {
+    guard let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+      (json["type"] as? String) == "turn_context",
+      let payload = json["payload"] as? [String: Any],
+      let model = payload["model"] as? String, !model.isEmpty
+    else { return nil }
+    return model
   }
 
   /// 文件的大小与修改时间（秒，含亚秒）。
@@ -217,11 +257,33 @@ nonisolated enum TranscriptUsageScanner {
   /// 只有含这些字节标记的行才值得做 JSON 解析（工具结果等大行因此被整体跳过）。
   private static func markers(for agent: AgentKind) -> [[UInt8]] {
     switch agent {
-    case .claudeCode:
+    case .claudeCode, .qoder, .factory:
+      // Claude 系：用量在 `message.usage`，工具调用在 `message.content[].tool_use`。
       return [Array("\"usage\"".utf8), Array("\"tool_use\"".utf8)]
+    case .codeBuddy:
+      // 记录外壳与 Claude 不同（`type:"message"` + 顶层 `role`），且本机 2 个文件里
+      // 没有出现任何 token 字段 ⇒ 只统计工具调用行，用量恒为 0。
+      return [Array("\"tool_use\"".utf8)]
     case .ohMyPi, .pi:
       return [Array("\"usage\"".utf8), Array("\"toolCall\"".utf8)]
-    case .opencode:
+    case .codex:
+      // `token_count` 是 token 行；`turn_context` 提供模型名（token 行不带模型）；
+      // `function_call` 同时命中 `function_call_output`（由 extract 再筛）。
+      return [
+        Array("\"token_count\"".utf8), Array("\"turn_context\"".utf8),
+        Array("\"function_call\"".utf8), Array("\"custom_tool_call\"".utf8),
+      ]
+    case .cursor:
+      // 记录里没有 token 字段（CodeIsland 也只读文本），只统计工具调用。
+      return [Array("\"tool_use\"".utf8)]
+    case .copilot:
+      // 本机 9 个事件文件里没有任何 token 字段（`data` 的键见 CopilotTranscriptSchema），
+      // 只统计工具调用。
+      return [Array("\"tool.execution_start\"".utf8)]
+    case .opencode, .gemini, .kimi, .cline, .grok, .trae, .traeCli, .deepSeekHarness:
+      // 不产出用量：OpenCode 的历史走 SQLite 的另一条路径；gemini 的 token 字段
+      // 本机无法核对（既不知道字段名，也不知道它是单次增量还是累计值，猜错会把
+      // 统计放大若干倍）；kimi / cline / grok 的记录里没有观察到 token 字段。
       return []
     }
   }
@@ -243,34 +305,40 @@ nonisolated enum TranscriptUsageScanner {
     source: UsageSourceFile,
     fallbackDate: Date,
     calendar: Calendar,
+    model: String,
     into deltas: inout [String: UsageBucketDelta]
   ) {
     guard let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else {
       return
     }
 
-    let record = extract(json: json, agent: source.agent, fallbackDate: fallbackDate)
+    let record = extract(
+      json: json, agent: source.agent, fallbackDate: fallbackDate, model: model)
     guard let record else { return }
 
     let hourKey = UsageStatsKey.hour(for: record.date, calendar: calendar)
     let subagent = source.isSubagentFile || record.isSubagent
 
-    var tokens = UsageBucketDelta(
-      hourKey: hourKey, sessionId: source.sessionId, isSubagent: subagent, tool: "")
-    tokens.records = 1
-    tokens.input = record.input
-    tokens.output = record.output
-    tokens.cacheRead = record.cacheRead
-    tokens.cacheWrite = record.cacheWrite
-    tokens.model = record.model
-    // 键必须带模型：同一个会话文件里换过模型时，两个模型的 token 不能合成一条桶。
-    merge(
-      &deltas,
-      key: tokens.hourKey + "|" + (subagent ? "1" : "0") + "|" + tokens.model + "|",
-      delta: tokens)
+    // 只有 token 行才建 token 桶：工具行（含「记录里没有 token 字段」的 Agent）
+    // 建出来的桶模型为空、token 全零，落库只会污染模型榜与按会话读数。
+    if record.carriesTokens {
+      var tokens = UsageBucketDelta(
+        hourKey: hourKey, sessionId: source.sessionId, isSubagent: subagent, tool: "")
+      tokens.records = 1
+      tokens.input = record.input
+      tokens.output = record.output
+      tokens.cacheRead = record.cacheRead
+      tokens.cacheWrite = record.cacheWrite
+      tokens.model = record.model
+      // 键必须带模型：同一个会话文件里换过模型时，两个模型的 token 不能合成一条桶。
+      merge(
+        &deltas,
+        key: tokens.hourKey + "|" + (subagent ? "1" : "0") + "|" + tokens.model + "|",
+        delta: tokens)
+    }
 
     // 工具行**不设** `model`：工具榜不按模型拆，键因此维持原样。
-    for name in record.tools {
+    for name in record.tools where !name.isEmpty {
       var call = UsageBucketDelta(
         hourKey: hourKey, sessionId: source.sessionId, isSubagent: subagent,
         tool: GenericToolResultBuilder.normalizedName(name))
@@ -301,13 +369,32 @@ nonisolated enum TranscriptUsageScanner {
     var tools: [String] = []
     var model = ""
     var isSubagent = false
+
+    /// 这条记录真的带 token 计数（用于「token 全零的行不值得落库」的判定）。
+    var hasTokens: Bool {
+      input != 0 || output != 0 || cacheRead != 0 || cacheWrite != 0
+    }
+
+    /// 这行**是否携带 token**：只有被解析成 token 行的记录才为真。
+    ///
+    /// 工具行一律为假——包括「记录里根本不存在 token 字段」的 Agent（codeBuddy /
+    /// cursor / copilot）与 codex 的 `function_call` 行。判据必须在**行**这一级说清，
+    /// 不能靠「合并时兜一下」：工具的 model 为空，兜出来的桶键与真正的 token 行不同，
+    /// 于是每个会话每小时会多出一个「空模型 + 全零」的无意义桶，污染模型榜与
+    /// 按会话的读数。
+    var carriesTokens = false
   }
 
+  /// 一行记录 → 一条用量（token + 工具调用）。
+  ///
+  /// - Parameter model: 由调用方按文件顺序记住的模型（只有 codex 需要：它的 token 行
+  ///   不带模型名，模型写在同一个 `turn_context` 行里）。
   private static func extract(
-    json: [String: Any], agent: AgentKind, fallbackDate: Date
+    json: [String: Any], agent: AgentKind, fallbackDate: Date, model: String
   ) -> RecordUsage? {
     switch agent {
-    case .claudeCode:
+    case .claudeCode, .qoder, .factory:
+      // Claude 系记录（Qoder / Factory 与 Claude 同格式）。
       guard (json["type"] as? String) == "assistant",
         let message = json["message"] as? [String: Any]
       else { return nil }
@@ -315,6 +402,8 @@ nonisolated enum TranscriptUsageScanner {
         (json["timestamp"] as? String).flatMap { isoFormatter.date(from: $0) }
         ?? fallbackDate
       var record = RecordUsage(date: date)
+      // Claude 系把用量写在 assistant 行上：这条记录就是 token 行。
+      record.carriesTokens = true
       record.isSubagent = (json["isSidechain"] as? Bool) ?? false
       record.model = (message["model"] as? String) ?? ""
       if let usage = message["usage"] as? [String: Any] {
@@ -326,12 +415,27 @@ nonisolated enum TranscriptUsageScanner {
       record.tools = toolNames(in: message, blockType: "tool_use")
       return record
 
+    case .codeBuddy:
+      // 记录外壳不同：`type == "message"` + 顶层 `role` + 毫秒 epoch 时间戳。
+      // 本机 2 个文件里没有出现任何 token 字段（也没有助手行样本）⇒ 这一行只携带
+      // 工具调用（`carriesTokens` 保持默认的 false），不建 token 桶。
+      guard (json["type"] as? String) == "message",
+        (json["role"] as? String) == "assistant"
+      else { return nil }
+      var record = RecordUsage(
+        date: millisecondsTimestamp(json["timestamp"]) ?? fallbackDate)
+      record.tools = toolNames(in: json, blockType: "tool_use")
+      guard !record.tools.isEmpty else { return nil }
+      return record
+
     case .ohMyPi, .pi:
       guard (json["type"] as? String) == "message",
         let message = json["message"] as? [String: Any],
         (message["role"] as? String) == "assistant"
       else { return nil }
       var record = RecordUsage(date: timestamp(json: json, message: message) ?? fallbackDate)
+      // omp / pi 同样把用量写在 assistant 行上。
+      record.carriesTokens = true
       if let usage = message["usage"] as? [String: Any] {
         record.input = intValue(usage["input"])
         record.output = intValue(usage["output"])
@@ -342,10 +446,74 @@ nonisolated enum TranscriptUsageScanner {
       record.tools = toolNames(in: message, blockType: "toolCall")
       return record
 
-    case .opencode:
-      // OpenCode 的历史在 SQLite 里，不走这条路径。
+    case .codex:
+      // 两类行各有各的用途（顶层 `type` 不同，必须分别匹配）：
+      //   · `event_msg` / `token_count`：`payload.info.last_token_usage` 是**本次调用**的
+      //     增量（`total_token_usage` 是整会话累计值，用它会把统计放大若干倍）；
+      //   · `response_item` / `function_call`（含 `custom_tool_call`）：工具调用。
+      guard let payload = json["payload"] as? [String: Any] else { return nil }
+      var record = RecordUsage(
+        date: isoDate(json["timestamp"]) ?? fallbackDate)
+      switch (json["type"] as? String, payload["type"] as? String) {
+      case ("event_msg", "token_count"):
+        guard let info = payload["info"] as? [String: Any],
+          let last = info["last_token_usage"] as? [String: Any]
+        else { return nil }
+        let cached = intValue(last["cached_input_tokens"])
+        // `input_tokens` 含缓存读，相减才是非缓存输入（否则总量会重复计入缓存）。
+        record.input = max(0, intValue(last["input_tokens"]) - cached)
+        record.cacheRead = cached
+        record.output = intValue(last["output_tokens"])
+        // 模型只出现在 `turn_context` 行里，由调用方按文件顺序记住后传进来。
+        record.model = model
+        record.carriesTokens = true
+      case ("response_item", "function_call"), ("response_item", "custom_tool_call"):
+        guard let name = payload["name"] as? String, !name.isEmpty else { return nil }
+        record.tools = [name]
+      default:
+        return nil
+      }
+      guard record.hasTokens || !record.tools.isEmpty else { return nil }
+      return record
+
+    case .cursor:
+      // 记录行按顶层 `role` 区分，工具调用在 `message.content[].type == "tool_use"`。
+      // 没有 token 字段（CodeIsland 也只读文本）⇒ 这行只携带工具调用，不建 token 桶。
+      let message = json["message"] as? [String: Any] ?? json
+      var record = RecordUsage(date: fallbackDate)
+      record.tools = toolNames(in: message, blockType: "tool_use")
+      guard !record.tools.isEmpty else { return nil }
+      return record
+
+    case .copilot:
+      // 事件信封：`{"type":…,"data":{…}}`；工具调用在 `tool.execution_start.data.toolName`。
+      // 本机 9 个事件文件里没有任何 token 字段 ⇒ 这行只携带工具调用，不建 token 桶。
+      guard (json["type"] as? String) == "tool.execution_start",
+        let data = json["data"] as? [String: Any],
+        let name = data["toolName"] as? String, !name.isEmpty
+      else { return nil }
+      var record = RecordUsage(date: isoDate(json["timestamp"]) ?? fallbackDate)
+      record.tools = [name]
+      return record
+
+    case .opencode, .gemini, .kimi, .cline, .grok, .trae, .traeCli, .deepSeekHarness:
+      // 不产出用量，理由见 `markers(for:)`：OpenCode 走 SQLite 路径，gemini 的 token
+      // 字段本机无法核对（字段名与语义都未知），kimi / cline / grok 的记录里没有
+      // token 字段，Trae / Trae CLI / DSH 没有可解析的记录。
       return nil
     }
+  }
+
+  /// 条目级毫秒 epoch 时间戳（CodeBuddy 的记录用这个口径）。
+  private static func millisecondsTimestamp(_ value: Any?) -> Date? {
+    guard let number = value as? NSNumber, !(number is Bool) else { return nil }
+    return Date(timeIntervalSince1970: number.doubleValue / 1000)
+  }
+
+  /// 条目级 ISO8601 时间戳。
+  private static func isoDate(_ value: Any?) -> Date? {
+    guard let text = value as? String else { return nil }
+    return isoFormatter.date(from: text)
   }
 
   /// 条目级毫秒时间戳优先，其次取条目上的 ISO8601 字符串（与 pi/omp 记录解析一致）。

@@ -112,6 +112,17 @@ nonisolated enum NotchMenuMetrics {
     static let contentTopGap: CGFloat = 10
     /// 关于页的标识块（图标 + 名称 + 版本）的高度。
     static let appIdentityHeight: CGFloat = 99
+    /// 「监控的智能体」卡片里最多同时显示多少行：其余行在卡内滚动
+    /// （与音效选择器的 `maxVisibleOptions` 同一套做法）。
+    ///
+    /// 取值与高度预算绑定：agent 页内容高 = 92（页眉/分段控件等固定开销）
+    /// + 20 + 行数×48 + 26（脚注）+ 140（闸门卡三行）+ 60（Claude 配置目录卡）
+    /// + 24（组间距）。4 行时实测 **548**（离屏探针打印 `contentHeight(for: .agents)`），
+    /// 与接入 17 个 Agent 之前的版面**逐点相同**——也就是那条已知会被夹取的组合
+    /// （`agents@76`：548 + 106 + 76 > 728）仍然成立，没有因为接入面变大而让这一页
+    /// 再长高。再加行就必须重新核 728 的预算并登记新的夹取组合。
+    static let visibleAgentRows = 4
+
     /// 面板高度上限：分组内容超出时由页内滚动接管，面板不再继续变长。
     ///
     /// 判据可核算：**每页都要满足「内容高 + 该页最高的单个展开 + chrome ≤ 728」**。
@@ -211,9 +222,15 @@ nonisolated enum NotchMenuMetrics {
             ]
         case .agents:
             return [
-                // 监控的智能体：每个 Agent 一行（标题 + 集成状态），带一行脚注
+                // 监控的智能体：每个 Agent 一行（标题 + 集成状态），带一行脚注。
+                // 受支持的 Agent 会随接入面扩大而增加（现在 17 个），整张卡片按
+                // `visibleAgentRows` 封顶、超出的在卡内滚动——否则这一页会把面板
+                // 撑到上限之外，用户得滚很久才能摸到下面的闸门开关。
                 Block(
-                    rows: Array(repeating: twoLineRowHeight, count: AgentKind.allCases.count),
+                    rows: Array(
+                        repeating: twoLineRowHeight,
+                        count: min(AgentKind.allCases.count, visibleAgentRows)
+                    ),
                     hasFootnote: true
                 ),
                 // 审批闸门：问什么 / 应用未运行时 / 待批时自动展开（三个全局档位）

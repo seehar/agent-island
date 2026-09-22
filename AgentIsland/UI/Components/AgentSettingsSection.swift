@@ -26,28 +26,61 @@ struct AgentSettingsSection: View {
     @State private var isEnabled = AgentSettingsSection.currentEnabledMap()
     /// 每个 Agent 的「在刘海上批准」闸门是否打开。
     @State private var isGateEnabled = AgentSettingsSection.currentGateMap()
+    /// 卡片的显示顺序：已安装的排在前面（见 `orderedAgents()`）。
+    @State private var orderedAgents = AgentKind.allCases
     /// 集成安装 / 闸门开关失败时的提示文案。
     @State private var installError: String?
 
     var body: some View {
         VStack(spacing: 0) {
-            ForEach(Array(AgentKind.allCases.enumerated()), id: \.element) { index, kind in
-                AgentSettingsRow(
-                    kind: kind,
-                    isEnabled: isEnabled[kind] ?? true,
-                    isGateEnabled: isGateEnabled[kind] ?? false,
-                    // 最后一行只在下面真的跟着错误提示时画分隔线（闸门档位已搬到另一张卡）。
-                    showsSeparator: index < AgentKind.allCases.count - 1 || installError != nil,
-                    onToggle: { toggle(kind) },
-                    onToggleGate: { toggleGate(kind) }
-                )
+            // 受支持的 Agent 有十几个，整张卡片按 `visibleAgentRows` 封顶、超出的
+            // 在卡内滚动（与音效选择器同一套做法）：面板高度因此由常量推得出，
+            // 下面的「审批闸门」与「Claude Code 配置目录」两张卡也还在手边。
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    // 注意：这里**不能**只渲染前 N 行——那样卡内就没有可滚动的内容，
+                    // 第 N+1 个之后的 Agent 在设置面板里永远够不着。窗口高度才是上限。
+                    ForEach(Array(orderedAgents.enumerated()), id: \.element) { index, kind in
+                        AgentSettingsRow(
+                            kind: kind,
+                            isEnabled: isEnabled[kind] ?? true,
+                            isGateEnabled: isGateEnabled[kind] ?? false,
+                            // 最后一行只在下面真的跟着错误提示时画分隔线（闸门档位已搬到另一张卡）。
+                            showsSeparator: index < orderedAgents.count - 1 || installError != nil,
+                            onToggle: { toggle(kind) },
+                            onToggleGate: { toggleGate(kind) }
+                        )
+                    }
+                }
             }
+            .frame(height: CGFloat(visibleRowCount) * NotchMenuMetrics.twoLineRowHeight)
 
             if let installError {
                 SettingsNotice(message: installError)
             }
         }
-        .onAppear { refreshState() }
+        .onAppear {
+            refreshState()
+            orderedAgents = Self.installedFirstOrder()
+        }
+    }
+
+    /// 卡内实际显示的 Agent 行数：与 `NotchMenuMetrics` 的高度预算同一个来源。
+    private var visibleRowCount: Int {
+        min(AgentKind.allCases.count, NotchMenuMetrics.visibleAgentRows)
+    }
+
+    /// 显示顺序：**已安装**（配置目录存在）的排在前面，其余按枚举顺序。
+    ///
+    /// 受支持的 Agent 有 17 个，而卡片一次只显示 `visibleAgentRows` 行——把「这台
+    /// 机器上真的装了」的排在前面，用户就不必为了找到自己在用的工具而滚动。
+    /// 只在进入页面时算一次：开关切换不该让行往上跳，顺序必须稳定。
+    private static func installedFirstOrder() -> [AgentKind] {
+        let installed = AgentKind.allCases.filter {
+            AgentRegistry.provider(for: $0).paths() != nil
+        }
+        let rest = AgentKind.allCases.filter { !installed.contains($0) }
+        return installed + rest
     }
 
     // MARK: - Actions

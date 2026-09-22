@@ -3,7 +3,7 @@
   <h1 align="center">AgentIsland</h1>
   <p align="center">
     <b>Your coding agents, on the MacBook notch.</b><br>
-    Live session state, chat history and tool approvals for Claude Code, Oh My Pi, Pi and OpenCode — one glance, no window switching.
+    Live session state, chat history, usage stats and tool approvals for 17 coding agents — Claude Code, Codex, Gemini CLI, Cursor, Copilot, Qoder, Factory, CodeBuddy, Kimi Code CLI, Cline, Grok CLI, Trae, Trae CLI, DeepSeek Harness, Oh My Pi, Pi and OpenCode — one glance, no window switching.
     <br><br>
     <a href="https://github.com/seehar/agent-island/releases/latest"><img src="https://img.shields.io/github/v/release/seehar/agent-island?style=flat&color=0969da&label=release" alt="Release"></a>
     <a href="https://github.com/seehar/agent-island/releases"><img src="https://img.shields.io/github/downloads/seehar/agent-island/total?style=flat&color=0969da&label=downloads" alt="Downloads"></a>
@@ -42,11 +42,11 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
 
 ## Features
 
-**One list for every agent.** Claude Code, Oh My Pi (`omp`), Pi and OpenCode sessions side by side, each tagged with its own badge. Turn off the agents you don't run and they disappear from the list entirely.
+**One list for every agent.** 17 CLIs side by side — Claude Code, Codex, Gemini CLI, Cursor, Copilot, Qoder, Factory, CodeBuddy, Kimi Code CLI, Cline, Grok CLI, Trae, Trae CLI, DeepSeek Harness, Oh My Pi (`omp`), Pi and OpenCode — each with its own brand mark and badge. Turn off the agents you don't run and they disappear from the list entirely.
 
 **Subagents included.** Claude Code tool calls inside subagents, and `omp`/`pi` subagent runs, count towards the notch badge and are listed under the `task` card that spawned them.
 
-**Approvals on the notch.** Allow / Deny for all four agents: Claude Code through its hook, `omp`/`pi` through a blocking extension gate (opt-in), OpenCode through its plugin. Calls classified as dangerous — `rm -rf /`, `sudo rm`, `mkfs`, `dd … of=/dev/…`, `curl … | sh`, reverse shells, `kill -9 1` — are flagged in red, and their fail-open path is never used.
+**Approvals on the notch.** Allow / Deny for every agent that can hand the decision back: Claude Code and its forks (Qoder), Codex, Gemini CLI and Trae CLI through their permission hooks, `omp`/`pi` through a blocking extension gate (opt-in), OpenCode through its plugin. The rest still show up and are approved in their own terminal. Calls classified as dangerous — `rm -rf /`, `sudo rm`, `mkfs`, `dd … of=/dev/…`, `curl … | sh`, reverse shells, `kill -9 1` — are flagged in red, and their fail-open path is never used.
 
 **Usage stats.** The header's chart button opens a stats page: total tokens with input / output / cache read / cache write and hit rate, session and tool-call counts, for **Today / This Week / This Month / All** — split per agent, with a trend chart and a tool leaderboard. The numbers are indexed from the agents' own session records, so finished sessions still count.
 
@@ -54,7 +54,7 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
 
 ![The chat view: Markdown, tool calls and subagents](docs/images/notch-chat.png)
 
-**Works with or without the integration.** Sessions are discovered by reading each agent's own records — JSONL transcripts, or OpenCode's SQLite store — and status is inferred from the transcript. Installing the integration adds live events immediately, and on `omp`/`pi` it is what makes the approval gate possible.
+**Works with or without the integration.** Sessions are discovered by reading each agent's own records — JSONL transcripts (Claude Code, Qoder, Factory, CodeBuddy, Codex, Gemini, Cursor, Copilot, Kimi, Cline, Grok), or OpenCode's SQLite store — and status is inferred from the transcript. Trae, Trae CLI and DSH have no readable records and rely on their integration (DSH on the external [dsh-island](https://github.com/cdxiaodong/dsh-island) plugin). Installing the integration adds live events immediately, and on `omp`/`pi` it is what makes the approval gate possible.
 
 **Small by design.** No Dock icon, no menu bar item, no daemon: a local Unix socket, one `NSPanel` on the notch, and your agents' own files.
 
@@ -74,6 +74,19 @@ The page lives in **Settings → Statistics** (the chart button in the panel hea
 |**Oh My Pi** (`omp`)|`~/.omp/agent/sessions/**`|`~/.omp/agent/extensions/agent-island-state.ts`|yes — extension gate (opt-in)|`task` runs|
 |**Pi**|`~/.pi/agent/sessions/**`|`~/.pi/agent/extensions/agent-island-state.ts`|yes — extension gate (opt-in)|`task` runs|
 |**OpenCode**|`~/.local/share/opencode/opencode.db`|`~/.config/opencode/plugins/agent-island-state.js`|yes — plugin|`task` runs|
+|**Codex**|`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`|`$CODEX_HOME/hooks.json` (+ `[features] hooks = true` in `config.toml`)|yes — hook `PermissionRequest`|—|
+|**Gemini CLI**|`~/.gemini/tmp/<project>/chats/session-*.jsonl`|`~/.gemini/settings.json`|yes — hook `BeforeTool`|—|
+|**Cursor**|`~/.cursor/projects/**/agent-transcripts/**`|`~/.cursor/hooks.json`|—|—|
+|**Copilot**|`~/.copilot/jb/<id>/partition-*.jsonl` (current) · `~/.copilot/session-state/<id>/events.jsonl` (legacy)|`~/.copilot/hooks/agent-island.json`|—|—|
+|**Qoder**|`~/.qoder/projects/**/*.jsonl`|`~/.qoder/settings.json`|yes — hook `PermissionRequest`|Claude-style subagent events|
+|**Factory** (`droid`)|`~/.factory/sessions/**/*.jsonl`|`~/.factory/settings.json`|—|Claude-style subagent events|
+|**CodeBuddy**|`~/.codebuddy/projects/**/*.jsonl`|`~/.codebuddy/settings.json`|—|Claude-style subagent events|
+|**Kimi Code CLI**|`~/.kimi-code/sessions/**`|`~/.kimi-code/config.toml`|—|—|
+|**Cline**|VS Code global storage `saoudrizwan.claude-dev`|`~/Documents/Cline/Hooks/<EventName>` (one file per event)|—|—|
+|**Grok CLI**|`$GROK_HOME/sessions/<enc-cwd>/<id>/chat_history.jsonl`|`$GROK_HOME/hooks/agent-island.json`|—|—|
+|**Trae**|— (no readable records)|`~/.trae/hooks.json`|—|—|
+|**Trae CLI**|— (no readable records)|`~/.trae/traecli.yaml` (managed block)|yes — hook `permission_request`|—|
+|**DeepSeek Harness** (`dsh`)|— (records are zstd-compressed)|none — the external dsh plugin writes the socket directly|—|—|
 
 ## Install
 
@@ -106,10 +119,16 @@ AgentIsland writes exactly one file per agent (its integration) and deletes it w
 
 |Agent|File written|Also touched|
 |---|---|---|
-|Claude Code|`~/.claude/hooks/agent-island-state.py`|hook entries merged into `~/.claude/settings.json`|
+|Claude Code|`~/.agent-island/hooks/agent-island-state.py`|hook entries merged into `~/.claude/settings.json`|
 |Oh My Pi|`~/.omp/agent/extensions/agent-island-state.ts`|only if you enable the gate: `~/.omp/agent/config.yml`, backed up first|
 |Pi|`~/.pi/agent/extensions/agent-island-state.ts`|—|
 |OpenCode|`~/.config/opencode/plugins/agent-island-state.js`|—|
+|Codex|`~/.agent-island/hooks/agent-island-state.py` (shared)|`$CODEX_HOME/hooks.json` entries + `[features] hooks = true` in `$CODEX_HOME/config.toml`|
+|Gemini CLI / Cursor / Copilot / Qoder / Factory / CodeBuddy|`~/.agent-island/hooks/agent-island-state.py` (shared)|`~/.gemini/settings.json` / `~/.cursor/hooks.json` / `~/.copilot/hooks/agent-island.json` / `~/.qoder/settings.json` / `~/.factory/settings.json` / `~/.codebuddy/settings.json`|
+|Kimi Code CLI|`~/.agent-island/hooks/agent-island-state.py` (shared)|`~/.kimi-code/config.toml` `[[hooks]]` blocks|
+|Cline|`~/.agent-island/hooks/agent-island-state.py` (shared)|`~/Documents/Cline/Hooks/<EventName>` files|
+|Grok CLI / Trae / Trae CLI|`~/.agent-island/hooks/agent-island-state.py` (shared)|`$GROK_HOME/hooks/agent-island.json` / `~/.trae/hooks.json` / `~/.trae/traecli.yaml`|
+|DeepSeek Harness|—|— (the dsh plugin owns its own integration)|
 
 Open **Settings → Agents** (the gear button in the panel, then the *Agents* page) to see each agent's integration status and where it lives. Status **Outdated — reinstall** means the file on disk is not the one this build expects — toggle the agent off and on to rewrite it.
 
@@ -135,7 +154,7 @@ Single-clicking a session row follows the *click action* above; double-click alw
 
 ```mermaid
 flowchart LR
-  CLI["Agent CLI<br/>claude · omp · pi · opencode"]
+  CLI["Agent CLIs<br/>claude · codex · gemini · cursor · copilot · qoder · droid · codebuddy · kimi · cline · grok · trae · traecli · dsh · omp · pi · opencode"]
   INT["Integration<br/>hook · extension · plugin"]
   SOCK["/tmp/agent-island.sock"]
   APP["AgentIsland<br/>NSPanel on the notch"]

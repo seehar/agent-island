@@ -52,7 +52,9 @@ struct AgentSpinner: View {
         switch agent {
         case .claudeCode:
             return ["·", "✢", "✳", "∗", "✻", "✽"]
-        case .ohMyPi, .pi, .opencode, nil:
+        default:
+            // 其余 Agent（含无归属的 nil）统一用盲文转轮：它是本机多数 TUI 的通用语汇，
+            // 也避免默认落回 Claude 的帧表。各 Agent 自己的帧表在拿到真机证据后再逐个补。
             return ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
         }
     }

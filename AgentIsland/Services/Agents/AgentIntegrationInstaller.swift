@@ -6,6 +6,10 @@
 //    - Claude Code：hook 脚本 + settings.json（由 `HookInstaller` 负责）
 //    - pi / Oh My Pi：`<agent 目录>/extensions/agent-island-state.ts`
 //    - OpenCode：`~/.config/opencode/plugins/agent-island-state.js`
+//    - 其余「配置文件型 hook」的工具（Codex / Gemini / Cursor / Copilot / Qoder /
+//      Factory / CodeBuddy / Kimi / Cline / Grok / Trae / Trae CLI）：把同一份 hook
+//      脚本装到 `~/.agent-island/hooks/`，并按各自的配置结构写条目
+//      （由 `AgentConfigInstaller` 负责，描述表见 `AgentHooks.swift`）
 //
 //  未安装集成的 Agent 仍可使用，只是状态由记录文件推断、且拿不到 pid/tty。
 //
@@ -79,6 +83,9 @@ nonisolated enum AgentIntegrationInstaller {
     switch kind {
     case .ohMyPi, .pi: return true
     case .claudeCode, .opencode: return false
+    // hook 脚本型 Agent 的审批不需要闸门档位：脚本等刘海决定，应用不在时连不上
+    // socket 就直接不输出，工具自己弹原生审批——降级是天然行为，无需烘焙策略。
+    default: return false
     }
   }
 
@@ -107,7 +114,10 @@ nonisolated enum AgentIntegrationInstaller {
   static func hasVersionedIntegration(_ kind: AgentKind) -> Bool {
     switch kind {
     case .ohMyPi, .pi, .opencode: return true
+    // Claude 的 hook 脚本与配置文件型 hook 都没有版本戳：脚本按内容比对升级，
+    // 配置条目的存在性就是安装状态。
     case .claudeCode: return false
+    default: return false
     }
   }
 
@@ -156,6 +166,13 @@ nonisolated enum AgentIntegrationInstaller {
       return installPiFamilyExtension(kind)
     case .opencode:
       return installOpenCodePlugin()
+    default:
+      // 配置文件型 hook：没有描述表（DSH）就没什么可装。
+      guard kind.hookSpec != nil else { return false }
+      // 脚本先落地再改配置：配置指向不存在的脚本时，工具会在每个事件上跑一次
+      // 注定失败的命令。
+      guard AgentConfigInstaller.installHookScript() else { return false }
+      return AgentConfigInstaller.install(kind)
     }
   }
 
@@ -175,6 +192,10 @@ nonisolated enum AgentIntegrationInstaller {
         removeFile(file, label: "OpenCode 插件")
         removeLegacyFiles(in: file.deletingLastPathComponent(), names: Self.legacyOpenCodePluginNames)
       }
+    default:
+      // 只摘掉这个 Agent 的条目；共享脚本保留（其它工具还引用它）。
+      guard kind.hookSpec != nil else { return }
+      AgentConfigInstaller.uninstall(kind)
     }
   }
 
@@ -190,6 +211,9 @@ nonisolated enum AgentIntegrationInstaller {
       return isPiFamilyExtensionCurrent(kind)
     case .opencode:
       return isOpenCodePluginCurrent()
+    default:
+      guard kind.hookSpec != nil else { return false }
+      return AgentConfigInstaller.isInstalled(kind)
     }
   }
 

@@ -1,6 +1,6 @@
 # AgentIsland（macOS 刘海 Agent 会话面板）
 
-> 一款 macOS 菜单栏应用（`LSUIElement`，无 Dock 图标）：把 Claude Code、Oh My Pi（`omp`）、Pi、OpenCode 的 CLI 会话状态搬到 MacBook 刘海处的浮层里 —— 实时状态、对话历史，以及 Claude Code 的工具审批。
+> 一款 macOS 菜单栏应用（`LSUIElement`，无 Dock 图标）：把 17 个编码 Agent CLI —— Claude Code、Oh My Pi（`omp`）、Pi、OpenCode、Codex、Gemini CLI、Cursor、Copilot、Qoder、Factory（`droid`）、CodeBuddy、Kimi Code CLI、Cline、Grok CLI、Trae、Trae CLI、DeepSeek Harness（`dsh`）—— 的会话状态搬到 MacBook 刘海处的浮层里：实时状态、对话历史、用量统计，以及支持阻塞审批的工具在刘海上批准 / 拒绝 / 作答。
 > 派生自 `engels74/claude-island`，已全量改名 AgentIsland（目录、target、scheme、bundle id、socket、集成文件名、偏好域）。
 
 - 语言/框架：Swift（工程 `SWIFT_VERSION = 5.0`，但已打开 Swift 6 并发语义：`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`、`SWIFT_APPROACHABLE_CONCURRENCY = YES`、`SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES`）
@@ -48,6 +48,8 @@ AgentIsland/
   Events/       # 全局鼠标事件监听（悬停/点击命中刘海）
   Services/
     Agents/     # Agent 接入面：AgentProvider 协议、AgentRegistry、各 Provider、集成安装/卸载、进程与记录扫描
+                #   AgentHooks.swift 是「配置文件型 hook」的描述表（格式/路径/事件/回写协议），
+                #   AgentConfigInstaller.swift + AgentConfigMerger.swift 按它写入各工具自己的配置
     Session/    # 记录解析：TranscriptSchema + 各 Agent schema、ConversationParser（JSONL 增量）、AgentFileWatcher、OpenCodeSessionStore（SQLite）、AgentSessionDiscovery
     State/      # SessionStore（actor，唯一状态入口）、FileSyncScheduler、ToolEventProcessor
     Hooks/      # HookSocketServer（/tmp/agent-island.sock）、HookInstaller
@@ -85,11 +87,13 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 
 ### 新增一个 Agent 要动的地方（接入面）
 
-1. `Models/AgentKind.swift` 加 case（rawValue 即命令行名），补 displayName/shortName/图标/调色分支；
-2. `Services/Agents/`：实现 `AgentProvider`（`paths()`、`transcriptFile`、`isTranscriptFile`、`sessionId(fromTranscriptFile:)`、`cwd(fromTranscriptFile:)`、`subagentTranscriptFiles`、`integrationStatus()`），并在 `AgentRegistry.all` 注册；
-3. `Services/Session/`：加记录解析实现（`TranscriptSchema` 家族），接入 `ConversationParser` 的 schema 注册表；
-4. `Resources/` 放集成资源，并接 `AgentIntegrationInstaller` 的安装/卸载（安装与卸载必须一一对应）；
-5. `UI/` 的 `AgentBadge`/`AgentSettingsSection`/角标动效按 kind 自动生效，一般无需改动。
+1. `Models/AgentKind.swift` 加 case。`rawValue` **就是集成侧的 `--source`、也是 CodeIsland 的 source id**（两侧必须同一个字符串，否则事件会被算到别的 Agent 名下；且不能含冒号——`SessionKey` 按第一个冒号切分）。补 displayName / shortName / binaryName / approval / subagentToolNames / interactiveToolNames；`isClaudeFamily` 决定它是否复用 Claude 的 hook 契约与记录格式。
+2. `Services/Agents/AgentHooks.swift` 的 `hookSpec` 补一行：写入格式、配置路径（可带 `CODEX_HOME` / `GROK_HOME` 这类根目录环境变量）、事件表、决定回写协议。**没有配置文件型 hook 的工具填 nil**（Claude 走 hook 脚本、omp/pi 走扩展、opencode 走插件、DSH 由外部插件直接写 socket）。
+3. `Services/Agents/` 实现 `AgentProvider`（`paths()`、`transcriptFile`、`isTranscriptFile`、`sessionId(fromTranscriptFile:)`、`cwd(fromTranscriptFile:)`、`subagentTranscriptFiles`、`integrationStatus()`），**带可注入的 `home`**（用例要能指向临时目录），并在 `AgentRegistry.all` 注册（**home 必须过 `AgentProviderRoot.canonical`**，理由见已知坑）；同时补 `AgentProcessScanner.matches` 与 `AgentSessionScanner` 的发现源。
+4. `Services/Session/` 加记录解析实现：Claude 系 fork 直接复用 `ClaudeFamilyTranscriptSchema`；其它格式自己实现 `AgentTranscriptSchema`（追加式 JSONL 继承 `JSONLTranscriptSchema`，整文档 JSON 则用「文件指纹 + 已消费条数」做增量），并在 `AgentTranscriptSchemaRegistry` 注册；有 token 字段的再接 `TranscriptUsageScanner`。
+5. `Resources/agent-island-state.py` 的事件归一表补该工具的原生事件名（与 CodeIsland `EventNormalizer` 对齐；`scripts/verify-agent-hooks.sh` 是它的验证矩阵）。
+6. `UI/`：`AgentPalette` 补品牌色、`AgentMarks.swift` 补标记形状（`AgentLogo` 的 `Glyph` 是穷举 switch，编译器会提醒）；本地化补产品名与短名的 en/zh-Hans 键。
+7. 跑 `./scripts/gate.sh --with-tests`：`AgentIslandTests/AgentKindTests.swift` 是表完整性用例——漏填某一列、rawValue 重名、阻塞事件却不让回传决定，都会在那里红。
 
 ### 本地化（必须遵守的不变量）
 
@@ -110,9 +114,22 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 
 | Agent | 写入位置 |
 |---|---|
-| Claude Code | `~/.claude/hooks/agent-island-state.py` + `~/.claude/settings.json` 里的 hook 条目 |
+| Claude Code | `~/.agent-island/hooks/agent-island-state.py` + `~/.claude/settings.json` 里的 hook 条目 |
 | omp / pi | `<agent 目录>/extensions/agent-island-state.ts` |
 | OpenCode | `~/.config/opencode/plugins/agent-island-state.js` |
+| Codex | `$CODEX_HOME/hooks.json`（另在 `config.toml` 的 `[features]` 下设 `hooks = true`） |
+| Gemini CLI | `~/.gemini/settings.json` 的 `hooks` 键 |
+| Cursor | `~/.cursor/hooks.json` |
+| Copilot | `~/.copilot/hooks/agent-island.json` |
+| Qoder / Factory / CodeBuddy | `~/.qoder/settings.json` / `~/.factory/settings.json` / `~/.codebuddy/settings.json` 的 `hooks` 键 |
+| Kimi Code CLI | `~/.kimi-code/config.toml`（不存在则回退 `~/.kimi/config.toml`）的 `[[hooks]]` 块 |
+| Cline | `~/Documents/Cline/Hooks/<EventName>` 每事件一个可执行文件 |
+| Grok CLI | `$GROK_HOME/hooks/agent-island.json` |
+| Trae | `~/.trae/hooks.json` |
+| Trae CLI | `~/.trae/traecli.yaml` 里的托管 YAML 块 |
+| DeepSeek Harness | **不写**：事件由外部 dsh 插件直接写 socket |
+
+除 Claude 之外的工具都引用**同一份**脚本（`~/.agent-island/hooks/agent-island-state.py`）：一份实现、一处升级。单个 Agent 卸载只摘自己的条目，脚本本身保留（别的工具还在用）。
 
 停用某个 Agent 时对应集成必须删干净，包括改名前的旧脚本名 `claude-island-state.py`（`HookInstaller.legacyHookScriptNames`），否则旧脚本会继续往废弃 socket 发状态。
 
@@ -139,6 +156,11 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 - 本机 OMP 配置开启了写文件格式化：用编辑工具直接改 Swift 文件会被整文件重排（4 空格 ↔ 2 空格），外科手术式改动请用 python 精确替换后核对 `git diff --stat`。
 - 想验证刘海 UI 行为，可往 `/tmp/agent-island.sock` 灌一条合成事件（字段为 snake_case，如 `{"session_id":"x","cwd":"/tmp","event":"SessionStart","status":"running"}`）驱动真实运行中的应用，再截图取帧。
 - 共享工作树里常有多会话并行：易冲突文件是 `Localizable.xcstrings`、`UI/Views/NotchMenuPages.swift`、`README*.md`。
+- 配置文件型 hook 的条目里，除 Claude 系（stdin 自带 `hook_event_name`）外都要带 `--event <原生事件名>`：Gemini / Cursor / Copilot 的 stdin 不带事件名，漏掉这个参数事件名会退化成工具名、相位全错。Trae CLI 是例外——它的托管项是「单一命令 + matchers 列出全部事件」，按事件分命令反而写不进去。
+- Codex 只在 `$CODEX_HOME/config.toml` 的 `[features] hooks = true` 时才触发 hook（安装器会补这一行），并且要用户在 Codex 里跑一次 `/hooks` 审核信任本应用的 hook；没审核时 Codex **静默不跑**，看起来就像「没支持 Codex」。
+- Kimi 的 `hooks` 在 TOML 里是 `[[hooks]]` 数组表，与旧的标量 `hooks = …` 互斥：安装时把标量行注释掉、卸载时再放回去（不能删——那是用户的内容）。
+- 单个 Agent 卸载**不要**删 `~/.agent-island/hooks/agent-island-state.py`：它是所有配置文件型 Agent 共用的脚本，删掉会让其余工具的配置指向不存在的文件。
+- **路径归一不是一个可选优化**：`FileManager` 的目录遍历返回的是 `realpath` 展开后的路径（macOS 下 `/var/…` → `/private/var/…`），而 `URL.resolvingSymlinksInPath()` / `standardizedFileURL` **不会**展开 `/var`、`/tmp`、`/etc` 这几个系统软链。provider 里 `hasPrefix(自己的根)` 的判定因此会与遍历结果对不上，记录被静默跳过（表现：工具在跑，面板里一个会话都没有）。统一走 `AgentProviderRoot.canonical`（POSIX `realpath`），用例夹具建目录后也要过它一次。
 
 <delegation_rules>
 何时委托子代理 vs 直接处理：

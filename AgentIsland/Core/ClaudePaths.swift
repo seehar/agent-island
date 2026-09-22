@@ -65,8 +65,12 @@ nonisolated enum ClaudePaths {
     /// Shell-safe absolute path for hook commands in settings.json.
     /// Absolute paths keep custom directories and ~/.config/claude working;
     /// quoting keeps paths with spaces from being split by the shell.
+    ///
+    /// 脚本落点是所有 hook 型 Agent 共用的 `~/.agent-island/hooks/`（见
+    /// `AgentHookScript`），而不再放在 Claude 自己的配置目录里：同一份实现被
+    /// Claude、Codex、Gemini 等一起引用，升级只有一处。
     static var hookScriptShellPath: String {
-        shellQuote(claudeDir.appendingPathComponent("hooks/agent-island-state.py").path)
+        shellQuote(AgentHookScript.fileURL().path)
     }
 
     /// Invalidate the cached directory so the next access re-resolves.

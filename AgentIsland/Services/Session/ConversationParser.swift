@@ -52,22 +52,65 @@ nonisolated struct ConversationInfo: Equatable {
 
 /// 各 Agent 的 schema 单例。
 nonisolated enum AgentTranscriptSchemaRegistry {
+    /// 有磁盘记录的 Agent。同格式的 Agent 共用一份实现（Claude 系 / pi 系）。
     private static let schemas: [AgentKind: any AgentTranscriptSchema] = [
         .claudeCode: ClaudeTranscriptSchema(),
+        .qoder: ClaudeFamilyTranscriptSchema(kind: .qoder),
+        .factory: ClaudeFamilyTranscriptSchema(kind: .factory),
+        .codeBuddy: CodeBuddyTranscriptSchema(),
         .ohMyPi: PiTranscriptSchema(kind: .ohMyPi),
         .pi: PiTranscriptSchema(kind: .pi),
         .opencode: OpenCodeTranscriptSchema(),
+        .codex: CodexTranscriptSchema(),
+        .gemini: GeminiTranscriptSchema(),
+        .cursor: CursorTranscriptSchema(),
+        .copilot: CopilotTranscriptSchema(),
+        .kimi: KimiTranscriptSchema(),
+        .cline: ClineTranscriptSchema(),
+        .grok: GrokTranscriptSchema(),
+    ]
+
+    /// 没有可解析记录的 Agent：Trae 与 Trae CLI 不落盘对话记录，DSH 的记录是
+    /// zstd 压缩（Swift 侧没有 zstd API）。它们共用空解析器：不产出历史，
+    /// 也不假装读过什么。
+    private static let emptySchemas: [AgentKind: EmptyTranscriptSchema] = [
+        .trae: EmptyTranscriptSchema(kind: .trae),
+        .traeCli: EmptyTranscriptSchema(kind: .traeCli),
+        .deepSeekHarness: EmptyTranscriptSchema(kind: .deepSeekHarness),
     ]
 
     /// 取某个 Agent 的记录解析器。
+    ///
+    /// 没有解析器的 Agent 返回**空解析器**，而不是回退到 Claude：把别的格式按
+    /// Claude 的记录硬解会产出「看着有内容、其实是错的内容」，比没有历史更坏。
     static func schema(for kind: AgentKind) -> any AgentTranscriptSchema {
         if let schema = schemas[kind] { return schema }
-        // 尚未注册的 Agent 回退到 Claude 解析器，避免调用点崩溃。这条回退会让
-        // 记录被按错误的格式解析，界面上的表现只是「没有内容」，因此要留痕。
+        if let empty = emptySchemas[kind] { return empty }
+        // 将来新增 Agent 忘了注册时留一行痕（空解析器的表现是「没有历史」，
+        // 不留痕就查不出是漏注册还是真没有记录）。
         ConversationParser.logger.debug(
-            "Agent \(kind.rawValue, privacy: .public) 未注册记录解析器，回退到 Claude 解析器"
+            "Agent \(kind.rawValue, privacy: .public) 未注册记录解析器，本次读取不产出历史"
         )
-        return ClaudeTranscriptSchema()
+        return EmptyTranscriptSchema(kind: kind)
+    }
+}
+
+/// 没有可解析记录的 Agent 使用的空解析器。
+nonisolated final class EmptyTranscriptSchema: AgentTranscriptSchema {
+    let agent: AgentKind
+
+    init(kind: AgentKind) {
+        self.agent = kind
+    }
+
+    /// 没有记录文件。
+    func transcriptFile(sessionId: String, cwd: String) -> URL? { nil }
+
+    /// 什么都不产出（连「有新内容」都不报：没有记录可读）。
+    func read(sessionId: String, cwd: String, state: inout TranscriptParseState)
+        -> TranscriptReadResult
+    {
+        TranscriptReadResult.empty
     }
 }
 

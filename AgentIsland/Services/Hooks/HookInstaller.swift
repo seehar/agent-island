@@ -30,8 +30,10 @@ nonisolated struct HookInstaller {
     /// 脚本拷贝失败时配置里仍然写进一条指向不存在脚本的命令 —— Claude Code 会在每个事件
     /// 上跑一次注定失败的命令。现在脚本没落地就直接返回，配置保持原样。
     static func installIfNeeded() {
-        let hooksDir = ClaudePaths.hooksDir
-        let pythonScript = hooksDir.appendingPathComponent(Self.hookScriptName)
+        // 脚本的唯一落点是 `~/.agent-island/hooks/`（见 `AgentHookScript`）：Codex、
+        // Gemini、Cursor 等工具的 hook 也引用同一份文件，一份实现一处升级。
+        let hooksDir = AgentHookScript.directory()
+        let pythonScript = AgentHookScript.fileURL()
 
         do {
             try FileManager.default.createDirectory(
@@ -43,7 +45,14 @@ nonisolated struct HookInstaller {
             return
         }
 
+        // 清理两个位置上的遗留：改名前的旧名字，以及**旧落点上的同名脚本**
+        // （本批把落点从 `<claudeDir>/hooks/` 换成 `~/.agent-island/hooks/`）。
+        // 旧副本会继续上报到废弃的 socket，或与新脚本并存造成两份实现。
+        //
+        // 注意：共享落点（`hooksDir`）那一次**不能**带上当前文件名，否则会把正在用的
+        // 脚本删掉。
         removeLegacyHookScripts(in: hooksDir)
+        removeLegacyHookScripts(in: ClaudePaths.hooksDir, includingCurrentName: true)
 
         guard let bundled = Bundle.main.url(forResource: "agent-island-state", withExtension: "py")
         else {
@@ -69,8 +78,13 @@ nonisolated struct HookInstaller {
     }
 
     /// 清理改名前的 hook 脚本：旧脚本会继续往已废弃的 socket 发状态。
-    private static func removeLegacyHookScripts(in hooksDir: URL) {
-        for legacy in Self.legacyHookScriptNames {
+    ///
+    /// - Parameter includingCurrentName: 迁移期用：旧落点上还留着**当前文件名**的副本。
+    ///   只允许对 Claude 自己的 hooks 目录传 true——共享落点上那份是正在用的脚本。
+    private static func removeLegacyHookScripts(in hooksDir: URL, includingCurrentName: Bool = false) {
+        var names = Self.legacyHookScriptNames
+        if includingCurrentName { names.append(Self.hookScriptName) }
+        for legacy in names {
             let file = hooksDir.appendingPathComponent(legacy)
             guard FileManager.default.fileExists(atPath: file.path) else { continue }
             do {
@@ -312,19 +326,13 @@ nonisolated struct HookInstaller {
     /// 与安装同一套安全约束：读不到／读不懂配置文件时什么都不改（只删脚本），
     /// 也不会在文件本来不存在时凭空造一个空的 settings.json。
     static func uninstall() {
-        let hooksDir = ClaudePaths.hooksDir
-        let pythonScript = hooksDir.appendingPathComponent(Self.hookScriptName)
         let settings = ClaudePaths.settingsFile
 
-        removeLegacyHookScripts(in: hooksDir)
-
-        if FileManager.default.fileExists(atPath: pythonScript.path) {
-            do {
-                try FileManager.default.removeItem(at: pythonScript)
-            } catch {
-                logger.error("删除 hook 脚本失败：\(error.localizedDescription, privacy: .public)")
-            }
-        }
+        // 旧落点（`~/.claude/hooks/`）里的副本只属于 Claude，删干净；
+        // 共享落点 `~/.agent-island/hooks/` 的脚本不删——Codex / Gemini / Cursor 等
+        // 工具的 hook 同样引用它，按单个 Agent 卸载就删会让它们静默失效。
+        removeLegacyHookScripts(in: ClaudePaths.hooksDir, includingCurrentName: true)
+        removeLegacyHookScripts(in: AgentHookScript.directory())
 
         let fileExists = FileManager.default.fileExists(atPath: settings.path)
         guard fileExists else { return }
@@ -361,7 +369,9 @@ nonisolated struct HookInstaller {
         }
     }
 
-    private static func detectPython() -> String {
+    /// python 解释器探测：所有 Agent 的配置安装器共用这一份
+    /// （找不到 `python3` 就退回 `python`）。
+    nonisolated static func detectPython() -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
         process.arguments = ["python3"]
