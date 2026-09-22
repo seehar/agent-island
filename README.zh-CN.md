@@ -180,4 +180,4 @@ flowchart LR
 
 ## 致谢与许可
 
-AgentIsland 派生自 [engels74/claude-island](https://github.com/engels74/claude-island)，改名并扩展了 Oh My Pi / Pi / OpenCode 集成、多 Agent 审批、子代理可见性与设置面板。以 **Apache-2.0** 许可发布，见 [LICENSE.md](LICENSE.md)。
+AgentIsland 派生自 [farouqaldori/vibe-notch](https://github.com/farouqaldori/vibe-notch)（即此前的 Claude Island），改名并扩展了 Oh My Pi / Pi / OpenCode 集成、多 Agent 审批、子代理可见性与设置面板。以 **Apache-2.0** 许可发布，见 [LICENSE.md](LICENSE.md)。

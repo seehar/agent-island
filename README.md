@@ -180,4 +180,4 @@ Every state change goes through a single entry point (`SessionStore.process(_:)`
 
 ## Credits and license
 
-AgentIsland is a fork of [engels74/claude-island](https://github.com/engels74/claude-island), renamed and extended with the Oh My Pi / Pi / OpenCode integrations, multi-agent approvals, subagent visibility and the settings panel. Licensed under **Apache-2.0** — see [LICENSE.md](LICENSE.md).
+AgentIsland is a fork of [farouqaldori/vibe-notch](https://github.com/farouqaldori/vibe-notch) (formerly Claude Island), renamed and extended with the Oh My Pi / Pi / OpenCode integrations, multi-agent approvals, subagent visibility and the settings panel. Licensed under **Apache-2.0** — see [LICENSE.md](LICENSE.md).
