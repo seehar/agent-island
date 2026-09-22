@@ -10,6 +10,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import AgentIsland
@@ -98,7 +99,8 @@ struct UsageStatsLayoutTests {
           .localizedString(forKey: "Statistics", value: nil, table: nil)
         // 行的左右内边距 8 + 返回按钮 + 标题 + 三段 6pt 间距 + 范围控件 + 重新统计。
         let minimum =
-          2 * 8 + UsageStatsMetrics.headerActionSize + labelWidth(title, size: 13, weight: .semibold)
+          2 * 8 + UsageStatsMetrics.headerActionSize
+          + labelWidth(title, size: 13, weight: .semibold)
           + 3 * 6 + UsageStatsMetrics.headerRangeWidth + UsageStatsMetrics.headerActionSize
         #expect(minimum <= panel.width, "\(panel.name) 档下 \(code) 的页眉行需要 \(minimum)pt")
       }
@@ -169,14 +171,19 @@ struct UsageStatsLayoutTests {
     // 上限必须容得下最长的那条（否则刻度会被截断成「99.9…」）。
     #expect(
       widest + UsageStatsMetrics.chartYAxisLabelPadding <= UsageStatsMetrics.chartYAxisMaximumWidth,
-      "最长刻度要 \(widest + UsageStatsMetrics.chartYAxisLabelPadding)pt，上限只有 \(UsageStatsMetrics.chartYAxisMaximumWidth)pt")
+      "最长刻度要 \(widest + UsageStatsMetrics.chartYAxisLabelPadding)pt，上限只有 \(UsageStatsMetrics.chartYAxisMaximumWidth)pt"
+    )
 
     for label in labels {
       let width = (label as NSString).size(withAttributes: [.font: font]).width
       let gutter = UsageStatsMetrics.chartYAxisWidth(forLabelWidths: [width])
       #expect(gutter >= UsageStatsMetrics.chartYAxisMinimumWidth)
       #expect(gutter <= UsageStatsMetrics.chartYAxisMaximumWidth)
-      #expect(gutter >= min(UsageStatsMetrics.chartYAxisMaximumWidth, width + UsageStatsMetrics.chartYAxisLabelPadding))
+      #expect(
+        gutter
+          >= min(
+            UsageStatsMetrics.chartYAxisMaximumWidth,
+            width + UsageStatsMetrics.chartYAxisLabelPadding))
     }
 
     // 还没有峰值（过渡帧）时给空数组：落在下限上，不会退化成 0 宽度。
@@ -202,13 +209,98 @@ struct UsageStatsLayoutTests {
         monospacedWidth($0, size: UsageStatsMetrics.summaryNumberSize, weight: .semibold)
       }
       .max() ?? 0
-    let statNumber = monospacedWidth("9,999", size: UsageStatsMetrics.summaryStatSize, weight: .semibold)
+    let statNumber = monospacedWidth(
+      "9,999", size: UsageStatsMetrics.summaryStatSize, weight: .semibold)
     let sessions = max(statNumber, labelWidth("Sessions", size: 10))
     let calls = max(statNumber, labelWidth("Tool calls", size: 10))
 
     let needed =
       widestNumber + 8 + sessions + UsageStatsMetrics.summaryStatSpacing + calls
     #expect(needed <= available, "总览卡首行需要 \(needed)pt，只有 \(available)pt")
+  }
+
+  @Test("统计页在紧凑档面板宽度内不被裁切（曲线图不能按最宽档写死宽度）")
+  @MainActor
+  func statisticsPageFitsCompactWidth() {
+    // 面板宽 = min(screenRect.width * 0.4, panelWidthMax) × 面板尺寸档，内容宽再减列表内边距：
+    // 紧凑档下是 480 × 0.88 − 16 = 406.4pt。页面里只要有**按最宽档推出来的固定宽度**，
+    // 整页就会比容器宽、被居中裁掉两侧（实测曲线图的固定绘图区宽度 380 → 整页 464，
+    // 紧凑档左右各裁 15.5pt：「Total tokens」标签的墨迹左缘从 12 掉到 0）。
+    let compactContentWidth =
+      NotchMenuMetrics.panelWidthMax * PanelSize.compact.scale - NotchMenuMetrics.listPaddingHeight
+
+    let viewModel = UsageStatsViewModel()
+    viewModel.snapshot = statisticsFixtureSnapshot()
+
+    let leftMost = leftMostInk(
+      of: UsageStatsView(viewModel: viewModel).frame(width: compactContentWidth))
+
+    // 渲染失败时会返回 0（页面左上角不可能一个墨迹都没有）：先钉住「真的量到了像素」，
+    // 否则这条用例会在渲染失效时静默变成恒真断言。
+    #expect(leftMost > 0, "没有量到墨迹：离屏渲染可能失效了")
+    #expect(
+      leftMost >= NotchMenuMetrics.rowHorizontalPadding - 0.5,
+      "紧凑档（内容宽 \(compactContentWidth)pt）下页面左侧被裁 \(NotchMenuMetrics.rowHorizontalPadding - leftMost)pt"
+    )
+  }
+
+  /// 统计页的固定夹具：各段都要有数据——空段不参与版面，量不到真正的宽度。
+  @MainActor
+  private func statisticsFixtureSnapshot() -> UsageStatsSnapshot {
+    var snapshot = UsageStatsSnapshot(window: .preset(.all))
+    let totals = UsageTotals(
+      input: 1_000_000, output: 200_000, cacheRead: 900_000, cacheWrite: 50_000, sessions: 3,
+      calls: 120)
+    snapshot.totals = totals
+    snapshot.agents = [
+      AgentUsage(agent: .claudeCode, totals: totals),
+      AgentUsage(agent: .ohMyPi, totals: UsageTotals(input: 500_000, sessions: 1, calls: 40)),
+    ]
+    snapshot.models = [
+      ModelUsage(name: "claude-sonnet-4-5-20250929", totals: totals),
+      ModelUsage(name: "deepseek-v4-flash", totals: UsageTotals(input: 400_000, sessions: 2)),
+    ]
+    snapshot.tools = [ToolUsage(name: "bash", calls: 40), ToolUsage(name: "read", calls: 30)]
+    let start = Date(timeIntervalSince1970: 1_760_000_000)
+    snapshot.trend = (0..<30).map { index in
+      TrendPoint(
+        start: start.addingTimeInterval(Double(index) * 86_400), input: 10_000, output: 2_000,
+        cacheRead: 5_000, cacheWrite: 500, calls: 4)
+    }
+    snapshot.indexedAt = start
+    return snapshot
+  }
+
+  /// 视图离屏渲染后，左上角首个文字块的墨迹左缘（pt）。
+  ///
+  /// 页面比容器宽时 SwiftUI 会把它居中、裁掉两侧，因此这个值小于页内边距就说明被裁了。
+  /// 用像素而不是 `NSHostingView.fittingSize`：理想宽包含可伸缩元素（脚注这类长文本的
+  /// 不换行宽度，英文界面实测 448pt）——它超过容器并不等于被裁，判据会误报。
+  @MainActor
+  private func leftMostInk(of view: some View) -> CGFloat {
+    let renderer = ImageRenderer(content: view)
+    renderer.scale = 2
+    guard let image = renderer.cgImage else { return 0 }
+    let width = image.width
+    let height = image.height
+    var pixels = [UInt8](repeating: 0, count: width * height * 4)
+    guard
+      let context = CGContext(
+        data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+    else { return 0 }
+    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+    // 位图第 0 行对应图像顶部（`CGContext` 画完 `CGImage` 后是自顶向下的行序）。
+    func hasInk(_ x: Int, _ y: Int) -> Bool {
+      let offset = (y * width + x) * 4
+      return Int(pixels[offset]) + Int(pixels[offset + 1]) + Int(pixels[offset + 2]) > 120
+    }
+    for y in 0..<height {
+      for x in 0..<width where hasInk(x, y) { return CGFloat(x) / 2 }
+    }
+    return 0
   }
 
   @Test("模型榜两列排得开、token 列容得下最长文案")

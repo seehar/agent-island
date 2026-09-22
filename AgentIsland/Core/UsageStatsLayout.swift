@@ -25,8 +25,14 @@ nonisolated enum UsageStatsMetrics {
     /// 统计页的内容高度。取 560 与「面板 + 分组页眉 + 分段控件」的固定开销相加后仍在
     /// `NotchMenuMetrics.maxPanelHeight` 之内（有实测：见 `UsageStatsLayoutTests`）。
     static let sectionHeight: CGFloat = 560
-    /// 页面内容宽度：面板宽上限减去设置页的左右内边距（统计页与设置行左右对齐，
-    /// 自己不再加内边距）。工具榜两列、芯片网格、月历与曲线图都要在这个宽度内排下。
+    /// 页面内容宽度：**面板宽上限**减去设置页的左右内边距（统计页与设置行左右对齐，
+    /// 自己不再加内边距）。工具榜两列、芯片网格、月历与图例行都要在这个宽度内排下。
+    ///
+    /// 它是**最宽档**的判据，**不能当固定宽度用**：实际面板宽是
+    /// `min(screenRect.width * 0.4, panelWidthMax) × 面板尺寸档`（见 `NotchViewModel.openedSize`），
+    /// 紧凑档（422.4）与窄屏都会比它窄。按这个宽度写死尺寸会把整页撑破面板、再被左右裁掉
+    /// ——曾经就是曲线图的绘图区宽度（实测紧凑档左右各裁 15.5pt，见 `UsageTrendChart`；
+    /// 回归用例见 `UsageStatsLayoutTests` 的「统计页在紧凑档面板宽度内也排得下」）。
     static var contentWidth: CGFloat {
         NotchMenuMetrics.panelWidthMax - NotchMenuMetrics.listPaddingHeight
     }

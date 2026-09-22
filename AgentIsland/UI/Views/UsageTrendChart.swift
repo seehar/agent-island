@@ -7,6 +7,10 @@
 //  y 轴按**可见路的窗内峰值**归一（单轴、五路共用），因此同一张图里各路的高低是可比的；
 //  网格线、刻度与悬停读数都从同一份峰值推出，三处不会各算一套。
 //
+//  绘图区宽度取**可用宽度**（不是由面板宽上限推出的常量）：面板在紧凑档、或在窄屏上被
+//  `screenRect.width * 0.4` 卡住时会比上限窄，按上限推宽度会把整页撑到 464pt、落进窄面板
+//  后被左右各裁一刀（实测紧凑档裁 15.5pt，见 `UsageStatsLayoutTests` 的整页宽度用例）。
+//
 
 import AppKit
 import SwiftUI
@@ -72,20 +76,6 @@ struct UsageTrendChart: View {
                 as NSString).size(withAttributes: [.font: font]).width
         }
         return UsageStatsMetrics.chartYAxisWidth(forLabelWidths: widths)
-    }
-
-    /// 绘图区宽度：页内容宽 → 卡片内边距 → 左侧 y 轴刻度栏。
-    private var plotWidth: CGFloat {
-        max(
-            0,
-            UsageStatsMetrics.contentWidth
-                - 2 * NotchMenuMetrics.rowHorizontalPadding
-                - yAxisWidth
-        )
-    }
-
-    private var geometry: UsageChartGeometry {
-        UsageChartGeometry(plotWidth: plotWidth, plotHeight: UsageStatsMetrics.chartPlotHeight)
     }
 
     /// 数字短格式的语言代码（中文按「万 / 亿」，其余按 K / M，见 `UsageTokenFormat`）。
@@ -202,13 +192,27 @@ struct UsageTrendChart: View {
                 drawHover(context: &context, geometry: geometry, index: hoveredIndex)
             }
         }
-        .frame(width: plotWidth, height: UsageStatsMetrics.chartPlotHeight)
-        .onContinuousHover(coordinateSpace: .local) { phase in
-            switch phase {
-            case .active(let location):
-                hoveredIndex = geometry.nearestIndex(x: location.x, count: points.count)
-            case .ended:
-                hoveredIndex = nil
+        .frame(maxWidth: .infinity)
+        .frame(height: UsageStatsMetrics.chartPlotHeight)
+        // 命中带：与绘图区同尺寸的一层透明覆盖。命中换算要知道**这一帧实测的**绘图区宽度
+        // （绘图自己从 Canvas 的 size 拿宽度，但 hover 回调只给坐标），因此这里用
+        // `GeometryReader` 取布局当帧的宽度——它是布局容器、不引入状态，也就没有
+        // 「先按 0 宽渲染一帧」的问题（同步快照同样拿到正确宽度）。
+        .overlay {
+            GeometryReader { proxy in
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onContinuousHover(coordinateSpace: .local) { phase in
+                        switch phase {
+                        case .active(let location):
+                            let geometry = UsageChartGeometry(
+                                plotWidth: proxy.size.width,
+                                plotHeight: UsageStatsMetrics.chartPlotHeight)
+                            hoveredIndex = geometry.nearestIndex(x: location.x, count: points.count)
+                        case .ended:
+                            hoveredIndex = nil
+                        }
+                    }
             }
         }
     }
