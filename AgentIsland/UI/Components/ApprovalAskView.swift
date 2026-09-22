@@ -5,9 +5,9 @@
 //  待批卡片的「交互式提问」形态：`ask` 工具不是批准/拒绝，而是要在刘海上选答案。
 //  这里渲染问题、选项与自由文本输入，并把「提交 / 跳过」折成回传决定。
 //
-//  尺寸受限于刘海面板的对话区（面板高度固定），所以整体是一张紧凑卡：标题行 +
-//  可滚动的提问区（有高度上限）+ 底部按钮，字号、间距与底色沿用对话区既有取值，
-//  不引入新的视觉规格。
+//  作答时这张卡**独占整个对话区**（撑满头部以下，历史列表与底部条都让位）：
+//  问题多、选项长时选项区滚动，卡片本身不再有高度上限——上限在对话区本身。
+//  字号、间距与底色沿用对话区既有取值，不引入新的视觉规格。
 //
 //  选择状态是独立的纯值类型（`AskSelection`），视图只负责渲染与转发：这样
 //  「选择 → 答案字典」那一段可以脱离 UI 独立验证（见 q2 探针）。
@@ -125,9 +125,6 @@ struct ApprovalAskView: View {
     /// 选择状态（纯值类型，答案字典由它构造）。
     @State private var selection = AskSelection()
 
-    /// 提问区的高度上限：面板高度固定，问题多时在区内滚动，不吃掉消息列表。
-    private let scrollMaxHeight: CGFloat = 200
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
@@ -140,7 +137,7 @@ struct ApprovalAskView: View {
                 }
                 .padding(.bottom, 2)
             }
-            .frame(maxHeight: scrollMaxHeight)
+            .frame(maxHeight: .infinity)
             .scrollBounceBehavior(.basedOnSize)
 
             if showsNoneHint {
@@ -154,6 +151,7 @@ struct ApprovalAskView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color.black.opacity(0.2))
     }
 

@@ -60,14 +60,28 @@ struct ChatView: View {
   session.phase.approvalToolName
  }
 
+ /// 待作答的 `ask` 问题集。非空时作答卡独占对话区（历史列表与底部条都让位）。
+ /// 三个条件缺一不可：待批工具是交互式提问、信封确实带了 `ask` 载荷、该 Agent
+ /// 的决定能回传（否则卡片给不出可用入口，退回「去终端作答」）。
+ private var activeAsk: AskPayload? {
+  guard let tool = approvalTool,
+   key.agent.isInteractiveTool(tool),
+   key.agent.approval.canDecideRemotely,
+   let ask = pendingAsk
+  else { return nil }
+  return ask
+ }
+
  var body: some View {
   ZStack {
    VStack(spacing: 0) {
     // Header
     chatHeader
 
-    // Messages
-    if isLoading {
+    // 待作答：作答卡独占整个对话区，历史列表让位。
+    if let ask = activeAsk {
+     askCard(ask)
+    } else if isLoading {
      loadingState
     } else if history.isEmpty {
      emptyState
@@ -75,42 +89,10 @@ struct ChatView: View {
      messageList
     }
 
-    // Approval bar, interactive prompt, or Input bar
-    if let tool = approvalTool {
-     if key.agent.isInteractiveTool(tool) {
-      // 交互式提问不是批准/拒绝：信封带 `ask` 时直接在刘海上作答；没有载荷
-      // （例如 Claude 的 AskUserQuestion 只走 hook、不带 ask）才退回「去终端作答」，
-      // 免得给出误导性的 Allow/Deny。
-      Group {
-       if let ask = pendingAsk, key.agent.approval.canDecideRemotely {
-        askBar(ask)
-       } else {
-        interactivePromptBar
-       }
-      }
-      .transition(
-       .asymmetric(
-        insertion: .opacity.combined(with: .move(edge: .bottom)),
-        removal: .opacity
-       ))
-     } else {
-      approvalBar(tool: tool)
-       .transition(
-        .asymmetric(
-         insertion: .opacity.combined(with: .move(edge: .bottom)),
-         removal: .opacity
-        ))
-     }
-    } else {
-     VStack(spacing: 0) {
-      if let sendErrorMessage {
-       SettingsNotice(message: sendErrorMessage)
-        .padding(.top, 8)
-      }
-
-      inputBar
-     }
-     .transition(.opacity)
+    // 底部条：作答卡占据对话区时整条不渲染——卡片本身已经是整个面，
+    // 再画一条会变成同一张卡出现两次。
+    if activeAsk == nil {
+     bottomBar
     }
    }
   }
@@ -454,15 +436,53 @@ struct ChatView: View {
   .zIndex(1)  // Render above message list
  }
 
+ /// 底部条：待批卡片 / 交互式提示 / 输入框。作答卡占据对话区时整条不渲染。
+ @ViewBuilder
+ private var bottomBar: some View {
+  if let tool = approvalTool {
+   if key.agent.isInteractiveTool(tool) {
+    // 交互式提问不是批准/拒绝：信封带 `ask` 且决定能回传时，问题已经在
+    // 对话区作答（见 `activeAsk`），这里只剩两种兜底——载荷缺失（Claude 的
+    // AskUserQuestion 只走 hook、不带 ask）或该 Agent 无法远程决定——都退回
+    // 「去终端作答」，免得给出误导性的 Allow/Deny。
+    interactivePromptBar
+     .transition(
+      .asymmetric(
+       insertion: .opacity.combined(with: .move(edge: .bottom)),
+       removal: .opacity
+      ))
+   } else {
+    approvalBar(tool: tool)
+     .transition(
+      .asymmetric(
+       insertion: .opacity.combined(with: .move(edge: .bottom)),
+       removal: .opacity
+      ))
+   }
+  } else {
+   VStack(spacing: 0) {
+    if let sendErrorMessage {
+     SettingsNotice(message: sendErrorMessage)
+      .padding(.top, 8)
+    }
+
+    inputBar
+   }
+   .transition(.opacity)
+  }
+ }
+
  // MARK: - Approval Bar
 
- /// 作答卡：选项、自由文本与提交/跳过都在刘海上完成。
- private func askBar(_ ask: AskPayload) -> some View {
+ /// 作答卡：独占对话区（撑满头部以下），选项、自由文本与提交/跳过都在刘海上完成。
+ private func askCard(_ ask: AskPayload) -> some View {
   ApprovalAskView(
    ask: ask,
    onSubmit: { answerPermission($0) },
    onSkip: { denyPermission() }
   )
+  .frame(maxWidth: .infinity, maxHeight: .infinity)
+  .transition(.opacity)
  }
 
  private func approvalBar(tool: String) -> some View {
