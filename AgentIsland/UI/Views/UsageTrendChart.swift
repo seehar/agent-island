@@ -43,7 +43,14 @@ struct UsageTrendChart: View {
 
             HStack(spacing: 0) {
                 yAxisLabels
-                chartArea
+
+                // 绘图区宽度取**这一帧实测**的可用宽度：`GeometryReader` 只负责把宽度交给
+                // 绘图区（它自己不做命中层），悬停仍然挂在 `Canvas` 自己身上——与改动前是
+                // 同一个命中面，命中与绘制用的也是同一个宽度。
+                GeometryReader { proxy in
+                    chartArea(plotWidth: proxy.size.width)
+                }
+                .frame(height: UsageStatsMetrics.chartPlotHeight)
             }
 
             xAxis
@@ -163,7 +170,7 @@ struct UsageTrendChart: View {
     // MARK: - 绘图区
 
     /// 绘图区：网格线 + 面积填充 + 曲线（一次 Canvas 画完），悬停时补十字线与圆点。
-    private var chartArea: some View {
+    private func chartArea(plotWidth: CGFloat) -> some View {
         Canvas { context, size in
             let geometry = UsageChartGeometry(plotWidth: size.width, plotHeight: size.height)
             drawGrid(context: &context, geometry: geometry)
@@ -194,25 +201,16 @@ struct UsageTrendChart: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: UsageStatsMetrics.chartPlotHeight)
-        // 命中带：与绘图区同尺寸的一层透明覆盖。命中换算要知道**这一帧实测的**绘图区宽度
-        // （绘图自己从 Canvas 的 size 拿宽度，但 hover 回调只给坐标），因此这里用
-        // `GeometryReader` 取布局当帧的宽度——它是布局容器、不引入状态，也就没有
-        // 「先按 0 宽渲染一帧」的问题（同步快照同样拿到正确宽度）。
-        .overlay {
-            GeometryReader { proxy in
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onContinuousHover(coordinateSpace: .local) { phase in
-                        switch phase {
-                        case .active(let location):
-                            let geometry = UsageChartGeometry(
-                                plotWidth: proxy.size.width,
-                                plotHeight: UsageStatsMetrics.chartPlotHeight)
-                            hoveredIndex = geometry.nearestIndex(x: location.x, count: points.count)
-                        case .ended:
-                            hoveredIndex = nil
-                        }
-                    }
+        // 悬停换算用外层给的宽度；`Canvas` 绘制用同一个宽度（它自己的 `size.width`），
+        // 两者同源，十字线与命中的桶永远对得上。
+        .onContinuousHover(coordinateSpace: .local) { phase in
+            switch phase {
+            case .active(let location):
+                let geometry = UsageChartGeometry(
+                    plotWidth: plotWidth, plotHeight: UsageStatsMetrics.chartPlotHeight)
+                hoveredIndex = geometry.nearestIndex(x: location.x, count: points.count)
+            case .ended:
+                hoveredIndex = nil
             }
         }
     }
