@@ -83,11 +83,22 @@ final class AgentSessionDiscovery {
                 let key = SessionKey(agent: kind, sessionId: candidate.sessionId)
                 if !knownKeys.contains(key) {
                     knownKeys.insert(key)
-                    Self.logger.info(
-                        "Discovered \(kind.rawValue, privacy: .public) session in \(candidate.cwd, privacy: .public)"
-                    )
-                    await SessionStore.shared.process(
-                        .hookReceived(Self.startEvent(candidate, process: soleProcess)))
+                    // 会话可能已经由实时事件建过（集成先上报、发现后跑到）。此时**不要**补发
+                    // 那条合成的 `SessionStart`：它的 status 是 `idle`，会把「等待审批 / 等待
+                    // 作答」推回空闲——实测卡片出现十几秒后（下一轮发现）自己消失，而待批连接
+                    // 还挂着，用户再也点不到（2026-09-22）。发现的本职是补登应用启动前就存在的
+                    // 会话，对已在库里的会话只驱动记录同步。
+                    if await SessionStore.shared.session(for: key) == nil {
+                        Self.logger.info(
+                            "Discovered \(kind.rawValue, privacy: .public) session in \(candidate.cwd, privacy: .public)"
+                        )
+                        await SessionStore.shared.process(
+                            .hookReceived(Self.startEvent(candidate, process: soleProcess)))
+                    } else {
+                        Self.logger.debug(
+                            "Session \(key.rawValue, privacy: .public) already known; skipping synthesized SessionStart"
+                        )
+                    }
                 }
                 await SessionStore.shared.pollSession(key: key, cwd: candidate.cwd)
             }

@@ -169,10 +169,23 @@ nonisolated enum SessionPhase: Sendable {
     /// 冲突时以事实为准。现实里这条冲突很常见：闸门版集成先发闸门信封、后发 `PreToolUse`
     /// （两条独立连接、彼此不保序），实测 `PreToolUse` 会在 74ms 后把相位推回 `processing`，
     /// 卡片随之消失——工具于是一直挂到客户端预算耗尽被静默拒绝，用户侧毫无反馈。
+    ///
+    /// 同一类冲突还有两条**把卡片彻底抹掉**的路径（2026-09-22 实测：Claude 的提问卡出现
+    /// 十几秒后自己消失，而待批连接还挂着、用户再也点不到）：
+    /// * 会话发现给刚由实时事件建立的会话补发一条 `SessionStart` + `status: idle` → `.idle`
+    ///   （源头已另修：`AgentSessionDiscovery` 不再给库里已有的会话补登）；
+    /// * Claude 在等待期间发 `Notification(idle_prompt)` → `.idle`。
+    /// 两者都会让相位离开「等待审批」。`.idle` 因此一并挡住——它是「什么都没发生」的描述，
+    /// 而待批是可点的事实。
+    ///
+    /// 放行的三类：`.ended`（进程退出/会话结束是既成事实）、`.waitingForInput`（`Stop`：
+    /// 终端里已经收手，那条待批已无意义）、`.compacting`（压缩是真实活动，且压缩结束后
+    /// 会有新的状态上报）。`.waitingForApproval` 自身也照旧放行（并发待批）。
     nonisolated static func statusUpdateBlockedByPending(
         current: SessionPhase, next: SessionPhase, hasLivePending: Bool
     ) -> Bool {
-        current.isWaitingForApproval && next == .processing && hasLivePending
+        guard current.isWaitingForApproval, hasLivePending else { return false }
+        return next == .processing || next == .idle
     }
 
     /// Whether this phase indicates the session needs user attention

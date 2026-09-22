@@ -92,9 +92,32 @@ struct SessionPhaseTests {
         #expect(
             !SessionPhase.statusUpdateBlockedByPending(
                 current: .processing, next: .processing, hasLivePending: true))
+        // 这三类是真实信号，照旧放行：Stop（终端已收手）、压缩活动、会话结束。
         #expect(
             !SessionPhase.statusUpdateBlockedByPending(
                 current: approval, next: .waitingForInput, hasLivePending: true))
+        #expect(
+            !SessionPhase.statusUpdateBlockedByPending(
+                current: approval, next: .compacting, hasLivePending: true))
+        #expect(
+            !SessionPhase.statusUpdateBlockedByPending(
+                current: approval, next: .ended, hasLivePending: true))
+    }
+
+    @Test("待批在手时，空闲上报不许把卡片抹掉")
+    func pendingHoldsAgainstIdle() {
+        // 「什么都没发生」的描述（发现补登的 SessionStart/idle、Claude 的 idle_prompt 通知）
+        // 会把相位推回空闲 → 卡片消失而待批连接还挂着（2026-09-22 实测的报障）。
+        #expect(
+            SessionPhase.statusUpdateBlockedByPending(
+                current: approval, next: .idle, hasLivePending: true))
+        // 没有待批在等时照旧生效；当前相位不是等待审批时也不归它管。
+        #expect(
+            !SessionPhase.statusUpdateBlockedByPending(
+                current: approval, next: .idle, hasLivePending: false))
+        #expect(
+            !SessionPhase.statusUpdateBlockedByPending(
+                current: .idle, next: .idle, hasLivePending: true))
     }
 
     @Test("审批上下文只按工具 id、工具名与到达时间比较")

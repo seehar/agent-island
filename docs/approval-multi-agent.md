@@ -889,6 +889,46 @@ opencode 1.18.32 的提问是一个**工具**（`question`）+ 一对事件：`q
 **版本戳**：插件文件头 `agent-island-opencode-plugin-version: 3`，与
 `AgentIntegrationInstaller.openCodePluginVersion` 同步（安装器只比版本戳判「是否该重装」）。
 
+### 12.8 待批卡片的存活性：状态上报不许把它抹掉（v7 新增）
+
+**不变量（已写成用例）**：只要服务端还攥着一条待批连接（`hasLivePending`），**状态类**事件就
+不得把相位从「等待审批 / 等待作答」搬走；只有 `.ended`（进程退出/会话结束）、`.waitingForInput`
+（终端已收手）与 `.compacting`（压缩是真实活动）三类真实信号例外。判据落在
+`SessionPhase.statusUpdateBlockedByPending(current:next:hasLivePending:)`。
+
+**v6 及以前只挡了 `.processing`**，于是有两条路径能把卡片**彻底抹掉**（2026-09-22 实测：Claude
+的提问卡出现十几秒后自己消失，而待批连接还挂着、用户再也点不到）：
+
+| 路径 | 事件 → 相位 | 触发时机 |
+| --- | --- | --- |
+| 会话发现补登 | `AgentSessionDiscovery` 合成 `SessionStart` + `status: idle` → `.idle` | 实时事件先建了会话、发现器后跑到：每个会话只补一次，因此**恰恰是「刚提问的头十几秒」** |
+| Claude 空闲通知 | `Notification(idle_prompt)` → `.idle` | Claude 在等待期间认为自己空闲时 |
+
+一手证据（`opencode`/`claude` 都走同一条发现器）：一次真机 Claude 提问的 debug 流是
+
+```
+19:02:11.299 Received: PreToolUse for 867747b3        （缓存 tool_use_id）
+19:02:11.416 Received: PermissionRequest for 867747b3 （登记待批 + ask；相位 → waitingForApproval）
+19:02:11.512 Processing: fileUpdated(claude:867747b3…)
+19:02:21.309 Processing: hookReceived(SessionStart, session: 867747b3)   ← 发现器补登，相位被推回 idle
+```
+
+`determinePhase()` 对 `SessionStart`(status `idle`) 与 `idle_prompt` 都返回 `.idle`，而
+`.waitingForApproval → .idle` 在相位表里是允许的 → 卡片消失（同一条会话的行从「等待作答」变回
+普通行，「作答」胶囊消失），待批与那条连接却还在（页面无任何可点入口）。
+
+**两处修改**：
+
+1. `SessionPhase.statusUpdateBlockedByPending` 把 `.idle` 一并挡住（`.ended` / `.waitingForInput` /
+   `.compacting` / `.waitingForApproval` 照旧放行）；
+2. `AgentSessionDiscovery` 补登前先看库里有没有这个会话：已有（由实时事件建立的）就不补发那条
+   合成 `SessionStart`，只驱动记录同步。发现器的本职是「补登应用启动前就存在的会话」，不是重新
+   宣告活会话。
+
+**验收判据**：注入一条 `ToolApproval`/`PermissionRequest` + `ask`（保持连接）→ 面板出现「作答」
+胶囊 → 再注入 `SessionStart`/`idle`（或 `Notification(idle_prompt)`）→ 胶囊**仍在**、连接仍未收到
+决定；真机 Claude 提问在 t+3s 与 t+80s 两个时刻都应看得到胶囊（发现器会在其间跑好几轮）。
+
 ## 附录 A：本方案新增的实测证据
 
 | # | 实验 | 命令/对象 | 结果 | 用于 |
@@ -904,6 +944,8 @@ opencode 1.18.32 的提问是一个**工具**（`question`）+ 一对事件：`q
 | **E9（v4）** | 同一链路的脚本级 harness（37 断言） | `/tmp/ai-approve/r1-probe/harness.py`（真 unix socket 替身 + 真脚本子进程） | `answer`→`behavior:"allow"` 且 `updatedInput.answers` 逐字段相符、`questions` 原样回带；`deny`→`behavior:"deny"`+message；沉默→2s（压小后的预算）到点、`exit 0` 且 **stdout 为空**；非 ask 的 `PermissionRequest`→字节与改造前逐字一致；旧应用只回 `allow`→字节不变；应用不可达→0.03s 返回且无输出；畸形/对不上的 `answer`→无输出回落原生 | §12.6 |
 
 | **E10（v6）** | opencode 提问事件的真实形状（真 CLI，修复前） | `AGENT_ISLAND_SOCKET=<探针>` + `opencode serve` + 真插件（与仓库/包内副本逐字节相同）+ 模型 `opencode/mimo-v2.6-flash-free`，提示「用 question 工具问我三个选项」 | 插件发出 `PreToolUse(tool:question, 完整 questions)` 与 `ToolApproval(waiting_for_approval)`——**无 `tool` / 无 `ask` / 无 `expects_response`**；opencode 事件 `question.asked` 带 `que_…` 与 `{question, header, options[{label,description}], multiple}`；`POST /session/{id}/message` 挂满 60s 超时（服务端在等作答）→ 复现「刘海给批准按钮、按钮又无效」 | §12.7 |
+
+| **E11（v7）** | 待批卡片被空闲上报抹掉 + 修复后存活 | 真机 Claude 2.1.278（`~/.claude/hooks/agent-island-state.py`，与仓库资源同 sha256）+ 真应用：`log stream --level debug` 抓事件流；另有注入脚本 `/tmp/notch-verify/ab-flip2.py`（注入 ask + `SessionStart`/idle，量「作答」胶囊像素） | 修复前：`PermissionRequest` 后 10s 出现 `hookReceived(SessionStart, session: …)`，相位离开 waitingForApproval、行上的「作答」胶囊消失而待批连接仍挂着（t+3s 有胶囊、t+66s 无）。修复后：同一注入序列下胶囊保持、连接仍未收到决定 | §12.8 |
 
 **非本方案作者运行的实验（引用他人结果）**：`RUN A–J` / `TUI-1,2` / `RPC-1,2` 来自 WS-A 的隔离实验；`T1–T10` / `R1–R3` 来自 WS-E 的隔离实验（脚本 `/tmp/ai-approve/{run_probe.sh, ext/probe.ts, ws-e-rpc-probe.py, ws-e-rpc-plain.py}`，日志 `/tmp/ai-approve/logs/probe.jsonl`）。本方案只引用其结论并标注用途。</
 
