@@ -157,8 +157,12 @@ struct UsageStatsLayoutTests {
   @Test("y 轴刻度栏按最长刻度文案放宽，且不越过上限")
   func yAxisGutterFitsWidestLabel() {
     let font = NSFont.systemFont(ofSize: UsageStatsMetrics.chartYAxisLabelSize)
-    // 现实里最长的刻度文案：中文的「99.99亿」与英文的「99.99M」都是 6 个字符。
-    let labels = ["9,999", "99.99万", "9999万", "99.99亿", "9999亿", "12.49K", "99.99M", "1000B"]
+    // 现实里最长的刻度文案：缩写值一律 2 位小数，所以大数会有 8–9 个字符
+    // （`9999.99亿` / `1000.00B`），刻度栏必须按它们量出来。
+    let labels = [
+      "9,999", "1234.57万", "9999.99万", "695.39亿", "9999.99亿", "10000.00亿",
+      "12.49K", "999.99K", "999.99M", "1000.00B",
+    ]
 
     let widest =
       labels.map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
@@ -191,9 +195,9 @@ struct UsageStatsLayoutTests {
   func summaryNumberFitsWithStats() {
     let available = UsageStatsMetrics.contentWidth - 2 * NotchMenuMetrics.rowHorizontalPadding
 
-    // 短格式的位数上限是 6（见 `tokenShortFormatStaysShort`），这里按位数最长的取值量。
+    // 缩写值一律 2 位小数，最长的那几档是 8–9 个字符（见 `tokenShortFormatKeepsTwoDecimals`）。
     let widestNumber =
-      ["9,999", "99.99万", "9999万", "99.99亿", "9999亿", "99.99M"]
+      ["9,999", "9999.99万", "1234.57万", "9999.99亿", "10000.00亿", "1000.00B"]
       .map {
         monospacedWidth($0, size: UsageStatsMetrics.summaryNumberSize, weight: .semibold)
       }

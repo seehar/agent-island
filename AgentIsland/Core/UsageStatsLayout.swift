@@ -130,7 +130,9 @@ nonisolated enum UsageStatsMetrics {
     /// 刻度文案会随量级变长（`1235万` / `695亿`），固定宽度会把它截断，因此宽度是按
     /// 真实文案量出来再夹在这两个界限之间（见 `chartYAxisWidth(forLabelWidths:)`）。
     static let chartYAxisMinimumWidth: CGFloat = 34
-    static let chartYAxisMaximumWidth: CGFloat = 56
+    /// 上限取 60：缩写值一律 2 位小数后，最长的刻度文案（`10000.00亿` / `1000.00B`）
+    /// 实测要 57.6pt（含留白），56 会把它截断（`UsageStatsLayoutTests` 实测数据）。
+    static let chartYAxisMaximumWidth: CGFloat = 60
     static let chartYAxisLabelPadding: CGFloat = 6
     /// y 轴网格线条数（0 / 峰值一半 / 峰值）与横轴刻度个数。
     static let chartGridLineCount = 3
