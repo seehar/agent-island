@@ -4,7 +4,7 @@
 //
 //  用量统计自己的 SQLite 库（唯一新增的可写持久化文件）。表结构只有两处：
 //    · `indexed_source`：增量读取进度（每个 JSONL 文件一行、OpenCode 每个消息一行）；
-//    · `usage_bucket`：按「本地小时 + 会话 + 子代理标记 + 工具名」聚合的用量桶。
+//    · `usage_bucket`：按「本地小时 + 会话 + 子代理标记 + 工具名 + 模型」聚合的用量桶。
 //
 //  所有指标都由 `usage_bucket` 聚合得出，写入语义只有两条：
 //    · `append`：只把新读到的字节 / 新处理的消息对应的增量累加进去（增量读取）；
@@ -26,6 +26,8 @@ nonisolated struct UsageBucketDelta: Equatable {
   var isSubagent = false
   /// 工具名（已归一化）；空串表示这条贡献只带 token、不含工具调用。
   var tool = ""
+  /// 模型标识；空串表示这条贡献不参与模型拆分（工具调用计数行一律为空）。
+  var model = ""
   var records = 0
   var calls = 0
   var input = 0
@@ -103,6 +105,7 @@ nonisolated final class UsageStatsStore {
     // WAL + NORMAL：写入随时可能被应用退出打断，这两项让「半途退出」不损坏库。
     try execute("PRAGMA journal_mode = WAL;")
     try execute("PRAGMA synchronous = NORMAL;")
+    try dropLegacySchemaIfNeeded()
     try createSchema()
   }
 
@@ -141,17 +144,32 @@ nonisolated final class UsageStatsStore {
         hour_key    TEXT NOT NULL,
         is_subagent INTEGER NOT NULL DEFAULT 0,
         tool        TEXT NOT NULL DEFAULT '',
+        model       TEXT NOT NULL DEFAULT '',
         records     INTEGER NOT NULL DEFAULT 0,
         calls       INTEGER NOT NULL DEFAULT 0,
         input       INTEGER NOT NULL DEFAULT 0,
         output      INTEGER NOT NULL DEFAULT 0,
         cache_read  INTEGER NOT NULL DEFAULT 0,
         cache_write INTEGER NOT NULL DEFAULT 0,
-        PRIMARY KEY (source_id, hour_key, is_subagent, session_id, tool)
+        PRIMARY KEY (source_id, hour_key, is_subagent, session_id, tool, model)
       );
       """)
     try execute("CREATE INDEX IF NOT EXISTS usage_bucket_hour ON usage_bucket(hour_key, agent);")
     try execute("CREATE INDEX IF NOT EXISTS usage_bucket_tool ON usage_bucket(tool);")
+    try execute("CREATE INDEX IF NOT EXISTS usage_bucket_model ON usage_bucket(model, hour_key);")
+  }
+
+  /// 旧库的 `usage_bucket` 没有 `model` 列，而 SQLite 改不了主键——整表 drop，并把
+  /// `indexed_source` 一起清掉：读取进度留着的话历史记录的模型永远补不回来，只能让
+  /// 下一轮从头回填（统计的唯一事实源是磁盘上的记录，重建不丢数据）。
+  private func dropLegacySchemaIfNeeded() throws {
+    let columns = try query("PRAGMA table_info(usage_bucket);", values: []) { statement in
+      self.text(statement, 1)
+    }
+    guard !columns.isEmpty, !columns.contains("model") else { return }
+    try execute("DROP TABLE usage_bucket;")
+    try execute("DROP TABLE IF EXISTS indexed_source;")
+    Self.logger.notice("用量统计库结构升级：旧表缺 model 列，已清空，下一轮将重新回填。")
   }
 
   // MARK: - 进度
@@ -266,10 +284,10 @@ nonisolated final class UsageStatsStore {
     let sql =
       """
       INSERT INTO usage_bucket
-        (source_id, agent, session_id, hour_key, is_subagent, tool,
+        (source_id, agent, session_id, hour_key, is_subagent, tool, model,
          records, calls, input, output, cache_read, cache_write)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(source_id, hour_key, is_subagent, session_id, tool) DO UPDATE SET
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(source_id, hour_key, is_subagent, session_id, tool, model) DO UPDATE SET
         records = records + excluded.records,
         calls = calls + excluded.calls,
         input = input + excluded.input,
@@ -294,12 +312,13 @@ nonisolated final class UsageStatsStore {
       bind(statement, 4, .text(delta.hourKey))
       bind(statement, 5, .integer(delta.isSubagent ? 1 : 0))
       bind(statement, 6, .text(delta.tool))
-      bind(statement, 7, .integer(Int64(delta.records)))
-      bind(statement, 8, .integer(Int64(delta.calls)))
-      bind(statement, 9, .integer(Int64(delta.input)))
-      bind(statement, 10, .integer(Int64(delta.output)))
-      bind(statement, 11, .integer(Int64(delta.cacheRead)))
-      bind(statement, 12, .integer(Int64(delta.cacheWrite)))
+      bind(statement, 7, .text(delta.model))
+      bind(statement, 8, .integer(Int64(delta.records)))
+      bind(statement, 9, .integer(Int64(delta.calls)))
+      bind(statement, 10, .integer(Int64(delta.input)))
+      bind(statement, 11, .integer(Int64(delta.output)))
+      bind(statement, 12, .integer(Int64(delta.cacheRead)))
+      bind(statement, 13, .integer(Int64(delta.cacheWrite)))
       guard sqlite3_step(statement) == SQLITE_DONE else {
         throw UsageStatsStoreError.stepFailed(errorMessage)
       }
@@ -394,6 +413,32 @@ nonisolated final class UsageStatsStore {
       }
       .compactMap { $0 }
       .sorted { $0.totals.total > $1.totals.total }
+
+    snapshot.models =
+      try query(
+        """
+        SELECT model, COALESCE(SUM(input), 0), COALESCE(SUM(output), 0),
+               COALESCE(SUM(cache_read), 0), COALESCE(SUM(cache_write), 0),
+               COALESCE(SUM(calls), 0),
+               COUNT(DISTINCT CASE WHEN is_subagent = 0 THEN session_id END)
+        FROM usage_bucket
+        WHERE model <> '' \(filter.clause.isEmpty ? "" : "AND \(filter.clause)")
+        GROUP BY model
+        ORDER BY (SUM(input) + SUM(output) + SUM(cache_read) + SUM(cache_write)) DESC, model ASC;
+        """, values: values
+      ) { statement in
+        guard let name = self.text(statement, 0) else { return nil }
+        return ModelUsage(
+          name: name,
+          totals: UsageTotals(
+            input: Int(sqlite3_column_int64(statement, 1)),
+            output: Int(sqlite3_column_int64(statement, 2)),
+            cacheRead: Int(sqlite3_column_int64(statement, 3)),
+            cacheWrite: Int(sqlite3_column_int64(statement, 4)),
+            sessions: Int(sqlite3_column_int64(statement, 6)),
+            calls: Int(sqlite3_column_int64(statement, 5))
+          ))
+      }.compactMap { $0 }
 
     snapshot.tools =
       try query(

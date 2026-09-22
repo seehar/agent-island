@@ -2234,6 +2234,23 @@
         }
       }
     },
+
+    "Models" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Models"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型"
+          }
+        }
+      }
+    },
     "Monitored Agents" : {
       "localizations" : {
         "en" : {

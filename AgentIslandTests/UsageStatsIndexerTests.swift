@@ -57,26 +57,26 @@ struct UsageStatsIndexerTests {
   /// omp / pi 的记录：条目级 ISO8601 时间戳，工具调用在 `message.content[].type == "toolCall"`。
   private func piLine(
     date: Date, input: Int, output: Int, cacheRead: Int, cacheWrite: Int, tools: [String],
-    role: String = "assistant", suffix: String = ""
+    role: String = "assistant", suffix: String = "", model: String = "gpt-5.2-codex"
   ) -> String {
     let content = tools.map {
       "{\"type\":\"toolCall\",\"id\":\"\(UUID().uuidString)\",\"name\":\"\($0)\"}"
     }.joined(separator: ",")
     return """
-      {"type":"message","timestamp":"\(iso(date))","message":{"role":"\(role)","usage":{"input":\(input),"output":\(output),"cacheRead":\(cacheRead),"cacheWrite":\(cacheWrite)},"content":[\(content)]}}\(suffix)
+      {"type":"message","timestamp":"\(iso(date))","message":{"role":"\(role)","model":"\(model)","usage":{"input":\(input),"output":\(output),"cacheRead":\(cacheRead),"cacheWrite":\(cacheWrite)},"content":[\(content)]}}\(suffix)
       """
   }
 
   /// Claude Code 的记录：顶层 ISO8601 时间戳，工具调用在 `message.content[].type == "tool_use"`。
   private func claudeLine(
     date: Date, isSidechain: Bool, input: Int, output: Int, cacheRead: Int, cacheWrite: Int,
-    tools: [String], suffix: String = ""
+    tools: [String], suffix: String = "", model: String = "claude-sonnet-4-5"
   ) -> String {
     let content = tools.map {
       "{\"type\":\"tool_use\",\"id\":\"\(UUID().uuidString)\",\"name\":\"\($0)\",\"input\":{}}"
     }.joined(separator: ",")
     return """
-      {"type":"assistant","isSidechain":\(isSidechain),"timestamp":"\(iso(date))","message":{"role":"assistant","usage":{"input_tokens":\(input),"output_tokens":\(output),"cache_read_input_tokens":\(cacheRead),"cache_creation_input_tokens":\(cacheWrite)},"content":[\(content)]}}\(suffix)
+      {"type":"assistant","isSidechain":\(isSidechain),"timestamp":"\(iso(date))","message":{"role":"assistant","model":"\(model)","usage":{"input_tokens":\(input),"output_tokens":\(output),"cache_read_input_tokens":\(cacheRead),"cache_creation_input_tokens":\(cacheWrite)},"content":[\(content)]}}\(suffix)
       """
   }
 
@@ -124,6 +124,39 @@ struct UsageStatsIndexerTests {
     try UsageStatsStore(url: root.appendingPathComponent("usage.sqlite"))
   }
 
+  /// 直接对统计库执行一段 SQL（造旧结构、读落库形状用；不走 `UsageStatsStore`）。
+  private func execSQL(_ sql: String, at url: URL) throws {
+    try FileManager.default.createDirectory(
+      at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    var handle: OpaquePointer?
+    guard
+      sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil)
+        == SQLITE_OK, let handle
+    else { throw UsageStatsStoreError.openFailed(url.path) }
+    defer { sqlite3_close(handle) }
+    guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
+      throw UsageStatsStoreError.stepFailed(String(cString: sqlite3_errmsg(handle)))
+    }
+  }
+
+  /// 读统计库里的一个整数标量。
+  private func scalar(_ sql: String, in root: URL) throws -> Int {
+    let path = root.appendingPathComponent("usage.sqlite").path
+    var handle: OpaquePointer?
+    guard sqlite3_open_v2(path, &handle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let handle
+    else { throw UsageStatsStoreError.openFailed(path) }
+    defer { sqlite3_close(handle) }
+
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK, let statement
+    else { throw UsageStatsStoreError.prepareFailed(String(cString: sqlite3_errmsg(handle))) }
+    defer { sqlite3_finalize(statement) }
+    guard sqlite3_step(statement) == SQLITE_ROW else {
+      throw UsageStatsStoreError.stepFailed(String(cString: sqlite3_errmsg(handle)))
+    }
+    return Int(sqlite3_column_int64(statement, 0))
+  }
+
   private func sources(root: URL) -> [UsageSourceFile] {
     TranscriptUsageScanner.sources(
       for: .ohMyPi, roots: [root.appendingPathComponent("omp")])
@@ -139,6 +172,7 @@ struct UsageStatsIndexerTests {
   private func comparable(_ snapshot: UsageStatsSnapshot) -> String {
     """
     totals=\(snapshot.totals) agents=\(snapshot.agents.map { "\($0.agent.rawValue):\($0.totals)" })
+    models=\(snapshot.models.map { "\($0.name):\($0.totals)" })
     tools=\(snapshot.tools) trend=\(snapshot.trend.map { $0.total })
     """
   }
@@ -322,6 +356,91 @@ struct UsageStatsIndexerTests {
       window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
     #expect(snapshot.totals.total == 4)
     #expect(snapshot.tools.map { $0.name } == ["grep"])
+  }
+
+  @Test("模型拆分：同一份记录里换模型不会合成一行，工具行不进模型榜")
+  func modelsSplitWithinTheSameFile() throws {
+    let root = try tempRoot()
+    let claudeRoot = root.appendingPathComponent("claude")
+    let file = claudeRoot.appendingPathComponent("proj/sess-models.jsonl")
+    // 同一个会话、同一个小时里换过模型：两行必须落成两条桶（合并键不带模型时，
+    // 它们会合成一条 125 的桶，且只留先写入的那个模型名）。
+    try write(
+      claudeLine(
+        date: todayBase, isSidechain: false, input: 10, output: 5, cacheRead: 7, cacheWrite: 3,
+        tools: ["Bash"], model: "claude-sonnet-4-5") + "\n"
+        + claudeLine(
+          date: todayBase, isSidechain: false, input: 100, output: 0, cacheRead: 0, cacheWrite: 0,
+          tools: ["Read"], model: "gpt-5.2-codex") + "\n",
+      to: file)
+
+    let store = try makeStore(in: root)
+    pass(store).ingest(sources: sources(root: root))
+    let snapshot = try store.snapshot(
+      window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
+
+    #expect(
+      snapshot.models.map { "\($0.name):\($0.totals.total)" }
+        == ["gpt-5.2-codex:100", "claude-sonnet-4-5:25"])
+    // 工具调用行只进工具榜：既不携带 token，也不带模型标识（否则每次调用的 token
+    // 会被算进某个模型）。
+    #expect(
+      try scalar(
+        "SELECT COALESCE(SUM(input + output + cache_read + cache_write), 0) FROM usage_bucket WHERE tool <> '';",
+        in: root) == 0)
+    #expect(try scalar("SELECT COUNT(*) FROM usage_bucket WHERE tool <> '' AND model <> '';", in: root) == 0)
+    // 模型榜上之和就是全库总量：没有模型标识的记录（理论上有的话）不会漏进榜里，
+    // 也不会被凭空算成一行。
+    #expect(snapshot.models.map(\.totals.total).reduce(0, +) == snapshot.totals.total)
+    // 会话数按模型各算一次（两个模型都在同一个会话里 → 都是 1）。
+    #expect(snapshot.models.map(\.totals.sessions) == [1, 1])
+  }
+
+  @Test("旧库自愈：缺 model 列时整库清空重建，回填后与新库一致")
+  func legacySchemaIsRebuilt() throws {
+    let root = try makeFixtureTree()
+    // 旧结构：`usage_bucket` 没有 model 列（主键是五元组），进度表里留着历史进度。
+    try execSQL(
+      """
+      CREATE TABLE usage_bucket (
+        source_id TEXT NOT NULL, agent TEXT NOT NULL, session_id TEXT NOT NULL,
+        hour_key TEXT NOT NULL, is_subagent INTEGER NOT NULL DEFAULT 0,
+        tool TEXT NOT NULL DEFAULT '', records INTEGER NOT NULL DEFAULT 0,
+        calls INTEGER NOT NULL DEFAULT 0, input INTEGER NOT NULL DEFAULT 0,
+        output INTEGER NOT NULL DEFAULT 0, cache_read INTEGER NOT NULL DEFAULT 0,
+        cache_write INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (source_id, hour_key, is_subagent, session_id, tool));
+      INSERT INTO usage_bucket (source_id, agent, session_id, hour_key, tool, input)
+        VALUES ('old', 'omp', 'sess', '2026-01-01T00', '', 7);
+      CREATE TABLE indexed_source (
+        source_id TEXT PRIMARY KEY, agent TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL DEFAULT 0, read_offset INTEGER NOT NULL DEFAULT 0,
+        mtime REAL NOT NULL DEFAULT 0, cursor TEXT, updated_at REAL NOT NULL);
+      INSERT INTO indexed_source (source_id, agent, size_bytes, read_offset, mtime, updated_at)
+        VALUES ('old', 'omp', 10, 10, 0, 0);
+      """,
+      at: root.appendingPathComponent("usage.sqlite"))
+
+    let store = try makeStore(in: root)
+    // 旧表被整表丢弃，进度一起清掉：进度留着的话增量扫描认为「没变化」，
+    // 历史记录的模型永远补不回来。
+    #expect(try store.sourceRecords().isEmpty)
+    #expect(
+      try store.snapshot(window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
+        .totals.isEmpty)
+
+    // 下一轮从头回填：结果与「空库起步」的新库逐项一致。
+    let fresh = try makeStore(in: try tempRoot())
+    let discovered = sources(root: root)
+    pass(store).ingest(sources: discovered)
+    pass(fresh).ingest(sources: discovered)
+
+    let rebuilt = try store.snapshot(
+      window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
+    let reference = try fresh.snapshot(
+      window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
+    #expect(comparable(rebuilt) == comparable(reference))
+    #expect(!rebuilt.models.isEmpty)
   }
 
   @Test("记录文件删除后历史用量仍然保留")

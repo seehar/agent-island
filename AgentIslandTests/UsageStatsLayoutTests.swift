@@ -211,6 +211,31 @@ struct UsageStatsLayoutTests {
     #expect(needed <= available, "总览卡首行需要 \(needed)pt，只有 \(available)pt")
   }
 
+  @Test("模型榜两列排得开、token 列容得下最长文案")
+  func modelRowFitsColumns() {
+    // 模型行的 token 列用 11pt 等宽，缩写值一律 2 位小数后最长的是 9 个字符
+    // （`10000.00亿` / `1000.00B`）——固定列宽必须容得下它们，否则会被截断。
+    let widest =
+      ["9,999", "1234.57万", "9999.99万", "10000.00亿", "1000.00B"]
+      .map { monospacedWidth($0, size: 11, weight: .medium) }
+      .max() ?? 0
+    #expect(
+      widest + 2 <= UsageStatsMetrics.modelTokenWidth,
+      "最长 token 文案要 \(widest + 2)pt，列宽只有 \(UsageStatsMetrics.modelTokenWidth)pt")
+
+    // 两列 + 占比条：占比条至少要有 40pt 才看得出差别（与工具榜同一判据）。
+    let panels: [(name: String, width: CGFloat)] = [
+      ("standard", NotchMenuMetrics.panelWidthMax),
+      ("compact", NotchMenuMetrics.panelWidthMax * PanelSize.compact.scale),
+    ]
+    for panel in panels {
+      let rowWidth =
+        UsageStatsMetrics.modelNameWidth + UsageStatsMetrics.modelTokenWidth
+        + 2 * NotchMenuMetrics.rowHorizontalPadding + 2 * 10 + 40
+      #expect(rowWidth <= panel.width, "\(panel.name) 档下模型行需要 \(rowWidth)pt")
+    }
+  }
+
   /// 等宽数字的排版宽度（总览卡的大数字与小计都用等宽字形）。
   private func monospacedWidth(
     _ text: String, size: CGFloat, weight: NSFont.Weight = .regular

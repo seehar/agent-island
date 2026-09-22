@@ -262,8 +262,14 @@ nonisolated enum TranscriptUsageScanner {
     tokens.output = record.output
     tokens.cacheRead = record.cacheRead
     tokens.cacheWrite = record.cacheWrite
-    merge(&deltas, key: tokens.hourKey + "|" + (subagent ? "1" : "0") + "|", delta: tokens)
+    tokens.model = record.model
+    // 键必须带模型：同一个会话文件里换过模型时，两个模型的 token 不能合成一条桶。
+    merge(
+      &deltas,
+      key: tokens.hourKey + "|" + (subagent ? "1" : "0") + "|" + tokens.model + "|",
+      delta: tokens)
 
+    // 工具行**不设** `model`：工具榜不按模型拆，键因此维持原样。
     for name in record.tools {
       var call = UsageBucketDelta(
         hourKey: hourKey, sessionId: source.sessionId, isSubagent: subagent,
@@ -293,6 +299,7 @@ nonisolated enum TranscriptUsageScanner {
     var cacheRead = 0
     var cacheWrite = 0
     var tools: [String] = []
+    var model = ""
     var isSubagent = false
   }
 
@@ -309,6 +316,7 @@ nonisolated enum TranscriptUsageScanner {
         ?? fallbackDate
       var record = RecordUsage(date: date)
       record.isSubagent = (json["isSidechain"] as? Bool) ?? false
+      record.model = (message["model"] as? String) ?? ""
       if let usage = message["usage"] as? [String: Any] {
         record.input = intValue(usage["input_tokens"])
         record.output = intValue(usage["output_tokens"])
@@ -330,6 +338,7 @@ nonisolated enum TranscriptUsageScanner {
         record.cacheRead = intValue(usage["cacheRead"])
         record.cacheWrite = intValue(usage["cacheWrite"])
       }
+      record.model = (message["model"] as? String) ?? ""
       record.tools = toolNames(in: message, blockType: "toolCall")
       return record
 

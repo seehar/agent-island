@@ -176,6 +176,18 @@ nonisolated enum UsageStatsMetrics {
     /// 工具行的行高。
     static let toolRowHeight: CGFloat = 26
 
+    // MARK: - 模型榜
+
+    /// 模型榜最多显示的行数（数据层给全量降序表，截断在视图里）。
+    static let modelListMax = 8
+    /// 模型名与 token 两列的宽度：固定后各行的占比条才会对齐。
+    static let modelNameWidth: CGFloat = 176
+    /// token 列宽：缩写值最长 9 字符（`10000.00亿` / `1000.00B`）在 11pt 等宽下实测
+    /// 66.7pt（见 `UsageStatsLayoutTests`），取 72 留出余量。
+    static let modelTokenWidth: CGFloat = 72
+    /// 模型行的行高（与工具榜同一档）。
+    static let modelRowHeight: CGFloat = 26
+
     // MARK: - 脚注与空态
 
     /// 脚注（口径说明与索引时间）的行距。

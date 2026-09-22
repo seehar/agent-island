@@ -55,7 +55,8 @@ struct OpenCodeUsageStatsTests {
   /// 插入一条消息；`tokens` 为 nil 时不写 tokens（用户消息）。
   private func insertMessage(
     id: String, session: String, created: Int64, updated: Int64,
-    tokens: (input: Int, output: Int, cacheRead: Int, cacheWrite: Int)?, at url: URL
+    tokens: (input: Int, output: Int, cacheRead: Int, cacheWrite: Int)?,
+    modelID: String? = "glm-4.7-free", at url: URL
   ) throws {
     let tokensJSON: String
     if let tokens {
@@ -68,7 +69,8 @@ struct OpenCodeUsageStatsTests {
       tokensJSON = ""
     }
     let role = tokens == nil ? "user" : "assistant"
-    let data = "{\"role\":\"\(role)\",\(tokensJSON)\"time\":{\"created\":\(created)}}"
+    let modelJSON = modelID.map { "\"modelID\":\"\($0)\"," } ?? ""
+    let data = "{\"role\":\"\(role)\",\(modelJSON)\(tokensJSON)\"time\":{\"created\":\(created)}}"
     try exec(
       """
       INSERT INTO message (id, session_id, time_created, time_updated, data)
@@ -143,6 +145,8 @@ struct OpenCodeUsageStatsTests {
     #expect(first.totals.sessions == 1)  // 子代理会话不计入
     #expect(first.totals.calls == 3)  // bash + mcp__x__bash（归一后同名）+ read
     #expect(first.tools.map { "\($0.name):\($0.calls)" } == ["bash:2", "read:1"])
+    // 模型取 `message.data.modelID`：三条 assistant 消息（含子代理那条）同名合并成一行。
+    #expect(first.models.map { $0.name } == ["glm-4.7-free"])
 
     // 重复扫描：不重复计数。
     try pass.ingestOpenCode(databaseURL: database)
@@ -168,6 +172,8 @@ struct OpenCodeUsageStatsTests {
     #expect(first.totals.output == 4 + 0 + 1)
     #expect(first.totals.calls == 4)
     #expect(first.tools.contains { $0.name == "grep" && $0.calls == 1 })
+    // 模型榜跟着新消息长大：111 + 222 + 6 + 7 + 2。
+    #expect(first.models.map { $0.totals.total } == [348])
   }
 
   @Test("重新统计：游标归零后全库重走一遍，修得回已经统计过的数字")

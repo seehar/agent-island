@@ -2,7 +2,7 @@
 //  UsageStatsView.swift
 //  AgentIsland
 //
-//  统计页：总览 + 各 Agent 拆分 + 多路趋势曲线图 + 工具榜 + 口径脚注。
+//  统计页：总览 + 各 Agent 拆分 + 各模型拆分 + 多路趋势曲线图 + 工具榜 + 口径脚注。
 //  视图只消费 `UsageStatsSnapshot`——总量、缓存命中率、排序都由数据层给出，
 //  这里不重算口径（口径写在 Models/UsageStats.swift 的注释里）。
 //
@@ -42,6 +42,7 @@ struct UsageStatsView: View {
                 overviewCard
 
                 if hasAgents { agentGroup }
+                if hasModels { modelGroup }
                 if hasTrend { trendGroup }
                 if hasTools { toolGroup }
 
@@ -53,6 +54,7 @@ struct UsageStatsView: View {
 
     private var totals: UsageTotals { viewModel.snapshot.totals }
     private var hasAgents: Bool { !viewModel.snapshot.agents.isEmpty }
+    private var hasModels: Bool { !viewModel.snapshot.models.isEmpty }
     private var hasTrend: Bool { !viewModel.snapshot.trend.isEmpty }
     private var hasTools: Bool { !viewModel.snapshot.tools.isEmpty }
 
@@ -182,6 +184,52 @@ struct UsageStatsView: View {
         }
         .padding(.horizontal, NotchMenuMetrics.rowHorizontalPadding)
         .frame(height: UsageStatsMetrics.agentRowHeight)
+    }
+
+    // MARK: - 各模型拆分
+
+    private var modelGroup: some View {
+        cardGroup(l10n.t("Models")) {
+            VStack(spacing: 0) {
+                ForEach(topModels) { model in
+                    modelRow(model)
+                }
+            }
+        }
+    }
+
+    /// 数据层给的是全量降序表，这里按版面截断（与工具榜同一策略）。
+    private var topModels: [ModelUsage] {
+        Array(viewModel.snapshot.models.prefix(UsageStatsMetrics.modelListMax))
+    }
+
+    /// 占比条的分母取窗口内最大的那个模型。
+    private var maxModelTotal: Int {
+        viewModel.snapshot.models.map(\.totals.total).max() ?? 0
+    }
+
+    private func modelRow(_ usage: ModelUsage) -> some View {
+        HStack(spacing: 10) {
+            // 模型名长短不一（`claude-sonnet-4-5-20250929`）：固定列宽 + 中间截断，
+            // 保留首尾（提供方与版本号都在两端），各行占比条因此对齐。
+            Text(usage.name)
+                .appFont(11, design: .monospaced)
+                .foregroundColor(AppPalette.secondaryText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(width: UsageStatsMetrics.modelNameWidth, alignment: .leading)
+
+            // 与工具榜同一理由：模型榜不与任何身份绑定，占比条用中性文字色。
+            shareBar(ratio: share(usage.totals.total, of: maxModelTotal), tint: AppPalette.secondaryText)
+
+            Text(tokenText(usage.totals.total))
+                .appFont(11, weight: .medium, design: .monospaced)
+                .foregroundColor(AppPalette.primaryText)
+                .lineLimit(1)
+                .frame(width: UsageStatsMetrics.modelTokenWidth, alignment: .trailing)
+        }
+        .frame(height: UsageStatsMetrics.modelRowHeight)
+        .padding(.horizontal, NotchMenuMetrics.rowHorizontalPadding)
     }
 
     // MARK: - 趋势

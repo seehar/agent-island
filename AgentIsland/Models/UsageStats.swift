@@ -11,6 +11,8 @@
 //      把缓存读/写加回去；
 //    · 会话数 = 窗口内有记录的会话去重计数，**不含子代理会话**（子代理的 token
 //      仍然计入用量）。
+//    · 模型维度只按**模型标识**分组（Claude/omp/pi 的 `message.model`、OpenCode 的
+//      `modelID`），**提供方不算维度**：同一个模型从不同 Agent 或不同提供方来，算一行。
 //
 
 import Foundation
@@ -339,6 +341,15 @@ nonisolated struct ToolUsage: Identifiable, Equatable, Sendable {
   var id: String { name }
 }
 
+/// 单个模型在窗口内的用量。
+nonisolated struct ModelUsage: Identifiable, Equatable, Sendable {
+  /// 记录里的模型标识（`message.model` / `modelID`）；提供方不参与分组。
+  let name: String
+  var totals: UsageTotals
+
+  var id: String { name }
+}
+
 /// 趋势图上的一个点（一个时间桶）。四路 token 各自成列，曲线按需选路画。
 nonisolated struct TrendPoint: Identifiable, Equatable, Sendable {
   /// 桶起点（本地时区）。
@@ -374,6 +385,8 @@ nonisolated struct UsageStatsSnapshot: Equatable, Sendable {
   var totals = UsageTotals()
   /// 各 Agent 的用量，按总 token 降序。
   var agents: [AgentUsage] = []
+  /// 各模型的用量，按总 token 降序（同名模型跨来源合并、不含模型标识为空的桶）。
+  var models: [ModelUsage] = []
   /// 工具榜，按调用次数降序（视图自行截断）。
   var tools: [ToolUsage] = []
   /// 趋势，按时间升序且**含空桶**（视图可直接画）。

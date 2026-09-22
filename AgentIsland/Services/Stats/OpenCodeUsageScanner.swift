@@ -5,7 +5,8 @@
 //  OpenCode 的历史不在文件里而在 SQLite（`opencode.db`）里，因此按天统计要单独
 //  走一条数据库路径。这里**只读**打开（走 `OpenCodeDatabase`，与会话列表同一套），
 //  按「消息」为粒度取增量：
-//    · token 在 `message.data.tokens` 里（`cache.read` / `cache.write` 对应缓存读/写）；
+//    · token 在 `message.data.tokens` 里（`cache.read` / `cache.write` 对应缓存读/写），
+//      模型标识取 `message.data.modelID`（提供方 `providerID` 不算维度）；
 //    · 工具调用是 `part` 表里 `type == "tool"` 的行，工具名取 `data.tool`；
 //    · 时间取 `message.time_created`（毫秒 epoch），子代理会话由 `session.parent_id` 判定。
 //
@@ -148,12 +149,15 @@ nonisolated final class OpenCodeUsageReader {
     let date = Date(timeIntervalSince1970: Double(row.created) / 1000)
     let hourKey = UsageStatsKey.hour(for: date, calendar: calendar)
     let isSubagent = subagentSessions.contains(row.session)
+    // 只有 token 行带模型标识；工具调用计数行不带（工具榜不按模型拆）。
+    let model = (json["modelID"] as? String) ?? ""
 
     var deltas: [UsageBucketDelta] = []
     if let tokens = json["tokens"] as? [String: Any] {
       var delta = UsageBucketDelta(
         hourKey: hourKey, sessionId: row.session, isSubagent: isSubagent, tool: "")
       delta.records = 1
+      delta.model = model
       delta.input = Self.intValue(tokens["input"])
       delta.output = Self.intValue(tokens["output"])
       if let cache = tokens["cache"] as? [String: Any] {
