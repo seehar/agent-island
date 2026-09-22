@@ -88,6 +88,10 @@ tmux 里开两个 Agent，你就得在两个 pane 之间切来切去看谁在等
 |**Trae CLI**|—（没有可解析的记录）|`~/.trae/traecli.yaml`（托管块）|支持 —— hook `permission_request`|—|
 |**DeepSeek Harness**（`dsh`）|—（记录是 zstd 压缩）|不装：由外部 dsh 插件直接写 socket|—|—|
 
+> **Codex 需要一次手动确认**：Codex 不会运行未经它审核的 hook。装好后先启动一次 Codex 并执行 `/hooks`，审核并信任 AgentIsland 的条目 —— 在那之前 Codex 会**静默忽略**它们（看起来就像「不支持 Codex」）。若某次更新重写了 `hooks.json`，需要再确认一次。
+>
+> **各 Agent 的能力边界**：Cursor、Copilot、Trae、Cline、Kimi、Factory、CodeBuddy 没有阻塞式权限 hook，审批留在它们自己的终端；Trae 与 Trae CLI 不写可解析的会话记录（只有实时事件）；DeepSeek Harness 的记录是 zstd 压缩，因此不读历史（且需要外部 dsh 插件才能上报事件）。
+
 ## 安装
 
 **系统要求：** macOS 15.6 及以上，Apple Silicon。

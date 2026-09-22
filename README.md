@@ -88,6 +88,10 @@ The page lives in **Settings → Statistics** (the chart button in the panel hea
 |**Trae CLI**|— (no readable records)|`~/.trae/traecli.yaml` (managed block)|yes — hook `permission_request`|—|
 |**DeepSeek Harness** (`dsh`)|— (records are zstd-compressed)|none — the external dsh plugin writes the socket directly|—|—|
 
+> **Codex needs one manual step**: Codex does not run a hook it has not been shown. After installing, start Codex once and run `/hooks` to review and trust the AgentIsland entries — until then Codex silently ignores them (which looks exactly like "Codex is not supported"). If an update rewrites `hooks.json`, the review is needed once more.
+>
+> **What "no" means per agent**: Cursor, Copilot, Trae, Cline, Kimi, Factory and CodeBuddy have no blocking permission hook, so their approvals stay in their own terminal; Trae and Trae CLI write no readable session records (live events only), and DeepSeek Harness keeps its records zstd-compressed, so its history is not read (it needs the external dsh plugin to report events at all).
+
 ## Install
 
 **Requirements:** macOS 15.6 or later, Apple Silicon.
