@@ -224,6 +224,7 @@ struct NotchView: View {
      .animation(.smooth, value: activityCoordinator.expandingActivity)
      .animation(.smooth, value: hasPendingPermission)
      .animation(.smooth, value: hasWaitingForInput)
+     .animation(.smooth, value: countEarWidth)
      .animation(.spring(response: 0.3, dampingFraction: 0.5), value: isBouncing)
      .contentShape(Rectangle())
      .onHover { hovering in
@@ -374,7 +375,8 @@ struct NotchView: View {
         id: "status-indicator", in: activityNamespace, isSource: showClosedActivity)
      }
     }
-    .frame(width: viewModel.status == .opened ? nil : sideWidth + (hasPendingPermission ? 18 : 0))
+    .frame(
+     width: viewModel.status == .opened ? nil : countEarWidth + (hasPendingPermission ? 18 : 0))
     .padding(.leading, viewModel.status == .opened ? 8 : 0)
    }
 
@@ -398,38 +400,87 @@ struct NotchView: View {
    // 展开态的计数在 `openedHeaderContent` 里（与两个按钮同一个 HStack，间距才统一）；
    // 两处都画会重叠成两个计数。
    if showClosedActivity && viewModel.status != .opened {
-    sessionCountBadge
-     .frame(width: sideWidth)
+    sessionCountBadge(for: closedCountLabel)
+     .frame(width: countEarWidth)
      .padding(.trailing, headerBadgeTrailing)
    }
   }
   .frame(height: closedNotchSize.height)
  }
 
+ /// 关闭态的**最小**耳宽：由胶囊高度推出（32pt 高的刘海 → 30），跟着「胶囊高度」设置走。
+ /// 计数文案更宽时由 `countEarWidth` 抬上去，见 `NotchClosedMetrics`。
  private var sideWidth: CGFloat {
   max(0, closedNotchSize.height - 12) + 10
  }
 
- /// 关闭态右侧的会话计数：`活跃/总数`，有 subAgent 在跑时追加 `+N`。
- /// 活跃数取头部标记的品牌色、总数弱化，数字等宽以免计数刷新时宽度抖动
- private var sessionCountBadge: some View {
-  (
-   Text("\(activeSessionCount)").foregroundColor(sessionCountColor)
-    + Text(activeSubagentCount > 0 ? "+\(activeSubagentCount)" : "").foregroundColor(
-     sessionCountColor)
-    + Text("/\(totalSessionCount)").foregroundColor(TerminalColors.dim)
-  )
-  .font(.system(size: 11, weight: .semibold, design: .rounded))
-  .monospacedDigit()
-  .lineLimit(1)
-  .minimumScaleFactor(0.75)  // 会话很多时缩字而非溢出 36pt 的关闭态槽位
-  .accessibilityLabel(
-   Text(
-    activeSubagentCount > 0
-     ? l10n.t(
-      "Active sessions %lld of %lld, %lld subagents running", activeSessionCount,
-      totalSessionCount, activeSubagentCount)
-     : l10n.t("Active sessions %lld of %lld", activeSessionCount, totalSessionCount)))
+ /// 关闭态计数徽标的档位：受胶囊耳宽上限约束，超宽的计数退成更短的写法，而不是被截断。
+ private var closedCountLabel: NotchClosedMetrics.Label {
+  countLabel(limit: NotchClosedMetrics.maximumEarWidth)
+ }
+
+ /// 展开态头部的计数：面板够宽、不受上限约束，始终给最全的一档。
+ private var openedCountLabel: NotchClosedMetrics.Label {
+  countLabel(limit: .infinity)
+ }
+
+ private func countLabel(limit: CGFloat) -> NotchClosedMetrics.Label {
+  NotchClosedMetrics.label(
+   activeSessions: activeSessionCount,
+   subagents: activeSubagentCount,
+   totalSessions: totalSessionCount,
+   limit: limit)
+ }
+
+ /// 关闭态左右耳的宽度：按当前计数文案的实测宽度自适应，夹在最小耳宽与上限之间。
+ /// 左右耳**同宽**——胶囊在屏幕上居中，文字槽在右耳里居中，因此「计数避开相机挖孔」
+ /// 只由耳宽决定；只加宽右耳反而会把计数推回挖孔里（推导见 `NotchClosedMetrics`）。
+ private var countEarWidth: CGFloat {
+  NotchClosedMetrics.earWidth(for: closedCountLabel, minimum: sideWidth)
+ }
+
+ /// 会话计数徽标：`活跃[+子]/总数`，按档位取舍（见 `NotchClosedMetrics`）。
+ /// 活跃数与子 Agent 数取头部标记的品牌色、总数弱化，数字等宽以免计数刷新时宽度抖动。
+ /// 槽宽由调用方给：关闭态用 `countEarWidth`，展开态不限制（自己那个 HStack 里放得下）。
+ private func sessionCountBadge(for label: NotchClosedMetrics.Label) -> some View {
+  sessionCountText(for: label)
+   .font(
+    .system(
+     size: NotchClosedMetrics.fontSize,
+     weight: NotchClosedMetrics.fontWeight,
+     design: NotchClosedMetrics.fontDesign)
+   )
+   .monospacedDigit()
+   .lineLimit(1)
+   .minimumScaleFactor(0.75)  // 退到最省位的档仍超上限时缩字，而不是溢出
+   .accessibilityLabel(Text(countAccessibilityLabel(for: label)))
+ }
+
+ /// 计数的可见文案：按档位画「活跃 / +子 / /总数」三段。
+ private func sessionCountText(for label: NotchClosedMetrics.Label) -> Text {
+  var text = Text("\(label.activeSessions)").foregroundColor(sessionCountColor)
+  if let subagents = label.subagents {
+   text = text + Text("+\(subagents)").foregroundColor(sessionCountColor)
+  }
+  if let total = label.totalSessions {
+   text = text + Text("/\(total)").foregroundColor(TerminalColors.dim)
+  }
+  return text
+ }
+
+ /// 计数的无障碍文案：与可见档位一致——少画一段就少一句。
+ private func countAccessibilityLabel(for label: NotchClosedMetrics.Label) -> String {
+  if let subagents = label.subagents, let total = label.totalSessions {
+   return l10n.t(
+    "Active sessions %lld of %lld, %lld subagents running", label.activeSessions, total, subagents)
+  }
+  if let subagents = label.subagents {
+   return l10n.t("Active sessions %lld, %lld subagents running", label.activeSessions, subagents)
+  }
+  if let total = label.totalSessions {
+   return l10n.t("Active sessions %lld of %lld", label.activeSessions, total)
+  }
+  return l10n.t("Active sessions %lld", label.activeSessions)
  }
 
  // MARK: - Opened Header Content
@@ -512,7 +563,7 @@ struct NotchView: View {
 
     if showClosedActivity {
      // 计数与齿轮之间补上图标字形在悬停框里的留白，三种元素的字形间距才读得一致。
-     sessionCountBadge
+     sessionCountBadge(for: openedCountLabel)
       .padding(.leading, headerGlyphMargin)
     }
    }
