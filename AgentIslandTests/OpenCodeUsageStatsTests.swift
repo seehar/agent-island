@@ -93,7 +93,7 @@ struct OpenCodeUsageStatsTests {
   }
 
   private func snapshot(_ store: UsageStatsStore) throws -> UsageStatsSnapshot {
-    try store.snapshot(range: .all, calendar: .current, now: Date(), isIndexing: false)
+    try store.snapshot(window: .preset(.all), calendar: .current, now: Date(), isIndexing: false)
   }
 
   // MARK: - 用例

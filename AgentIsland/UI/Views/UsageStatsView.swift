@@ -2,13 +2,15 @@
 //  UsageStatsView.swift
 //  AgentIsland
 //
-//  统计页：范围切换 + 总览 + 各 Agent 拆分 + 趋势柱图 + 工具榜 + 口径脚注。
+//  统计页：总览 + 各 Agent 拆分 + 多路趋势曲线图 + 工具榜 + 口径脚注。
 //  视图只消费 `UsageStatsSnapshot`——总量、缓存命中率、排序都由数据层给出，
 //  这里不重算口径（口径写在 Models/UsageStats.swift 的注释里）。
 //
 //  它是设置面板的一个分组（`NotchMenuSection.statistics`），因此**不套自己的滚动**：
 //  滚动由设置页的 `ScrollView` 接管，否则会出现嵌套滚动（内层吃走滚轮）。面板高度由
-//  `NotchMenuMetrics` 按本分组的固定高算出，不随数据多少变化。
+//  `NotchMenuMetrics` 按本分组的固定高算出，不随数据多少变化；页面顶部也不再加内边距
+//  ——那一份间距由设置页给（`NotchMenuMetrics.contentTopGap`，解析式里只算一次）。
+//  时间范围控件在设置页的页眉行里，见 `StatsRangePicker`。
 //
 
 import SwiftUI
@@ -20,146 +22,13 @@ struct UsageStatsView: View {
     /// 数字与日期的格式化跟随界面语言（由根视图的 LocalizedRoot 注入环境 locale）。
     @Environment(\.locale) private var locale
 
-    /// 分段控件滑块的命名空间。
-    @Namespace private var rangeThumb
-    /// 悬停的范围段（只影响文字颜色）。
-    @State private var hoveredRange: StatsRange?
-    /// 是否悬停在「重新统计」按钮上（只影响文字颜色）。
-    @State private var isRescanHovered = false
-
     /// 数值缺失时的占位符（命中率的分母为 0 就没法算）。破折号是排版符号、不随语言
     /// 变化，因此不占一个本地化键。
     private static let unavailableValue = "—"
 
     var body: some View {
-        VStack(spacing: NotchMenuMetrics.rowSpacing) {
-            rangeBar
-
-            content
-                .padding(.top, UsageStatsMetrics.contentTopGap)
-                .frame(maxWidth: .infinity, alignment: .top)
-        }
-        .frame(maxWidth: .infinity, alignment: .top)
-    }
-
-    // MARK: - 范围分段控件
-
-    /// 范围切换。只用文字不用图标：图标挨在一起反而看不清段的边界，而这个宽度下各语言
-    /// 的标签都读得全。七档按「滚动窗口（近一天 / 近一周 / 近一月）→ 日历窗口（今天 /
-    /// 本周 / 本月）→ 全部」排，宽度因此是预算过的（见 `rangeSegment` 的缩放下限与
-    /// `UsageStatsLayoutTests`）。滑块、悬停与选中色的取法与 `NotchMenuTabBar` 一致，
-    /// 但**不画轨道**——它与设置页的分组切换是上下相邻的两条，轨道相同会被读成同一层。
-    private var rangeBar: some View {
-        HStack(spacing: UsageStatsMetrics.rangeActionGap) {
-            // 不画轨道：设置页顶部已有一条分组分段控件，同一形状再叠一条会被读成
-            // 「第二层导航」。这里只留滑块与文字色差，层级因此从属于分组切换。
-            HStack(spacing: UsageStatsMetrics.segmentSpacing) {
-                ForEach(StatsRange.allCases) { range in
-                    rangeSegment(range)
-                }
-            }
-
-            rescanButton
-        }
-        .frame(height: UsageStatsMetrics.tabBarHeight)
-    }
-
-    /// 手动「重新统计」：把各 Agent 的历史记录从头重读一遍并重放（增量扫描只读
-    /// 文件的尾巴，所以数字对不上时只有这条路能改）。索引进行中时按钮禁用并改说
-    /// 「正在索引…」，用户不必去页脚看状态；宽度固定，两种文案切换时左边的分段
-    /// 控件不会跟着抖。行高由 `rangeBar` 钉死，因此这个按钮不改变面板高度。
-    private var rescanButton: some View {
-        let isIndexing = viewModel.snapshot.isIndexing
-
-        return Button {
-            viewModel.rescan()
-        } label: {
-            HStack(spacing: UsageStatsMetrics.rangeActionIconGap) {
-                Image(systemName: "arrow.clockwise")
-                    .appFont(10, weight: .semibold)
-                Text(isIndexing ? l10n.t("Indexing…") : l10n.t("Rescan"))
-                    .appFont(10, weight: .semibold)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-            }
-            .foregroundColor(rescanTint(isIndexing: isIndexing))
-            .frame(width: UsageStatsMetrics.rangeActionWidth, alignment: .trailing)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(SettingsCompactButtonStyle())
-        .disabled(isIndexing)
-        .onHover { isHovering in
-            isRescanHovered = isHovering
-        }
-        .help(l10n.t("Re-read every session record and recompute the statistics."))
-        .accessibilityLabel(Text(l10n.t("Rescan")))
-    }
-
-    /// 按钮的文字色：索引中（禁用）降到最弱一级，与设置面板的禁用态同口径。
-    private func rescanTint(isIndexing: Bool) -> Color {
-        if isIndexing { return AppPalette.subtleText }
-        return isRescanHovered ? AppPalette.primaryText : AppPalette.secondaryText
-    }
-
-    private func rangeSegment(_ range: StatsRange) -> some View {
-        let isSelected = range == viewModel.range
-
-        return Button {
-            withAnimation(SettingsMotion.segment) {
-                viewModel.select(range)
-            }
-        } label: {
-            Text(title(for: range))
-                .appFont(11, weight: .medium)
-                .foregroundColor(foregroundColor(for: range))
-                .lineLimit(1)
-                // 缩字下限按七段的宽度预算给（见 UsageStatsMetrics.segmentMinimumScale）：
-                // 到不了下限就会截断成「This Mont…」。
-                .minimumScaleFactor(UsageStatsMetrics.segmentMinimumScale)
-                .frame(maxWidth: .infinity)
-                .frame(height: UsageStatsMetrics.tabBarHeight - 4)
-                .background {
-                    if isSelected {
-                        RoundedRectangle(
-                            cornerRadius: UsageStatsMetrics.segmentedThumbRadius,
-                            style: .continuous
-                        )
-                        .fill(AppPalette.segmentedThumb)
-                        .matchedGeometryEffect(id: "range-thumb", in: rangeThumb)
-                    }
-                }
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(SettingsCompactButtonStyle())
-        .onHover { isHovering in
-            if isHovering {
-                hoveredRange = range
-            } else if hoveredRange == range {
-                hoveredRange = nil
-            }
-        }
-        .accessibilityLabel(Text(title(for: range)))
-    }
-
-    /// 段标题。key 保持字面量（本地化守卫才审计得到），并且在观察 `LocalizationManager`
-    /// 的视图里解析，切换语言后才会重新渲染。
-    private func title(for range: StatsRange) -> String {
-        switch range {
-        case .lastDay: return l10n.t("Last 24h")
-        case .lastWeek: return l10n.t("Last 7d")
-        case .lastMonth: return l10n.t("Last 30d")
-        case .today: return l10n.t("Today")
-        case .week: return l10n.t("This Week")
-        case .month: return l10n.t("This Month")
-        case .all: return l10n.t("All")
-        }
-    }
-
-    /// 选中态用主要文字、悬停次之、其余用次要文字——与设置面板的分段控件同口径。
-    private func foregroundColor(for range: StatsRange) -> Color {
-        if range == viewModel.range { return AppPalette.primaryText }
-        if hoveredRange == range { return Color.white.opacity(0.75) }
-        return AppPalette.secondaryText
+        content
+            .frame(maxWidth: .infinity, alignment: .top)
     }
 
     // MARK: - 内容
@@ -319,72 +188,15 @@ struct UsageStatsView: View {
 
     private var trendGroup: some View {
         cardGroup(l10n.t("Trend")) {
-            VStack(alignment: .leading, spacing: 6) {
-                chart
-                chartAxis
-            }
+            UsageTrendChart(
+                points: viewModel.snapshot.trend,
+                // 粒度取**快照自己记的窗口**：横轴刻度与桶必须来自同一次查询，
+                // 否则换窗口的过渡帧里会出现「天粒度的桶配小时刻度」这类错配。
+                granularity: viewModel.snapshot.window.granularity(),
+                visibleSeries: $viewModel.visibleSeries
+            )
             .padding(.horizontal, NotchMenuMetrics.rowHorizontalPadding)
             .padding(.vertical, 10)
-        }
-    }
-
-    /// 柱图：桶由数据层给出（已含空桶并按时间升序），这里只按窗内峰值归一。
-    /// 柱子宽度由 HStack 均分、不横向滚动；桶多时靠 `UsageStatsMetrics.chartBarSpacing` 收紧间距。
-    private var chart: some View {
-        let points = viewModel.snapshot.trend
-        let peak = points.map(\.total).max() ?? 0
-
-        return HStack(
-            alignment: .bottom,
-            spacing: UsageStatsMetrics.chartBarSpacing(barCount: points.count)
-        ) {
-            ForEach(points) { point in
-                bar(for: point, peak: peak)
-            }
-        }
-        .frame(height: UsageStatsMetrics.chartHeight)
-    }
-
-    /// 一根柱子：高度按峰值归一，值为 0 的桶画一条细底线（占位但不高亮）。
-    private func bar(for point: TrendPoint, peak: Int) -> some View {
-        RoundedRectangle(cornerRadius: UsageStatsMetrics.chartBarRadius, style: .continuous)
-            .fill(point.total > 0 ? AppPalette.secondaryText : AppPalette.separator)
-            .frame(maxWidth: .infinity)
-            .frame(height: barHeight(for: point.total, peak: peak))
-    }
-
-    private func barHeight(for total: Int, peak: Int) -> CGFloat {
-        guard total > 0, peak > 0 else { return UsageStatsMetrics.chartBaselineHeight }
-        let ratio = Double(total) / Double(peak)
-        return max(UsageStatsMetrics.chartBaselineHeight, UsageStatsMetrics.chartHeight * ratio)
-    }
-
-    /// 首尾时间标签：交代柱图的横轴范围（今天按小时，其余按天，与数据层分桶一致）。
-    private var chartAxis: some View {
-        let points = viewModel.snapshot.trend
-
-        return HStack(spacing: 8) {
-            if let first = points.first {
-                Text(axisLabel(for: first.start))
-            }
-
-            Spacer(minLength: 8)
-
-            if let last = points.last {
-                Text(axisLabel(for: last.start))
-            }
-        }
-        .appFont(10)
-        .foregroundColor(AppPalette.tertiaryText)
-        .frame(height: UsageStatsMetrics.chartAxisHeight)
-    }
-
-    private func axisLabel(for date: Date) -> String {
-        switch viewModel.range.trendGranularity {
-        case .hour:
-            return date.formatted(.dateTime.hour().minute().locale(locale))
-        case .day:
-            return date.formatted(.dateTime.month(.abbreviated).day().locale(locale))
         }
     }
 

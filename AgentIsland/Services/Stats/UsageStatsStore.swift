@@ -44,6 +44,15 @@ nonisolated struct UsageBucketDelta: Equatable {
   }
 }
 
+/// trend 查询的一行：某个时间桶上的四路 token 与调用次数。
+private nonisolated struct TrendRow {
+  var input = 0
+  var output = 0
+  var cacheRead = 0
+  var cacheWrite = 0
+  var calls = 0
+}
+
 /// 某个数据源的读取进度。
 nonisolated struct UsageSourceState: Equatable {
   var sizeBytes: UInt64 = 0
@@ -328,18 +337,15 @@ nonisolated final class UsageStatsStore {
   /// 而用 `MAX(updated_at)` 代替会显示成「最后一次有记录发生变化的时间」——没有新记录时
   /// 这个时间会一直冻结在几小时前，看起来像索引停了。
   func snapshot(
-    range: StatsRange, calendar: Calendar, now: Date, isIndexing: Bool, indexedAt: Date? = nil
+    window: StatsWindow, calendar: Calendar, now: Date, isIndexing: Bool, indexedAt: Date? = nil
   ) throws -> UsageStatsSnapshot {
-    var snapshot = UsageStatsSnapshot(range: range)
+    var snapshot = UsageStatsSnapshot(window: window)
     snapshot.isIndexing = isIndexing
     snapshot.indexedAt = indexedAt
 
-    let startKey = range.start(now: now, calendar: calendar).map {
-      UsageStatsKey.hour(for: $0, calendar: calendar)
-    }
-    let values = startKey.map { [SQLiteValue.text($0)] } ?? []
-    let windowClause = startKey == nil ? "" : "WHERE hour_key >= ?"
-    let groupedWindowClause = startKey == nil ? "" : "WHERE hour_key >= ?"
+    let filter = windowFilter(window, now: now, calendar: calendar)
+    let values = filter.values
+    let windowClause = filter.clause.isEmpty ? "" : "WHERE \(filter.clause)"
 
     snapshot.totals =
       try query(
@@ -368,7 +374,7 @@ nonisolated final class UsageStatsStore {
                COALESCE(SUM(cache_read), 0), COALESCE(SUM(cache_write), 0),
                COALESCE(SUM(calls), 0),
                COUNT(DISTINCT CASE WHEN is_subagent = 0 THEN session_id END)
-        FROM usage_bucket \(groupedWindowClause)
+        FROM usage_bucket \(windowClause)
         GROUP BY agent;
         """, values: values
       ) { statement in
@@ -393,7 +399,7 @@ nonisolated final class UsageStatsStore {
       try query(
         """
         SELECT tool, COALESCE(SUM(calls), 0) FROM usage_bucket
-        WHERE tool <> '' \(startKey == nil ? "" : "AND hour_key >= ?")
+        WHERE tool <> '' \(filter.clause.isEmpty ? "" : "AND \(filter.clause)")
         GROUP BY tool ORDER BY 2 DESC;
         """, values: values
       ) { statement in
@@ -401,41 +407,68 @@ nonisolated final class UsageStatsStore {
         return ToolUsage(name: name, calls: Int(sqlite3_column_int64(statement, 1)))
       }.compactMap { $0 }
 
-    snapshot.trend = try trend(range: range, startKey: startKey, calendar: calendar, now: now)
+    snapshot.trend = try trend(window: window, filter: filter, calendar: calendar, now: now)
     return snapshot
   }
 
-  /// 趋势桶：粒度与首尾桶都取自 `StatsRange.trendPlan`（与视图的横轴、桶数同源），
-  /// **补齐空桶**，视图直接画。
+  /// 趋势桶：粒度与首尾桶都取自 `StatsWindow.trendPlan`（与视图的横轴、桶数同源），
+  /// **补齐空桶**，视图直接画。四路 token 各自返回一列：曲线按需选路，口径与总览卡同一份。
   private func trend(
-    range: StatsRange, startKey: String?, calendar: Calendar, now: Date
+    window: StatsWindow, filter: (clause: String, values: [SQLiteValue]), calendar: Calendar,
+    now: Date
   ) throws -> [TrendPoint] {
-    let plan = range.trendPlan(now: now, calendar: calendar)
+    let plan = window.trendPlan(now: now, calendar: calendar)
     let grouping = plan.granularity == .hour ? "hour_key" : "substr(hour_key, 1, 10)"
     let rows = try query(
       """
       SELECT \(grouping) AS bucket,
-             COALESCE(SUM(input + output + cache_read + cache_write), 0),
+             COALESCE(SUM(input), 0), COALESCE(SUM(output), 0),
+             COALESCE(SUM(cache_read), 0), COALESCE(SUM(cache_write), 0),
              COALESCE(SUM(calls), 0)
       FROM usage_bucket
-      \(startKey == nil ? "" : "WHERE hour_key >= ?")
+      \(filter.clause.isEmpty ? "" : "WHERE \(filter.clause)")
       GROUP BY bucket ORDER BY bucket;
       """,
-      values: startKey.map { [SQLiteValue.text($0)] } ?? []
+      values: filter.values
     ) { statement in
       (
-        self.text(statement, 0) ?? "", Int(sqlite3_column_int64(statement, 1)),
-        Int(sqlite3_column_int64(statement, 2))
+        self.text(statement, 0) ?? "",
+        TrendRow(
+          input: Int(sqlite3_column_int64(statement, 1)),
+          output: Int(sqlite3_column_int64(statement, 2)),
+          cacheRead: Int(sqlite3_column_int64(statement, 3)),
+          cacheWrite: Int(sqlite3_column_int64(statement, 4)),
+          calls: Int(sqlite3_column_int64(statement, 5)))
       )
     }
-    let byKey = Dictionary(
-      rows.map { ($0.0, ($0.1, $0.2)) }, uniquingKeysWith: { first, _ in first })
+    let byKey = Dictionary(rows, uniquingKeysWith: { first, _ in first })
 
     return plan.bucketStarts(calendar: calendar).map { start in
       let key = UsageStatsKey.bucket(for: start, granularity: plan.granularity, calendar: calendar)
-      let value = byKey[key] ?? (0, 0)
-      return TrendPoint(start: start, total: value.0, calls: value.1)
+      let row = byKey[key] ?? TrendRow()
+      return TrendPoint(
+        start: start, input: row.input, output: row.output, cacheRead: row.cacheRead,
+        cacheWrite: row.cacheWrite, calls: row.calls)
     }
+  }
+
+  /// 窗口的时间过滤（左闭右开）：`hour_key` 是零填充的 `yyyy-MM-dd'T'HH` 键，字符串
+  /// 比较即时间比较。空片段表示不限时间（`StatsRange.all`）。
+  private func windowFilter(_ window: StatsWindow, now: Date, calendar: Calendar) -> (
+    clause: String, values: [SQLiteValue]
+  ) {
+    let bounds = window.keyBounds(now: now, calendar: calendar)
+    var parts: [String] = []
+    var values: [SQLiteValue] = []
+    if let start = bounds.start {
+      parts.append("hour_key >= ?")
+      values.append(.text(start))
+    }
+    if let end = bounds.end {
+      parts.append("hour_key < ?")
+      values.append(.text(end))
+    }
+    return (parts.joined(separator: " AND "), values)
   }
 
   // MARK: - SQLite 辅助

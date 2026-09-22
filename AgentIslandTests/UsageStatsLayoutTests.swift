@@ -52,44 +52,23 @@ struct UsageStatsLayoutTests {
     #expect(toolRowWidth <= contentWidth)
   }
 
-  @Test("柱子间距随桶数变密，但始终为正")
-  func barSpacingTightensWithDensity() {
-    let week = UsageStatsMetrics.chartBarSpacing(barCount: 7)
-    let month = UsageStatsMetrics.chartBarSpacing(barCount: 24)
-    let all = UsageStatsMetrics.chartBarSpacing(barCount: 60)
-
-    #expect(week > 0)
-    #expect(month > 0)
-    #expect(all > 0)
-    #expect(month <= week)
-    #expect(all <= month)
-  }
-
-  @Test("最密的窗口也能在面板内容宽内排下柱子")
-  func denseChartFitsContentWidth() {
-    // 工具榜/柱图共用页面内容宽；最密一档（「全部」按天，最多 60 个桶）也要放得下。
-    let contentWidth = UsageStatsMetrics.contentWidth
-    let barCount = 60
-    let spacing = UsageStatsMetrics.chartBarSpacing(barCount: barCount)
-    let barWidth = (contentWidth - spacing * CGFloat(barCount - 1)) / CGFloat(barCount)
-
-    #expect(barWidth > 0)
-  }
-
-  @Test("七档范围标签在自己的段宽内排得下（默认档与 compact 档）")
-  func rangeLabelsFitTheirSegments() {
-    // 键与 `UsageStatsView.title(for:)` 一一对应；文案从打包后的 .lproj 取，因此本地化
-    // 改长（或加一档范围）都会让这条用例失败——那时要重新算段宽，而不是让它截断。
-    let keys = ["Last 24h", "Last 7d", "Last 30d", "Today", "This Week", "This Month", "All"]
-    #expect(keys.count == StatsRange.allCases.count)
+  @Test("八格范围芯片在两种面板宽度下都排得下（各语言都试）")
+  func rangeChipLabelsFitTheirColumns() {
+    // 标签 = 7 个预设档名 + 一格「自定义…」；文案从打包后的 .lproj 取，因此本地化改长
+    // （或加一档范围）都会让这条用例失败——那时要重算格宽，而不是让它截断。
+    let presetKeys = ["Today", "Last 24h", "This Week", "Last 7d", "This Month", "Last 30d", "All"]
+    let chipKeys = presetKeys + ["Custom…"]
+    #expect(presetKeys.count == StatsRange.chipOrder.count)
+    // 8 格正好排满两行（4 列 × 2 行）。
+    #expect(chipKeys.count == UsageStatsMetrics.rangeChipColumns * 2)
 
     let panels: [(name: String, width: CGFloat)] = [
       ("standard", NotchMenuMetrics.panelWidthMax),
       ("compact", NotchMenuMetrics.panelWidthMax * PanelSize.compact.scale),
     ]
     for panel in panels {
-      let segment = rangeSegmentWidth(panelWidth: panel.width)
-      for key in keys {
+      let chip = chipWidth(panelWidth: panel.width)
+      for key in chipKeys {
         for code in ["en", "zh-Hans"] {
           let label = LocalizationManager.bundle(for: code)
             .localizedString(forKey: key, value: nil, table: nil)
@@ -97,30 +76,99 @@ struct UsageStatsLayoutTests {
           if code != "en" {
             #expect(label != key, "\(key) 没有 \(code) 文案")
           }
-          let needed = labelWidth(label) * UsageStatsMetrics.segmentMinimumScale
+          let needed = labelWidth(label, size: 10) * UsageStatsMetrics.rangeChipMinimumScale
           #expect(
-            needed <= segment,
-            "\(panel.name) 档下 \(code) 的「\(label)」排不下：需要 \(needed)pt，段宽 \(segment)pt")
+            needed <= chip,
+            "\(panel.name) 档下 \(code) 的「\(label)」排不下：需要 \(needed)pt，格宽 \(chip)pt")
         }
       }
     }
   }
 
-  /// 范围段在给定面板宽度下的可见宽度：内容宽 - 「重新统计」按钮与其间距 - 段间间距。
-  private func rangeSegmentWidth(panelWidth: CGFloat) -> CGFloat {
-    // 统计页不做额外内边距，左右各 8（与 `UsageStatsMetrics.contentWidth` 同源）。
-    let contentWidth = panelWidth - NotchMenuMetrics.listPaddingHeight
-    let barWidth =
-      contentWidth - UsageStatsMetrics.rangeActionWidth - UsageStatsMetrics.rangeActionGap
-    let count = CGFloat(StatsRange.allCases.count)
-    return (barWidth - UsageStatsMetrics.segmentSpacing * (count - 1)) / count
+  @Test("统计页的页眉行在两种面板宽度下都排得下（标题 + 范围控件 + 重新统计）")
+  func statisticsHeaderRowFitsPanel() {
+    let panels: [(name: String, width: CGFloat)] = [
+      ("standard", NotchMenuMetrics.panelWidthMax),
+      ("compact", NotchMenuMetrics.panelWidthMax * PanelSize.compact.scale),
+    ]
+
+    for panel in panels {
+      for code in ["en", "zh-Hans"] {
+        let title = LocalizationManager.bundle(for: code)
+          .localizedString(forKey: "Statistics", value: nil, table: nil)
+        // 行的左右内边距 8 + 返回按钮 + 标题 + 三段 6pt 间距 + 范围控件 + 重新统计。
+        let minimum =
+          2 * 8 + UsageStatsMetrics.headerActionSize + labelWidth(title, size: 13, weight: .semibold)
+          + 3 * 6 + UsageStatsMetrics.headerRangeWidth + UsageStatsMetrics.headerActionSize
+        #expect(minimum <= panel.width, "\(panel.name) 档下 \(code) 的页眉行需要 \(minimum)pt")
+      }
+    }
   }
 
-  /// 标签在统计页字号（11 号 medium）下的排版宽度。设置面板不注入字号档位，
-  /// 所以这里与视图里的 `appFont(11, weight: .medium)` 是同一把尺子。
-  private func labelWidth(_ text: String) -> CGFloat {
+  @Test("月历块在内容宽内排得下")
+  func calendarFitsContentWidth() {
+    #expect(UsageStatsMetrics.calendarWidth <= UsageStatsMetrics.contentWidth)
+    // 7 列格子的几何自洽：格宽与间距之和就是月历块宽度。
+    let derived =
+      CGFloat(7) * UsageStatsMetrics.calendarCellWidth
+      + CGFloat(6) * UsageStatsMetrics.calendarCellSpacing
+    #expect(derived == UsageStatsMetrics.calendarWidth)
+  }
+
+  @Test("趋势卡首屏能整块看到（不用滚动就能读出形状）")
+  func trendCardFitsViewportWithoutScrolling() {
+    #expect(UsageStatsMetrics.trendCardHeight <= UsageStatsMetrics.sectionHeight)
+    // 绘图区与横轴行都在卡片里，卡片高必须装得下它们。
+    #expect(
+      UsageStatsMetrics.trendCardHeight
+        >= UsageStatsMetrics.chartPlotHeight + UsageStatsMetrics.chartXAxisHeight)
+  }
+
+  @Test("展开范围选择器后滚动视口仍留得下内容（不小于 200pt）")
+  func rangePickerLeavesUsableViewport() {
+    let viewport =
+      UsageStatsMetrics.sectionHeight - UsageStatsMetrics.rangePickerHeight
+      - UsageStatsMetrics.contentTopGap - NotchMenuMetrics.rowSpacing
+    #expect(viewport >= 200, "展开选择器后只剩 \(viewport)pt")
+  }
+
+  @Test("图例五路在内容宽内排得下（各语言都试）")
+  func legendFitsContentWidth() {
+    let keys = ["Total tokens", "Input", "Output", "Cache read", "Cache write"]
+    #expect(keys.count == StatsSeries.visibleOptions)
+
+    let dots = CGFloat(StatsSeries.visibleOptions) * UsageStatsMetrics.chartLegendDotSize
+    // 每格：圆点与文字之间 4pt，格与格之间 chartLegendGap。
+    let spacing =
+      CGFloat(StatsSeries.visibleOptions) * (4 + UsageStatsMetrics.chartLegendGap)
+    let available =
+      UsageStatsMetrics.contentWidth - 2 * NotchMenuMetrics.rowHorizontalPadding - dots - spacing
+
+    for code in ["en", "zh-Hans"] {
+      let bundle = LocalizationManager.bundle(for: code)
+      let total = keys.reduce(CGFloat(0)) { running, key in
+        running
+          + labelWidth(bundle.localizedString(forKey: key, value: nil, table: nil), size: 10)
+      }
+      #expect(total <= available, "\(code) 的图例需要 \(total)pt，只有 \(available)pt")
+    }
+  }
+
+  /// 芯片格宽：页内容宽减去设置页的内边距与卡片内边距，再按列数与列间距四等分。
+  private func chipWidth(panelWidth: CGFloat) -> CGFloat {
+    let gridWidth =
+      panelWidth - NotchMenuMetrics.listPaddingHeight
+      - 2 * NotchMenuMetrics.rowHorizontalPadding
+    let columns = CGFloat(UsageStatsMetrics.rangeChipColumns)
+    return (gridWidth - UsageStatsMetrics.rangeChipSpacing * (columns - 1)) / columns
+  }
+
+  /// 标签的排版宽度；字号与视图一致（芯片 10 号、页眉标题 13 号 semibold）。
+  private func labelWidth(
+    _ text: String, size: CGFloat, weight: NSFont.Weight = .medium
+  ) -> CGFloat {
     (text as NSString).size(
-      withAttributes: [.font: NSFont.systemFont(ofSize: 11, weight: .medium)]
+      withAttributes: [.font: NSFont.systemFont(ofSize: size, weight: weight)]
     ).width
   }
 
@@ -194,9 +242,12 @@ struct UsageStatsLayoutTests {
 
   @Test("空态高度不超过分组可视内容区")
   func emptyStateFitsPanel() {
-    let viewport =
-      UsageStatsMetrics.sectionHeight - UsageStatsMetrics.tabBarHeight
-      - NotchMenuMetrics.rowSpacing - UsageStatsMetrics.contentTopGap
-    #expect(UsageStatsMetrics.emptyStateMinHeight <= viewport)
+    // 页面顶部只剩一份间距（设置页给的 contentTopGap）：面板高度的解析式里也只算一次。
+    #expect(
+      UsageStatsMetrics.emptyStateMinHeight + UsageStatsMetrics.contentTopGap
+        <= UsageStatsMetrics.sectionHeight)
+    #expect(
+      UsageStatsMetrics.emptyStateMinHeight
+        >= UsageStatsMetrics.sectionHeight - UsageStatsMetrics.contentTopGap - 40)
   }
 }

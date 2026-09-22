@@ -27,6 +27,15 @@ struct NotchMenuView: View {
 
             NotchMenuTabBar(selection: $viewModel.menuSection)
 
+            // 统计页的范围选择器：页眉控件的展开块，作为固定块插在分段条与滚动区之间，
+            // 滚动视口因此收缩（正在挑日期时看不到多少内容是可以接受的）。
+            // 它不参与 `openedSize`：统计分组是固定 560 的整块，而这种组合已顶到 728
+            // 上限，撑高与否都夹在上限上——因此这里不需要给 `NotchViewModel` 加订阅。
+            if viewModel.menuSection == .statistics, statsViewModel.isRangePickerExpanded {
+                StatsRangePickerPanel(viewModel: statsViewModel)
+                    .padding(.top, NotchMenuMetrics.contentTopGap)
+            }
+
             // 当前分组的内容：放不下时在这里滚动
             ScrollView(.vertical, showsIndicators: false) {
                 page
@@ -77,7 +86,14 @@ struct NotchMenuView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(AppPalette.primaryText)
 
-            Spacer()
+            Spacer(minLength: 8)
+
+            // 统计页的时间范围控件在这一行里（不再占页面顶部一行）：左侧的分段控件
+            // 形状与设置页的分组切换条相同，两条叠在一起会被读成「第二层导航」。
+            if viewModel.menuSection == .statistics {
+                StatsRangeControl(viewModel: statsViewModel)
+                StatsRescanButton(viewModel: statsViewModel)
+            }
         }
         .frame(height: NotchMenuMetrics.pageHeaderHeight)
     }

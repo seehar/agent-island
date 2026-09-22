@@ -153,7 +153,7 @@ struct UsageStatsIndexerTests {
     pass.ingest(sources: sources(root: root))
 
     let today = try store.snapshot(
-      range: .today, calendar: calendar, now: Date(), isIndexing: false)
+      window: .preset(.today), calendar: calendar, now: Date(), isIndexing: false)
 
     // 输入 100 + 50 + 10 + 1；输出 20 + 5 + 5 + 1；缓存读 300 + 7；缓存写 40 + 3。
     #expect(today.totals.input == 161)
@@ -174,7 +174,7 @@ struct UsageStatsIndexerTests {
     #expect(byAgent[.claudeCode]?.sessions == 1)
 
     // 8 天前的记录只出现在「全部」里。
-    let all = try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
+    let all = try store.snapshot(window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
     #expect(all.totals.input == 161 + 1000)
     #expect(all.totals.sessions == 3)
     #expect(all.tools.first?.name == "grep" || all.tools.contains { $0.name == "grep" })
@@ -189,17 +189,17 @@ struct UsageStatsIndexerTests {
     let now = Date()
     // 夹具：今天的记录（omp 根 + 子代理 + Claude 主/子代理，输入 161）与 8 天前的一条
     // （输入 1000）。8 天前在「近一周」窗口外、在「近一月」窗口内。
-    let day = try store.snapshot(range: .lastDay, calendar: calendar, now: now, isIndexing: false)
+    let day = try store.snapshot(window: .preset(.lastDay), calendar: calendar, now: now, isIndexing: false)
     #expect(day.totals.input == 161)
     #expect(day.trend.count == 24)
 
-    let week = try store.snapshot(range: .lastWeek, calendar: calendar, now: now, isIndexing: false)
+    let week = try store.snapshot(window: .preset(.lastWeek), calendar: calendar, now: now, isIndexing: false)
     #expect(week.totals.input == 161)
     #expect(week.totals.sessions == 2)
     #expect(week.trend.count == 7)
 
     let month = try store.snapshot(
-      range: .lastMonth, calendar: calendar, now: now, isIndexing: false)
+      window: .preset(.lastMonth), calendar: calendar, now: now, isIndexing: false)
     #expect(month.totals.input == 161 + 1000)
     #expect(month.totals.sessions == 3)
     #expect(month.trend.count == 30)
@@ -213,9 +213,9 @@ struct UsageStatsIndexerTests {
     let discovered = sources(root: root)
 
     pass.ingest(sources: discovered)
-    let first = try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
+    let first = try store.snapshot(window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
     pass.ingest(sources: discovered)
-    let second = try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
+    let second = try store.snapshot(window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
 
     #expect(comparable(first) == comparable(second))
   }
@@ -233,7 +233,7 @@ struct UsageStatsIndexerTests {
     let pass = pass(store)
     pass.ingest(sources: sources(root: root))
     #expect(
-      try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
+      try store.snapshot(window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
         .totals.input == 10)
 
     // 半行：写入内容但没有换行 → 不消费。
@@ -246,7 +246,7 @@ struct UsageStatsIndexerTests {
 
     pass.ingest(sources: sources(root: root))
     #expect(
-      try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
+      try store.snapshot(window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
         .totals.input == 10)
 
     // 补上换行 → 计一次；再扫一次不会重复计。
@@ -258,7 +258,7 @@ struct UsageStatsIndexerTests {
     pass.ingest(sources: sources(root: root))
     pass.ingest(sources: sources(root: root))
     #expect(
-      try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
+      try store.snapshot(window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
         .totals.input == 35)
   }
 
@@ -270,12 +270,12 @@ struct UsageStatsIndexerTests {
     let discovered = sources(root: root)
 
     pass.ingest(sources: discovered)
-    let first = try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
+    let first = try store.snapshot(window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
 
     // 重算不该重复计数：同一批文件从头再读一遍，结果必须一模一样。
     pass.ingest(sources: discovered, rebuilding: true)
     let rebuilt = try store.snapshot(
-      range: .all, calendar: calendar, now: Date(), isIndexing: false)
+      window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
     #expect(first.totals == rebuilt.totals)
     #expect(comparable(first) == comparable(rebuilt))
 
@@ -284,12 +284,12 @@ struct UsageStatsIndexerTests {
     try clearUsageBuckets(in: root)
     pass.ingest(sources: discovered)
     #expect(
-      try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
+      try store.snapshot(window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
         .totals.isEmpty)
 
     pass.ingest(sources: discovered, rebuilding: true)
     let recovered = try store.snapshot(
-      range: .all, calendar: calendar, now: Date(), isIndexing: false)
+      window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
     #expect(comparable(first) == comparable(recovered))
   }
 
@@ -308,7 +308,7 @@ struct UsageStatsIndexerTests {
     let pass = pass(store)
     pass.ingest(sources: sources(root: root))
     #expect(
-      try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
+      try store.snapshot(window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
         .totals.total == 460)
 
     // 整体重写成更短的一份（模拟 compaction / 用户清理）：旧值必须消失。
@@ -319,7 +319,7 @@ struct UsageStatsIndexerTests {
     pass.ingest(sources: sources(root: root))
 
     let snapshot = try store.snapshot(
-      range: .all, calendar: calendar, now: Date(), isIndexing: false)
+      window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
     #expect(snapshot.totals.total == 4)
     #expect(snapshot.tools.map { $0.name } == ["grep"])
   }
@@ -329,14 +329,14 @@ struct UsageStatsIndexerTests {
     let root = try makeFixtureTree()
     let store = try makeStore(in: root)
     try pass(store).ingest(sources: sources(root: root))
-    let before = try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
+    let before = try store.snapshot(window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
 
     // 删掉一个记录文件，并清掉它的进度行（与索引器的清理路径一致）。
     let target = root.appendingPathComponent("claude/proj/sess-1.jsonl")
     try FileManager.default.removeItem(at: target)
     try store.forgetCursor(sourceId: target.path)
 
-    let after = try store.snapshot(range: .all, calendar: calendar, now: Date(), isIndexing: false)
+    let after = try store.snapshot(window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
     #expect(comparable(before) == comparable(after))
   }
 
@@ -355,7 +355,7 @@ struct UsageStatsIndexerTests {
     #expect(outcome.failures == 0)
 
     // 其余记录的用量照常入库：omp 根会话 + 子代理（不含被删掉的 Claude 会话）。
-    let snapshot = try store.snapshot(range: .today, calendar: calendar, now: Date(), isIndexing: false)
+    let snapshot = try store.snapshot(window: .preset(.today), calendar: calendar, now: Date(), isIndexing: false)
     #expect(snapshot.totals.input == 150)
     #expect(snapshot.totals.sessions == 1)
   }
@@ -397,6 +397,47 @@ struct UsageStatsIndexerTests {
     }
     #expect(entry?.isSubagentFile == true)
     #expect(entry?.sessionId == "sess-1")
+  }
+
+  @Test("自选范围的右端是半开的：末日之后的记录不计入")
+  func customWindowExcludesLaterDays() throws {
+    let root = try makeFixtureTree()
+    let store = try makeStore(in: root)
+    let pass = pass(store)
+    pass.ingest(sources: sources(root: root))
+
+    let now = Date()
+    let today = calendar.startOfDay(for: now)
+    guard
+      let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: today),
+      let eightDaysAgo = calendar.date(byAdding: .day, value: -8, to: today)
+    else {
+      Issue.record("构造窗口边界失败")
+      return
+    }
+
+    // 夹具里 8 天前那份记录的 1000 输入在窗口外：自选窗口只覆盖今天的 161。
+    let recent = try store.snapshot(
+      window: .custom(from: sevenDaysAgo, to: today), calendar: calendar, now: now,
+      isIndexing: false)
+    #expect(recent.totals.input == 161)
+    #expect(recent.trend.count == 8)
+    // 首桶就是自选的起点那天（天粒度：8 天跨度按天分桶）。
+    #expect(recent.trend.first?.start == sevenDaysAgo)
+
+    // 起点前移一天，那份记录就进来了：右端仍钉在「今天」。
+    let wide = try store.snapshot(
+      window: .custom(from: eightDaysAgo, to: today), calendar: calendar, now: now,
+      isIndexing: false)
+    #expect(wide.totals.input == 1161)
+    #expect(wide.trend.count == 9)
+
+    // 右端真的是半开的：窗口停在「8 天前」那一天时，今天的数据一点都进不来。
+    let historic = try store.snapshot(
+      window: .custom(from: eightDaysAgo, to: eightDaysAgo), calendar: calendar, now: now,
+      isIndexing: false)
+    #expect(historic.totals.input == 1000)
+    #expect(historic.totals.sessions == 1)
   }
 
   /// 去掉 `/private` 前缀后的路径（macOS 上 `/var` 指向 `/private/var`）。

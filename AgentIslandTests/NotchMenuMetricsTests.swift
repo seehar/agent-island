@@ -157,6 +157,8 @@ struct NotchMenuMetricsTests {
                     ApprovalAskScope.allCases.count,
                     ApprovalDegradation.allCases.count,
                     ApprovalAutoExpand.allCases.count)),
+            // 统计页与关于页都没有「撑高面板的展开项」：统计页的范围选择器是页眉控件，
+            // 展开块占的是页内滚动视口（见 UsageStatsLayoutTests.rangePickerLeavesUsableViewport）。
             .statistics: 0,
             .about: 0,
         ]

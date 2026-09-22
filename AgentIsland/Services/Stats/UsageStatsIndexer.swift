@@ -355,15 +355,15 @@ actor UsageStatsIndexer {
   // MARK: - 查询
 
   /// 取某个窗口的快照。
-  func snapshot(for range: StatsRange) async -> UsageStatsSnapshot {
+  func snapshot(for window: StatsWindow) async -> UsageStatsSnapshot {
     do {
       let store = try reader()
       return try store.snapshot(
-        range: range, calendar: .current, now: Date(), isIndexing: isIndexing,
+        window: window, calendar: .current, now: Date(), isIndexing: isIndexing,
         indexedAt: lastPassFinishedAt)
     } catch {
       Self.logger.error("读取用量统计失败：\(String(describing: error), privacy: .public)")
-      return UsageStatsSnapshot(range: range)
+      return UsageStatsSnapshot(window: window)
     }
   }
 

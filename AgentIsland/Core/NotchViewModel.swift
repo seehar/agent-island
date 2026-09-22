@@ -178,7 +178,8 @@ class NotchViewModel: ObservableObject {
                 + ApprovalAskScopeSelector.shared.expandedPickerHeight
                 + ApprovalAutoExpandSelector.shared.expandedPickerHeight
         case .statistics:
-            // 统计页没有选择器：时间窗口是页内控件（滑块），不占面板高度增量。
+            // 统计页的时间范围控件在设置页的页眉行里（见 `StatsRangePicker`）：它的展开块
+            // 是插在分段条与滚动区之间的固定块，挤占页内滚动视口而不撑高面板，因此增量是 0。
             return 0
         case .about:
             return 0

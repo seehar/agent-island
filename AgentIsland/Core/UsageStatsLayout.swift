@@ -8,7 +8,8 @@
 //
 //  统计页是设置面板的一个分组（`NotchMenuSection.statistics`），因此这里给的是
 //  「内容高」而不是「面板高」：面板高由 `NotchMenuMetrics` 按分组算出来，滚动由
-//  设置页的滚动接管（页面自己不再套一层 ScrollView）。
+//  设置页的滚动接管（页面自己不再套一层 ScrollView）。时间范围控件在设置页的**页眉
+//  行**里（见 `StatsRangePicker`），它的展开块挤占页内滚动视口而不是撑高面板。
 //
 
 import CoreGraphics
@@ -22,10 +23,10 @@ nonisolated enum UsageStatsMetrics {
     // MARK: - 版面
 
     /// 统计页的内容高度。取 560 与「面板 + 分组页眉 + 分段控件」的固定开销相加后仍在
-    /// `NotchMenuMetrics.maxPanelHeight` 之内（有实测：见 UsageStatsLayoutTests）。
+    /// `NotchMenuMetrics.maxPanelHeight` 之内（有实测：见 `UsageStatsLayoutTests`）。
     static let sectionHeight: CGFloat = 560
     /// 页面内容宽度：面板宽上限减去设置页的左右内边距（统计页与设置行左右对齐，
-    /// 自己不再加内边距）。工具榜两列与柱图都要在这个宽度内排下。
+    /// 自己不再加内边距）。工具榜两列、芯片网格、月历与曲线图都要在这个宽度内排下。
     static var contentWidth: CGFloat {
         NotchMenuMetrics.panelWidthMax - NotchMenuMetrics.listPaddingHeight
     }
@@ -34,26 +35,66 @@ nonisolated enum UsageStatsMetrics {
 
     /// 各分组之间的间距。
     static let groupSpacing: CGFloat = NotchMenuMetrics.groupSpacing
-    /// 范围分段控件与内容之间的间距。
+    /// 页眉行与内容之间的间距（统计页只做参照：实际间距由设置页给）。
     static let contentTopGap: CGFloat = NotchMenuMetrics.contentTopGap
-    /// 范围分段控件的高度：与设置面板的分组切换同规格。
-    static let tabBarHeight: CGFloat = NotchMenuMetrics.tabBarHeight
-    /// 范围滑块的圆角，与设置页分组切换的滑块一致（轨道已不再画：两条相邻的
-    /// 分段控件共用同一形状会被读成同层导航）。
-    static let segmentedThumbRadius: CGFloat = 7
-    /// 「重新统计」按钮的宽度：取固定值，两种文案（重新统计 / 正在索引…）切换时
-    /// 左边的分段控件不该跟着抖；`minimumScaleFactor` 兜住更长的那一档。
-    static let rangeActionWidth: CGFloat = 64
-    /// 按钮内图标与文字的间距。
-    static let rangeActionIconGap: CGFloat = 4
-    /// 范围分段控件与按钮之间的间距。
-    static let rangeActionGap: CGFloat = 8
-    /// 范围段之间的间距（七档范围的宽度预算按它算，见 `UsageStatsLayoutTests`）。
-    static let segmentSpacing: CGFloat = 2
-    /// 范围段文字的缩字下限：七档时每段约 54pt（面板 480），最长的标签是英文
-    /// This Month（11 号 medium 约 60pt），缩到这个比例仍排得下——到不了就截断。
-    /// `UsageStatsLayoutTests` 用真实字体度量钉住这条预算。
-    static let segmentMinimumScale: CGFloat = 0.7
+
+    // MARK: - 页眉行里的范围控件
+
+    /// 范围控件宽度：预设档名短，自选范围是「9月1日 – 9月20日」这类读数；宽度固定，
+    /// 切换档位时左边的标题不会跟着抖。
+    static let headerRangeWidth: CGFloat = 150
+    /// 页眉行里图标按钮（重新统计）的边长：与设置页眉的返回按钮同一档。
+    static let headerActionSize: CGFloat = 22
+    /// 范围控件里文字与箭头的间距。
+    static let headerRangeGap: CGFloat = 4
+    /// 窗口标题的缩字下限：窗口标题过长时缩字而不截断。
+    static let headerRangeMinimumScale: CGFloat = 0.8
+
+    // MARK: - 范围选择器（页眉控件的展开块）
+
+    /// 芯片网格的列数：7 个预设 + 「自定义…」= 8 格，正好两行。
+    static let rangeChipColumns = 4
+    static let rangeChipHeight: CGFloat = 30
+    static let rangeChipSpacing: CGFloat = 4
+    static let rangeChipRowSpacing: CGFloat = 4
+    /// 芯片文字的缩字下限（各语言里最长的那档仍排得下，见 `UsageStatsLayoutTests`）。
+    static let rangeChipMinimumScale: CGFloat = 0.8
+    /// 选择器块的上下内边距。
+    static let rangePickerVerticalPadding: CGFloat = 10
+    /// 芯片网格与月历之间的间距（分隔线两侧各一个）。
+    static let rangePickerGap: CGFloat = 10
+    /// 选择器块的总高：卡片内边距 + 两行芯片 + 间距 + 分隔线 + 间距 + 月历 + 读数行。
+    ///
+    /// 它**不参与面板高度**（统计分组是固定 560 的整块，且这种组合下已顶到 728 上限），
+    /// 而是作为固定块插在分段条与滚动区之间挤占视口；`UsageStatsLayoutTests` 用它守住
+    /// 「展开后滚动视口仍不小于 200pt」。
+    static var rangePickerHeight: CGFloat {
+        2 * rangePickerVerticalPadding
+            + 2 * rangeChipHeight + rangeChipRowSpacing
+            + rangePickerGap + 1 + rangePickerGap
+            + calendarMonthHeaderHeight + calendarWeekdayHeight
+            + CGFloat(UsageStatsCalendar.rowCount) * calendarCellHeight
+            + CGFloat(UsageStatsCalendar.rowCount - 1) * calendarCellSpacing
+            + calendarReadoutHeight
+    }
+
+    // MARK: - 月历
+
+    static let calendarCellWidth: CGFloat = 30
+    static let calendarCellHeight: CGFloat = 26
+    static let calendarCellSpacing: CGFloat = 2
+    static let calendarCellRadius: CGFloat = 5
+    /// 月头行（◀ 2026年9月 ▶）与周标题行的高度。
+    static let calendarMonthHeaderHeight: CGFloat = 24
+    static let calendarWeekdayHeight: CGFloat = 16
+    /// 月历的固定行数：与 `UsageStatsCalendar.monthGrid` 的格子数同源。
+    static let calendarMaxRowCount = UsageStatsCalendar.rowCount
+    /// 读数行（「9月1日 – 9月20日」或「先选起始日，再选结束日。」）。
+    static let calendarReadoutHeight: CGFloat = 18
+    /// 月历块宽度 = 7 列 + 6 个列间距。
+    static var calendarWidth: CGFloat {
+        CGFloat(7) * calendarCellWidth + 6 * calendarCellSpacing
+    }
 
     // MARK: - 总览卡
 
@@ -79,22 +120,36 @@ nonisolated enum UsageStatsMetrics {
     static let shareBarHeight: CGFloat = 4
     static let shareBarRadius: CGFloat = 2
 
-    // MARK: - 趋势柱图
+    // MARK: - 曲线图
 
-    /// 柱图高度：柱高按窗内峰值归一到这个高度。
-    static let chartHeight: CGFloat = 52
-    /// 值为 0 的桶画一条细底线：占位，但不参与高度归一。
-    static let chartBaselineHeight: CGFloat = 1.5
-    /// 柱子圆角（柱很窄时会被柱宽吃掉）。
-    static let chartBarRadius: CGFloat = 1.5
-    /// 柱子间距：桶越密间距越小（「全部」可能有几百个桶）。
-    static let chartBarSpacingWide: CGFloat = 6
-    static let chartBarSpacingMiddle: CGFloat = 4
-    static let chartBarSpacingTight: CGFloat = 2
-    /// 桶数超过这个值改用最紧的间距。
-    static let chartTightBarCount = 30
-    /// 柱图下方首尾时间标签的行高。
-    static let chartAxisHeight: CGFloat = 14
+    /// 绘图区高度（不含图例、横轴行与左侧刻度栏）。
+    static let chartPlotHeight: CGFloat = 120
+    /// 左侧 y 轴刻度栏宽度。
+    static let chartYAxisWidth: CGFloat = 34
+    /// y 轴网格线条数（0 / 峰值一半 / 峰值）与横轴刻度个数。
+    static let chartGridLineCount = 3
+    static let chartXTickCount = 4
+    /// 横轴刻度行的行高。
+    static let chartXAxisHeight: CGFloat = 14
+    /// 曲线粗细、悬停圆点半径、面积填充的不透明度。
+    static let chartLineWidth: CGFloat = 1.5
+    static let chartDotRadius: CGFloat = 2.5
+    static let chartAreaOpacity: CGFloat = 0.10
+    /// 图例行：整行高、圆点直径与两项之间的间距。
+    static let chartLegendHeight: CGFloat = 20
+    static let chartLegendDotSize: CGFloat = 7
+    static let chartLegendGap: CGFloat = 8
+    /// 悬停读数卡：宽度、每行高与内边距。
+    static let chartTooltipWidth: CGFloat = 132
+    static let chartTooltipRowHeight: CGFloat = 14
+    static let chartTooltipPadding: CGFloat = 6
+    /// 悬停读数卡上下各留的边距（卡片贴顶时也要留出一点，别压住峰值那条线）。
+    static let chartTooltipTopInset: CGFloat = 2
+    /// 趋势卡的总高（卡片内边距 + 图例 + 图 + 横轴行）：首屏要能整块看到，
+    /// 不需要滚动就能读出形状（`UsageStatsLayoutTests` 钉住这条）。
+    static var trendCardHeight: CGFloat {
+        2 * 10 + chartLegendHeight + 6 + chartPlotHeight + 4 + chartXAxisHeight
+    }
 
     // MARK: - 工具榜
 
@@ -110,17 +165,8 @@ nonisolated enum UsageStatsMetrics {
 
     /// 脚注（口径说明与索引时间）的行距。
     static let footnoteLineSpacing: CGFloat = 5
-    /// 空态的最小高度：设置面板给本分组的可视内容区约 516（分组内容高减去范围控件
-    /// 与间距），留出这个高度后提示块落在视觉居中处，而不是贴着范围控件。
-    /// 有数据时统计页内容通常高于可视区（由设置页的滚动接管），空态则刚好贴近一屏。
-    static let emptyStateMinHeight: CGFloat = 460
-
-    // MARK: - 推导
-
-    /// 柱子的间距：按桶数分档，避免「全部」这种几百个桶的窗口把柱子挤成一片。
-    static func chartBarSpacing(barCount: Int) -> CGFloat {
-        if barCount <= 7 { return chartBarSpacingWide }
-        if barCount <= chartTightBarCount { return chartBarSpacingMiddle }
-        return chartBarSpacingTight
-    }
+    /// 空态的最小高度：设置面板给本分组的可视内容区是 560（页面顶部还有 10 的间距），
+    /// 留出这个高度后提示块落在视觉居中处，而不是贴着页眉。有数据时内容通常高于可视区
+    /// （由设置页的滚动接管）。
+    static let emptyStateMinHeight: CGFloat = 520
 }

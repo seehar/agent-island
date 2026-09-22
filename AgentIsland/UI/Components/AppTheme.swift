@@ -80,3 +80,17 @@ enum AppRadius {
     /// 气泡：用户消息气泡。
     static let bubble: CGFloat = 18
 }
+
+// MARK: - 统计图表的序列色
+
+/// 统计曲线图的序列色。**不是状态色**：只在同一张图里区分维度，因此不复用
+/// `success` / `warning` / `danger`（它们在别的页面表达状态），也不参与选中态
+/// （选中态一律 `accent`）。五路在黑色面板上两两可辨：色相分开，亮度都落在可读区间。
+enum ChartPalette {
+    /// 总量（输入 + 输出 + 缓存读 + 缓存写）：最亮的一路，面积填充也画它。
+    static let total = Color(red: 0.62, green: 0.80, blue: 1.00)
+    static let input = Color(red: 0.44, green: 0.72, blue: 0.98)
+    static let output = Color(red: 0.78, green: 0.62, blue: 0.98)
+    static let cacheRead = Color(red: 0.36, green: 0.86, blue: 0.78)
+    static let cacheWrite = Color(red: 1.00, green: 0.83, blue: 0.55)
+}

@@ -1390,6 +1390,40 @@
         }
       }
     },
+    "Custom…" : {
+      "comment" : "统计页范围芯片的最后一格：展开自选起止日期的月历。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义…"
+          }
+        }
+      }
+    },
+    "Date range" : {
+      "comment" : "统计页页眉的范围控件：点一下展开预设芯片与月历。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Date range"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日期范围"
+          }
+        }
+      }
+    },
     "Default" : {
       "localizations" : {
         "en" : {
@@ -2199,6 +2233,23 @@
         }
       }
     },
+    "Next month" : {
+      "comment" : "月历的「下个月」按钮（无障碍标签）。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next month"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下个月"
+          }
+        }
+      }
+    },
     "No files found" : {
       "localizations" : {
         "en" : {
@@ -2539,6 +2590,23 @@
       },
       "shouldTranslate" : false
     },
+    "Pick a start day, then an end day." : {
+      "comment" : "月历只落了起点时的读数行提示。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pick a start day, then an end day."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "先选起始日，再选结束日。"
+          }
+        }
+      }
+    },
     "Plan" : {
       "comment" : "EnterPlanMode / ExitPlanMode 在工具卡上的短名",
       "localizations" : {
@@ -2568,6 +2636,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "计划已就绪"
+          }
+        }
+      }
+    },
+    "Previous month" : {
+      "comment" : "月历的「上个月」按钮（无障碍标签）。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Previous month"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上个月"
           }
         }
       }
