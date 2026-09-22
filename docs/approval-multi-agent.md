@@ -805,7 +805,7 @@ ask: { questions: [ { id, question, header?, multi_select, free_text, options: [
 ### 12.5 仍然存在的边界
 
 - **「零选」已可表达（v5）**：多选题在刘海**未勾选任何项**时点「提交」即以 `[]` 作答（与原生 `User did not select any options` 同义，见 §12.1）；**整单都是多选时零交互也能直接提交**（与原生从零交互 `Next →` 前移一致）。**一条硬边界**：题面里只要有单选，未选中的单选就不允许被当成任何答案——提交保持不可用，用户要么选，要么走「跳过」（= 取消，终止本轮）。**Claude 例外**：它的 `answers` 没有空值语义，零选不可表达。
-- **opencode 无提问通道**：插件不带 `ask`，本切片未改动它。
+- **opencode 的提问通道已接上（v6）**：见 §12.7 —— 它的 `question` 工具与 omp 走同一条答案通道。
 
 ### 12.6 Claude 的 `AskUserQuestion`（v4 新增）
 
@@ -856,6 +856,39 @@ deferred tool list 里、ToolSearch 也搜不到，因此 headless 跑不出这�
 交互式 `claude`（见附录 A 的 E8）。这也意味着：本通道只在交互式 Claude 会话里生效（与刘海的
 存在前提一致）。
 
+### 12.7 opencode 的提问通道（v6 新增）
+
+opencode 1.18.32 的提问是一个**工具**（`question`）+ 一对事件：`question.asked`（带 requestID 与问题集）、
+`question.replied` / `question.rejected`；作答走 HTTP `POST /question/{requestID}/reply {answers:[[label…]]}`，
+放弃走 `POST /question/{requestID}/reject`（v2 路由多一层 sessionID：`/api/session/{sessionID}/question/{requestID}/…`）。
+服务端同样是 `Deferred.await`、**没有超时**——所以它与审批完全同构：唯一接缝是「插件订阅事件 + 回写 HTTP」。
+
+**此前为什么只能在终端作答（v5 及以前）**：插件只把 `question.asked` 报成一条**没有工具名、没有 `ask` 载荷、
+不请求应答**的 `ToolApproval`。应用侧的兜底分支会给缺工具名的待批填占位名 `Tool`（`SessionEvent.determinePhase()`），
+而 `Tool` 不在 opencode 的交互工具名单里 → 卡片渲染成「Tool · 允许 / 拒绝」；同时这条路**根本没有登记待批**
+（`expects_response` 缺席），于是那两个按钮点了什么都不做（`HookSocketServer.sendPermissionResponseBySession`
+找不到 pending，只写一条 debug 日志）。根因是**工具名缺失让「批准」语义成了推断**，而事实是提问。
+
+**现在的接线（与 omp 影子 ask 同一条通道）**：
+
+| 环节 | 落点 |
+| --- | --- |
+| 上行 | 插件订阅 `question.asked` / `question.v2.asked` → `ToolApproval` + `expects_response:true` + `tool:"question"` + `ask:{questions}`（`agent-island-opencode-plugin.js` 的 `askPayload`） |
+| 问题 id | opencode 的 `QuestionInfo` **没有 id**（`{question, header, options, multiple?, custom?}`），而应用以 id 作答、opencode 以**问题顺序**收答 → 插件按序号合成 `q0`…，回写时按序还原（`askQuestionsFrom` / `questionReplyBody`） |
+| 字段映射 | `multiple`→`multi_select`、`custom`→`free_text`、`options[{label, description}]` 原样（opencode 侧 `description` 必填，应用侧可选） |
+| 下行 | `answer` → `POST /question/{id}/reply {answers:[[…]]}`；`deny`（刘海「跳过」）→ `POST /question/{id}/reject`；**`allow` 与未知取值一律不回写**（放行对提问没有意义），退回终端原生提问 |
+| 应用侧 | `AgentKind.opencode.interactiveToolNames = ["question"]` —— 工具名必须与插件里的 `TOOL_QUESTION` 逐字一致 |
+| 撤卡 | 沿用既有链路：终端先答 → `question.replied` / `question.rejected` 上报 `PostToolUse`（`tool_use_id` = requestID）→ 应用关掉挂起的连接 → 插件收到 close 即**不回写**；刘海先答 → 我们回写后 opencode 自己发 `question.replied`，仍走同一条撤卡路径 |
+| 降级 | 身份或问题集取不到时，信封带 `tool:"question"` 但仍不带 `ask` → 应用给「去终端作答」，而不是一枚无效的批准按钮 |
+
+**预算**：opencode 侧没有超时，因此只有客户端一侧有预算——问答 **240s**
+（`AGENT_ISLAND_ASK_TIMEOUT_MS` / 插件 options 的 `askTimeoutMs` 可覆盖；与 omp 的 ask 同值）。
+四层链条不变：**app pending TTL 330s > 问答 240s > 闸门 120s**。超时 / 应用不可达 / 回写失败 = **不回写**，
+终端里的原生提问照旧可用（与权限通道的 fail-open 同一条纪律）。
+
+**版本戳**：插件文件头 `agent-island-opencode-plugin-version: 3`，与
+`AgentIntegrationInstaller.openCodePluginVersion` 同步（安装器只比版本戳判「是否该重装」）。
+
 ## 附录 A：本方案新增的实测证据
 
 | # | 实验 | 命令/对象 | 结果 | 用于 |
@@ -869,6 +902,8 @@ deferred tool list 里、ToolSearch 也搜不到，因此 headless 跑不出这�
 | **E7（v2）** | 实验目录凭据加固 | `ls -l /tmp/ai-approve/agent/models.yml`；`chmod 600` 三处 | `models.yml` 原为 **644 且含明文 `sk-…`**；加固后 600；目录本身是 `0700`（此前不可被他人遍历）→ **规则见 §9.7** | §9.7/§10.1 |
 | **E8（v4）** | Claude `AskUserQuestion` 经刘海答案通道作答（真机，端到端） | `~/.claude/hooks` 临时装载本仓脚本（挂载前后 sha256 对账、测后还原）+ `/tmp/ai-approve/r1-probe/e2e-server.py` socket 替身 + tmux 交互式 `claude`（2.1.263） | 替身收到 `PermissionRequest` / `tool: AskUserQuestion`，`ask.questions[0]` 完整（`id`/`question`/`header`/`multi_select`/`free_text`/`options[].label,description`）；TUI 显示 `User answered Claude's questions: · Which option should we ship? → Option BETA` 与 `Allowed by PermissionRequest hook`，模型随后回 `You chose Option BETA.`，**未弹原生提问** | §12.6 |
 | **E9（v4）** | 同一链路的脚本级 harness（37 断言） | `/tmp/ai-approve/r1-probe/harness.py`（真 unix socket 替身 + 真脚本子进程） | `answer`→`behavior:"allow"` 且 `updatedInput.answers` 逐字段相符、`questions` 原样回带；`deny`→`behavior:"deny"`+message；沉默→2s（压小后的预算）到点、`exit 0` 且 **stdout 为空**；非 ask 的 `PermissionRequest`→字节与改造前逐字一致；旧应用只回 `allow`→字节不变；应用不可达→0.03s 返回且无输出；畸形/对不上的 `answer`→无输出回落原生 | §12.6 |
+
+| **E10（v6）** | opencode 提问事件的真实形状（真 CLI，修复前） | `AGENT_ISLAND_SOCKET=<探针>` + `opencode serve` + 真插件（与仓库/包内副本逐字节相同）+ 模型 `opencode/mimo-v2.6-flash-free`，提示「用 question 工具问我三个选项」 | 插件发出 `PreToolUse(tool:question, 完整 questions)` 与 `ToolApproval(waiting_for_approval)`——**无 `tool` / 无 `ask` / 无 `expects_response`**；opencode 事件 `question.asked` 带 `que_…` 与 `{question, header, options[{label,description}], multiple}`；`POST /session/{id}/message` 挂满 60s 超时（服务端在等作答）→ 复现「刘海给批准按钮、按钮又无效」 | §12.7 |
 
 **非本方案作者运行的实验（引用他人结果）**：`RUN A–J` / `TUI-1,2` / `RPC-1,2` 来自 WS-A 的隔离实验；`T1–T10` / `R1–R3` 来自 WS-E 的隔离实验（脚本 `/tmp/ai-approve/{run_probe.sh, ext/probe.ts, ws-e-rpc-probe.py, ws-e-rpc-plain.py}`，日志 `/tmp/ai-approve/logs/probe.jsonl`）。本方案只引用其结论并标注用途。</
 

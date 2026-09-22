@@ -28,7 +28,8 @@ nonisolated enum AgentIntegrationInstaller {
   private static let openCodeVersionMarkerPrefix = "// agent-island-opencode-plugin-version:"
 
   /// 当前应用期望的 OpenCode 插件版本：改插件时必须同步 +1。
-  static let openCodePluginVersion = 2
+  /// 3 = 新增交互提问（`question`）的远程作答。
+  static let openCodePluginVersion = 3
 
   /// 当前应用期望的扩展版本戳：改 pi/omp 扩展时必须同步 +1。
   /// `isInstalled` 按它比对（不再只看「文件在不在」），用户手改过或升级未重写都能被发现。

@@ -113,12 +113,13 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
     /// 作答（选项、自由文本），因此卡片必须换成提问界面，给 Allow/Deny 会误导。
     /// - Claude Code：`AskUserQuestion`
     /// - omp / pi：`ask`（扩展把它报成 `ToolApproval` + `ask` 负载）
-    /// - OpenCode：无——插件不上报交互提问，待批一律是批准语义
+    /// - OpenCode：`question`（插件把 `question.asked` 报成 `ToolApproval` + `ask` 负载，
+    ///   作答回写 `POST /question/{id}/reply`——工具名必须与插件里的 `TOOL_QUESTION` 一致）
     var interactiveToolNames: Set<String> {
         switch self {
         case .claudeCode: return ["AskUserQuestion"]
         case .ohMyPi, .pi: return ["ask"]
-        case .opencode: return []
+        case .opencode: return ["question"]
         }
     }
 

@@ -1,5 +1,5 @@
 // agent-island-opencode-plugin.js —— 由 AgentIsland 安装的 OpenCode 插件
-// agent-island-opencode-plugin-version: 2
+// agent-island-opencode-plugin-version: 3
 //
 // ⚠️ 本文件由 AgentIsland 管理，勿手改：应用每次「安装集成」都会用内置副本整份覆盖。
 //
@@ -12,8 +12,12 @@
 //   - 审批事件：发 expects_response:true 并**保持连接**，等刘海回 {decision,reason}，
 //     再按决策回写 opencode（POST /permission/{id}/reply）。
 //     应用不可达 / 超时 / 决策未知 → **不回写**，由 opencode 原生 TUI 审批接管
-//     （与 Claude 链路的 fail-open 一致）。
-// 版本 2（本次）：新增远程审批。此前只上报状态，批准只能在终端里完成。
+//     （与 Claude 链路的 fail-open 一致）；
+//   - 提问事件（`question.asked`）：同构的阻塞询问，上行带 `ask` 载荷（问题与选项），
+//     刘海作答后回写 POST /question/{id}/reply（用户放弃 → /question/{id}/reject）。
+// 版本 3（本次）：新增交互提问（opencode 的 `question` 工具）的远程作答。此前它只被
+// 报成「一条看不懂的待批」——刘海显示成批准/拒绝，而那两个按钮对提问毫无意义。
+// 版本 2：新增远程审批。此前只上报状态，批准只能在终端里完成。
 
 import { execSync } from "node:child_process";
 import net from "node:net";
@@ -24,6 +28,16 @@ const SOCKET_PATH = process.env.AGENT_ISLAND_SOCKET || "/tmp/agent-island.sock";
 /** 等刘海决策的上限（毫秒）。opencode 服务端在审批上是 `Deferred.await` 且**没有
  *  超时**，所以超时后我们只是「不回写」，让终端里的原生审批继续兜着。 */
 const DEFAULT_DECISION_TIMEOUT_MS = 120000;
+
+/** 交互提问的工具名。应用按它把这张待批认成「要作答」而不是「要许可」
+ *  （`AgentKind.opencode.interactiveToolNames`），因此两侧必须逐字一致。 */
+const TOOL_QUESTION = "question";
+
+/** 等刘海作答的上限（毫秒）。opencode 的提问同样是服务端 `Deferred.await` 且**没有
+ *  超时**，所以超时后我们只是「不回写」，让终端里的原生提问继续兜着。
+ *  递减链：应用 pending TTL 330s > 问答客户端 240s（本值，与 omp 的 ask 同值）>
+ *  闸门客户端 120s。 */
+const DEFAULT_ASK_TIMEOUT_MS = 240000;
 
 /** opencode 的 reply 取值：`once` = 只放行这一次；`always` = 服务端把 patterns 加进
  *  已批准列表；`reject` = 拒绝。刘海目前只有「允许/拒绝」两个按钮，因此本文件只会
@@ -42,7 +56,9 @@ const SUPPRESSION_EXEMPT_EVENTS = new Set([
   "permission.replied",
   "permission.v2.replied",
   "question.replied",
+  "question.v2.replied",
   "question.rejected",
+  "question.v2.rejected",
 ]);
 
 // 串行发送，保证事件顺序。
@@ -238,6 +254,89 @@ function approvalPayload(fields, sessionId, cwd) {
   };
 }
 
+/** opencode 的 `QuestionInfo` → 应用 `ask` 载荷里的问题。
+ *
+ *  opencode 的问题**没有 id**（`{question, header, options, multiple?, custom?}`），
+ *  而应用以 id 作键回传答案、opencode 以**问题顺序**收答，因此 id 用序号合成
+ *  （`q0`…），回写时再按序还原。取不到的字段留 undefined（应用侧缺省即 false），
+ *  与 omp/Claude 的信封形状保持一致。
+ *
+ *  @param {Array} questions 事件里的 questions
+ *  @returns {Array} 应用 `ask` 载荷的 questions
+ */
+function askQuestionsFrom(questions) {
+  if (!Array.isArray(questions)) {
+    return [];
+  }
+  return questions.map((item, index) => {
+    const question = item && typeof item === "object" ? item : {};
+    const options = Array.isArray(question.options) ? question.options : [];
+    return {
+      id: `q${index}`,
+      question: typeof question.question === "string" ? question.question : "",
+      header:
+        typeof question.header === "string" && question.header.length > 0
+          ? question.header
+          : undefined,
+      multi_select: question.multiple === true,
+      free_text: question.custom === true,
+      options: options
+        .filter((option) => option && typeof option.label === "string")
+        .map((option) => ({
+          label: option.label,
+          description:
+            typeof option.description === "string" ? option.description : undefined,
+        })),
+    };
+  });
+}
+
+/** 提问事件 → 上报字段。
+ *
+ *  `tool_use_id` 取事件的 `id`（opencode 的 question id = reply/reject 路由里的
+ *  requestID），与审批同一约定：应用按 (会话, tool_use_id) 登记那张卡，而「终端先
+ *  答」的收手事件（`question.replied` / `question.rejected`）里也只有 requestID。
+ *
+ *  @param {object} payload 事件 properties
+ *  @returns {{tool_use_id?: string, tool_input?: object, questions: Array}} 上报字段
+ */
+function askEventFields(payload) {
+  if (!payload || typeof payload !== "object") {
+    return { questions: [] };
+  }
+  const id = payload.id;
+  return {
+    tool_use_id: typeof id === "string" && id.length > 0 ? id : undefined,
+    // 原始问题进 tool_input 只为人看得懂（卡片不用它），形状与 opencode 事件一致。
+    tool_input: { questions: Array.isArray(payload.questions) ? payload.questions : [] },
+    questions: askQuestionsFrom(payload.questions),
+  };
+}
+
+/** 提问上行信封：与审批信封同构，只是多一个 `ask` 载荷（应用据此换成作答卡）。
+ *
+ *  @param {object} fields askEventFields 的结果
+ *  @param {string} sessionId 会话 id
+ *  @param {string} cwd 工作目录
+ *  @returns {object} 上行信封
+ */
+function askPayload(fields, sessionId, cwd) {
+  return {
+    event: "ToolApproval",
+    status: "waiting_for_approval",
+    session_id: sessionId,
+    cwd,
+    pid,
+    tty,
+    agent: AGENT,
+    expects_response: true,
+    tool: TOOL_QUESTION,
+    tool_input: fields && fields.tool_input,
+    tool_use_id: fields && fields.tool_use_id,
+    ask: { questions: (fields && fields.questions) || [] },
+  };
+}
+
 /** 刘海下行决策 → opencode 的 reply body。
  *
  *  - `allow` → `{reply:"once"}`；
@@ -262,28 +361,90 @@ function replyBodyFromDecision(response) {
   return undefined;
 }
 
-/** 回写地址：两代 opencode 的 reply 路由不同（v2 多了 sessionID 一层）。
+/** 刘海作答 → opencode 的 reply body。
  *
+ *  opencode 的 `QuestionAnswer` 是「数组的数组」，**顺序即问题顺序**（每个元素是
+ *  该题选中的 label 列表）。应用回传的答案是「问题 id → 选中项」，因此这里按顺序
+ *  还原。应用侧「键缺失 = 未作答」与「空数组 = 多选一个都没选」两种语义，在 opencode
+ *  这边都表达为「该题没有选中项」（空数组）——它自己的提问工具也是这么收的。
+ *
+ *  只认 `answer`：其余决定返回 undefined，由调用方决定走哪条路由（`deny` → reject；
+ *  `allow` / 未知取值 → 不回写）。
+ *
+ *  @param {Array} questions askEventFields 的问题集（顺序与 opencode 一致）
+ *  @param {object|undefined} response 刘海回传的 {decision, answers?}
+ *  @returns {{answers: string[][]}|undefined} reply body
+ */
+function questionReplyBody(questions, response) {
+  if (!response || typeof response !== "object" || response.decision !== "answer") {
+    return undefined;
+  }
+  const answers =
+    response.answers && typeof response.answers === "object" ? response.answers : {};
+  return {
+    answers: (questions || []).map((question, index) => {
+      const value = answers[question && question.id ? question.id : `q${index}`];
+      return Array.isArray(value) ? value.filter((label) => typeof label === "string") : [];
+    }),
+  };
+}
+
+/** 回写路由模板：两代 opencode 的差异只在「v2 多了 sessionID 一层」，审批与提问
+ *  各有自己的资源名（提问还有独立的 reject 路由，没有 body）。
+ *  `{sessionID}` / `{requestID}` 由 `routeTarget` 填充。 */
+const REPLY_ROUTES = {
+  permissionReply: {
+    v1: "/permission/{requestID}/reply",
+    v2: "/api/session/{sessionID}/permission/{requestID}/reply",
+  },
+  questionReply: {
+    v1: "/question/{requestID}/reply",
+    v2: "/api/session/{sessionID}/question/{requestID}/reply",
+  },
+  questionReject: {
+    v1: "/question/{requestID}/reject",
+    v2: "/api/session/{sessionID}/question/{requestID}/reject",
+  },
+};
+
+/** 回写地址。
+ *
+ *  @param {string} route REPLY_ROUTES 的键
  *  @param {string} version "v1" | "v2"
  *  @param {{requestId: string, sessionId: string, serverPort: number}} target 目标
  *  @returns {{heyApiUrl: string, heyApiPath: object, url: string}} 回写地址
  */
-function replyTarget(version, target) {
-  const port = Number(target && target.serverPort) > 0 ? Number(target.serverPort) : 4096;
+function routeTarget(route, version, target) {
+  const port = Number(target && target.serverPort) > 0 ? Number(target && target.serverPort) : 4096;
   const requestId = encodeURIComponent((target && target.requestId) || "");
-  if (version === "v2") {
-    const sessionId = encodeURIComponent((target && target.sessionId) || "");
-    return {
-      heyApiUrl: "/api/session/{sessionID}/permission/{requestID}/reply",
-      heyApiPath: { sessionID: target && target.sessionId, requestID: target && target.requestId },
-      url: `http://localhost:${port}/api/session/${sessionId}/permission/${requestId}/reply`,
-    };
-  }
+  const sessionId = encodeURIComponent((target && target.sessionId) || "");
+  const routes = REPLY_ROUTES[route] || {};
+  const template = routes[version === "v2" ? "v2" : "v1"] || "";
   return {
-    heyApiUrl: "/permission/{requestID}/reply",
-    heyApiPath: { requestID: target && target.requestId },
-    url: `http://localhost:${port}/permission/${requestId}/reply`,
+    heyApiUrl: template,
+    heyApiPath:
+      version === "v2"
+        ? { sessionID: target && target.sessionId, requestID: target && target.requestId }
+        : { requestID: target && target.requestId },
+    url: `http://localhost:${port}${template
+      .replace("{sessionID}", sessionId)
+      .replace("{requestID}", requestId)}`,
   };
+}
+
+/** 审批回写地址（`reply:"once"|"reject"` 走同一个路由）。 */
+function replyTarget(version, target) {
+  return routeTarget("permissionReply", version, target);
+}
+
+/** 提问作答回写地址（body 为 `{answers}`）。 */
+function questionReplyTarget(version, target) {
+  return routeTarget("questionReply", version, target);
+}
+
+/** 提问放弃回写地址（无 body）。 */
+function questionRejectTarget(version, target) {
+  return routeTarget("questionReject", version, target);
 }
 
 /** 由宿主注入的 serverUrl 解析 opencode 本地端口（取不到时按 4096）。 */
@@ -292,11 +453,39 @@ function parseServerPort(serverUrl) {
   return Number.isInteger(port) && port > 0 ? port : 4096;
 }
 
-/** 决策等待时长：可由插件 options（opencode 配置里的 `[路径, options]`）覆盖，
- *  主要供离线 harness 把等待缩短；缺省 120s。 */
+/** 决策等待时长：插件 options（opencode 配置里的 `[路径, options]`）> 环境变量 >
+ *  缺省值。环境变量与 pi 系扩展同名同义（`AGENT_ISLAND_ASK_TIMEOUT_MS` 等），
+ *  主要供离线 harness 把等待缩短；两侧都不能把预算填成 0 或负数。 */
+function decisionBudget(options, key, envName, fallback) {
+  const fromOptions = Number(options && options[key]);
+  if (Number.isFinite(fromOptions) && fromOptions > 0) {
+    return fromOptions;
+  }
+  const fromEnv = Number(process.env[envName]);
+  if (Number.isFinite(fromEnv) && fromEnv > 0) {
+    return fromEnv;
+  }
+  return fallback;
+}
+
+/** 审批决定的等待时长；缺省 120s。 */
 function approvalTimeout(options) {
-  const ms = Number(options && options.approvalTimeoutMs);
-  return Number.isFinite(ms) && ms > 0 ? ms : DEFAULT_DECISION_TIMEOUT_MS;
+  return decisionBudget(
+    options,
+    "approvalTimeoutMs",
+    "AGENT_ISLAND_GATE_TIMEOUT_MS",
+    DEFAULT_DECISION_TIMEOUT_MS
+  );
+}
+
+/** 作答的等待时长；缺省 240s。 */
+function askTimeout(options) {
+  return decisionBudget(
+    options,
+    "askTimeoutMs",
+    "AGENT_ISLAND_ASK_TIMEOUT_MS",
+    DEFAULT_ASK_TIMEOUT_MS
+  );
 }
 
 /** 诊断日志：默认静默。
@@ -416,10 +605,44 @@ function requestDecision(payload, timeoutMs) {
   });
 }
 
-/** 把决策回写给 opencode。**永不抛错**。
+/** 把回写 body 交给 opencode。**永不抛错**。
  *
  *  优先走宿主注入的 SDK 客户端（`client._client`，@hey-api/client-fetch），失败
- *  回落到本地 HTTP。两层都失败就只留诊断日志：**不回写**，原生 TUI 审批接管。
+ *  回落到本地 HTTP。两层都失败就只留诊断日志：**不回写**，原生 TUI 接管。
+ *
+ *  @param {{heyApiUrl: string, heyApiPath: object, url: string}} target 回写地址
+ *  @param {object|undefined} body 回写 body（reject 路由没有 body）
+ *  @param {object} transport 回写通道（SDK 客户端 + 端口）
+ *  @returns {Promise<boolean>} 是否回写成功
+ */
+async function postReply(target, body, transport) {
+  const heyApi = transport && transport.heyApi;
+  if (heyApi && typeof heyApi.request === "function") {
+    try {
+      await heyApi.request({
+        method: "POST",
+        url: target.heyApiUrl,
+        path: target.heyApiPath,
+        body,
+      });
+      return true;
+    } catch {
+      // 回落 fetch。
+    }
+  }
+  try {
+    await fetch(target.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 把审批决策回写给 opencode。
  *
  *  @param {{requestId: string, sessionId: string, version: string, body: object,
  *           transport: object}} request 回写参数
@@ -431,30 +654,7 @@ async function replyPermission(request) {
     sessionId: request.sessionId,
     serverPort: request.transport && request.transport.serverPort,
   });
-  const heyApi = request.transport && request.transport.heyApi;
-  if (heyApi && typeof heyApi.request === "function") {
-    try {
-      await heyApi.request({
-        method: "POST",
-        url: target.heyApiUrl,
-        path: target.heyApiPath,
-        body: request.body,
-      });
-      return true;
-    } catch {
-      // 回落 fetch。
-    }
-  }
-  try {
-    await fetch(target.url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request.body),
-    });
-    return true;
-  } catch {
-    return false;
-  }
+  return postReply(target, request.body, request.transport);
 }
 
 /** 一次完整的远程审批：问刘海 → 按决策回写 opencode。
@@ -501,6 +701,64 @@ async function runApproval(request) {
   }
 }
 
+/** 一次完整的远程作答：问刘海 → 按决定回写 opencode（`answer` → reply，
+ *  `deny` → reject）。
+ *
+ *  四条「不回写」的路径（与审批的 fail-open 一致，交给终端里的原生提问）：
+ *  ① 事件里取不到 requestID / 会话 / 问题集；② 应用不可达或超时（决策为 undefined）；
+ *  ③ 决定不是 `answer` / `deny`（含老应用回传的 `allow`——放行对提问没有意义）；
+ *  ④ 回写两层都失败。
+ *
+ *  @param {{fields: object, sessionId: string, version: string, transport: object}} request
+ *  @returns {Promise<void>} 永不 reject
+ */
+async function runAsk(request) {
+  const requestId = request.fields && request.fields.tool_use_id;
+  const questions = (request.fields && request.fields.questions) || [];
+  if (!requestId || !request.sessionId || questions.length === 0) {
+    return;
+  }
+  beginApproval(request.sessionId);
+  // 与「登记 pending」同一时刻记下会话归属：应用侧此刻才会认出这张卡。
+  rememberApprovalSession(requestId, request.sessionId);
+  let response;
+  try {
+    response = await requestDecision(
+      askPayload(request.fields, request.sessionId, pluginCwd || process.cwd()),
+      request.transport && request.transport.askTimeoutMs
+    );
+  } finally {
+    endApproval(request.sessionId);
+  }
+  if (!response || typeof response !== "object") {
+    return;
+  }
+  const target = {
+    requestId,
+    sessionId: request.sessionId,
+    serverPort: request.transport && request.transport.serverPort,
+  };
+  if (response.decision === "deny") {
+    const ok = await postReply(
+      questionRejectTarget(request.version, target),
+      undefined,
+      request.transport
+    );
+    if (!ok) {
+      debugLog(`回写「放弃作答」失败（requestID=${requestId}），改由 opencode 原生提问接管`);
+    }
+    return;
+  }
+  const body = questionReplyBody(questions, response);
+  if (!body) {
+    return;
+  }
+  const ok = await postReply(questionReplyTarget(request.version, target), body, request.transport);
+  if (!ok) {
+    debugLog(`回写作答失败（requestID=${requestId}），改由 opencode 原生提问接管`);
+  }
+}
+
 export const AgentIslandPlugin = async (input, options) => {
   if (pid === undefined) {
     pid = process.pid;
@@ -513,6 +771,7 @@ export const AgentIslandPlugin = async (input, options) => {
     serverPort: parseServerPort(input && input.serverUrl),
     heyApi: input && input.client && input.client._client,
     timeoutMs: approvalTimeout(options),
+    askTimeoutMs: askTimeout(options),
   };
 
   return {
@@ -592,6 +851,29 @@ export const AgentIslandPlugin = async (input, options) => {
         return;
       }
 
+      // 交互提问（`question`）走与审批同构的阻塞询问：上行带 `ask` 载荷，刘海作答
+      // 后回写 `/question/{id}/reply|reject`。与审批同理，它不能被下面的「挂起期静音」
+      // 吃掉，因此也在这里优先处理并 return。
+      if (type === "question.asked" || type === "question.v2.asked") {
+        const version = type === "question.v2.asked" ? "v2" : "v1";
+        const fields = askEventFields(properties);
+        if (fields.tool_use_id && fields.questions.length > 0) {
+          // 不进 send() 的串行链、也不 await（否则会把事件总线堵在提问上）。
+          // 这条阻塞信封自己就是「等待作答」的状态上报，卡片与相位都来自它。
+          void runAsk({ fields, sessionId, version, transport }).catch(() => {});
+          return;
+        }
+        // 身份或问题集取不到：退回旧行为（只上报状态，作答仍在终端）。此时带上工具名，
+        // 应用会给出「去终端作答」的提示而不是一枚对提问毫无意义的批准按钮。
+        await send({
+          event: "ToolApproval",
+          status: "waiting_for_approval",
+          session_id: sessionId,
+          tool: TOOL_QUESTION,
+        });
+        return;
+      }
+
       // 该会话有审批挂起时，不再上报它的普通事件（避免刷屏）。生命周期事件与
       // 审批应答事件除外：前者维护会话行，后者是审批闭环本身。
       const exemptFromSuppression = SUPPRESSION_EXEMPT_EVENTS.has(type);
@@ -614,18 +896,18 @@ export const AgentIslandPlugin = async (input, options) => {
         case "session.idle":
           await send({ event: "Stop", status: "waiting_for_input", session_id: sessionId });
           break;
-        case "question.asked":
-          await send({ event: "ToolApproval", status: "waiting_for_approval", session_id: sessionId });
-          break;
         case "permission.replied":
         case "permission.v2.replied":
         case "question.replied":
-        case "question.rejected": {
+        case "question.v2.replied":
+        case "question.rejected":
+        case "question.v2.rejected": {
           // 带上 requestID 的目的是「终端一动就收手」：应用侧靠它认出我们挂着的那张
           // 卡片并立刻关闭它的 socket，本文件的 requestDecision 随即收到 close →
           // 返回 undefined → 不 reply（终端既然已经决定，我们就不该再插一手）。
-          // 四种应答事件（permission.replied / permission.v2.replied / question.replied /
-          // question.rejected）的 payload 里都有 requestID；取不到时字段自然缺席。
+          // 六种应答事件（permission.replied / permission.v2.replied / question.replied /
+          // question.v2.replied / question.rejected / question.v2.rejected）的 payload 里
+          // 都有 requestID；取不到时字段自然缺席。
           const requestId = requestIdFrom(properties);
           // 会话归属以「登记 pending 时」为准：匹配键是
           // (agent, sessionId, toolUseId)，事件里的 sessionID 缺失或与登记时不同
@@ -667,8 +949,11 @@ export const AgentIslandPlugin = async (input, options) => {
  *  插件对外形态（`AgentIslandPlugin` 仍是唯一导出、仍是函数）保持不变。
  *
  *  纯函数（可离线断言）：approvalEventFields / requestIdFrom / approvalPayload /
- *  replyBodyFromDecision / replyTarget；
- *  带 I/O 的：requestDecision / replyPermission / runApproval；
+ *  replyBodyFromDecision / replyTarget / askEventFields / askQuestionsFrom /
+ *  askPayload / questionReplyBody / questionReplyTarget / questionRejectTarget /
+ *  routeTarget；
+ *  带 I/O 的：requestDecision / replyPermission / runApproval / postReply /
+ *  respondToQuestion（= runAsk）；
  *  状态：pendingRequestSessions（在飞审批的会话 → 笔数）、
  *  approvalSessionByRequest（requestID → 登记时的会话）。
  */
@@ -685,4 +970,15 @@ AgentIslandPlugin.internals = {
   replyPermission,
   runApproval,
   pendingRequestSessions,
+  askEventFields,
+  askQuestionsFrom,
+  askPayload,
+  questionReplyBody,
+  questionReplyTarget,
+  questionRejectTarget,
+  routeTarget,
+  postReply,
+  approvalTimeout,
+  askTimeout,
+  respondToQuestion: runAsk,
 };
