@@ -97,7 +97,7 @@ nonisolated enum StatsRange: String, CaseIterable, Identifiable, Sendable {
     case .today:
       // 画满一整天（未来的钟点留空柱）：柱子数与横轴两端不随时钟漂移。
       first = day
-      last = calendar.date(byAdding: .hour, value: 23, to: day) ?? day
+      last = UsageStatsCalendar.lastHourStart(ofDayStartingAt: day, calendar: calendar)
     case .lastWeek:
       first = calendar.date(byAdding: .day, value: -6, to: day) ?? day
       last = day
@@ -194,17 +194,14 @@ nonisolated enum StatsWindow: Equatable, Sendable {
       let end = UsageStatsCalendar.startOfDay(to, calendar: calendar)
       switch granularity(calendar: calendar) {
       case .hour:
-        // 范围是按天选的，因此小时粒度下末桶是末日 23 点那一个小时桶。
-        let last = calendar.date(byAdding: .hour, value: 23, to: end) ?? end
+        // 范围是按天选的，因此小时粒度要覆盖**整个末日**（含当地最后那一个小时）。
+        let last = UsageStatsCalendar.lastHourStart(ofDayStartingAt: end, calendar: calendar)
         return TrendPlan(granularity: .hour, firstBucket: start, lastBucket: last)
       case .day:
-        // 超上限时只截首桶：末桶固定是自选的末日，被截掉的是更早的那一段。
-        let span = calendar.dateComponents([.day], from: start, to: end).day ?? 0
-        let first =
-          span >= Self.customTrendDayLimit
-          ? calendar.date(byAdding: .day, value: -(Self.customTrendDayLimit - 1), to: end) ?? end
-          : start
-        return TrendPlan(granularity: .day, firstBucket: first, lastBucket: end)
+        // 首桶给自选的起点，超上限由 `bucketLimit` 从末桶往回截——末桶永远是自选的末日。
+        return TrendPlan(
+          granularity: .day, firstBucket: start, lastBucket: end,
+          bucketLimit: Self.customTrendDayLimit)
       }
     }
   }
@@ -229,23 +226,57 @@ nonisolated enum StatsSeries: String, CaseIterable, Identifiable, Sendable {
   static let visibleOptions = allCases.count
 }
 
-/// 趋势桶的计划：粒度（小时 / 天）+ 首尾桶（都落在粒度边界上）。
+/// 趋势桶的计划：粒度（小时 / 天）+ 首尾桶（都落在粒度边界上）+ 可选的桶数上限。
 nonisolated struct TrendPlan: Equatable, Sendable {
   var granularity: TrendGranularity
   var firstBucket: Date
   var lastBucket: Date
+  /// 桶数上限（`nil` = 不限）。超长的自选范围只画最近的这些桶，更早的数据仍计入总量。
+  var bucketLimit: Int? = nil
 
-  /// 桶起点序列（升序，含空桶）——数据层据此补空桶，视图直接画。
+  /// 桶起点序列（升序、含空桶）——数据层据此补空桶，视图直接画。
+  ///
+  /// 从末桶**往回**走，而不是从首桶按「+24 小时 / +1 小时」正推：日粒度下正推过午夜发生
+  /// 夏令时跳变的那天之后，每个落点都晚一小时，走到末桶之前就退出——曲线丢掉窗口最后
+  /// 一天，而总量把它算进去了（America/Santiago 实测：总量 200，曲线只有 19 个桶）。
+  /// 往回走时每一步用「前一秒所在的桶起点」，跳变日与不存在的当地时刻都不会踩空。
+  ///
+  /// 桶按**键**去重：秋令时回拨的那一小时会出现两个同分钟的桶（如 `T00` 两次），而 SQL
+  /// 也是按键分组的，它们本来就是同一个桶。
   func bucketStarts(calendar: Calendar = .current) -> [Date] {
     let unit: Calendar.Component = granularity == .hour ? .hour : .day
+    let lastStart = bucketStart(containing: lastBucket, unit: unit, calendar: calendar)
+    let firstStart = bucketStart(containing: firstBucket, unit: unit, calendar: calendar)
+
     var starts: [Date] = []
-    var cursor = firstBucket
-    while cursor <= lastBucket {
-      starts.append(cursor)
-      guard let next = calendar.date(byAdding: unit, value: 1, to: cursor) else { break }
-      cursor = next
+    var seen = Set<String>()
+    var cursor = lastStart
+    while cursor >= firstStart {
+      let key = UsageStatsKey.bucket(for: cursor, granularity: granularity, calendar: calendar)
+      if seen.insert(key).inserted { starts.append(cursor) }
+      if let bucketLimit, starts.count >= bucketLimit { break }
+      guard let previous = previousBucketStart(before: cursor, unit: unit, calendar: calendar)
+      else { break }
+      cursor = previous
     }
-    return starts
+    return starts.reversed()
+  }
+
+  /// 某个时刻所在桶的起点。
+  private func bucketStart(containing date: Date, unit: Calendar.Component, calendar: Calendar)
+    -> Date
+  {
+    calendar.dateInterval(of: unit, for: date)?.start ?? date
+  }
+
+  /// 上一个桶的起点：从「前一秒」所在的桶取（不用 `date(byAdding:)` 直接减去一整天——
+  /// 夏令时跳变日的当地零点可能不存在，加减一天的行为不保证落在相邻的那一天）。
+  private func previousBucketStart(
+    before date: Date, unit: Calendar.Component, calendar: Calendar
+  ) -> Date? {
+    let start = bucketStart(
+      containing: date.addingTimeInterval(-1), unit: unit, calendar: calendar)
+    return start < date ? start : nil
   }
 }
 

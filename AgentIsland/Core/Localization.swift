@@ -127,6 +127,16 @@ final class LocalizationManager: ObservableObject {
             .localizedString(forKey: key, value: nil, table: nil)
     }
 
+    /// 按**指定**语言代码查表（非隔离）。
+    ///
+    /// 给「语言要显式传参」的调用点用（见 `UsageStatsFormat.presetTitle`）：它走的是同一个
+    /// `.lproj` 查表，因此不会像 `NSLocalizedString` 那样读系统语言；把解析放在这里而不是
+    /// 让调用方自己碰 `bundle(for:).localizedString(forKey:)`，也免得本地化守卫把它误判成
+    /// 「绕过自研查表」。
+    nonisolated static func t(_ key: String, languageCode: String) -> String {
+        bundle(for: languageCode).localizedString(forKey: key, value: nil, table: nil)
+    }
+
     /// 非隔离的格式化入口，语义与实例版本一致；locale 同样由持久化偏好推出。
     nonisolated static func t(_ key: String, _ arguments: CVarArg...) -> String {
         String(

@@ -11,16 +11,22 @@ import Foundation
 
 /// 统计页的展示格式化（纯函数）。
 nonisolated enum UsageStatsFormat {
-    /// 预设档的档名。键即英语源文案（本地化守卫据此审计），语言取自已持久化的偏好。
-    static func presetTitle(_ range: StatsRange) -> String {
+    /// 预设档的档名。语言显式传入（默认取已持久化的界面语言）：测试因此能分别断言两侧
+    /// 的译文，而不是「解析不到、回落成 key」也算通过。
+    ///
+    /// 键保持字面量（本地化守卫据此审计「哪些键被引用」），查表走
+    /// `LocalizationManager.t(_:languageCode:)`。
+    static func presetTitle(
+        _ range: StatsRange, languageCode: String = AppSettings.language.resolvedCode
+    ) -> String {
         switch range {
-        case .lastDay: return LocalizationManager.t("Last 24h")
-        case .lastWeek: return LocalizationManager.t("Last 7d")
-        case .lastMonth: return LocalizationManager.t("Last 30d")
-        case .today: return LocalizationManager.t("Today")
-        case .week: return LocalizationManager.t("This Week")
-        case .month: return LocalizationManager.t("This Month")
-        case .all: return LocalizationManager.t("All")
+        case .lastDay: return LocalizationManager.t("Last 24h", languageCode: languageCode)
+        case .lastWeek: return LocalizationManager.t("Last 7d", languageCode: languageCode)
+        case .lastMonth: return LocalizationManager.t("Last 30d", languageCode: languageCode)
+        case .today: return LocalizationManager.t("Today", languageCode: languageCode)
+        case .week: return LocalizationManager.t("This Week", languageCode: languageCode)
+        case .month: return LocalizationManager.t("This Month", languageCode: languageCode)
+        case .all: return LocalizationManager.t("All", languageCode: languageCode)
         }
     }
 

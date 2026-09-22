@@ -34,6 +34,17 @@ nonisolated enum UsageStatsCalendar {
         calendar.startOfDay(for: date)
     }
 
+    /// 某个自然日的**最后一个小时桶**的起点。
+    ///
+    /// 不能写成「零点 + 23 小时」：夏令时跳变那天当地是 23 或 25 小时，加 23 小时会落在
+    /// 21/22 点，末小时（如 `T23`）的数据就画不出来（America/Havana 2026-11-01 实测）。
+    static func lastHourStart(ofDayStartingAt day: Date, calendar: Calendar = .current) -> Date {
+        let end =
+            calendar.dateInterval(of: .day, for: day)?.end ?? day.addingTimeInterval(24 * 3600)
+        let justBeforeEnd = end.addingTimeInterval(-1)
+        return calendar.dateInterval(of: .hour, for: justBeforeEnd)?.start ?? justBeforeEnd
+    }
+
     /// 该日所在月的 1 日零点。
     static func startOfMonth(_ date: Date, calendar: Calendar = .current) -> Date {
         let components = calendar.dateComponents([.year, .month], from: date)

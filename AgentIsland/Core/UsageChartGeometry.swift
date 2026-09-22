@@ -33,7 +33,11 @@ nonisolated struct UsageChartGeometry: Equatable {
     }
 
     /// 离 `x` 最近的桶序号（超界夹到两端）。
+    ///
+    /// `x` 必须先是有限值：`Int(CGFloat.nan)` / `Int(CGFloat.infinity)` 在 Swift 里是
+    /// 运行时 trap（不是夹取），而 hover 坐标由框架给出，不能假定它永远有限。
     func nearestIndex(x: CGFloat, count: Int) -> Int {
+        guard x.isFinite else { return 0 }
         guard count > 1, plotWidth > 0 else { return 0 }
         let raw = Int((x / plotWidth * CGFloat(count - 1)).rounded())
         return min(max(raw, 0), count - 1)
@@ -52,7 +56,7 @@ nonisolated struct UsageChartGeometry: Equatable {
 ///
 /// 不过冲来自**切线的取法**：内部点的切线取两侧割线斜率的**调和平均**（两侧异号时取 0，
 /// 即极值点处切线水平），端点取相邻割线斜率。调和平均 ≤ 2 × min(两侧斜率)，于是限制器要算
-/// 的 α² + β² 恒落在 [2, 4] 内、永远触发不了——教科书里那个 Fritsch–Carlson 限制器在这里
+/// 的 α² + β² 恒不超过 4（等斜率时取到 2、斜率悬殊时趋近 4）、永远触发不了——教科书里那个 Fritsch–Carlson 限制器在这里
 /// 是死代码：消融实测删掉它，`UsageChartGeometryTests.curveNeverOvershoots` 仍然全绿，
 /// 因此不再保留。**改动切线取法时必须把那一段限制器补回来。**
 nonisolated enum UsageChartCurve {

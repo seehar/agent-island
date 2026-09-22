@@ -63,6 +63,14 @@ struct UsageChartGeometryTests {
     #expect(geometry.nearestIndex(x: 100, count: 1) == 0)
   }
 
+  @Test("非有限的悬停坐标不会 trap，按第一个桶处理")
+  func nearestIndexHandlesNonFiniteInput() {
+    // `Int(CGFloat.nan)` / `Int(CGFloat.infinity)` 在 Swift 里是运行时 trap（不是夹取）。
+    #expect(geometry.nearestIndex(x: .nan, count: 5) == 0)
+    #expect(geometry.nearestIndex(x: .infinity, count: 5) == 0)
+    #expect(geometry.nearestIndex(x: -.infinity, count: 5) == 0)
+  }
+
   @Test("投影：一列值变成绘图区内的点串")
   func pointsProjectValues() {
     let points = geometry.points(values: [0, 100], peak: 100)
@@ -71,20 +79,40 @@ struct UsageChartGeometryTests {
     #expect(points[1] == CGPoint(x: 400, y: 0))
   }
 
-  @Test("平滑曲线过每一个点（含首尾）")
-  func curvePassesThroughEveryPoint() {
-    let points = [
-      CGPoint(x: 0, y: 100), CGPoint(x: 100, y: 40), CGPoint(x: 200, y: 90),
-      CGPoint(x: 300, y: 10),
-    ]
-    let controls = UsageChartCurve.controlPoints(points)
-    #expect(controls.count == points.count - 1)
+  @Test("平滑曲线的控制点真按切线算：等间距线性数据的控制点落在直线上")
+  func curveControlPointsFollowTangents() {
+    // 三次贝塞尔在 t=0 / t=1 处恒等于端点（对**任意**控制点都成立），所以端点等式钉不住
+    // 实现。等间距的线性数据才是判别式：切线 == 割线斜率，控制点必然落在那一小段直线上。
+    let line = [CGPoint(x: 0, y: 100), CGPoint(x: 50, y: 50), CGPoint(x: 100, y: 0)]
+    let controls = UsageChartCurve.controlPoints(line)
+    #expect(controls.count == line.count - 1)
 
     for (index, control) in controls.enumerated() {
-      let start = points[index]
-      let end = points[index + 1]
-      #expect(evaluate(control.0, control.1, from: start, to: end, t: 0) == start)
-      #expect(evaluate(control.0, control.1, from: start, to: end, t: 1) == end)
+      let start = line[index]
+      let end = line[index + 1]
+      let span = end.x - start.x
+      let slope = (end.y - start.y) / span
+      #expect(abs(control.0.y - (start.y + slope * span / 3)) < 0.001)
+      #expect(abs(control.1.y - (end.y - slope * span / 3)) < 0.001)
+      #expect(abs(control.0.x - (start.x + span / 3)) < 0.001)
+      #expect(abs(control.1.x - (end.x - span / 3)) < 0.001)
+    }
+
+    // 控制点必须落在相邻两点的值域内（单调三次插值的构造性质，不是恒真式）。
+    let shapes: [[CGPoint]] = [
+      [CGPoint(x: 0, y: 120), CGPoint(x: 100, y: 0), CGPoint(x: 200, y: 120)],
+      [
+        CGPoint(x: 0, y: 100), CGPoint(x: 8, y: 100), CGPoint(x: 16, y: 0),
+        CGPoint(x: 120, y: 0), CGPoint(x: 128, y: 100),
+      ],
+    ]
+    for points in shapes {
+      for (index, control) in UsageChartCurve.controlPoints(points).enumerated() {
+        let low = min(points[index].y, points[index + 1].y)
+        let high = max(points[index].y, points[index + 1].y)
+        #expect(control.0.y >= low - 0.001 && control.0.y <= high + 0.001)
+        #expect(control.1.y >= low - 0.001 && control.1.y <= high + 0.001)
+      }
     }
   }
 

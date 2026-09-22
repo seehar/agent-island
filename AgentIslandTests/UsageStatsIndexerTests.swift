@@ -440,6 +440,102 @@ struct UsageStatsIndexerTests {
     #expect(historic.totals.sessions == 1)
   }
 
+  @Test("自选窗口的左右边界：起点 00:00 计入、终点次日 00:00 不计入")
+  func customWindowBoundaryIsInclusiveAtStart() throws {
+    let root = try tempRoot()
+    let ompRoot = root.appendingPathComponent("omp")
+    let today = calendar.startOfDay(for: Date())
+    guard
+      let windowStart = calendar.date(byAdding: .day, value: -2, to: today),
+      let windowEnd = calendar.date(byAdding: .day, value: -1, to: today),
+      let hourBeforeStart = calendar.date(byAdding: .hour, value: -1, to: windowStart),
+      let lastHourOfEnd = calendar.date(byAdding: .hour, value: 23, to: windowEnd)
+    else {
+      Issue.record("构造边界失败")
+      return
+    }
+
+    // 四个边界时刻各一条：起点当日 00:00（含）、起点前一小时（不含）、
+    // 终点当日 23:00（含）、终点次日 00:00（= 窗口右端，不含）。
+    let instants: [(date: Date, input: Int)] = [
+      (windowStart, 100),
+      (hourBeforeStart, 1_000),
+      (lastHourOfEnd, 10),
+      (today, 1_000),
+    ]
+    for (index, item) in instants.enumerated() {
+      try write(
+        piLine(
+          date: item.date, input: item.input, output: 0, cacheRead: 0, cacheWrite: 0, tools: [])
+          + "\n",
+        to: ompRoot.appendingPathComponent("-boundary/session-\(index).jsonl"))
+    }
+
+    let store = try makeStore(in: root)
+    pass(store).ingest(sources: sources(root: root))
+    let snapshot = try store.snapshot(
+      window: .custom(from: windowStart, to: windowEnd), calendar: calendar, now: Date(),
+      isIndexing: false)
+
+    // 左端含（100 在）而右端不含（两个 1000 都不在）——把 `>=` 写成 `>` 或把 `<` 写成
+    // `<=`，这条断言都会失败。
+    #expect(snapshot.totals.input == 110)
+    #expect(snapshot.totals.sessions == 2)
+  }
+
+  @Test("秋令时回拨那天：25 小时的记录全部计入，且每个有数据的整点桶都在计划里")
+  func hourBucketsCoverEveryRecordedHourInDSTDay() throws {
+    var zoneCalendar = calendar
+    zoneCalendar.timeZone = TimeZone(identifier: "America/Havana") ?? .gmt
+    guard let day = zoneCalendar.date(from: DateComponents(year: 2026, month: 11, day: 1))
+    else {
+      Issue.record("构造日期失败")
+      return
+    }
+    let start = zoneCalendar.startOfDay(for: day)
+
+    let root = try tempRoot()
+    let ompRoot = root.appendingPathComponent("omp")
+    // 按**绝对时间**每小时一条：当地这一天有 25 小时（00:00 回拨重复一次）。
+    // 两个 00:00 在按小时键分组时是同一个桶，因此总量是 25、桶只有 24 个。
+    for hour in 0..<25 {
+      try write(
+        piLine(
+          date: start.addingTimeInterval(Double(hour) * 3600), input: 1, output: 0, cacheRead: 0,
+          cacheWrite: 0, tools: []) + "\n",
+        to: ompRoot.appendingPathComponent("-dst/session-\(hour).jsonl"))
+    }
+
+    let store = try makeStore(in: root)
+    // 分桶日历必须与查询日历一致：记录按当地小时键入库。
+    UsageStatsPass(store: store, calendar: zoneCalendar)
+      .ingest(sources: sources(root: root))
+
+    let snapshot = try store.snapshot(
+      window: .custom(from: start, to: start), calendar: zoneCalendar, now: Date(),
+      isIndexing: false)
+
+    #expect(snapshot.totals.input == 25)
+
+    let expectedKeys = Set(
+      (0..<25).map { hour in
+        UsageStatsKey.hour(
+          for: start.addingTimeInterval(Double(hour) * 3600), calendar: zoneCalendar)
+      })
+    let plannedKeys = Set(
+      snapshot.trend.map {
+        UsageStatsKey.bucket(for: $0.start, granularity: .hour, calendar: zoneCalendar)
+      })
+    let dataKeys = Set(
+      snapshot.trend.filter { $0.input > 0 }.map {
+        UsageStatsKey.bucket(for: $0.start, granularity: .hour, calendar: zoneCalendar)
+      })
+
+    #expect(plannedKeys == expectedKeys, "计划必须覆盖窗口内每个整点键，缺 \(expectedKeys.subtracting(plannedKeys))")
+    #expect(dataKeys == expectedKeys, "有数据的桶必须都在计划里，缺 \(expectedKeys.subtracting(dataKeys))")
+    #expect(snapshot.trend.count == expectedKeys.count)
+  }
+
   /// 去掉 `/private` 前缀后的路径（macOS 上 `/var` 指向 `/private/var`）。
   private static func withoutPrivatePrefix(_ path: String) -> String {
     path.hasPrefix("/private/") ? String(path.dropFirst("/private".count)) : path

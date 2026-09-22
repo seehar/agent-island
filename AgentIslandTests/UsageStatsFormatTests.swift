@@ -28,18 +28,22 @@ struct UsageStatsFormatTests {
     calendar().date(from: DateComponents(year: year, month: month, day: day)) ?? Date()
   }
 
-  @Test("七个预设档各给自己的文案（不是同一个键的残留）")
+  @Test("七个预设档的档名互不相同，且两种语言都真的翻译过")
   func presetTitlesCoverEveryRange() {
-    // 键即英语源文案；两种语言的取值都在这里，缺一个都会被抓出来。
-    let keys = ["Last 24h", "Last 7d", "Last 30d", "Today", "This Week", "This Month", "All"]
-    let chineseTitles = ["近一天", "近一周", "近一月", "今天", "本周", "本月", "全部"]
+    // 入口显式吃语言代码，因此这里能分别断言两侧：解析不到时 `localizedString` 会回落成
+    // 键本身，那样「中文 == 英文」就会被抓出来。
+    let english = StatsRange.allCases.map {
+      UsageStatsFormat.presetTitle($0, languageCode: "en")
+    }
+    #expect(english.count == StatsRange.allCases.count)
+    #expect(Set(english).count == english.count, "七个档名必须互不相同：\(english)")
 
-    #expect(keys.count == StatsRange.allCases.count)
-    for (index, range) in StatsRange.allCases.enumerated() {
-      let title = UsageStatsFormat.presetTitle(range)
+    for range in StatsRange.allCases {
+      let translated = UsageStatsFormat.presetTitle(range, languageCode: "zh-Hans")
       #expect(
-        title == keys[index] || title == chineseTitles[index],
-        "\(range.rawValue) 的标题解析成了 \(title)")
+        translated != UsageStatsFormat.presetTitle(range, languageCode: "en"),
+        "\(range.rawValue) 没有中文文案（回落成了英文）")
+      #expect(!translated.isEmpty)
     }
   }
 
