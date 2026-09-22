@@ -359,23 +359,30 @@ nonisolated struct UsageStatsSnapshot: Equatable, Sendable {
 
 /// 用量数字的短格式。
 ///
-/// **缩写后的数字一律保留 2 位小数**（整页数字因此位数一致，也让「万 / 亿」这一档
-/// 的截断误差落到 0.5% 以内——1 位小数时 12,488 会显示成 1.2万，误差 3.9%）；不足
-/// 一个量级的原数按整数显示，不给整数补 `.00`（token 数本身是整数）。
+/// 规则有两条，都是为了「位数一致且放得下」：
+///   · **不足一个量级的原数按整数显示**，不给整数补 `.00`（token 数本身是整数）；
+///   · **缩写值的小数位随量级收缩**：整数部分不超过两位时保留 2 位（12,488 → 1.25万，
+///     截断误差在 0.5% 以内），超过两位就不再带小数（12,345,678 → 1235万）。
+///     后一条是必须的：一律 2 位小数会把大数写成 `1234.57万`（8 个字符），总览卡的大
+///     数字与曲线图的 y 轴刻度都放不下（实测：y 轴刻度栏只有 30 多 pt）。
 ///
-/// 中文界面按「万 / 亿」（12,488 → 1.25万；69,538,549,758 → 695.39亿），其余语言沿用
-/// K / M 公制词头（词头各语言通用）。小数点符号与千分位跟随界面语言。
+/// 中文界面按「万 / 亿」（12,488 → 1.25万；69,538,549,758 → 695亿），其余语言沿用
+/// K / M / B 公制词头（词头各语言通用；B 那一档不能省——只到 M 的话 32 亿 token 会写成
+/// `3239M`，比中文的 `32.39亿` 还长）。小数点符号与千分位跟随界面语言。
 nonisolated enum UsageTokenFormat {
     /// 短格式的 token 数量。
     static func short(_ value: Int, languageCode: String, locale: Locale) -> String {
         if languageCode.hasPrefix("zh") {
             return chineseShort(value, locale: locale)
         }
+        if value >= 1_000_000_000 {
+            return scaled(Double(value) / 1_000_000_000, suffix: "B")
+        }
         if value >= 1_000_000 {
-            return scaled(Double(value) / 1_000_000, suffix: "M", locale: locale)
+            return scaled(Double(value) / 1_000_000, suffix: "M")
         }
         if value >= 1_000 {
-            return scaled(Double(value) / 1_000, suffix: "K", locale: locale)
+            return scaled(Double(value) / 1_000, suffix: "K")
         }
         return value.formatted(.number.locale(locale))
     }
@@ -383,17 +390,26 @@ nonisolated enum UsageTokenFormat {
     /// 中文的量级词：不足一万给原数，一万以上用「万」，一亿以上用「亿」。
     private static func chineseShort(_ value: Int, locale: Locale) -> String {
         if value >= 100_000_000 {
-            return scaled(Double(value) / 100_000_000, suffix: "亿", locale: locale)
+            return scaled(Double(value) / 100_000_000, suffix: "亿")
         }
         if value >= 10_000 {
-            return scaled(Double(value) / 10_000, suffix: "万", locale: locale)
+            return scaled(Double(value) / 10_000, suffix: "万")
         }
         return value.formatted(.number.locale(locale))
     }
 
-    /// 保留 2 位小数（四舍五入）。
-    private static func scaled(_ value: Double, suffix: String, locale: Locale) -> String {
-        String(format: "%.2f", locale: locale, value) + suffix
+    /// 缩写值的写法：整数部分不超过两位时 2 位小数，否则不带小数（见上面的规则说明）。
+    ///
+    /// 两条实现细节都是为了「位数可控」（最坏 6 个字符，见 `tokenShortFormatStaysShort`）：
+    ///   · **先按 2 位小数算出最终数字再选格式**——按原始值判断会让 999,999 写成
+    ///     `100.00万`（进位后 7 个字符）；
+    ///   · **不带千分位**：`1235万` 而不是 `1,235万`（缩写值本身是近似值，位数越短越好；
+    ///     原数那一档 `9,999` 仍然按语言加千分位）。
+    private static func scaled(_ value: Double, suffix: String) -> String {
+        let rounded = (value * 100).rounded() / 100
+        let format = rounded >= 100 ? "%.0f" : "%.2f"
+        // 不传 locale：C 的 `%f` 不加千分位（传 locale 会带上语言的分组分隔符）。
+        return String(format: format, value) + suffix
     }
 }
 

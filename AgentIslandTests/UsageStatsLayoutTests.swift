@@ -154,6 +154,68 @@ struct UsageStatsLayoutTests {
     }
   }
 
+  @Test("y 轴刻度栏按最长刻度文案放宽，且不越过上限")
+  func yAxisGutterFitsWidestLabel() {
+    let font = NSFont.systemFont(ofSize: UsageStatsMetrics.chartYAxisLabelSize)
+    // 现实里最长的刻度文案：中文的「99.99亿」与英文的「99.99M」都是 6 个字符。
+    let labels = ["9,999", "99.99万", "9999万", "99.99亿", "9999亿", "12.49K", "99.99M", "1000B"]
+
+    let widest =
+      labels.map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
+    // 上限必须容得下最长的那条（否则刻度会被截断成「99.9…」）。
+    #expect(
+      widest + UsageStatsMetrics.chartYAxisLabelPadding <= UsageStatsMetrics.chartYAxisMaximumWidth,
+      "最长刻度要 \(widest + UsageStatsMetrics.chartYAxisLabelPadding)pt，上限只有 \(UsageStatsMetrics.chartYAxisMaximumWidth)pt")
+
+    for label in labels {
+      let width = (label as NSString).size(withAttributes: [.font: font]).width
+      let gutter = UsageStatsMetrics.chartYAxisWidth(forLabelWidths: [width])
+      #expect(gutter >= UsageStatsMetrics.chartYAxisMinimumWidth)
+      #expect(gutter <= UsageStatsMetrics.chartYAxisMaximumWidth)
+      #expect(gutter >= min(UsageStatsMetrics.chartYAxisMaximumWidth, width + UsageStatsMetrics.chartYAxisLabelPadding))
+    }
+
+    // 还没有峰值（过渡帧）时给空数组：落在下限上，不会退化成 0 宽度。
+    #expect(
+      UsageStatsMetrics.chartYAxisWidth(forLabelWidths: [])
+        == UsageStatsMetrics.chartYAxisMinimumWidth)
+
+    // 最宽的刻度栏下，绘图区仍然排得开。
+    let plotWidth =
+      UsageStatsMetrics.contentWidth - 2 * NotchMenuMetrics.rowHorizontalPadding
+      - UsageStatsMetrics.chartYAxisMaximumWidth
+    #expect(plotWidth >= 200)
+  }
+
+  @Test("总览卡：最长的大数字与两个小计仍排得下")
+  func summaryNumberFitsWithStats() {
+    let available = UsageStatsMetrics.contentWidth - 2 * NotchMenuMetrics.rowHorizontalPadding
+
+    // 短格式的位数上限是 6（见 `tokenShortFormatStaysShort`），这里按位数最长的取值量。
+    let widestNumber =
+      ["9,999", "99.99万", "9999万", "99.99亿", "9999亿", "99.99M"]
+      .map {
+        monospacedWidth($0, size: UsageStatsMetrics.summaryNumberSize, weight: .semibold)
+      }
+      .max() ?? 0
+    let statNumber = monospacedWidth("9,999", size: UsageStatsMetrics.summaryStatSize, weight: .semibold)
+    let sessions = max(statNumber, labelWidth("Sessions", size: 10))
+    let calls = max(statNumber, labelWidth("Tool calls", size: 10))
+
+    let needed =
+      widestNumber + 8 + sessions + UsageStatsMetrics.summaryStatSpacing + calls
+    #expect(needed <= available, "总览卡首行需要 \(needed)pt，只有 \(available)pt")
+  }
+
+  /// 等宽数字的排版宽度（总览卡的大数字与小计都用等宽字形）。
+  private func monospacedWidth(
+    _ text: String, size: CGFloat, weight: NSFont.Weight = .regular
+  ) -> CGFloat {
+    (text as NSString).size(
+      withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: size, weight: weight)]
+    ).width
+  }
+
   /// 芯片格宽：页内容宽减去设置页的内边距与卡片内边距，再按列数与列间距四等分。
   private func chipWidth(panelWidth: CGFloat) -> CGFloat {
     let gridWidth =

@@ -8,6 +8,7 @@
 //  网格线、刻度与悬停读数都从同一份峰值推出，三处不会各算一套。
 //
 
+import AppKit
 import SwiftUI
 
 /// 多路趋势曲线图。
@@ -31,6 +32,11 @@ struct UsageTrendChart: View {
         VStack(alignment: .leading, spacing: 6) {
             legend
 
+            // 读数行**始终存在**（未悬停时给一句提示）：悬停时只是这一行里的文字变化，
+            // 没有新视图出现在光标下面——飘在光标处的浮层会让 hover 反复进入/离开，
+            // 看起来就是在闪（旧版浮层读数卡的做法）。
+            readoutRow
+
             HStack(spacing: 0) {
                 yAxisLabels
                 chartArea
@@ -53,13 +59,28 @@ struct UsageTrendChart: View {
         return peak
     }
 
+    /// 三条 y 轴刻度的数值（顶 / 中 / 底）。
+    private var yTickValues: [Int] { [peak, peak / 2, 0] }
+
+    /// y 轴刻度栏宽度：按最长的一条刻度文案量出来（与渲染刻度同一把尺子），
+    /// 再夹在上下限之间——刻度文案随量级变长（`1235万` / `695亿`），
+    /// 写死宽度会把它截断成「1234…」。
+    private var yAxisWidth: CGFloat {
+        let font = NSFont.systemFont(ofSize: UsageStatsMetrics.chartYAxisLabelSize)
+        let widths = yTickValues.map { value in
+            (UsageTokenFormat.short(value, languageCode: languageCode, locale: l10n.locale)
+                as NSString).size(withAttributes: [.font: font]).width
+        }
+        return UsageStatsMetrics.chartYAxisWidth(forLabelWidths: widths)
+    }
+
     /// 绘图区宽度：页内容宽 → 卡片内边距 → 左侧 y 轴刻度栏。
     private var plotWidth: CGFloat {
         max(
             0,
             UsageStatsMetrics.contentWidth
                 - 2 * NotchMenuMetrics.rowHorizontalPadding
-                - UsageStatsMetrics.chartYAxisWidth
+                - yAxisWidth
         )
     }
 
@@ -134,7 +155,7 @@ struct UsageTrendChart: View {
                 .offset(y: UsageStatsMetrics.chartPlotHeight - 10)
         }
         .frame(
-            width: UsageStatsMetrics.chartYAxisWidth,
+            width: yAxisWidth,
             height: UsageStatsMetrics.chartPlotHeight,
             alignment: .top
         )
@@ -142,7 +163,7 @@ struct UsageTrendChart: View {
 
     private func yAxisLabel(_ value: Int) -> some View {
         Text(UsageTokenFormat.short(value, languageCode: languageCode, locale: l10n.locale))
-            .font(.system(size: 9))
+            .font(.system(size: UsageStatsMetrics.chartYAxisLabelSize))
             .foregroundColor(AppPalette.tertiaryText)
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .trailing)
@@ -188,14 +209,6 @@ struct UsageTrendChart: View {
                 hoveredIndex = geometry.nearestIndex(x: location.x, count: points.count)
             case .ended:
                 hoveredIndex = nil
-            }
-        }
-        .overlay(alignment: .topLeading) {
-            if let hoveredIndex, points.indices.contains(hoveredIndex) {
-                tooltip(for: hoveredIndex)
-                    .offset(
-                        x: tooltipOffset(index: hoveredIndex),
-                        y: UsageStatsMetrics.chartTooltipTopInset)
             }
         }
     }
@@ -258,60 +271,54 @@ struct UsageTrendChart: View {
                 x: center.x - radius, y: center.y - radius, width: 2 * radius, height: 2 * radius))
     }
 
-    // MARK: - 悬停读数卡
+    // MARK: - 悬停读数行
 
-    /// 读数卡：桶标签 + 每个可见路的数值。
-    private func tooltip(for index: Int) -> some View {
-        let point = points[index]
-
-        return VStack(alignment: .leading, spacing: 2) {
-            Text(UsageStatsFormat.bucketLabel(point.start, granularity: granularity, locale: locale))
+    /// 悬停读数：左边是悬停桶的时间，右边是每个可见路的数值（颜色与图例一一对应）。
+    /// 没有悬停时给一句提示——这一行始终占位，悬停不会改变任何布局。
+    private var readoutRow: some View {
+        HStack(spacing: UsageStatsMetrics.chartLegendGap) {
+            if let hoveredIndex, points.indices.contains(hoveredIndex) {
+                Text(
+                    UsageStatsFormat.bucketLabel(
+                        points[hoveredIndex].start, granularity: granularity, locale: locale)
+                )
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(AppPalette.primaryText)
                 .lineLimit(1)
 
-            ForEach(StatsSeries.allCases.filter { visibleSeries.contains($0) }) { series in
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(series.chartColor)
-                        .frame(width: 6, height: 6)
+                Spacer(minLength: 8)
 
-                    Text(series.title(l10n))
-                        .font(.system(size: 10))
-                        .foregroundColor(AppPalette.secondaryText)
-                        .lineLimit(1)
-
-                    Spacer(minLength: 6)
-
-                    Text(
-                        UsageTokenFormat.short(
-                            point.value(for: series), languageCode: languageCode, locale: l10n.locale)
-                    )
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundColor(AppPalette.primaryText)
-                    .lineLimit(1)
+                ForEach(StatsSeries.allCases.filter { visibleSeries.contains($0) }) { series in
+                    readoutValue(series, at: hoveredIndex)
                 }
-                .frame(height: UsageStatsMetrics.chartTooltipRowHeight)
+            } else {
+                Text(l10n.t("Hover a point to see its values."))
+                    .font(.system(size: 10))
+                    .foregroundColor(AppPalette.subtleText)
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
             }
         }
-        .padding(UsageStatsMetrics.chartTooltipPadding)
-        .frame(width: UsageStatsMetrics.chartTooltipWidth, alignment: .leading)
-        .background(
-            AppPalette.cardFill,
-            in: RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous)
-                .strokeBorder(AppPalette.cardStroke, lineWidth: 0.5)
-        )
+        .frame(height: UsageStatsMetrics.chartReadoutHeight)
     }
 
-    /// 读数卡的 x：以悬停桶为中心，再夹进绘图区（否则边缘的桶会把卡片切掉一半）。
-    private func tooltipOffset(index: Int) -> CGFloat {
-        let centered =
-            geometry.x(index: index, count: points.count) - UsageStatsMetrics.chartTooltipWidth / 2
-        let maximum = max(0, plotWidth - UsageStatsMetrics.chartTooltipWidth)
-        return min(max(centered, 0), maximum)
+    /// 读数行里的一路数值：色点 + 短格式数字（数字等宽，读数时位数不跳）。
+    private func readoutValue(_ series: StatsSeries, at index: Int) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(series.chartColor)
+                .frame(width: 6, height: 6)
+
+            Text(
+                UsageTokenFormat.short(
+                    points[index].value(for: series), languageCode: languageCode,
+                    locale: l10n.locale)
+            )
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundColor(AppPalette.secondaryText)
+            .lineLimit(1)
+        }
     }
 
     // MARK: - x 轴
@@ -330,7 +337,7 @@ struct UsageTrendChart: View {
                 .frame(maxWidth: .infinity, alignment: alignment(forTickAt: position))
             }
         }
-        .padding(.leading, UsageStatsMetrics.chartYAxisWidth)
+        .padding(.leading, yAxisWidth)
         .frame(height: UsageStatsMetrics.chartXAxisHeight)
     }
 

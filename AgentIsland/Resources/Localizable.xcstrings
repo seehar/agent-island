@@ -1943,6 +1943,23 @@
         }
       }
     },
+    "Hover a point to see its values." : {
+      "comment" : "统计页曲线图的悬停读数行：没有悬停时的提示（这一行始终占位，悬停只换文字）。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hover a point to see its values."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "悬停查看各点数值。"
+          }
+        }
+      }
+    },
     "Idle" : {
       "localizations" : {
         "en" : {

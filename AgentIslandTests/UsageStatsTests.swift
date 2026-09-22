@@ -69,7 +69,7 @@ struct UsageStatsTests {
     #expect(sum.calls == 3)
   }
 
-  @Test("中文界面按「万 / 亿」，其余语言按 K / M，缩写后一律 2 位小数")
+  @Test("中文按「万 / 亿」，其余语言按 K / M / B；大数不带小数，保证放得下")
   func tokenShortFormatFollowsLanguage() {
     let zh = Locale(identifier: "zh-Hans")
     let en = Locale(identifier: "en-US")
@@ -77,15 +77,42 @@ struct UsageStatsTests {
     // 中文：不足一万给原数（整数不补 .00），一万以上「万」，一亿以上「亿」。
     #expect(UsageTokenFormat.short(9_999, languageCode: "zh", locale: zh) == "9,999")
     #expect(UsageTokenFormat.short(12_488, languageCode: "zh", locale: zh) == "1.25万")
-    #expect(UsageTokenFormat.short(4_800_000, languageCode: "zh", locale: zh) == "480.00万")
     #expect(UsageTokenFormat.short(100_000_000, languageCode: "zh", locale: zh) == "1.00亿")
     #expect(UsageTokenFormat.short(3_239_364_009, languageCode: "zh", locale: zh) == "32.39亿")
-    #expect(UsageTokenFormat.short(69_538_549_758, languageCode: "zh", locale: zh) == "695.39亿")
 
-    // 其它语言沿用公制词头。
+    // 整数部分超过两位就不带小数：1234.57万 这种写法（8 个字符）在总览卡与 y 轴刻度上
+    // 都放不下，而 1235万 的截断误差仍然只有 0.04%。
+    #expect(UsageTokenFormat.short(4_800_000, languageCode: "zh", locale: zh) == "480万")
+    #expect(UsageTokenFormat.short(12_345_678, languageCode: "zh", locale: zh) == "1235万")
+    #expect(UsageTokenFormat.short(69_538_549_758, languageCode: "zh", locale: zh) == "695亿")
+
+    // 其它语言沿用公制词头（K / M / B）。
+    #expect(UsageTokenFormat.short(999, languageCode: "en", locale: en) == "999")
     #expect(UsageTokenFormat.short(12_488, languageCode: "en", locale: en) == "12.49K")
     #expect(UsageTokenFormat.short(4_800_000, languageCode: "en", locale: en) == "4.80M")
-    #expect(UsageTokenFormat.short(999, languageCode: "en", locale: en) == "999")
+    #expect(UsageTokenFormat.short(3_239_364_009, languageCode: "en", locale: en) == "3.24B")
+  }
+
+  @Test("任何量级的短格式都不超过 6 个字符（否则总览卡与 y 轴刻度会截断）")
+  func tokenShortFormatStaysShort() {
+    let zh = Locale(identifier: "zh-Hans")
+    let en = Locale(identifier: "en-US")
+    // 上界取到 10^12（一万亿 token）：单人历史量级的现实上限，再往上没有意义。
+    var value = 1
+    while value <= 1_000_000_000_000 {
+      for (code, locale) in [("zh", zh), ("en", en)] {
+        let text = UsageTokenFormat.short(value, languageCode: code, locale: locale)
+        #expect(text.count <= 6, "\(code) 的 \(value) 渲染成「\(text)」（\(text.count) 个字符）")
+      }
+      // 每个量级内挑几个有代表性的尾数（边界与接近进位处）。
+      value *= 10
+    }
+    for candidate in [9_999, 99_999, 999_999, 9_999_999, 99_999_999, 999_999_999, 12_345_678] {
+      for (code, locale) in [("zh", zh), ("en", en)] {
+        let text = UsageTokenFormat.short(candidate, languageCode: code, locale: locale)
+        #expect(text.count <= 6, "\(code) 的 \(candidate) 渲染成「\(text)」（\(text.count) 个字符）")
+      }
+    }
   }
 
   @Test("小时键按本地时区切分")

@@ -122,13 +122,22 @@ nonisolated enum UsageStatsMetrics {
 
     // MARK: - 曲线图
 
-    /// 绘图区高度（不含图例、横轴行与左侧刻度栏）。
+    /// 绘图区高度（不含图例、读数行、横轴行与左侧刻度栏）。
     static let chartPlotHeight: CGFloat = 120
-    /// 左侧 y 轴刻度栏宽度。
-    static let chartYAxisWidth: CGFloat = 34
+    /// y 轴刻度文案的字号（`UsageTrendChart` 渲染刻度与量宽都用它，两处必须是同一个值）。
+    static let chartYAxisLabelSize: CGFloat = 9
+    /// 左侧 y 轴刻度栏的最小 / 最大宽度，以及文案与绘图区之间的留白。
+    /// 刻度文案会随量级变长（`1235万` / `695亿`），固定宽度会把它截断，因此宽度是按
+    /// 真实文案量出来再夹在这两个界限之间（见 `chartYAxisWidth(forLabelWidths:)`）。
+    static let chartYAxisMinimumWidth: CGFloat = 34
+    static let chartYAxisMaximumWidth: CGFloat = 56
+    static let chartYAxisLabelPadding: CGFloat = 6
     /// y 轴网格线条数（0 / 峰值一半 / 峰值）与横轴刻度个数。
     static let chartGridLineCount = 3
     static let chartXTickCount = 4
+    /// 悬停读数行的高度：它**始终存在**（未悬停时给提示），悬停时只有文字变化——
+    /// 若改成「悬停时才出现在光标下面的浮层」，hover 会反复进入/离开，看起来在闪。
+    static let chartReadoutHeight: CGFloat = 16
     /// 横轴刻度行的行高。
     static let chartXAxisHeight: CGFloat = 14
     /// 曲线粗细、悬停圆点半径、面积填充的不透明度。
@@ -139,16 +148,20 @@ nonisolated enum UsageStatsMetrics {
     static let chartLegendHeight: CGFloat = 20
     static let chartLegendDotSize: CGFloat = 7
     static let chartLegendGap: CGFloat = 8
-    /// 悬停读数卡：宽度、每行高与内边距。
-    static let chartTooltipWidth: CGFloat = 132
-    static let chartTooltipRowHeight: CGFloat = 14
-    static let chartTooltipPadding: CGFloat = 6
-    /// 悬停读数卡上下各留的边距（卡片贴顶时也要留出一点，别压住峰值那条线）。
-    static let chartTooltipTopInset: CGFloat = 2
-    /// 趋势卡的总高（卡片内边距 + 图例 + 图 + 横轴行）：首屏要能整块看到，
+    /// 趋势卡的总高（卡片内边距 + 图例 + 读数行 + 图 + 横轴行）：首屏要能整块看到，
     /// 不需要滚动就能读出形状（`UsageStatsLayoutTests` 钉住这条）。
     static var trendCardHeight: CGFloat {
-        2 * 10 + chartLegendHeight + 6 + chartPlotHeight + 4 + chartXAxisHeight
+        2 * 10 + chartLegendHeight + 6 + chartReadoutHeight + 6 + chartPlotHeight + 4
+            + chartXAxisHeight
+    }
+
+    /// y 轴刻度栏宽度：按最长的那条刻度文案量出来的宽度加上留白，夹在上下限之间。
+    /// 传入的是**已按当前语言格式化好的**刻度文案宽度（与渲染同一把尺子量）。
+    static func chartYAxisWidth(forLabelWidths widths: [CGFloat]) -> CGFloat {
+        let widest = widths.max() ?? 0
+        return min(
+            max(chartYAxisMinimumWidth, widest + chartYAxisLabelPadding),
+            chartYAxisMaximumWidth)
     }
 
     // MARK: - 工具榜
