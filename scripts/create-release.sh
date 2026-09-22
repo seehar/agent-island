@@ -204,7 +204,10 @@ else
         cp "$DMG_PATH" "$APPCAST_DIR/"
 
         # Generate appcast.xml
-        "$GENERATE_APPCAST" --ed-key-file "$KEYS_DIR/eddsa_private_key" "$APPCAST_DIR"
+        # --maximum-deltas 0：delta 包只落在本地 releases/appcast/，Pages 上并不存在，
+        # 写进 feed 只会让 Sparkle 先请求一个 404 再退回全量包
+        "$GENERATE_APPCAST" --ed-key-file "$KEYS_DIR/eddsa_private_key" \
+            --maximum-deltas 0 "$APPCAST_DIR"
 
         echo "Appcast generated at: $APPCAST_DIR/appcast.xml"
     fi
@@ -269,8 +272,14 @@ if [ ! -f "$APPCAST_FILE" ]; then
 else
     # DMG 不随 Pages 发布：appcast 里的下载地址指回 GitHub Release 附件
     if [ -n "$GITHUB_DOWNLOAD_URL" ]; then
-        sed -i '' "s|url=\"[^\"]*$APP_NAME-$VERSION.dmg\"|url=\"$GITHUB_DOWNLOAD_URL\"|g" "$APPCAST_FILE"
-        echo "Updated appcast.xml with GitHub download URL"
+        # 逐条把下载地址改写成「该版本自己的 GitHub Release 附件」：generate_appcast 的
+        # 默认前缀取自 feed 所在目录（Pages 上并没有 DMG），只改当前版本会把历史 item 变成死链，
+        # 所以按文件名里的版本号统一改写。
+        sed -i '' -E "s|url=\"[^\"]*/($APP_NAME-([0-9][0-9.]*)\.dmg)\"|url=\"https://github.com/$GITHUB_REPO/releases/download/v\2/\1\"|g" "$APPCAST_FILE"
+        echo "Updated appcast.xml with per-version GitHub download URLs"
+        # delta 包只在本地 releases/appcast/ 里生成、从不发布（Pages 上只有 appcast.xml），
+        # 留在 feed 里只会让 Sparkle 先打一个 404 再退回全量包
+        sed -i '' '/<sparkle:deltas>/,/<\/sparkle:deltas>/d' "$APPCAST_FILE"
     fi
 
     PAGES_WORKTREE="$(mktemp -d)/agent-island-$PAGES_BRANCH"
