@@ -458,33 +458,100 @@ assert_isolation() {
   fi
 
   local verdict
-  verdict="$(python3 - "$slog" "$ROOT/pids-before.txt" <<'PY'
-import json, pathlib, subprocess, sys
+  verdict="$(python3 - "$slog" "$ROOT/pids-before.txt" "$run" <<'PY'
+"""上报的 pid 是否**确实是本 case 新建的**那个进程。
 
-log, before = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-pids = set()
-for line in log.read_text(encoding="utf-8").splitlines():
-    payload = json.loads(line).get("request")
-    if isinstance(payload, dict) and isinstance(payload.get("pid"), int):
-        pids.add(payload["pid"])
+判据（按优先级，逐 pid 单独判）：
+  ① 进程还活着、能取到启动时刻，且启动时刻 **晚于本 case 沙箱的创建时刻** ⇒ 通过（主判据）
+  ② 取不到启动时刻（进程已退出，`-p` 拿不到）或取不到沙箱时刻 ⇒ 退回「该 pid 不在
+     **开跑前快照 ∩ 此刻仍活着**」这个交集判据
+  ③ 都没有 ⇒ 通过（只记录证据）
+
+为什么不能只比「开跑前的快照」（旧判据会假红）：pid 会被系统回收 —— 快照里那个号对应的进程
+中途退出后，本 case 自己的 omp 可能拿到同一个号。实测撞过两次（22886 / 28155：都是
+快照里、且此刻已消失的号），而**同一台机器上并发跑同一个脚本时快照里本来就混着别人的 omp**，
+重叠概率被放大（默认 ROOT 是共享的）。主判据用「进程启动时刻 vs 沙箱创建时刻」，与 pid
+回收、与别人的进程都无关。
+"""
+import datetime
+import json
+import os
+import pathlib
+import subprocess
+import sys
+
+log, before, run_dir = (
+    pathlib.Path(sys.argv[1]),
+    pathlib.Path(sys.argv[2]),
+    pathlib.Path(sys.argv[3]),
+)
+
+
+def reported_pids(path):
+    found = set()
+    if not path.exists():
+        return found
+    for line in path.read_text(encoding="utf-8").splitlines():
+        payload = json.loads(line).get("request")
+        if isinstance(payload, dict) and isinstance(payload.get("pid"), int):
+            found.add(payload["pid"])
+    return found
+
+
+def alive_pids():
+    try:
+        table = subprocess.run(["ps", "-eo", "pid="], capture_output=True, text=True, timeout=5).stdout
+        return {int(x) for x in table.split() if x.isdigit()}
+    except Exception:
+        return None
+
+
+def started_at(pid):
+    """进程启动时刻（epoch 秒）；取不到返回 None。LC_ALL=C 固定星期/月份名。"""
+    try:
+        env = dict(os.environ, LC_ALL="C")
+        out = subprocess.run(
+            ["ps", "-o", "lstart=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=5, env=env,
+        ).stdout.strip()
+        return datetime.datetime.strptime(out, "%a %b %d %H:%M:%S %Y").timestamp()
+    except Exception:
+        return None
+
+
+pids = reported_pids(log)
 known = set()
 if before.exists():
     known = {int(x) for x in before.read_text(encoding="utf-8").split() if x.strip().isdigit()}
-
-# **必须与「此刻仍活着」的基线 pid 取交集**：pid 会被系统回收，开跑前存在、跑完时已经死掉的
-# 那个号会被新进程（本 case 自己的 omp）复用 —— 实测在并发会话多的机器上撞过一次
-# （基线 12 个 omp pid，其中 22886 中途退出，本 case 的 omp 恰好拿到这个号 → 假 FAIL）。
-# 判据的本意是「上报的 pid 是不是**同一个仍在运行的**旧进程」，所以只比活着的。
-alive = set()
+alive = alive_pids()
 try:
-    table = subprocess.run(["ps", "-eo", "pid="], capture_output=True, text=True, timeout=5).stdout
-    alive = {int(x) for x in table.split() if x.isdigit()}
+    sandbox_born = run_dir.stat().st_birthtime
 except Exception:
-    alive = known  # ps 失败时退回旧语义（宁可严一点）
-stale = sorted(pids & known & alive)
-recycled = sorted(pids & known - alive)
-print("ok %s%s" % (sorted(pids), "" if not recycled else "（回收复用：%s）" % recycled)
-      if not stale else "stale %s" % stale)
+    sandbox_born = None
+
+problems, notes = [], []
+for pid in sorted(pids):
+    if alive is not None and pid not in alive:
+        notes.append("%s 已退出" % pid)
+        continue
+    started = started_at(pid)
+    if started is not None and sandbox_born is not None:
+        if started >= sandbox_born - 2:
+            notes.append("%s 启动于本 case 之后" % pid)
+        else:
+            detail = (pid, int(started), int(sandbox_born))
+            problems.append("%s 启动于本 case 之前（%s < 沙箱 %s）" % detail)
+        continue
+    if alive is not None and pid in known and pid in alive:
+        problems.append("%s 在开跑前的快照里且仍活着" % pid)
+    else:
+        notes.append("%s 无法取启动时刻，按快照判通过" % pid)
+
+collided = sorted(pids & known)
+summary = "ok %s（%s）" % (sorted(pids), "；".join(notes) or "无备注")
+if collided:
+    summary += "［与快照同号（多为 pid 回收）：%s］" % collided
+print(summary if not problems else "stale " + "；".join(problems))
 PY
 )"
   case "$verdict" in
