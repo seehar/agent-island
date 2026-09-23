@@ -1,6 +1,244 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Subagent Details" : {
+      "comment" : "行为页会话组：对话里是否列出子代理内部工具",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subagent Details"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "子代理明细"
+          }
+        }
+      }
+    },
+    "List the tools subagents ran in the chat view." : {
+      "comment" : "「子代理明细」行的副标题",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "List the tools subagents ran in the chat view."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在对话里列出子代理跑过的工具。"
+          }
+        }
+      }
+    },
+    "Turn this off to keep only the subagent summary line." : {
+      "comment" : "「子代理明细」行的工具提示",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn this off to keep only the subagent summary line."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关掉后只保留子代理那一行摘要。"
+          }
+        }
+      }
+    },
+    "Hide Idle Sessions" : {
+      "comment" : "行为页会话组：隐藏没有任何动作的会话",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Idle Sessions"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐藏闲置会话"
+          }
+        }
+      }
+    },
+    "Hide sessions that are not doing anything right now." : {
+      "comment" : "「隐藏闲置会话」行的副标题",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide sessions that are not doing anything right now."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐藏当前没有任何动作的会话。"
+          }
+        }
+      }
+    },
+    "Waiting, running and approval sessions always stay visible." : {
+      "comment" : "「隐藏闲置会话」行的工具提示",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waiting, running and approval sessions always stay visible."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待输入、处理中与待批的会话始终显示。"
+          }
+        }
+      }
+    },
+    "Notification Volume" : {
+      "comment" : "通知页：提示音音量（0…1 滑杆）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notification Volume"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通知音量"
+          }
+        }
+      }
+    },
+    "Applies to notification sounds and to previews." : {
+      "comment" : "音量行的工具提示",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to notification sounds and to previews."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "对通知音效与试听都生效。"
+          }
+        }
+      }
+    },
+    "Quiet Hours" : {
+      "comment" : "通知页：安静时段档位",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quiet Hours"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安静时段"
+          }
+        }
+      }
+    },
+    "Off" : {
+      "comment" : "安静时段关闭档（也用于其它「关闭」语义的档位）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Off"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭"
+          }
+        }
+      }
+    },
+    "Preview" : {
+      "comment" : "通知页音效展开块顶部的试听行",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preview"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "试听"
+          }
+        }
+      }
+    },
+    "Play the selected sound once." : {
+      "comment" : "试听行的工具提示",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Play the selected sound once."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "播放一次当前音效。"
+          }
+        }
+      }
+    },
+    "All sessions are idle" : {
+      "comment" : "会话列表空态：会话都闲置着、被隐藏过滤挡下",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All sessions are idle"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有会话都闲置着"
+          }
+        }
+      }
+    },
+    "Show Idle Sessions" : {
+      "comment" : "空态里的动作：关掉「隐藏闲置会话」",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Idle Sessions"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示闲置会话"
+          }
+        }
+      }
+    },
     "Scroll the list to see all supported agents." : {
       "comment" : "智能体卡脚注：Agent 超过卡片可见行数时提示列表可滚动。",
       "localizations" : {
@@ -3829,7 +4067,7 @@
       }
     },
     "System" : {
-      "comment" : "语言选择器：跟随系统语言",
+      "comment" : "通用页：系统组标题（语言档位的「跟随系统」走 Follow System 键）",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3840,7 +4078,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "跟随系统"
+            "value" : "系统"
           }
         }
       }

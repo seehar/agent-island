@@ -67,6 +67,42 @@ private final class PreferenceRegistry {
     }
 }
 
+/// 布尔偏好 + 变更通知。
+///
+/// 枚举档位走 `EnumPreference`；但开关类设置（显示/隐藏某类内容）用枚举表达会变成
+/// 选择行，而 macOS 的开关就该是开关。这里给 Bool 一个同级的骨架：取值同样落在偏好域，
+/// 订阅它的视图会跟着重画——会话列表与对话页正是靠这一条在改开关后立刻重排。
+@MainActor
+final class BoolPreference: ObservableObject {
+    /// 偏好域里的键。**改名等于丢用户设置**，只能新增。
+    let key: String
+    /// 键缺失时的取值：必须等于改造前的既有行为，否则升级会悄悄改变观感。
+    let defaultValue: Bool
+
+    @Published private(set) var isOn: Bool
+
+    private let defaults: UserDefaults
+
+    /// 默认读写标准偏好域；测试传独立域，避免污染真实偏好。
+    init(key: String, defaultValue: Bool, defaults: UserDefaults = .standard) {
+        self.key = key
+        self.defaultValue = defaultValue
+        self.defaults = defaults
+        // 键缺失回默认值：`bool(forKey:)` 对缺失键返回 false，直接用会把默认语义翻过来。
+        self.isOn = (defaults.object(forKey: key) as? Bool) ?? defaultValue
+    }
+
+    func set(_ newValue: Bool) {
+        guard newValue != isOn else { return }
+        isOn = newValue
+        defaults.set(newValue, forKey: key)
+    }
+
+    func toggle() {
+        set(!isOn)
+    }
+}
+
 /// 枚举偏好 + 行内展开状态（设置行用）。
 @MainActor
 final class EnumPreference<Option: PreferenceOption>: ObservableObject {
@@ -375,6 +411,76 @@ nonisolated enum SessionRowTapTarget: Equatable, Sendable {
     case terminal
 }
 
+// MARK: - 安静时段
+
+/// 提示音的安静时段：命中时段内不播声音（刘海与卡片照常显示，只是不出声）。
+///
+/// 用预设档而不是起止时间选择器：设置面板的行高与展开块高度是解析式算出来的，
+/// 两个小时选择器会把展开块撑高；常用预设覆盖「晚上别吵」的诉求，代价是零新控件。
+nonisolated enum QuietHours: String, PreferenceOption {
+    case off
+    case eveningToMorning
+    case nightToMorning
+    case midnightToMorning
+
+    static let preferenceKey = "quietHours"
+    static var defaultValue: QuietHours { .off }
+
+    /// 起止时刻（从零点算的分钟数）；关闭档为 nil。允许 start > end（跨零点）。
+    var minutes: (start: Int, end: Int)? {
+        switch self {
+        case .off: return nil
+        case .eveningToMorning: return (20 * 60, 8 * 60)
+        case .nightToMorning: return (22 * 60, 7 * 60)
+        case .midnightToMorning: return (0, 9 * 60)
+        }
+    }
+
+    /// 给定时刻是否落在安静时段内：起点含、终点不含；跨零点按「晚于起点或早于终点」判。
+    nonisolated func covers(_ date: Date, calendar: Calendar = .current) -> Bool {
+        guard let span = minutes else { return false }
+        let parts = calendar.dateComponents([.hour, .minute], from: date)
+        let minuteOfDay = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+        if span.start < span.end {
+            return minuteOfDay >= span.start && minuteOfDay < span.end
+        }
+        return minuteOfDay >= span.start || minuteOfDay < span.end
+    }
+}
+
+// MARK: - 会话展示开关
+
+/// 会话展示的布尔偏好：设置行与消费视图必须拿同一实例，否则改开关不重画。
+@MainActor
+enum SessionDisplayPreferences {
+    /// 对话里列出子代理内部工具明细（默认开启，保持既有展示）。
+    static let showSubagentDetails = BoolPreference(
+        key: "showSubagentDetails", defaultValue: true)
+    /// 会话列表里隐藏空闲会话（默认关闭，保持既有展示）。
+    static let hideIdleSessions = BoolPreference(
+        key: "hideIdleSessions", defaultValue: false)
+}
+
+// MARK: - 会话可见性
+
+/// 结束会话保留与「隐藏闲置」共用可见性判据：先按保留档过滤结束会话，再隐藏 idle。
+nonisolated enum SessionVisibility {
+    static func isVisible(
+        phase: SessionPhase,
+        lastActivity: Date,
+        retention: SessionRetention,
+        hideIdleSessions: Bool,
+        now: Date
+    ) -> Bool {
+        if phase == .ended {
+            guard retention.keepsEndedSessions,
+                lastActivity >= now.addingTimeInterval(-retention.window)
+            else { return false }
+        }
+        return !hideIdleSessions || phase != .idle
+    }
+}
+
 // MARK: - 类型别名（设置行按这个名字取用）
 
 typealias ApprovalAskScopeSelector = EnumPreference<ApprovalAskScope>
@@ -387,4 +493,5 @@ typealias SessionRetentionSelector = EnumPreference<SessionRetention>
 typealias SessionRowDensitySelector = EnumPreference<SessionRowDensity>
 typealias RefreshCadenceSelector = EnumPreference<RefreshCadence>
 typealias NotificationScopeSelector = EnumPreference<NotificationScope>
+typealias QuietHoursSelector = EnumPreference<QuietHours>
 typealias SessionRowClickActionSelector = EnumPreference<SessionRowClickAction>

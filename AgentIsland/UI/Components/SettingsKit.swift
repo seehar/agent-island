@@ -384,6 +384,50 @@ struct SettingsToggleRow: View {
     }
 }
 
+/// 连续数值的设置行（如通知音量）：标签、滑杆与百分比放在同一行，不另开选择器。
+struct SettingsSliderRow: View {
+    let badge: SettingsBadge
+    let title: String
+    @Binding var value: Double
+    let helpText: String
+    var showsSeparator: Bool = true
+    let onChange: (Double) -> Void
+    /// 拖动结束（松手）时回调：音量行用它试听一次。
+    var onEditingEnded: (() -> Void)? = nil
+
+    var body: some View {
+        SettingsRowLabel(badge: badge, title: title) {
+            HStack(spacing: 6) {
+                Slider(
+                    value: Binding(
+                        get: { value },
+                        set: { newValue in
+                            value = newValue
+                            onChange(newValue)
+                        }),
+                    in: 0...1,
+                    onEditingChanged: { isEditing in
+                        if !isEditing { onEditingEnded?() }
+                    }
+                )
+                .controlSize(.small)
+                .tint(AppPalette.accent)
+                .frame(width: 96)
+                .help(helpText)
+                .accessibilityLabel(Text(title))
+                .accessibilityValue(Text(settingsPercentLabel(value)))
+
+                Text(settingsPercentLabel(value))
+                    .font(.system(size: 11, weight: .medium).monospacedDigit())
+                    .foregroundColor(AppPalette.secondaryText)
+                    .frame(width: 36, alignment: .trailing)
+            }
+        }
+        .frame(height: NotchMenuMetrics.rowHeight)
+        .settingsRowSeparator(showsSeparator)
+    }
+}
+
 /// 可展开的设置行：主行显示当前取值，展开后把选项插在同一张卡片里，
 /// 选项因此属于这一行，而不是另起一张卡片。
 struct SettingsPickerRow<Options: View>: View {
@@ -532,6 +576,14 @@ func settingsSecondsLabel(_ seconds: TimeInterval) -> String {
         seconds.truncatingRemainder(dividingBy: 1) == 0
         ? String(Int(seconds)) : String(format: "%.1f", seconds)
     return "\(value) s"
+}
+
+/// 把安静时段预设写成 24 小时制范围（如 20:00–08:00）。数字/时间是值，不走本地化查表。
+func settingsTimeRangeLabel(startMinute: Int, endMinute: Int) -> String {
+    func clock(_ minute: Int) -> String {
+        String(format: "%02d:%02d", minute / 60, minute % 60)
+    }
+    return "\(clock(startMinute))–\(clock(endMinute))"
 }
 
 /// 把比例写成百分数标签（88%）。百分号各语言写法一致，不需要翻译。

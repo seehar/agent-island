@@ -17,7 +17,7 @@ struct NotchMenuTabBar: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(NotchMenuSection.allCases) { section in
+            ForEach(NotchMenuSection.tabSections) { section in
                 segment(for: section)
             }
         }
@@ -99,6 +99,7 @@ extension NotchMenuSection {
         switch self {
         case .general: return l10n.t("General")
         case .behavior: return l10n.t("Behavior")
+        case .notifications: return l10n.t("Notifications")
         case .agents: return l10n.t("Agents")
         case .statistics: return l10n.t("Statistics")
         case .about: return l10n.t("About")

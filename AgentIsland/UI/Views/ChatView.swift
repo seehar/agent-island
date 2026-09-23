@@ -793,6 +793,8 @@ struct ToolCallView: View {
  let tool: ToolCallItem
  let key: SessionKey
  @ObservedObject private var l10n = LocalizationManager.shared
+ /// 子代理明细开关（行为页）：关掉后只留摘要行，不列子代理内部工具。
+ @ObservedObject private var subagentDetails = SessionDisplayPreferences.showSubagentDetails
 
  @State private var pulseOpacity: Double = 0.6
  @State private var isExpanded: Bool = false
@@ -918,18 +920,21 @@ struct ToolCallView: View {
     }
    }
 
-   // Subagent tools list (for Task/Agent tools)
-   if tool.presentsAsSubagentContainer {
-    SubagentToolsList(tools: tool.subagentTools)
-     .padding(.leading, 12)
-     .padding(.top, 2)
-   }
+   // 子代理明细：只有开关打开时才列（关掉后保留上面那行摘要，上下文仍可判断）。
+   if subagentDetails.isOn {
+    // Subagent tools list (for Task/Agent tools)
+    if tool.presentsAsSubagentContainer {
+     SubagentToolsList(tools: tool.subagentTools)
+      .padding(.leading, 12)
+      .padding(.top, 2)
+    }
 
-   // 子 Agent 行（omp/pi 通过 task 派发的实例）
-   if !tool.subagentRuns.isEmpty {
-    SubagentRunsList(runs: tool.subagentRuns)
-     .padding(.leading, 12)
-     .padding(.top, 2)
+    // 子 Agent 行（omp/pi 通过 task 派发的实例）
+    if !tool.subagentRuns.isEmpty {
+     SubagentRunsList(runs: tool.subagentRuns)
+      .padding(.leading, 12)
+      .padding(.top, 2)
+    }
    }
 
    // Result content (Edit always shows, others when expanded)

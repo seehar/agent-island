@@ -757,12 +757,13 @@ struct NotchView: View {
 
  /// 按设置播一声提示音：音效本身取「通知音效」，且只在该会话不在前台时响。
  private func playNotificationSound(for sessions: [SessionState]) {
-  guard let soundName = AppSettings.notificationSound.soundName else { return }
+  guard AppSettings.notificationSound.soundName != nil else { return }
   Task {
    guard await shouldPlayNotificationSound(for: sessions) else { return }
    await MainActor.run {
-    // `play()` 经可选链后返回 `Void?`，显式丢弃以免闭包返回非 Void 值
-    _ = NSSound(named: soundName)?.play()
+    // 音量与安静时段都在播放器里收口：命中安静时段时这里什么都不做。
+    // `play` 的返回值只给单测/排查用，这里显式丢弃，避免 `MainActor.run` 返回它。
+    _ = NotificationSoundPlayer.play(AppSettings.notificationSound)
    }
   }
  }

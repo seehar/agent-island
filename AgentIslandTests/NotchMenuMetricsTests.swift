@@ -120,12 +120,23 @@ struct NotchMenuMetricsTests {
                     + CGFloat(NotchMenuMetrics.visibleAgentRows) * NotchMenuMetrics.twoLineRowHeight)
     }
 
-    @Test("行为分组：胶囊 3 行、会话 4 行、通知 2 行（音效与覆盖范围同组）")
+    @Test("行为分组：刘海 2 行、会话 4 行 + 2 个开关；通知另成一页 5 行")
     func behaviorSectionRowsMatchRegroupedPages() {
-        let blocks = NotchMenuMetrics.blocks(for: .behavior)
-        // 音效从通用页搬进来、面板尺寸搬出去：通知组因此是两行，胶囊组是三行。
-        #expect(blocks.map(\.rows.count) == [3, 4, 2])
-        #expect(blocks.allSatisfy { $0.rows.allSatisfy { $0 == NotchMenuMetrics.rowHeight } })
+        let behavior = NotchMenuMetrics.blocks(for: .behavior)
+        // 完成提示/音效/提示范围搬去通知页，会话组补上两个两行开关。
+        #expect(behavior.map(\.rows.count) == [2, 6])
+        #expect(
+            behavior[0].rows == Array(repeating: NotchMenuMetrics.rowHeight, count: 2),
+            "刘海组：悬停展开 / 空闲可见性")
+        #expect(
+            behavior[1].rows
+                == Array(repeating: NotchMenuMetrics.rowHeight, count: 4)
+                    + Array(repeating: NotchMenuMetrics.twoLineRowHeight, count: 2),
+            "会话组：四个选择行 + 子代理明细 / 隐藏闲置两个两行开关")
+
+        let notifications = NotchMenuMetrics.blocks(for: .notifications)
+        #expect(notifications.map(\.rows.count) == [5])
+        #expect(notifications[0].rows.allSatisfy { $0 == NotchMenuMetrics.rowHeight })
     }
 
     @Test("没到上限时面板高度就是固定开销加内容加展开量")
@@ -159,7 +170,7 @@ struct NotchMenuMetricsTests {
 
     /// 已知被夹取（超出上限、改由页内滚动接管）的组合。**新增组合必须显式登记在这里**，
     /// 否则测试失败——那正是「又加了一行/一档，最后一个档位落到可视区外」的信号。
-    private static let clampedPairs: Set<String> = ["behavior@76", "agents@76"]
+    private static let clampedPairs: Set<String> = ["agents@76"]
 
     @MainActor
     @Test("每页「内容 + 该页最高的单个展开 + 固定开销」都不越过夹取上限")
@@ -177,15 +188,21 @@ struct NotchMenuMetricsTests {
                     PanelSize.allCases.count)),
             .behavior: NotchMenuMetrics.pickerOptionsHeight(
                 visibleOptions: max(
-                    SoundSelector.maxVisibleOptions,
                     HoverExpand.allCases.count,
                     IdleNotchVisibility.allCases.count,
-                    CompletionBadge.allCases.count,
                     SessionRetention.allCases.count,
                     SessionRowDensity.allCases.count,
                     SessionRowClickAction.allCases.count,
-                    RefreshCadence.allCases.count,
-                    NotificationScope.allCases.count)),
+                    RefreshCadence.allCases.count)),
+            // 音效展开块比别的多一行不滚动的「试听」：可见档位数要把它算进去。
+            .notifications: max(
+                NotchMenuMetrics.pickerOptionsHeight(
+                    visibleOptions: SoundSelector.maxVisibleOptions + SoundSelector.previewRows),
+                NotchMenuMetrics.pickerOptionsHeight(
+                    visibleOptions: max(
+                        QuietHours.allCases.count,
+                        NotificationScope.allCases.count,
+                        CompletionBadge.allCases.count))),
             .agents: NotchMenuMetrics.pickerOptionsHeight(
                 visibleOptions: max(
                     AgentDirSelector.visibleOptions,
@@ -221,14 +238,13 @@ struct NotchMenuMetricsTests {
         }
     }
 
-    @Test("音效选择器展开后仍装得进行为页的预算")
-    func soundPickerFitsBehaviorBudget() {
-        // 音效行在行为页的「通知」组里：它的可见档位数就是那一页最高的单个展开。
+    @Test("音效选择器（含试听行）展开后仍装得进通知页的预算")
+    func soundPickerFitsNotificationsBudget() {
         let expanded = NotchMenuMetrics.pickerOptionsHeight(
-            visibleOptions: SoundSelector.maxVisibleOptions)
+            visibleOptions: SoundSelector.maxVisibleOptions + SoundSelector.previewRows)
         let height = NotchMenuMetrics.panelHeight(
-            for: .behavior, expandedPickerHeight: expanded, chromeHeight: 44)
-        #expect(height == 44 + NotchMenuMetrics.contentHeight(for: .behavior) + expanded)
+            for: .notifications, expandedPickerHeight: expanded, chromeHeight: 44)
+        #expect(height == 44 + NotchMenuMetrics.contentHeight(for: .notifications) + expanded)
         #expect(height <= NotchMenuMetrics.maxPanelHeight)
     }
 

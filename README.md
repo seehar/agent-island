@@ -27,7 +27,7 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
 - **Hover** — it expands into one live list across every agent you run.
 - **Approval** — a tool call that needs permission opens the panel with Allow / Deny, and your answer travels back to the agent.
 
-- **Stats** — a usage page inside **Settings → Statistics**: tokens, sessions and tool calls, per agent, for today, this week, this month or all time. The header's chart button jumps straight to it.
+- **Stats** — the panel's **Statistics** page: tokens, sessions and tool calls, per agent, for today, this week, this month or all time. The header's chart button jumps straight to it (Statistics is not one of the five tabs).
 
 <table>
   <tr>
@@ -64,7 +64,7 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
 
 ![Usage stats: totals, per-agent split, trend and tools](docs/images/notch-stats.png)
 
-The page lives in **Settings → Statistics** (the chart button in the panel header jumps straight to it) and reads the same records the chat view does, keeping only aggregate counters in its own store. Totals include cached tokens (hit rate = cache read / (input + cache read + cache write)); session counts exclude subagents. The index runs in the background on first open, and the page reports when it last indexed. The ↻ **Rescan** button beside the range switch re-reads every session record and recomputes the numbers — the background pass only reads the tail of each record, so this is the way to fix totals that look off.
+The page lives in the panel's **Statistics** page (the chart button in the panel header jumps straight to it) and reads the same records the chat view does, keeping only aggregate counters in its own store. Totals include cached tokens (hit rate = cache read / (input + cache read + cache write)); session counts exclude subagents. The index runs in the background on first open, and the page reports when it last indexed. The ↻ **Rescan** button beside the range switch re-reads every session record and recomputes the numbers — the background pass only reads the tail of each record, so this is the way to fix totals that look off.
 
 ## Supported agents
 
@@ -151,9 +151,10 @@ Already monitoring these agents? The next launch rewrites their extension to the
 |Page|What's in it|
 |---|---|
 |**General**|Language, screen, notch height/width, content text size, panel size · launch at login, accessibility status, and keyboard-focus behavior on open.|
-|**Behavior**|Hover expand, idle capsule, completion badge · ended-session retention, row density, click action (Focus Terminal falls back to chat without tmux/yabai), both status-check and session-scan intervals · notification sound and scope.|
+|**Behavior**|Hover expand, idle capsule · ended-session retention, row density, click action (Focus Terminal falls back to chat without tmux/yabai), both status-check and session-scan intervals · subagent details in chat, hide idle sessions.|
 |**Agents**|Enable/disable and integration state for each agent; per-agent config root; tool-call guard scope and offline behavior. The agent list scrolls within its card.|
-|**Statistics**|Token, session and tool-call totals, trends, per-agent/model breakdown, date range and full rescan. Also reachable from the chart button.|
+|**Notifications**|Notification sound (with a preview line), volume, quiet hours, sound scope (ready only / ready and approvals), completion badge. Quiet hours silences the sound only — the notch still shows everything.|
+|**Statistics**|Token, session and tool-call totals, trends, per-agent/model breakdown, date range and full rescan. Reached from the chart button in the panel header.|
 |**About**|Version, check for updates, automatic update checks, star on GitHub, quit.|
 
 Single-clicking a session row follows the *click action* above; double-click always opens its chat.
@@ -183,9 +184,8 @@ Every state change goes through a single entry point (`SessionStore.process(_:)`
 
 ## Privacy
 
-- Agents talk to the app over a local Unix socket; the app opens no ports and sends nothing anywhere.
+- Agents talk to the app over a local Unix socket; the app opens no ports of its own.
 - There is no analytics and no telemetry: the only counters the app keeps are the local usage aggregates described above, computed on your machine.
-- The only network call is the Sparkle update check against this repository's appcast on GitHub Pages.
 - The app reads the session records your agents already write; it never modifies them.
 - Usage stats are aggregate counters kept in the app's own store; session records are only read, never rewritten.
 

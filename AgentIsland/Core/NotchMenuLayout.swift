@@ -16,9 +16,10 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
     /// 应用级偏好：语言、屏幕、胶囊高度、胶囊宽度、内容字号、面板尺寸、
     /// 登录时启动、辅助功能、接管键盘焦点。
     case general
-    /// 行为类偏好：悬停展开、空闲可见性、完成提示、会话保留与刷新频率、
-    /// 通知（音效与提示音覆盖范围）。
+    /// 行为类偏好：悬停展开、空闲可见性、会话保留、列表密度/过滤与刷新频率。
     case behavior
+    /// 通知音效、音量、安静时段、提示范围与完成提示。
+    case notifications
     /// 各 Agent CLI 的监控开关与集成状态、三个全局的工具调用保护档位、Claude 配置目录。
     case agents
     /// 用量统计：token、会话与工具调用的汇总读数（只读页，不是配置）。
@@ -28,11 +29,18 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
 
     var id: String { rawValue }
 
+    /// 分段栏的 5 个入口。统计页保留为 `NotchMenuSection`（高度表与页眉图表按钮需要它），
+    /// 但不占分段位：图表按钮已经是它的单一、显眼入口。
+    static let tabSections: [NotchMenuSection] = [
+        .general, .behavior, .notifications, .agents, .about,
+    ]
+
     /// 分段控件的图标；只表达分组含义，具体设置行各自用自己的图标。
     var symbolName: String {
         switch self {
         case .general: return "slider.horizontal.3"
         case .behavior: return "switch.2"
+        case .notifications: return "bell.badge"
         case .agents: return "cpu"
         case .statistics: return "chart.bar.xaxis"
         case .about: return "info.circle"
@@ -148,15 +156,18 @@ nonisolated enum NotchMenuMetrics {
     /// chrome = `max(24, 胶囊高度) + 12`，可达区间是 **28…76**：外接屏自动档
     /// （菜单栏 24/25）→ 36/37；内置刘海 32 → 44；`notch` 档在没有内置刘海的屏上 38 → 50；
     /// 胶囊高度自定义 16…64 → 28…76。因此「装得下」是按页给阈值的——允许的最大 chrome
-    /// （= 728 − 内容高 − 该页最高单个展开）：通用 **76**、行为 **54**、智能体 **58**、
-    /// 统计 76、关于 343。
+    /// （= 728 − 内容高 − 该页最高单个展开）：通用 **76**、行为 **110**、通知 **246**、
+    /// 智能体 **58**、统计 76、关于 343。
     /// 通用页加过「接管键盘焦点」（单行开关 42）之后，它在 chrome 76 那一档**刚好**落到
     /// 728：此时余量为 0，再加任何一行都会让 `general@76` 变成被夹取的组合——那种情况下
     /// 需要显式登记进 `NotchMenuMetricsTests.clampedPairs`，并接受该档下页内滚动。
-    /// 已知会被夹取的组合：chrome ≥ 55 时的行为页（674 + chrome = 750@76）与
-    /// chrome ≥ 59 时的智能体页（670 + chrome = 746@76），由页内滚动接管（滚动条是隐藏的）。
-    /// 行为页的最高展开由音效选择器的 `SoundSelector.maxVisibleOptions`（4）与 4 档枚举
-    /// 共同决定：把任一项改大，最后一个档位就落到可视区外。
+    /// 本次把通知相关的 3 行从行为页搬到独立通知页（行为页另加 2 个会话开关）：移出 3×40、
+    /// 加进 2×48，行为页内容净减 24pt，最高单展开仍是 138pt，因此 `behavior@76` 不再是
+    /// 被夹取的组合。通知页有独立预算，不再挤进行为页。
+    /// 已知会被夹取的组合：chrome ≥ 59 时的智能体页（670 + chrome = 746@76），
+    /// 由页内滚动接管（滚动条是隐藏的）。
+    /// 通知页的最高展开是音效列表 4 行 + 独立试听行（`SoundSelector.previewRows`）＝170pt；
+    /// 改档位数或去掉试听行都要重核。
     /// 改任何一页的行数、档位数或某个选择器的可见选项数，都要重核这些阈值——
     /// `NotchMenuMetricsTests` 有一条表驱动的用例钉着它（chrome 取可达集合）。
     /// 展开块是**互斥**的（同一时刻只有一个，见 `PickerExpansion`），因此上面这条判据
@@ -237,12 +248,18 @@ nonisolated enum NotchMenuMetrics {
             ]
         case .behavior:
             return [
-                // 胶囊：悬停展开 / 空闲可见性 / 完成提示
-                Block(rows: Array(repeating: rowHeight, count: 3)),
-                // 会话：保留已结束的会话 / 列表信息密度 / 单击动作 / 刷新频率
-                Block(rows: Array(repeating: rowHeight, count: 4)),
-                // 通知：音效 / 提示音覆盖哪些事件
+                // 胶囊：悬停展开 / 空闲可见性（完成提示已移到通知页）
                 Block(rows: Array(repeating: rowHeight, count: 2)),
+                // 会话：保留已结束 / 信息密度 / 单击动作 / 刷新频率 + 两个两行开关
+                Block(rows: [
+                    rowHeight, rowHeight, rowHeight, rowHeight,
+                    twoLineRowHeight, twoLineRowHeight,
+                ]),
+            ]
+        case .notifications:
+            return [
+                // 通知：音效（展开块含独立试听行）/ 音量 / 安静时段 / 提示音范围 / 完成提示
+                Block(rows: Array(repeating: rowHeight, count: 5)),
             ]
         case .agents:
             return [

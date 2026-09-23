@@ -180,13 +180,15 @@ struct AgentsSettingsPage: View {
 
 // MARK: - 行为
 
-/// 「行为」页：胶囊的交互与空闲表现、会话列表的内容与刷新频率、通知（音效与覆盖范围）。
+/// 「行为」页：刘海的交互与空闲表现、会话列表的内容与刷新频率、以及两个列表开关。
 /// 每行都是一个枚举档位；选项文案在本文件里按字面量取键，本地化守卫才能审计到。
-/// 「有待处理请求时自动展开」是工具调用保护档位，在「智能体」页的那张卡片里（见 `ApprovalGateSettingsGroup`）。
+/// 通知相关的行（音效、音量、安静时段、范围、完成提示）在「通知」页；
+/// 「有待处理请求时自动展开」是工具调用保护档位，在「智能体」页的那张卡片里。
 struct BehaviorSettingsPage: View {
     @ObservedObject private var l10n = LocalizationManager.shared
-    /// 通知音效行（在「通知」组里，与提示音覆盖范围同组）。
-    @ObservedObject private var soundSelector = SoundSelector.shared
+    /// 会话列表的两个开关：与列表视图共用同一实例，改完立刻重画。
+    @ObservedObject private var subagentDetails = SessionDisplayPreferences.showSubagentDetails
+    @ObservedObject private var hideIdleSessions = SessionDisplayPreferences.hideIdleSessions
 
     var body: some View {
         VStack(alignment: .leading, spacing: NotchMenuMetrics.groupSpacing) {
@@ -204,14 +206,7 @@ struct BehaviorSettingsPage: View {
                         source: .symbol(name: "eye", tint: AppPalette.accent)),
                     title: l10n.t("Idle Notch"),
                     selector: IdleNotchVisibilitySelector.shared,
-                    label: idleNotchLabel
-                )
-                PreferencePickerRow(
-                    badge: SettingsBadge(
-                        source: .symbol(name: "checkmark.circle", tint: AppPalette.accent)),
-                    title: l10n.t("Completion Badge"),
-                    selector: CompletionBadgeSelector.shared,
-                    label: completionBadgeLabel,
+                    label: idleNotchLabel,
                     showsSeparator: false
                 )
             }
@@ -245,22 +240,31 @@ struct BehaviorSettingsPage: View {
                     title: l10n.t("Refresh Rate"),
                     selector: RefreshCadenceSelector.shared,
                     label: refreshCadenceLabel,
-                    detail: refreshCadenceDetail,
-                    showsSeparator: false
+                    detail: refreshCadenceDetail
                 )
-            }
-
-            SettingsGroup(title: l10n.t("Notifications")) {
-                // 音效与「提示音覆盖哪些事件」是同一件事的两半，放在同一组里
-                SoundPickerRow(soundSelector: soundSelector)
-                PreferencePickerRow(
+                // 两个列表开关：都是两行行高（标题 + 一句说明），见 `NotchMenuMetrics`。
+                SettingsToggleRow(
                     badge: SettingsBadge(
-                        source: .symbol(name: "bell", tint: AppPalette.accent)),
-                    title: l10n.t("Sound Scope"),
-                    selector: NotificationScopeSelector.shared,
-                    label: notificationScopeLabel,
-                    showsSeparator: false
+                        source: .symbol(name: "person.2", tint: AppPalette.accent)),
+                    title: l10n.t("Subagent Details"),
+                    subtitle: l10n.t("List the tools subagents ran in the chat view."),
+                    isOn: subagentDetails.isOn,
+                    helpText: l10n.t("Turn this off to keep only the subagent summary line."),
+                    onToggle: { subagentDetails.toggle() }
                 )
+                .frame(height: NotchMenuMetrics.twoLineRowHeight)
+
+                SettingsToggleRow(
+                    badge: SettingsBadge(
+                        source: .symbol(name: "eye.slash", tint: AppPalette.accent)),
+                    title: l10n.t("Hide Idle Sessions"),
+                    subtitle: l10n.t("Hide sessions that are not doing anything right now."),
+                    isOn: hideIdleSessions.isOn,
+                    showsSeparator: false,
+                    helpText: l10n.t("Waiting, running and approval sessions always stay visible."),
+                    onToggle: { hideIdleSessions.toggle() }
+                )
+                .frame(height: NotchMenuMetrics.twoLineRowHeight)
             }
         }
     }
@@ -285,15 +289,6 @@ struct BehaviorSettingsPage: View {
         case .always: return l10n.t("Always")
         case .whenActive: return l10n.t("When Active")
         case .linger: return l10n.t("Keep 3 Seconds")
-        }
-    }
-
-    private func completionBadgeLabel(_ option: CompletionBadge) -> String {
-        switch option {
-        case .short: return l10n.t("10 Seconds")
-        case .standard: return l10n.t("30 Seconds")
-        case .long: return l10n.t("1 Minute")
-        case .persistent: return l10n.t("Always")
         }
     }
 
@@ -343,10 +338,99 @@ struct BehaviorSettingsPage: View {
         )
     }
 
+}
+
+// MARK: - 通知
+
+/// 「通知」页：音效与试听、音量、安静时段、提示音覆盖范围与完成提示。
+///
+/// 从行为页分出来是因为行为页的行数已经顶到面板高度的预算（判据见 `NotchMenuMetrics`）：
+/// 把通知相关的行搬进来单独成页，两边都留出余量；统计页仍由页眉的图表按钮进入。
+struct NotificationsSettingsPage: View {
+    @ObservedObject private var l10n = LocalizationManager.shared
+    @ObservedObject private var soundSelector = SoundSelector.shared
+
+    /// 音量是连续值（不是枚举档位），因此用滑杆行 + 偏好域里的 Double。
+    @State private var volume = AppSettings.notificationVolume()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: NotchMenuMetrics.groupSpacing) {
+            SettingsGroup(title: l10n.t("Notifications")) {
+                SoundPickerRow(soundSelector: soundSelector)
+
+                SettingsSliderRow(
+                    badge: SettingsBadge(
+                        source: .symbol(name: "speaker.wave.1", tint: AppPalette.accent)),
+                    title: l10n.t("Notification Volume"),
+                    value: $volume,
+                    helpText: l10n.t("Applies to notification sounds and to previews."),
+                    onChange: { AppSettings.setNotificationVolume($0) },
+                    onEditingEnded: {
+                        // 松手时播一次：音量调到哪儿，听一下就知道（试听不受安静时段限制）。
+                        NotificationSoundPlayer.play(
+                            AppSettings.notificationSound, ignoresQuietHours: true)
+                    }
+                )
+
+                PreferencePickerRow(
+                    badge: SettingsBadge(
+                        source: .symbol(name: "moon.zzz", tint: AppPalette.accent)),
+                    title: l10n.t("Quiet Hours"),
+                    selector: QuietHoursSelector.shared,
+                    label: quietHoursLabel
+                )
+
+                PreferencePickerRow(
+                    badge: SettingsBadge(
+                        source: .symbol(name: "bell", tint: AppPalette.accent)),
+                    title: l10n.t("Sound Scope"),
+                    selector: NotificationScopeSelector.shared,
+                    label: notificationScopeLabel
+                )
+
+                PreferencePickerRow(
+                    badge: SettingsBadge(
+                        source: .symbol(name: "checkmark.circle", tint: AppPalette.accent)),
+                    title: l10n.t("Completion Badge"),
+                    selector: CompletionBadgeSelector.shared,
+                    label: completionBadgeLabel,
+                    showsSeparator: false
+                )
+            }
+        }
+        .onAppear {
+            // 回到这一页时重读一次：音量也可能被别的入口改过。
+            volume = AppSettings.notificationVolume()
+        }
+    }
+
+    // MARK: - 文案
+
+    /// 档位文案：关闭档给文字，其余档直接把时间范围写在取值列上（不必点开才知道是哪一段）。
+    /// 逐个 case 列出而不写 `default`：以后加档位时编译器会提醒这里要一起改。
+    private func quietHoursLabel(_ option: QuietHours) -> String {
+        switch option {
+        case .off:
+            return l10n.t("Off")
+        case .eveningToMorning, .nightToMorning, .midnightToMorning:
+            guard let span = option.minutes else { return l10n.t("Off") }
+            return settingsTimeRangeLabel(startMinute: span.start, endMinute: span.end)
+        }
+    }
+
     private func notificationScopeLabel(_ option: NotificationScope) -> String {
         switch option {
         case .readyOnly: return l10n.t("Ready Only")
         case .readyAndApprovals: return l10n.t("Ready and Approvals")
+        }
+    }
+
+    private func completionBadgeLabel(_ option: CompletionBadge) -> String {
+        switch option {
+        case .short: return l10n.t("10 Seconds")
+        case .standard: return l10n.t("30 Seconds")
+        case .long: return l10n.t("1 Minute")
+        case .persistent: return l10n.t("Always")
         }
     }
 }

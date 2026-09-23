@@ -108,6 +108,8 @@ struct NotchMenuView: View {
             GeneralSettingsPage(screenSelector: screenSelector)
         case .behavior:
             BehaviorSettingsPage()
+        case .notifications:
+            NotificationsSettingsPage()
         case .agents:
             AgentsSettingsPage()
         case .statistics:

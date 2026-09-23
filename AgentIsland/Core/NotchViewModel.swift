@@ -156,19 +156,21 @@ class NotchViewModel: ObservableObject {
                 + textSizeSelector.expandedPickerHeight
                 + PanelSizeSelector.shared.expandedPickerHeight
         case .behavior:
-            // 行为页的选择器都是同一个骨架，逐个累加各自的展开高度。
-            // 通知音效那一行也在这里（4 档可见，超出的在选项列表里滚动）。
+            // 刘海交互 + 会话列表偏好（通知与完成提示已移到独立通知页）。
             return [
                 HoverExpandSelector.shared.expandedPickerHeight,
                 IdleNotchVisibilitySelector.shared.expandedPickerHeight,
-                CompletionBadgeSelector.shared.expandedPickerHeight,
-                SoundSelector.shared.expandedPickerHeight,
                 SessionRetentionSelector.shared.expandedPickerHeight,
                 SessionRowDensitySelector.shared.expandedPickerHeight,
                 SessionRowClickActionSelector.shared.expandedPickerHeight,
                 RefreshCadenceSelector.shared.expandedPickerHeight,
-                NotificationScopeSelector.shared.expandedPickerHeight,
             ].reduce(0, +)
+        case .notifications:
+            // 通知：音效列表（加独立试听行）/ 安静时段 / 提示范围 / 完成提示。
+            return SoundSelector.shared.expandedPickerHeight
+                + QuietHoursSelector.shared.expandedPickerHeight
+                + NotificationScopeSelector.shared.expandedPickerHeight
+                + CompletionBadgeSelector.shared.expandedPickerHeight
         case .agents:
             // 智能体页可展开的有：三个保护档位（问什么 / 应用未运行时 / 有待处理请求时自动展开）
             // 与 **某个 Agent 行内的目录编辑器**（同一时刻只开一个，展开高度是单份的）。
@@ -247,6 +249,7 @@ class NotchViewModel: ObservableObject {
         observe(HoverExpandSelector.shared)
         observe(IdleNotchVisibilitySelector.shared)
         observe(CompletionBadgeSelector.shared)
+        observe(QuietHoursSelector.shared)
         observe(SessionRetentionSelector.shared)
         observe(SessionRowDensitySelector.shared)
         observe(RefreshCadenceSelector.shared)

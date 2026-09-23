@@ -64,6 +64,8 @@ nonisolated enum AppSettings {
 
   private enum Keys {
     static let notificationSound = "notificationSound"
+    /// 提示音音量（0…1）。
+    static let notificationVolume = "notificationVolume"
     static let claudeDirectoryName = "claudeDirectoryName"
     static let language = "language"
     /// 显式启用集合（新口径）：不在集合里就是「关」。
@@ -101,6 +103,21 @@ nonisolated enum AppSettings {
     set {
       defaults.set(newValue.rawValue, forKey: Keys.notificationSound)
     }
+  }
+
+  // MARK: - Notification Volume
+
+  /// 提示音音量（0…1，默认 1＝与改造前一样满音量）。
+  ///
+  /// **键缺失时取 1**：`double(forKey:)` 对缺失键返回 0，直接用会把用户的通知静音掉。
+  /// 读出时再夹一次范围，防止偏好域里被写进越界值。
+  static func notificationVolume(defaults: UserDefaults = .standard) -> Double {
+    guard let stored = defaults.object(forKey: Keys.notificationVolume) as? Double else { return 1 }
+    return min(max(stored, 0), 1)
+  }
+
+  static func setNotificationVolume(_ value: Double, defaults: UserDefaults = .standard) {
+    defaults.set(min(max(value, 0), 1), forKey: Keys.notificationVolume)
   }
 
   // MARK: - Language

@@ -14,6 +14,8 @@ struct ClaudeInstancesView: View {
     @ObservedObject private var l10n = LocalizationManager.shared
     /// 已结束会话的保留档位（变化时重新过滤列表）
     @ObservedObject private var retention = SessionRetentionSelector.shared
+    /// 「隐藏闲置会话」开关（行为页）：与设置行共用同一实例，改完立刻重排列表。
+    @ObservedObject private var hideIdleSessions = SessionDisplayPreferences.hideIdleSessions
 
     var body: some View {
         if visibleInstances.isEmpty {
@@ -23,17 +25,25 @@ struct ClaudeInstancesView: View {
         }
     }
 
-    /// 列表里要显示的会话：「已结束的会话」档位为立即档时过滤掉结束的，
-    /// 其余档保留到各自窗口结束（窗口按最后活动时间算）。
+    /// 列表里要显示的会话：先按「已结束的会话」档位过滤结束会话，再按「隐藏闲置」过滤空闲会话。
+    /// 判据抽在 `SessionVisibility` 里（纯函数，可单测），视图只做映射。
     private var visibleInstances: [SessionState] {
+        let now = Date()
         let retention = retention.option
-        guard retention.keepsEndedSessions else {
-            return sessionMonitor.instances.filter { $0.phase != .ended }
-        }
-        let cutoff = Date().addingTimeInterval(-retention.window)
         return sessionMonitor.instances.filter { session in
-            session.phase != .ended || session.lastActivity >= cutoff
+            SessionVisibility.isVisible(
+                phase: session.phase,
+                lastActivity: session.lastActivity,
+                retention: retention,
+                hideIdleSessions: hideIdleSessions.isOn,
+                now: now)
         }
+    }
+
+    /// 被「隐藏闲置」挡下的会话数：不为零时空态要说清原因，并给出把开关关掉的入口。
+    private var hiddenIdleCount: Int {
+        guard hideIdleSessions.isOn else { return 0 }
+        return max(0, sessionMonitor.instances.count - visibleInstances.count)
     }
 
     // MARK: - Empty State
@@ -55,6 +65,21 @@ struct ClaudeInstancesView: View {
                     viewModel.openAgentsSettings()
                 } label: {
                     Text(l10n.t("Open Agents Settings"))
+                        .appFont(11, weight: .medium)
+                        .foregroundColor(AppPalette.accent)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+            } else if hiddenIdleCount > 0 {
+                // 会话其实还在，只是被「隐藏闲置」挡下了：说明原因 + 一步关掉它。
+                Text(l10n.t("All sessions are idle"))
+                    .appFont(13, weight: .medium)
+                    .foregroundColor(AppPalette.tertiaryText)
+
+                Button {
+                    hideIdleSessions.set(false)
+                } label: {
+                    Text(l10n.t("Show Idle Sessions"))
                         .appFont(11, weight: .medium)
                         .foregroundColor(AppPalette.accent)
                 }

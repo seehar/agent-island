@@ -2,10 +2,11 @@
 //  SoundPickerRow.swift
 //  AgentIsland
 //
-//  设置面板中的通知音效选择行：点选项即试听，因此不需要单独的试听按钮。
+//  设置面板中的通知音效选择行：展开块顶部一行「试听当前音效」，下面是可以点选即试听的列表。
+//  试听与自动提示音都走 `NotificationSoundPlayer`：音量在那里统一应用，试听显式跳过
+//  安静时段判定（刚设完时段也要能听一下）。
 //
 
-import AppKit
 import SwiftUI
 
 struct SoundPickerRow: View {
@@ -65,27 +66,64 @@ struct SoundPickerRow: View {
                 }
             }
         ) {
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 0) {
-                    ForEach(NotificationSound.allCases, id: \.self) { sound in
-                        SettingsOptionRow(
-                            label: title(for: sound),
-                            isSelected: selectedSound == sound
-                        ) {
-                            // 点选即试听：这是唯一的音频预览入口
-                            if let soundName = sound.soundName {
-                                NSSound(named: soundName)?.play()
+            VStack(spacing: 0) {
+                // 试听行不参与滚动：它属于这一行，不该跟着列表滚走。
+                AuditionRow(sound: selectedSound)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        ForEach(NotificationSound.allCases, id: \.self) { sound in
+                            SettingsOptionRow(
+                                label: title(for: sound),
+                                isSelected: selectedSound == sound
+                            ) {
+                                // 点选即试听：与上面的试听行走同一个播放器。
+                                NotificationSoundPlayer.play(sound, ignoresQuietHours: true)
+                                selectedSound = sound
+                                AppSettings.notificationSound = sound
                             }
-                            selectedSound = sound
-                            AppSettings.notificationSound = sound
                         }
                     }
                 }
+                .frame(height: CGFloat(visibleOptionCount) * NotchMenuMetrics.optionRowHeight)
             }
-            .frame(height: CGFloat(visibleOptionCount) * NotchMenuMetrics.optionRowHeight)
         }
         .onAppear {
             selectedSound = AppSettings.notificationSound
         }
+    }
+}
+
+/// 展开块顶部的试听行：播一次当前选中的音效（不改选中项，因此不必先点列表）。
+private struct AuditionRow: View {
+    let sound: NotificationSound
+
+    @ObservedObject private var l10n = LocalizationManager.shared
+    @State private var isHovered = false
+
+    var body: some View {
+        Button {
+            NotificationSoundPlayer.play(sound, ignoresQuietHours: true)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "play.circle")
+                    .font(.system(size: 11, weight: .semibold))
+
+                Text(l10n.t("Preview"))
+                    .font(.system(size: 12))
+
+                Spacer(minLength: 8)
+            }
+            .foregroundColor(isHovered ? AppPalette.primaryText : AppPalette.secondaryText)
+            .padding(.horizontal, NotchMenuMetrics.optionHorizontalPadding)
+            .frame(height: NotchMenuMetrics.optionRowHeight)
+            .background(isHovered ? AppPalette.rowHover : Color.clear)
+        }
+        .buttonStyle(SettingsRowButtonStyle())
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        // `None` 档没有音源可播，禁用而不是点了没反应。
+        .disabled(sound.soundName == nil)
+        .help(l10n.t("Play the selected sound once."))
+        .accessibilityLabel(Text(l10n.t("Preview")))
     }
 }

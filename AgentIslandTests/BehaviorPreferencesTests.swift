@@ -52,6 +52,7 @@ struct BehaviorPreferencesTests {
         try roundTrip(SessionRowClickAction.self)
         try roundTrip(ApprovalAutoExpand.self)
         try roundTrip(ApprovalAskScope.self)
+        try roundTrip(QuietHours.self)
     }
 
     @Test("选择器：选择后落盘，展开高度按档位数算")
@@ -84,6 +85,7 @@ struct BehaviorPreferencesTests {
             SessionRowClickAction.allCases.count,
             ApprovalAutoExpand.allCases.count,
             ApprovalAskScope.allCases.count,
+            QuietHours.allCases.count,
         ]
         #expect(counts.allSatisfy { $0 <= 4 })
     }
@@ -216,6 +218,116 @@ struct BehaviorPreferencesTests {
         #expect(ApprovalAskScope.allCases.count == 3)
     }
 
+    // MARK: - 通知与会话展示（本轮新增）
+
+    @Test("安静时段：关闭档永不命中；跨零点与不跨零点两种时段的两端都判对")
+    func quietHoursCoverage() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
+        func at(_ hour: Int, _ minute: Int) -> Date {
+            calendar.date(
+                from: DateComponents(year: 2026, month: 9, day: 23, hour: hour, minute: minute))!
+        }
+
+        // 关闭档：任何时刻都响。
+        #expect(!QuietHours.off.covers(at(23, 30), calendar: calendar))
+
+        // 22:00–07:00（跨零点）：起点含、终点不含，白天不命中。
+        #expect(QuietHours.nightToMorning.covers(at(22, 0), calendar: calendar))
+        #expect(QuietHours.nightToMorning.covers(at(23, 30), calendar: calendar))
+        #expect(QuietHours.nightToMorning.covers(at(0, 5), calendar: calendar))
+        #expect(QuietHours.nightToMorning.covers(at(6, 59), calendar: calendar))
+        #expect(!QuietHours.nightToMorning.covers(at(7, 0), calendar: calendar))
+        #expect(!QuietHours.nightToMorning.covers(at(12, 0), calendar: calendar))
+
+        // 00:00–09:00（不跨零点，走另一分支）：起点含、终点不含。
+        #expect(QuietHours.midnightToMorning.covers(at(0, 0), calendar: calendar))
+        #expect(QuietHours.midnightToMorning.covers(at(8, 59), calendar: calendar))
+        #expect(!QuietHours.midnightToMorning.covers(at(9, 0), calendar: calendar))
+        #expect(!QuietHours.midnightToMorning.covers(at(23, 59), calendar: calendar))
+
+        // 20:00–08:00：傍晚进、清晨出。
+        #expect(!QuietHours.eveningToMorning.covers(at(19, 59), calendar: calendar))
+        #expect(QuietHours.eveningToMorning.covers(at(20, 0), calendar: calendar))
+        #expect(QuietHours.eveningToMorning.covers(at(7, 59), calendar: calendar))
+        #expect(!QuietHours.eveningToMorning.covers(at(8, 0), calendar: calendar))
+    }
+
+    @Test("布尔偏好：键缺失回默认值，切换落盘，两个键互不干扰")
+    func boolPreferenceRoundTrip() throws {
+        let defaults = try makeDefaults()
+        let preference = BoolPreference(key: "testFlag", defaultValue: true, defaults: defaults)
+
+        // 键缺失时必须回默认值 true：`bool(forKey:)` 会返回 false，直接用就把语义翻过来。
+        #expect(preference.isOn)
+
+        preference.toggle()
+        #expect(!preference.isOn)
+        #expect(
+            !BoolPreference(key: "testFlag", defaultValue: true, defaults: defaults).isOn,
+            "切换要落盘，重建后仍是新值")
+
+        preference.set(true)
+        #expect(preference.isOn)
+
+        let other = BoolPreference(key: "anotherFlag", defaultValue: false, defaults: defaults)
+        #expect(!other.isOn, "另一个键不受影响")
+    }
+
+    @Test("会话可见性：结束会话按保留窗口，隐藏闲置只挡 idle")
+    func sessionVisibilityRules() {
+        let now = Date()
+        let justEnded = now.addingTimeInterval(-5)
+        let longAgo = now.addingTimeInterval(-3600)
+        func visible(
+            _ phase: SessionPhase, at lastActivity: Date, retention: SessionRetention,
+            hideIdle: Bool = false
+        ) -> Bool {
+            SessionVisibility.isVisible(
+                phase: phase, lastActivity: lastActivity, retention: retention,
+                hideIdleSessions: hideIdle, now: now)
+        }
+
+        // 立即档：结束即移除；1 分钟档：窗口内留下、窗口外移除。
+        #expect(!visible(.ended, at: justEnded, retention: .immediate))
+        #expect(visible(.ended, at: justEnded, retention: .minute))
+        #expect(!visible(.ended, at: longAgo, retention: .minute))
+        // 非结束会话不受保留档影响。
+        #expect(visible(.idle, at: longAgo, retention: .immediate))
+
+        // 隐藏闲置只挡 idle：等待输入 / 处理中 / 待批都是「有动作」，必须留下。
+        #expect(!visible(.idle, at: justEnded, retention: .immediate, hideIdle: true))
+        #expect(visible(.waitingForInput, at: justEnded, retention: .immediate, hideIdle: true))
+        #expect(visible(.processing, at: justEnded, retention: .immediate, hideIdle: true))
+        let approval = PermissionContext(
+            toolUseId: "tool-1", toolName: "Bash", toolInput: nil, receivedAt: now)
+        #expect(
+            visible(.waitingForApproval(approval), at: justEnded, retention: .immediate, hideIdle: true))
+    }
+
+    @Test("会话展示的两个开关默认保持既有行为（明细显示、闲置不过滤）")
+    func sessionDisplayDefaultsPreservePreviousBehavior() {
+        #expect(SessionDisplayPreferences.showSubagentDetails.defaultValue)
+        #expect(!SessionDisplayPreferences.hideIdleSessions.defaultValue)
+    }
+
+    @Test("通知音量：键缺失取满音量，写入越界被夹到 0…1")
+    func notificationVolumeClamping() throws {
+        let defaults = try makeDefaults()
+
+        // 键缺失必须是 1（满音量）：`double(forKey:)` 返回 0，直接用会把通知静音掉。
+        #expect(AppSettings.notificationVolume(defaults: defaults) == 1)
+
+        AppSettings.setNotificationVolume(0.4, defaults: defaults)
+        #expect(AppSettings.notificationVolume(defaults: defaults) == 0.4)
+
+        AppSettings.setNotificationVolume(1.8, defaults: defaults)
+        #expect(AppSettings.notificationVolume(defaults: defaults) == 1)
+
+        AppSettings.setNotificationVolume(-0.5, defaults: defaults)
+        #expect(AppSettings.notificationVolume(defaults: defaults) == 0)
+    }
+
     @Test("默认档逐值保留改造前的行为（升级不改变观感与手感）")
     func defaultsPreservePreviousBehavior() {
         // 悬停 1s 自动展开；完成提示 30s；活动结束 0.5s 收起；关掉面板 0.35s 收起
@@ -235,5 +347,9 @@ struct BehaviorPreferencesTests {
         // 提示音仍只覆盖就绪；单击仍什么都不做（双击才进聊天）
         #expect(!NotificationScope.defaultValue.coversApprovals)
         #expect(SessionRowClickAction.defaultValue == .none)
+        // 安静时段默认关闭（任何时刻都响）；会话展示与过滤保持既有行为
+        #expect(QuietHours.defaultValue == .off)
+        #expect(SessionDisplayPreferences.showSubagentDetails.defaultValue)
+        #expect(!SessionDisplayPreferences.hideIdleSessions.defaultValue)
     }
 }
