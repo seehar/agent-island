@@ -44,7 +44,11 @@ struct ShortcutRecorderTests {
 
     @Test("受支持的键才算组合：不认的键码直接拒收")
     func unsupportedKeyIsRejected() {
-        #expect(outcome(keyCode: 122, modifiers: [], chord: nil) == .reject(.unsupportedKey))
+        // 直接调函数：辅助方法会把 nil 换成默认组合，显式传 nil 必须走原始入口。
+        #expect(
+            ShortcutRecorder.outcome(
+                keyCode: 122, modifiers: [], chord: nil, action: .openChat, conflict: nil)
+                == .reject(.unsupportedKey))
     }
 
     @Test("可打印字符必须带修饰键")
