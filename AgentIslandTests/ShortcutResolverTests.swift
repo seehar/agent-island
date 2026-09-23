@@ -18,8 +18,20 @@ struct ShortcutResolverTests {
             uniqueKeysWithValues: ShortcutAction.allCases.map { ($0, .chord($0.defaultChord)) })
     }
 
-    private func page(for section: NotchMenuSection) -> ShortcutAction.Page {
-        section == .statistics ? .statistics : .settings
+    @Test("动作目录与设置页行表同数：加动作必须同时改行表，否则页面会裁掉最后一行")
+    func catalogShapeMatchesLayoutTable() {
+        let panelActions = ShortcutAction.allCases.filter { $0.scope == .panel }
+        #expect(ShortcutAction.allCases.count == 11)
+        #expect(panelActions.count == 10)
+
+        let rows = NotchMenuMetrics.blocks(for: .shortcuts).reduce(0) { $0 + $1.rows.count }
+        #expect(
+            rows == ShortcutAction.allCases.count,
+            "行表 \(rows) 行 vs 动作 \(ShortcutAction.allCases.count) 条")
+
+        // 页面首行是全局那一条：它的作用域是全局，且不受输入框守卫限制之外的差别对待——这里只钉数量关系。
+        #expect(ShortcutAction.summon.scope == .global)
+        #expect(panelActions.contains(.summon) == false)
     }
 
     @Test("默认绑定在各自的生效页面上都能解析出来")
