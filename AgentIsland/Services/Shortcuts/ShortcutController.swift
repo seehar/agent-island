@@ -43,6 +43,8 @@ final class ShortcutController: ObservableObject {
     private var keyMonitor: KeyEventMonitor?
     private let hotKey = GlobalHotKey()
     private var cancellables = Set<AnyCancellable>()
+    /// 当前窗口的状态订阅（换窗口时替换，避免越挂越多）。
+    private var statusCancellable: AnyCancellable?
 
     /// 面板（弱引用：窗口随屏幕变化重建）。
     private weak var panel: NSWindow?
@@ -91,13 +93,14 @@ final class ShortcutController: ObservableObject {
         self.sessionMonitor = sessionMonitor
 
         // 状态回到关闭：把前台交还给热键唤出前的应用。
-        viewModel.$status
+        // 换窗口时先撤掉上一次的订阅：publisher 属于旧视图模型，留着只会越挂越多。
+        statusCancellable?.cancel()
+        statusCancellable = viewModel.$status
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
                 guard status == .closed || status == .popping else { return }
                 self?.restoreFocusIfNeeded()
             }
-            .store(in: &cancellables)
     }
 
     // MARK: - 录制
