@@ -180,7 +180,8 @@ nonisolated enum TranscriptUsageScanner {
     // 解析规则变过、而进度行还是改前的（`cursor` 里没有版本）：也整源重放一次——
     // 增量路径只看文件尾巴，会把「已经追到 EOF、但那套规则读不出数据」的文件永远跳过。
     let parserVersion = Self.parserVersion(for: source.agent)
-    let staleParser = parserVersion != nil && previous?.cursor != parserVersion
+    let previousCursor = parserVersion.map { Self.splitParserCursor(previous?.cursor, version: $0) }
+    let staleParser = parserVersion != nil && previousCursor?.matches != true
     if let previous,
       size < previous.readOffset
         || (size == previous.readOffset && abs(mtime - previous.mtime) > 0.000_001)
@@ -208,7 +209,7 @@ nonisolated enum TranscriptUsageScanner {
     // codex 的 token 行不带模型名（模型只写在同一个 `turn_context` 行里），因此按文件
     // 顺序记住最近一次看到的模型，并随进度标记（`cursor`）带到下一次读取：否则应用
     // 重启后新追加的 token 会落进空模型桶，模型榜就不等于全库总量了。
-    var model = source.agent == .codex ? Self.codexModel(from: previous) : ""
+    var model = source.agent == .codex ? (previousCursor?.model ?? "") : ""
 
     while true {
       guard let chunk = try? handle.read(upToCount: chunkBytes), !chunk.isEmpty else { break }
@@ -233,11 +234,10 @@ nonisolated enum TranscriptUsageScanner {
     }
 
     result.state.readOffset += consumed
-    // codex 用 `cursor` 带模型；解析规则变过的 Agent 用它带版本（见 `parserVersion(for:)`）。
-    if source.agent == .codex {
-      result.state.cursor = model
-    } else if let parserVersion = Self.parserVersion(for: source.agent) {
-      result.state.cursor = parserVersion
+    // 解析规则变过的 Agent 用 `cursor` 带版本（见 `parserVersion(for:)`）；codex 的版本
+    // 里再带上模型名（它的 token 行本身不带模型，模型在另一个文件位置的 `turn_context` 里）。
+    if let parserVersion = Self.parserVersion(for: source.agent) {
+      result.state.cursor = Self.parserCursor(parserVersion, model: model)
     }
     result.deltas = Array(deltas.values)
     return result
@@ -252,16 +252,34 @@ nonisolated enum TranscriptUsageScanner {
   /// （CodeBuddy 的工具调用与 token 就是这么漏掉的——它们的行当时一条都没被解析）。
   private enum ParserVersion: String {
     case codeBuddy = "cb-v2"
+    case codexModelAndTools = "cx-v2"
   }
 
   /// 该 Agent 当前要求的解析器版本；`nil` 表示不需要版本（进度行里的 `cursor` 另有用途）。
+  ///
+  /// codex 早期用 `cursor` 存模型名（见下面的读取逻辑），因此它的版本标记形如
+  /// `cx-v2|<模型>`，旧行（只有模型名、或干脆没有）都会触发一次整源重放。
   private static func parserVersion(for agent: AgentKind) -> String? {
-    agent == .codeBuddy ? ParserVersion.codeBuddy.rawValue : nil
+    switch agent {
+    case .codeBuddy: return ParserVersion.codeBuddy.rawValue
+    case .codex: return ParserVersion.codexModelAndTools.rawValue
+    default: return nil
+    }
   }
 
-  /// 进度里带过来的 codex 模型名（`cursor` 对 codex 存模型，不要当成版本号）。
-  private static func codexModel(from previous: UsageSourceState?) -> String {
-    previous?.cursor ?? ""
+  /// 进度行里带的版本标记（含 codex 的模型后缀）。
+  private static func parserCursor(_ version: String, model: String) -> String {
+    version == ParserVersion.codexModelAndTools.rawValue ? "\(version)|\(model)" : version
+  }
+
+  /// 进度行里的 `cursor` 是否符合当前解析器；codex 额外取出其中记住的模型。
+  private static func splitParserCursor(
+    _ cursor: String?, version: String
+  ) -> (matches: Bool, model: String) {
+    guard let cursor, cursor.hasPrefix(version) else { return (false, "") }
+    guard version == ParserVersion.codexModelAndTools.rawValue else { return (true, "") }
+    let suffix = cursor.dropFirst(version.count)
+    return (true, suffix.hasPrefix("|") ? String(suffix.dropFirst()) : "")
   }
 
   /// codex `turn_context` 行里的模型名（token 行本身不带模型）。
@@ -306,9 +324,13 @@ nonisolated enum TranscriptUsageScanner {
     case .codex:
       // `token_count` 是 token 行；`turn_context` 提供模型名（token 行不带模型）；
       // `function_call` 同时命中 `function_call_output`（由 extract 再筛）。
+      // `web_search_call` / `tool_search_call` 是**独立于 function_call** 的调用类型
+      // （本机实测：前者 180 行、后者 9 行，都没有对应的 function_call 行），漏了它们
+      // 这些调用一条都统计不到。
       return [
         Array("\"token_count\"".utf8), Array("\"turn_context\"".utf8),
         Array("\"function_call\"".utf8), Array("\"custom_tool_call\"".utf8),
+        Array("\"web_search_call\"".utf8), Array("\"tool_search_call\"".utf8),
       ]
     case .cursor:
       // 记录里没有 token 字段（CodeIsland 也只读文本），只统计工具调用。
@@ -526,6 +548,14 @@ nonisolated enum TranscriptUsageScanner {
       case ("response_item", "function_call"), ("response_item", "custom_tool_call"):
         guard let name = payload["name"] as? String, !name.isEmpty else { return nil }
         record.tools = [name]
+      case ("response_item", "web_search_call"):
+        // 没有 `name`：按 `action.type` 分类（search / open_page / find_in_page；
+        // 缺 type 的行按通用的 web_search 计）。与 `event_msg/web_search_end` 不是一回事
+        // ——后者没有 call_id，无法与调用配对，绝不能当成第二个计数。
+        record.tools = [Self.codexWebSearchTool(payload["action"])]
+      case ("response_item", "tool_search_call"):
+        // 按需检索工具目录（`arguments.query`），与真正的调用分开计。
+        record.tools = ["tool_search"]
       default:
         return nil
       }
@@ -576,6 +606,20 @@ nonisolated enum TranscriptUsageScanner {
     record.cacheRead = cached
     record.cacheWrite = intValue(usage["cache_creation_input_tokens"])
     record.carriesTokens = true
+  }
+
+  /// codex `web_search_call` 的工具名：按 `action.type` 分类（search / open_page /
+  /// find_in_page），缺 action 或 type 时退化成 `web_search`。
+  private static func codexWebSearchTool(_ action: Any?) -> String {
+    guard let action = action as? [String: Any],
+      let kind = action["type"] as? String, !kind.isEmpty
+    else { return "web_search" }
+    switch kind {
+    case "search": return "web_search"
+    case "open_page": return "web_open"
+    case "find_in_page": return "web_find"
+    default: return "web_search"
+    }
   }
 
   /// 条目级毫秒 epoch 时间戳（CodeBuddy 的记录用这个口径）。

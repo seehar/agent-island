@@ -12,6 +12,7 @@
 //
 
 import Foundation
+import SQLite3
 import Testing
 
 @testable import AgentIsland
@@ -552,6 +553,69 @@ struct AgentTranscriptUsageScannerTests {
         let nextTokens = try #require(second.deltas.first { $0.tool == "" })
         #expect(nextTokens.model == "gpt-5.5")
         #expect(nextTokens.input == 100)
+    }
+
+    @Test("Codex：web_search_call / tool_search_call 也计入工具调用（旧 EOF 进度会重放）")
+    func codexSearchCallsAreCounted() throws {
+        let lines = #"""
+            {"timestamp":"2026-06-15T03:52:02.209Z","type":"turn_context","payload":{"turn_id":"t-1","model":"gpt-5.5"}}
+            {"timestamp":"2026-06-15T03:52:10.280Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":50}}}}
+            {"timestamp":"2026-06-15T03:52:11.000Z","type":"response_item","payload":{"type":"web_search_call","status":"completed","action":{"type":"search","query":"akamai bot manager"}}}
+            {"timestamp":"2026-06-15T03:52:12.000Z","type":"response_item","payload":{"type":"web_search_call","status":"completed","action":{"type":"open_page","url":"https://akamai.com"}}}
+            {"timestamp":"2026-06-15T03:52:13.000Z","type":"response_item","payload":{"type":"web_search_call","status":"completed","action":{"type":"find_in_page","url":"https://akamai.com","pattern":"ddos"}}}
+            {"timestamp":"2026-06-15T03:52:14.000Z","type":"response_item","payload":{"type":"web_search_call","status":"completed"}}
+            {"timestamp":"2026-06-15T03:52:15.000Z","type":"response_item","payload":{"type":"tool_search_call","call_id":"call_1","status":"completed","arguments":{"query":"spawn_agent"}}}
+            {"timestamp":"2026-06-15T03:52:16.000Z","type":"response_item","payload":{"type":"web_search_end","call_id":"ws_1","query":"akamai bot manager","action":{"type":"search"}}}
+
+            """#
+        let scratch = try fixtureFile(lines)
+        defer { try? FileManager.default.removeItem(at: scratch.directory) }
+        let source = UsageSourceFile(
+            path: scratch.file.path, agent: .codex, sessionId: "019ec968")
+
+        // 造一条「改版前」的进度行：EOF、`cursor` 里只有模型名（没有 cx-v2 版本）。
+        let size = UInt64(lines.utf8.count)
+        let db = scratch.directory.appendingPathComponent("usage.sqlite")
+        var handle: OpaquePointer?
+        guard sqlite3_open_v2(db.path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK,
+            let handle
+        else {
+            Issue.record("打不开临时统计库")
+            return
+        }
+        sqlite3_exec(
+            handle,
+            """
+            CREATE TABLE indexed_source (
+              source_id TEXT PRIMARY KEY, agent TEXT NOT NULL,
+              size_bytes INTEGER NOT NULL DEFAULT 0, read_offset INTEGER NOT NULL DEFAULT 0,
+              mtime REAL NOT NULL DEFAULT 0, cursor TEXT, updated_at REAL NOT NULL);
+            INSERT INTO indexed_source (source_id, agent, size_bytes, read_offset, mtime, cursor, updated_at)
+              VALUES ('\(scratch.file.path)', 'codex', \(size), \(size), 0, 'gpt-5.5', 0);
+            """, nil, nil, nil)
+        sqlite3_close(handle)
+
+        let store = try UsageStatsStore(url: db)
+        UsageStatsPass(store: store, calendar: calendar).ingest(
+            sources: [source],
+            progress: try store.sourceRecords())
+
+        // 4 条 web_search_call（search / open_page / find_in_page / 缺 type）+ 1 条 tool_search_call；
+        // `web_search_end` 没有 call_id、不是第二个调用，绝不能重复计数。
+        let snapshot = try store.snapshot(
+            window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
+        let byName = Dictionary(
+            uniqueKeysWithValues: snapshot.tools.map { ($0.name, $0.calls) })
+        #expect(byName["web_search"] == 2)
+        #expect(byName["web_open"] == 1)
+        #expect(byName["web_find"] == 1)
+        #expect(byName["tool_search"] == 1)
+        #expect(snapshot.totals.calls == 5)
+
+        // 重放后进度行带版本 + 模型（下一轮回到增量语义，且模型仍能带上）。
+        let cursor = try #require(store.sourceRecords()[scratch.file.path]?.state.cursor)
+        #expect(cursor.hasPrefix("cx-v2|"))
+        #expect(cursor.contains("gpt-5.5"))
     }
 
     @Test("没有 token 字段的 Agent 不产出 token（Copilot 只留下工具行）")
