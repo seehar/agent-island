@@ -67,7 +67,9 @@ struct GeneralSettingsPage: View {
         }
         .onAppear(perform: refresh)
         // 用户可能刚在系统设置里改过授权，回到应用时重新取一次状态。
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+        .onReceive(
+            NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+        ) { _ in
             refresh()
         }
     }
@@ -115,12 +117,12 @@ struct GeneralSettingsPage: View {
 
 /// 「智能体」页：卡片第一行是批量动作（全部启用并安装 / 全部关闭并卸载），下面逐个列出
 /// 各 Agent CLI 的监控开关、实时集成状态与各自的配置目录（文件夹按钮展开三行编辑器）；
-/// 再往下是全局的审批闸门策略。
+/// 再往下是全局的工具调用保护档位（omp / pi 的闸门随启用而来，页面里没有审批开关）。
 /// Claude Code 的配置目录也走同一套逐 Agent 编辑器，因此不再单独成卡；它一行同时负责
 /// 其 hook 集成的安装与卸载，设置里也不再单独提供 Hooks 开关。
 struct AgentsSettingsPage: View {
     @ObservedObject private var l10n = LocalizationManager.shared
-    /// 有没有开着的闸门：闸门卡片的两行据此启用/禁用。由 Agent 行的闸门开关回调刷新
+    /// 有没有生效的闸门：保护卡片的两行据此启用/禁用。由 Agent 行的启用/关闭动作回调刷新
     /// （兄弟视图不会因为对方改了自己的 `@State` 而重画，所以这条得由页面来记）。
     @State private var hasEnabledGate = AgentIntegrationInstaller.hasEnabledGate
 
@@ -137,9 +139,9 @@ struct AgentsSettingsPage: View {
                 )
             }
 
-            // 闸门策略是**全局**的（问什么 / 应用未运行时 / 待批时自动展开），不属于任何
+            // 档位是**全局**的（问什么 / 应用未运行时 / 有待处理请求时自动展开），不属于任何
             // 单个 Agent，因此从 Agent 列表卡片里拎出来单独成卡。
-            SettingsGroup(title: l10n.t("Approval Gate")) {
+            SettingsGroup(title: l10n.t("Tool Call Guard")) {
                 ApprovalGateSettingsGroup(isEnabled: hasEnabledGate)
             }
         }
@@ -151,7 +153,7 @@ struct AgentsSettingsPage: View {
 
 /// 「行为」页：胶囊的交互与空闲表现、会话列表的内容与刷新频率、通知（音效与覆盖范围）。
 /// 每行都是一个枚举档位；选项文案在本文件里按字面量取键，本地化守卫才能审计到。
-/// 「待批时自动展开」是审批策略，在「智能体」页的「审批闸门」卡片里（见 `ApprovalGateSettingsGroup`）。
+/// 「有待处理请求时自动展开」是工具调用保护档位，在「智能体」页的那张卡片里（见 `ApprovalGateSettingsGroup`）。
 struct BehaviorSettingsPage: View {
     @ObservedObject private var l10n = LocalizationManager.shared
     /// 通知音效行（在「通知」组里，与提示音覆盖范围同组）。

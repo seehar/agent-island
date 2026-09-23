@@ -19,7 +19,7 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
     /// 行为类偏好：悬停展开、空闲可见性、完成提示、会话保留与刷新频率、
     /// 通知（音效与提示音覆盖范围）。
     case behavior
-    /// 各 Agent CLI 的监控开关与集成状态、三个全局的审批闸门档位、Claude 配置目录。
+    /// 各 Agent CLI 的监控开关与集成状态、三个全局的工具调用保护档位、Claude 配置目录。
     case agents
     /// 用量统计：token、会话与工具调用的汇总读数（只读页，不是配置）。
     case statistics
@@ -136,7 +136,7 @@ nonisolated enum NotchMenuMetrics {
     ///
     /// 取值与高度预算绑定：agent 页内容高 = 92（页眉/分段控件等固定开销）
     /// + 20（卡标题）+ 40（动作条：全部启用/全部关闭）+ 行数×48 + 26（脚注）+ 12（组间距）
-    /// + 20 + 120（审批闸门卡）+ 0（Claude 配置目录卡**已并入逐行编辑器**）。
+    /// + 20 + 120（工具调用保护卡）+ 0（Claude 配置目录卡**已并入逐行编辑器**）。
     /// 5 行时是 **570**：加最大的单个展开 106 后在 chrome ≤ 50 时仍 ≤ 728，
     /// 只有 chrome 76（胶囊高度自定义到最大）那一档被夹取 —— 与改造前登记的
     /// `agents@76` 同一档，夹取组合没有增加。
@@ -245,7 +245,7 @@ nonisolated enum NotchMenuMetrics {
                 // （标题 + 集成状态；行内可展开该 Agent 的目录编辑器）+ 一行脚注。
                 // 受支持的 Agent 会随接入面扩大而增加（现在 17 个），整张卡片按
                 // `visibleAgentRows` 封顶、超出的在卡内滚动——否则这一页会把面板
-                // 撑到上限之外，用户得滚很久才能摸到下面的闸门开关。
+                // 撑到上限之外，用户得滚很久才能摸到下面的保护档位。
                 Block(
                     rows: [rowHeight]
                         + Array(
@@ -254,7 +254,7 @@ nonisolated enum NotchMenuMetrics {
                         ),
                     hasFootnote: true
                 ),
-                // 审批闸门：问什么 / 应用未运行时 / 待批时自动展开（三个全局档位）
+                // 工具调用保护：问什么 / 应用未运行时 / 有待处理请求时自动展开（三个全局档位）
                 Block(rows: Array(repeating: rowHeight, count: 3)),
             ]
         case .statistics:

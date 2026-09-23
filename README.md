@@ -136,10 +136,13 @@ AgentIsland only touches each agent's own integration surface: the shared hook s
 
 Every agent starts **switched off** — AgentIsland never takes over a tool on its own. Open **Settings → Agents** (the gear button in the panel, then the *Agents* page) and hit **Enable All and Install** to turn on every tool it found and install their integrations, or flip the switch on individual rows. The same page has **Disable All and Uninstall** to undo everything in one go, a per-agent **config directory** picker (the folder/power buttons on a row) for tools whose records live somewhere non-standard, and each agent's integration status and where it lives. Status **Outdated — reinstall** means the file on disk is not the one this build expects — toggle the agent off and on to rewrite it.
 
-**Enabling the approval gate on `omp` / `pi`.** The shield button in the agent row makes the notch that agent's approval gate. Two facts worth knowing first:
+**Approval on the notch (`omp` / `pi`).** Enabling one of these two agents also makes the notch its approval gate — there is **no separate switch**, and the page never mentions one. Three facts worth knowing:
 
-- `omp` defaults to `tools.approvalMode: yolo`, so it never asks on its own. With the gate off you have **no** approval gate on that agent — not a fallback to `omp`'s own prompt.
-- Enabling it also raises `omp`'s extension-handler budget so a tool call can wait for you; the previous value is backed up and restored when you switch the gate off.
+- `omp` defaults to `tools.approvalMode: yolo`, so it never asks on its own; the notch is the only gate. Switching the agent off removes that gate entirely — it never falls back to `omp`'s own prompt.
+- Enabling it also raises `omp`'s extension-handler budget so a tool call can wait for you; the previous value is backed up next to `config.yml` as `config.yml.agent-island.bak`.
+- Don't want to be asked? Set **Tool Call Guard → Ask before running** to *Always allow* — that is the escape hatch, not a gate switch.
+
+Already monitoring these agents? The next launch rewrites their extension to the gate build; nothing else to do.
 
 ## Settings
 
@@ -148,7 +151,7 @@ Every agent starts **switched off** — AgentIsland never takes over a tool on i
 |Page|What's in it|
 |---|---|
 |**General**|Language, screen, notch height, notch width, content text size, panel size · launch at login, accessibility status|
-|**Agents**|**Enable All and Install** / **Disable All and Uninstall** bulk actions; per-agent enable switch, integration status and where it lives, approval-gate shield (`omp` / `pi`), and an expandable **config directory** editor on every row (auto-detect / choose folder / reset) · **Approval Gate** card: what it asks about (writes and commands / dangerous commands only / always allow), what happens when AgentIsland is not running, approval auto-expand (Only when the notch decides / Always / Never)|
+|**Agents**|**Enable All and Install** / **Disable All and Uninstall** bulk actions; per-agent enable switch, integration status and where it lives, and an expandable **config directory** editor on every row (auto-detect / choose folder / reset). Enabling `omp` / `pi` also installs their notch-approval extension (no separate switch) · **Tool Call Guard** card: what it asks about (writes and commands / dangerous commands only / always allow), what happens when AgentIsland is not running, and whether the notch auto-expands on new requests (Only when the notch decides / Always / Never)|
 |**Behavior**|Hover expand (Never / Fast / Standard / Slow), idle capsule (Always / When Active / Keep 3 Seconds), completion badge (10 s / 30 s / 1 min / Always) · ended-session retention, row density, click action (None / Open Chat / Focus Terminal), refresh rate · notification sound, notification scope (Ready only / Ready and approvals)|
 |**About**|Version, check for updates, automatic update checks, star on GitHub, quit|
 

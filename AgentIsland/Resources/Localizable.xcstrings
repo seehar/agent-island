@@ -3904,40 +3904,6 @@
         }
       }
     },
-    "Approve tool calls on the notch" : {
-      "comment" : "omp/pi 闸门开关（设置面板「智能体」页行内按钮的无障碍标签）",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Approve tool calls on the notch"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "在刘海上批准工具调用"
-          }
-        }
-      }
-    },
-    "Notch approval on" : {
-      "comment" : "闸门打开时补在集成状态后面的副标题片段",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Notch approval on"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "刘海审批已开启"
-          }
-        }
-      }
-    },
     "Outdated — reinstall" : {
       "comment" : "扩展文件在但不是当前该装的那一份（版本戳/变体/降级档对不上）",
       "localizations" : {
@@ -3956,7 +3922,7 @@
       }
     },
     "Enable %@ first" : {
-      "comment" : "Agent 关闭时闸门按钮的悬停说明；%@ = Agent 产品名",
+      "comment" : "工具调用保护的两行禁用时替换取值列的原因；%@ = 需要先启用的 Agent 名（如 OMP / Pi）",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3968,40 +3934,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请先启用 %@"
-          }
-        }
-      }
-    },
-    "On: %@ no longer prompts on its own. Turning this off leaves it with no approval gate at all." : {
-      "comment" : "闸门打开态的悬停说明；%@ = Agent 产品名",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "On: %@ no longer prompts on its own. Turning this off leaves it with no approval gate at all."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已开启：%@ 自身不再提示。关闭后它将不再有任何审批闸门。"
-          }
-        }
-      }
-    },
-    "Off" : {
-      "comment" : "闸门按钮的无障碍状态值（开态复用既有键 On）",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Off"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "关"
           }
         }
       }
@@ -4578,22 +4510,6 @@
         }
       }
     },
-    "Requires an approval gate" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Requires an approval gate"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "需先开启审批闸门"
-          }
-        }
-      }
-    },
     "When AgentIsland is not running the agent prints “gate offline” in the terminal; the two asking scopes still reject known-dangerous commands." : {
       "localizations" : {
         "en" : {
@@ -4674,34 +4590,36 @@
         }
       }
     },
-    "Approval Auto Expand" : {
+    "Auto Expand on Requests" : {
+      "comment" : "「智能体」页工具调用保护卡片第三行：新的待处理请求到来时刘海要不要自己展开。",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Approval Auto Expand"
+            "value" : "Auto Expand on Requests"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "待批时自动展开"
+            "value" : "有待处理请求时自动展开"
           }
         }
       }
     },
-    "Approval Gate" : {
+    "Tool Call Guard" : {
+      "comment" : "「智能体」页的卡片名（三个全局档位：运行前询问什么 / AgentIsland 未运行时 / 有待处理请求时自动展开）。刻意不提「审批 / 闸门」：闸门随启用而来，页面上没有开关。",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Approval Gate"
+            "value" : "Tool Call Guard"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "审批闸门"
+            "value" : "工具调用保护"
           }
         }
       }
@@ -5173,23 +5091,6 @@
         }
       },
       "shouldTranslate" : false
-    },
-    "Approve %@ tool calls on the notch. Its own approval mode is already yolo, so it never prompts by itself." : {
-      "comment" : "闸门关闭态的悬停说明；%@ = Agent 产品名",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Approve %@ tool calls on the notch. Its own approval mode is already yolo, so it never prompts by itself."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "在刘海上批准 %@ 的工具调用。它自己的 approval mode 已是 yolo，因此它自身不会提示。"
-          }
-        }
-      }
     },
     "Enable All and Install" : {
       "localizations" : {

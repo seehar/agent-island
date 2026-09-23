@@ -12,9 +12,11 @@
 //  * 目录编辑器固定三行、未自定义时只置灰不隐藏（见 `AgentDirPickerRow`）——卡片窗口
 //    高度按它算，行数随状态变化会让窗口比内容高一截。
 //
-//  闸门策略（问什么 / 应用未运行时 / 待批时自动展开）不在这里：它们是全局的，见
-//  `ApprovalGateSettingsGroup`。这一区段只保留每行的闸门图标按钮，并把它引起的
-//  「有没有开着的闸门」变化回调给页面。
+//  启用开关是**唯一**的入口：omp / pi 一启用就装闸门版扩展（见
+//  `AgentIntegrationInstaller.gateIsActive`），行内没有任何审批开关或字样——闸门随启用
+//  而来，用户不必再点第二个开关。保护档位（问什么 / 应用未运行时 / 有待处理请求时自动展开）是
+//  全局的，见 `ApprovalGateSettingsGroup`；它只需要知道「有没有生效的闸门」，由这里的
+//  启用 / 关闭动作回调给页面。
 //
 
 import AppKit
@@ -23,8 +25,8 @@ import Foundation
 import SwiftUI
 
 struct AgentSettingsSection: View {
-    /// 闸门开关变化后的回调：闸门卡片的启用态由页面持有（兄弟视图不会因为这里改了
-    /// `@State` 而重画），页面据此重算「有没有开着的闸门」。
+    /// 启用 / 关闭动作之后的回调：闸门策略卡片的启用态由页面持有（兄弟视图不会因为这里
+    /// 改了 `@State` 而重画），页面据此重算「有没有生效的闸门」。
     let onGateStateChanged: () -> Void
 
     @ObservedObject private var l10n = LocalizationManager.shared
@@ -32,8 +34,6 @@ struct AgentSettingsSection: View {
 
     /// 每个 Agent 当前是否启用，切换开关后重新读取。
     @State private var isEnabled = AgentSettingsSection.currentEnabledMap()
-    /// 每个 Agent 的「在刘海上批准」闸门是否打开。
-    @State private var isGateEnabled = AgentSettingsSection.currentGateMap()
     /// 每个 Agent 指定的配置目录；不在表里 = 自动检测。
     @State private var customDirectories = AgentSettingsSection.currentDirectoryMap()
     /// 卡片的显示顺序：已启用的排在前面（见 `enabledFirstOrder()`）。
@@ -52,7 +52,7 @@ struct AgentSettingsSection: View {
 
             // 受支持的 Agent 有十几个，整张卡片按 `visibleAgentRows` 封顶、超出的
             // 在卡内滚动（与音效选择器同一套做法）：面板高度因此由常量推得出，
-            // 下面的「审批闸门」卡片也还在手边。
+            // 下面的「工具调用保护」卡片也还在手边。
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
                     // 渲染**全部**行：只截断窗口高度（见 `agentCardLayout(total:directoryEditorHeight:)`），
@@ -61,13 +61,11 @@ struct AgentSettingsSection: View {
                         AgentSettingsRow(
                             kind: kind,
                             isEnabled: isEnabled[kind] ?? false,
-                            isGateEnabled: isGateEnabled[kind] ?? false,
                             customDirectory: customDirectories[kind],
                             isDirectoryExpanded: dirSelector.expandedKind == kind,
                             // 最后一行只在下面真的跟着提示时画分隔线。
                             showsSeparator: index < orderedAgents.count - 1 || notice != nil,
                             onToggle: { toggle(kind) },
-                            onToggleGate: { toggleGate(kind) },
                             onToggleDirectory: {
                                 withAnimation(SettingsMotion.expand) { dirSelector.toggle(kind) }
                             },
@@ -81,7 +79,8 @@ struct AgentSettingsSection: View {
             .frame(
                 height: NotchMenuMetrics.agentCardLayout(
                     total: orderedAgents.count,
-                    directoryEditorHeight: dirSelector.expandedPickerHeight).windowHeight
+                    directoryEditorHeight: dirSelector.expandedPickerHeight
+                ).windowHeight
             )
 
             if let notice {
@@ -128,20 +127,14 @@ struct AgentSettingsSection: View {
 
     // MARK: - 批量动作
 
-    /// 全部启用并安装：对**这台机器上装了**（配置目录存在）的每个 Agent 启用并安装集成。
+    /// 全部启用并安装：对**这台机器上装了**（配置目录存在）的每个 Agent 走与行内开关
+    /// 完全相同的一条路径（`enable(_:)`，其中 omp / pi 会顺带装闸门版扩展）。
     ///
-    /// 判据与行内开关完全一致：装不上时只有「需要集成」的 Agent 才算失败并**回滚成关闭**
-    /// （避免「已启用但收不到实时事件」）；DSH 这类 `hookSpec == nil` 的 Agent 不需要集成，
-    /// `install` 本就返回 false，不该被算成失败。没检测到（`paths() == nil`）的 Agent 直接
-    /// 跳过——跳过不是失败。
+    /// 没检测到（`paths() == nil`）的 Agent 直接跳过——跳过不是失败。
     private func enableAllAndInstall() {
         var failures = 0
         for kind in AgentKind.allCases where AgentRegistry.provider(for: kind).isToolInstalled {
-            AppSettings.setAgent(kind, enabled: true)
-            if !AgentIntegrationInstaller.install(kind), kind.requiresIntegrationInstall {
-                AppSettings.setAgent(kind, enabled: false)
-                failures += 1
-            }
+            if enable(kind) != nil { failures += 1 }
         }
 
         refreshState()
@@ -177,7 +170,8 @@ struct AgentSettingsSection: View {
         alert.alertStyle = .warning
         alert.messageText = l10n.t("Disable all agents and remove their integrations?")
         alert.informativeText = l10n.t(
-            "Every enabled agent will be switched off and its integration removed. The tools themselves keep working in their terminals.")
+            "Every enabled agent will be switched off and its integration removed. The tools themselves keep working in their terminals."
+        )
         alert.addButton(withTitle: l10n.t("Cancel"))
         alert.addButton(withTitle: l10n.t("Disable All"))
 
@@ -192,77 +186,45 @@ struct AgentSettingsSection: View {
     // MARK: - Actions
 
     private func toggle(_ kind: AgentKind) {
-        let willEnable = !(isEnabled[kind] ?? false)
-
-        if !willEnable {
-            // 关闭：卸载集成并停用该 Agent
+        if isEnabled[kind] ?? false {
+            // 关闭：卸载集成并停用该 Agent。omp 那侧抬过的 handler 预算**保持不动**：
+            // 还原是整份写回备份，会连带盖掉用户此后自己对 omp 配置的改动，代价比留下
+            // 一个用不到的预算大（闸门版扩展已经卸载，没有 handler 会再用它）。
             AgentIntegrationInstaller.uninstall(kind)
             AppSettings.setAgent(kind, enabled: false)
             notice = nil
-        } else if AgentIntegrationInstaller.install(kind) || !kind.requiresIntegrationInstall {
-            // 集成装不上时不阻塞启用：部分 Agent（如 OpenCode）不依赖集成，
-            // 没有它也能靠记录文件推断状态。
-            AppSettings.setAgent(kind, enabled: true)
-            notice = nil
+        } else if let failure = enable(kind) {
+            setNotice(failure, isError: true)
         } else {
-            // 需要集成的 Agent 安装失败：回滚开关，避免「已启用但收不到实时事件」
-            AppSettings.setAgent(kind, enabled: false)
-            setNotice(
-                l10n.t("Failed to install integration for %@", kind.displayName), isError: true)
-        }
-
-        isEnabled = AgentSettingsSection.currentEnabledMap()
-    }
-
-    /// 打开 / 关闭「在刘海上批准工具调用」。
-    ///
-    /// 顺序：开关先落盘，再安装扩展——扩展文件里写死了闸门策略（降级档、超时），
-    /// 所以「变体 + 策略」是跟着安装一起生效的。任一步失败即回滚开关并提示。
-    private func toggleGate(_ kind: AgentKind) {
-        let willEnable = (isGateEnabled[kind] ?? true) == false
-        AppSettings.setApprovalGate(kind, enabled: willEnable)
-
-        if !willEnable {
-            // 关闭：扩展换回只上报版，并还原 omp 配置（若开关时改过）。
-            AgentIntegrationInstaller.install(kind)
-            OmpConfigInstaller.restoreBackup()
             notice = nil
-            refreshState()
-            return
         }
 
-        // 开启：① omp 的 handler 预算（失败即回滚并保持关闭）
-        //       ② 重装闸门版扩展（失败即回滚并保持关闭）
-        do {
-            if kind == .ohMyPi {
-                try OmpConfigInstaller.applyGateTimeout()
-            }
-        } catch {
-            AppSettings.setApprovalGate(kind, enabled: false)
-            refreshState()
-            setNotice(error.localizedDescription, isError: true)
-            return
-        }
-
-        guard AgentIntegrationInstaller.install(kind) else {
-            AppSettings.setApprovalGate(kind, enabled: false)
-            if kind == .ohMyPi {
-                OmpConfigInstaller.restoreBackup()
-            }
-            refreshState()
-            setNotice(
-                l10n.t("Failed to install integration for %@", kind.displayName), isError: true)
-            return
-        }
-
-        notice = nil
         refreshState()
     }
 
-    /// 开关切换后重读三张状态表，并让页面重算闸门卡片的启用态。
+    /// 启用一个 Agent：装集成（omp / pi 在这里顺带装上闸门版扩展），失败即退回关闭状态。
+    ///
+    /// 顺序要紧：**先落「启用」标志再安装**——闸门版扩展是按 `gateIsActive`（= 支持闸门
+    /// 且已被监控）选的，反了会装上只上报版，用户看到的是「开着开关却没有闸门」。
+    /// omp 的 handler 预算由安装路径自己确保（见 `AgentIntegrationInstaller.install`）。
+    ///
+    /// 返回 nil 表示成功，否则是给用户看的失败原因。
+    private func enable(_ kind: AgentKind) -> String? {
+        AppSettings.setAgent(kind, enabled: true)
+
+        // 集成装不上时不阻塞启用：部分 Agent（如 OpenCode）不依赖集成，
+        // 没有它也能靠记录文件推断状态。装了集成的那些必须装成功，否则
+        // 开关回滚成关闭，避免「已启用但收不到实时事件」。
+        guard AgentIntegrationInstaller.install(kind) || !kind.requiresIntegrationInstall else {
+            AppSettings.setAgent(kind, enabled: false)
+            return l10n.t("Failed to install integration for %@", kind.displayName)
+        }
+        return nil
+    }
+
+    /// 开关切换后重读状态表，并让页面重算闸门策略行的启用态。
     private func refreshState() {
         isEnabled = AgentSettingsSection.currentEnabledMap()
-        isGateEnabled = AgentSettingsSection.currentGateMap()
         customDirectories = AgentSettingsSection.currentDirectoryMap()
         onGateStateChanged()
     }
@@ -271,14 +233,6 @@ struct AgentSettingsSection: View {
         Dictionary(
             uniqueKeysWithValues: AgentKind.allCases.map {
                 ($0, AppSettings.isAgentEnabled($0))
-            }
-        )
-    }
-
-    private static func currentGateMap() -> [AgentKind: Bool] {
-        Dictionary(
-            uniqueKeysWithValues: AgentKind.allCases.map {
-                ($0, AppSettings.isApprovalGateEnabled($0))
             }
         )
     }
@@ -343,23 +297,24 @@ private struct AgentBulkActionsRow: View {
 // MARK: - Agent 行
 
 /// 单个 Agent 的设置行：品牌标记 + 名称（副标题是自定义目录或集成状态）+ 尾部控件
-/// （可选的「在刘海上批准」闸门按钮 + 配置目录按钮 + 启用开关）。被关闭的 Agent 整行
-/// 降透明度，但开关仍可点回来。展开时目录编辑器跟在主行下面（同一张卡片里）。
+/// （配置目录按钮 + 启用开关）。被关闭的 Agent 整行降透明度，但开关仍可点回来。
+/// 展开时目录编辑器跟在主行下面（同一张卡片里）。
 ///
-/// 三个尾部控件都做在行内而不是另起一行：面板高度由 `NotchMenuMetrics` 的解析式给出，
-/// 加行必须同步改那张高度表；行内多一个 22pt 的图标按钮不改变行高。
+/// 尾部只有两个控件、都做在行内而不是另起一行：面板高度由 `NotchMenuMetrics` 的解析式
+/// 给出，加行必须同步改那张高度表；行内多一个 22pt 的图标按钮不改变行高。
 /// 启用开关的写法与 `SettingsToggleRow` 保持一致（同一套视觉配方）。
+///
+/// 这里**没有**闸门开关：omp / pi 的闸门随启用而来（见 `AgentIntegrationInstaller.gateIsActive`），
+/// 页面上不出现任何审批字样。
 private struct AgentSettingsRow: View {
     let kind: AgentKind
     let isEnabled: Bool
-    let isGateEnabled: Bool
     /// 用户指定的配置目录；nil = 自动检测。
     let customDirectory: String?
     /// 这一行的目录编辑器是否展开（同时只有一行能展开，见 `AgentDirSelector`）。
     let isDirectoryExpanded: Bool
     let showsSeparator: Bool
     let onToggle: () -> Void
-    let onToggleGate: () -> Void
     let onToggleDirectory: () -> Void
     let onDirectoryChanged: () -> Void
 
@@ -375,16 +330,6 @@ private struct AgentSettingsRow: View {
                     ? AppPalette.warning : AppPalette.secondaryText
             ) {
                 HStack(spacing: 10) {
-                    // 闸门按钮的槽位**恒定占位**：只有 omp/pi 有闸门，但空着也要留出同样的
-                    // 宽度，否则文件夹按钮与开关会在行与行之间左右错开（渲染出来一眼就看出歪）。
-                    Group {
-                        if AgentIntegrationInstaller.supportsApprovalGate(kind) {
-                            gateButton
-                        } else {
-                            Color.clear.frame(width: 22, height: 22)
-                        }
-                    }
-
                     directoryButton
 
                     Toggle("", isOn: Binding(get: { isEnabled }, set: { _ in onToggle() }))
@@ -433,43 +378,6 @@ private struct AgentSettingsRow: View {
         .accessibilityValue(Text(directorySummaryText))
     }
 
-    // MARK: - 闸门开关
-
-    /// 「在刘海上批准工具调用」开关：一个图标按钮（盾牌 = 开，盾牌斜杠 = 关）。
-    ///
-    /// 用图标而不是文字开关，是为了在 48pt 的两行行里与启用开关并排、且不挤掉
-    /// 标题与集成状态。关闭状态没有任何审批闸门，所以关态用弱色、开态用强调色。
-    private var gateButton: some View {
-        Button(action: onToggleGate) {
-            Image(systemName: isGateEnabled ? "shield.lefthalf.filled" : "shield.slash")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(isGateEnabled ? AppPalette.accent : AppPalette.tertiaryText)
-                .frame(width: 22, height: 22)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(SettingsCompactButtonStyle())
-        .disabled(!isEnabled)
-        .help(gateHelp)
-        .accessibilityLabel(Text(l10n.t("Approve tool calls on the notch")))
-        .accessibilityValue(Text(isGateEnabled ? l10n.t("On") : l10n.t("Off")))
-    }
-
-    /// 悬停说明。
-    ///
-    /// 这里必须说清「关闭 = 没有任何闸门」：`omp` / `pi` 生效的 `approvalMode` 已是 yolo，
-    /// 关闭本开关不会恢复它们自己的提示，而是把它变成完全没有闸门的 agent。
-    private var gateHelp: String {
-        guard isEnabled else {
-            return l10n.t("Enable %@ first", kind.displayName)
-        }
-        if isGateEnabled {
-            return l10n.t("On: %@ no longer prompts on its own. Turning this off leaves it with no approval gate at all.", kind.displayName)
-        }
-        return l10n.t(
-            "Approve %@ tool calls on the notch. Its own approval mode is already yolo, so it never prompts by itself.",
-            kind.displayName)
-    }
-
     // MARK: - Presentation
 
     private var isCustom: Bool {
@@ -513,13 +421,7 @@ private struct AgentSettingsRow: View {
         }
         let health = healthText(status.health)
         guard let file = status.installedFiles.first else { return (health, false) }
-        return ("\(health)\(gateSuffix) · \(shortenedPath(file.path))", false)
-    }
-
-    /// 闸门打开时把状态写进副标题（闸门开关本身只是个图标，状态得有个文字落点）。
-    private var gateSuffix: String {
-        guard AgentIntegrationInstaller.supportsApprovalGate(kind), isGateEnabled else { return "" }
-        return " · " + l10n.t("Notch approval on")
+        return ("\(health) · \(shortenedPath(file.path))", false)
     }
 
     private func healthText(_ health: AgentIntegrationStatus.Health) -> String {

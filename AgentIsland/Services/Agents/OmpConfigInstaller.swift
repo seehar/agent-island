@@ -15,12 +15,18 @@
 //    - **绝不写** `tools.approvalMode`：它的默认值已经是 yolo，写它只会留痕，
 //      而且会把用户显式选择过的限制模式静默抹掉。
 //
+//  抬上去的预算**不会自动还原**（闸门随启用而来，没有「关掉闸门」这个动作了）。
+//  原因是还原是「整份写回备份」：用户在这之后用 `omp config set` 改过配置时，还原会把
+//  那些改动一起抹掉。备份文件 `config.yml.agent-island.bak` 留给用户手动恢复，原值也记在
+//  偏好域（`ompGateConfig*`）里供排查。
+//
 
 import Foundation
 import os.log
 
 nonisolated enum OmpConfigInstaller {
-    private static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "OmpConfig")
+    private static let logger = Logger(
+        subsystem: "com.celestial.AgentIsland", category: "OmpConfig")
 
     /// 要写的键与目标值：把 handler 预算抬到 5 分钟（原值通常是 30000）。
     private static let timeoutKey = "extensionHandlers.toolCallTimeoutMs"
@@ -41,15 +47,15 @@ nonisolated enum OmpConfigInstaller {
 
         var errorDescription: String? {
             switch self {
-            case let .configMissing(path):
+            case .configMissing(let path):
                 return "找不到 omp 配置文件：\(path)"
             case .executableMissing:
                 return "找不到 omp 可执行文件"
-            case let .backupFailed(reason):
+            case .backupFailed(let reason):
                 return "备份 omp 配置失败：\(reason)"
-            case let .writeFailed(reason):
+            case .writeFailed(let reason):
                 return "写入 omp 配置失败：\(reason)"
-            case let .verifyFailed(reason):
+            case .verifyFailed(let reason):
                 return "校验 omp 配置失败：\(reason)"
             }
         }
@@ -64,18 +70,6 @@ nonisolated enum OmpConfigInstaller {
             .appendingPathComponent("config.yml")
     }
 
-    /// 备份文件路径（与 `config.yml` 同目录）。
-    static func backupFile() -> URL? {
-        guard let config = configFile() else { return nil }
-        return config.deletingLastPathComponent().appendingPathComponent(backupFileName)
-    }
-
-    /// 备份是否还在（关闭开关时据此决定要不要还原）。
-    static func hasBackup() -> Bool {
-        guard let backup = backupFile() else { return false }
-        return FileManager.default.fileExists(atPath: backup.path)
-    }
-
     /// omp 可执行文件。
     ///
     /// GUI 进程的 PATH 往往不含用户 shell 的 bin 目录（本机 omp 在 `~/.bun/bin`），
@@ -88,12 +82,16 @@ nonisolated enum OmpConfigInstaller {
             URL(fileURLWithPath: "/usr/local/bin/omp"),
             home.appendingPathComponent(".local/bin/omp"),
         ]
-        if let found = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) {
+        if let found = candidates.first(where: {
+            FileManager.default.isExecutableFile(atPath: $0.path)
+        }) {
             return found
         }
         guard let output = capture("/bin/zsh", ["-lc", "command -v omp"]) else { return nil }
         let path = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard path.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: path) else { return nil }
+        guard path.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: path) else {
+            return nil
+        }
         return URL(fileURLWithPath: path)
     }
 
@@ -105,9 +103,10 @@ nonisolated enum OmpConfigInstaller {
         return readTimeout(executable: omp, config: config)
     }
 
-    /// 开启闸门：把 handler 预算抬到 5 分钟。
+    /// 抬 handler 预算：把 `extensionHandlers.toolCallTimeoutMs` 设成 5 分钟。
     ///
-    /// 任一步失败即从备份还原并把开关留在关闭态（调用方负责回滚开关与扩展）。
+    /// 它由安装器在装闸门版扩展时调用（见 `AgentIntegrationInstaller.install`），因此
+    /// 「omp 被监控」就等于这一步跑过。任一步失败即从备份还原并把错误抛给调用方。
     static func applyGateTimeout() throws {
         guard let config = configFile() else { throw Failure.executableMissing }
         guard FileManager.default.fileExists(atPath: config.path) else {
@@ -146,22 +145,6 @@ nonisolated enum OmpConfigInstaller {
         record(original: original, backup: backup)
     }
 
-    /// 关闭闸门：把 `config.yml` 还原成备份内容（备份不在时无事可做）。
-    @discardableResult
-    static func restoreBackup() -> Bool {
-        guard let config = configFile(), let backup = backupFile() else { return false }
-        guard FileManager.default.fileExists(atPath: backup.path) else {
-            clearRecord()
-            return false
-        }
-        let restored = restore(from: backup, to: config)
-        if restored {
-            removeBackup(backup)
-            clearRecord()
-        }
-        return restored
-    }
-
     // MARK: - 记录
 
     private static func record(original: String?, backup: URL) {
@@ -170,13 +153,7 @@ nonisolated enum OmpConfigInstaller {
         AppSettings.ompGateConfigAppliedAt = Date()
     }
 
-    private static func clearRecord() {
-        AppSettings.ompGateConfigBackupPath = nil
-        AppSettings.ompGateConfigOriginalTimeout = nil
-        AppSettings.ompGateConfigAppliedAt = nil
-    }
-
-    // MARK: - 备份 / 还原
+    // MARK: - 备份 / 回滚
 
     /// 已有备份就不覆盖（它保存的是最初的原值），否则复制一份并沿用原文件权限。
     private static func backupIfNeeded(_ config: URL) throws -> URL {
@@ -212,15 +189,12 @@ nonisolated enum OmpConfigInstaller {
         }
     }
 
-    private static func removeBackup(_ backup: URL) {
-        try? FileManager.default.removeItem(at: backup)
-    }
-
     // MARK: - omp 调用
 
     /// 读一个键；失败返回 nil（拿不到就当没有原值，不影响写入与校验）。
     private static func readTimeout(executable: URL, config: URL) -> String? {
-        guard let output = try? run(executable, ["config", "get", timeoutKey], config: config) else {
+        guard let output = try? run(executable, ["config", "get", timeoutKey], config: config)
+        else {
             return nil
         }
         // `omp config get` 的形态是 `30000` 或 `30000 (number)`，取首个数字段即可。
@@ -244,7 +218,8 @@ nonisolated enum OmpConfigInstaller {
     }
 
     @discardableResult
-    private static func run(_ executable: URL, _ arguments: [String], config: URL) throws -> String {
+    private static func run(_ executable: URL, _ arguments: [String], config: URL) throws -> String
+    {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
@@ -260,7 +235,8 @@ nonisolated enum OmpConfigInstaller {
         guard process.terminationStatus == 0 else {
             let detail = output.trimmingCharacters(in: .whitespacesAndNewlines)
             throw Failure.writeFailed(
-                "omp \(arguments.joined(separator: " ")) 退出码 \(process.terminationStatus)：\(detail)")
+                "omp \(arguments.joined(separator: " ")) 退出码 \(process.terminationStatus)：\(detail)"
+            )
         }
         return output
     }

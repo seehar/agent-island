@@ -170,3 +170,50 @@ struct AgentRootOverrideSettingsTests {
         #expect(AppSettings.agentRootOverride(kind) == nil)
     }
 }
+
+@Suite("闸门随启用而来（omp / pi 没有独立开关）", .serialized)
+struct ApprovalGateFollowsEnablementTests {
+    /// 闸门版扩展是那个「把决定回传给刘海」的变体：被监控的 omp / pi 必须装它，否则用户
+    /// 打开开关却收不到审批卡片。改造前这一步是页面上手动点的第二个开关，最容易被改回去。
+    @Test("启用 → 闸门版扩展；关闭 → 只上报版")
+    func variantFollowsEnablement() {
+        for kind in [AgentKind.ohMyPi, .pi] {
+            let original = AppSettings.isAgentEnabled(kind)
+            defer { AppSettings.setAgent(kind, enabled: original) }
+
+            AppSettings.setAgent(kind, enabled: false)
+            #expect(AgentIntegrationInstaller.piFamilyExtensionVariant(kind) == .reportOnly)
+            #expect(!AgentIntegrationInstaller.gateIsActive(kind))
+
+            AppSettings.setAgent(kind, enabled: true)
+            #expect(AgentIntegrationInstaller.piFamilyExtensionVariant(kind) == .gate)
+            #expect(AgentIntegrationInstaller.gateIsActive(kind))
+        }
+    }
+
+    /// 没有回传通道的 Agent（Claude / OpenCode 等）永远用只上报版——给它们判成闸门等于
+    /// 让界面显示「闸门已开」却没有那条通道。
+    @Test("不支持闸门的 Agent 不受启用影响")
+    func unsupportedAgentsNeverGate() {
+        for kind in AgentKind.allCases where !AgentIntegrationInstaller.supportsApprovalGate(kind) {
+            #expect(AgentIntegrationInstaller.piFamilyExtensionVariant(kind) == .reportOnly)
+            #expect(!AgentIntegrationInstaller.gateIsActive(kind))
+        }
+    }
+
+    /// 两个策略行（运行前询问什么 / AgentIsland 未运行时）的可用性跟着「有没有生效的闸门」走：
+    /// 一个闸门型 Agent 都不监控时它们没有意义，应禁用。
+    @Test("只要有闸门型 Agent 被监控，策略行就可用")
+    func policyRowsTrackAnyActiveGate() {
+        let saved = [AgentKind.ohMyPi, .pi].map { ($0, AppSettings.isAgentEnabled($0)) }
+        defer {
+            for (kind, enabled) in saved { AppSettings.setAgent(kind, enabled: enabled) }
+        }
+
+        for kind in [AgentKind.ohMyPi, .pi] { AppSettings.setAgent(kind, enabled: false) }
+        #expect(!AgentIntegrationInstaller.hasEnabledGate, "闸门型 Agent 全关闭时策略行应禁用")
+
+        AppSettings.setAgent(.ohMyPi, enabled: true)
+        #expect(AgentIntegrationInstaller.hasEnabledGate)
+    }
+}

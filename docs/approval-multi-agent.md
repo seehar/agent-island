@@ -1,5 +1,12 @@
 # AgentIsland 刘海审批扩展到 omp / pi —— 实施方案
 
+> **2026-09-23 后续变更：每行的闸门开关已被移除。** 闸门现在是**随启用而来**的 ——
+> 启用 `omp` / `pi` 就装闸门版扩展（`AgentIntegrationInstaller.gateIsActive`），行里不再有
+> 盾牌按钮，设置页也不出现任何审批字样：卡片标题从「审批闸门」改为**工具调用保护**，
+> 「待批时自动展开」改为「有待处理请求时自动展开」。因此 §6.3 / §6.4 / §10 里关于
+> 「关闭开关」的语义与文案不再适用，出口改为全局档位「运行前询问什么 → 始终允许」。
+> 扩展契约、信封、超时与降级档均未变。
+
 - 目标仓库：`/Users/seehar/work/code/mine/agent-island`（只读测绘，本文件是唯一产物）
 - 参考仓库：`/Users/seehar/work/code/git/CodeIsland`、`/Users/seehar/work/code/git/oh-my-pi`、pi 0.85.1 安装包
 - 输入报告：`/tmp/ai-approve/ws-a-omp-pi-approval.md`（WS-A）、`ws-b-codeisland.md`（WS-B）、`ws-c-island-gap.md`（WS-C）、`ws-d-claude-protocol-opencode.md`（WS-D）、**`ws-e-adversarial.md`（WS-E，独立对抗评估，含 `T1–T10` 与 `R1–R3` 实验）、`ws-f-worktree-state.md`（WS-F，工作树状态与按符号名的行号表）**

@@ -76,7 +76,6 @@ nonisolated enum AppSettings {
     static let enablementMigrationMarker = "didMigrateAgentEnablement"
     /// 「旧口径 Claude 目录 → 通用覆盖表」迁移只做一次的标记。
     static let claudeDirMigrationMarker = "didMigrateClaudeDirectoryOverride"
-    static let approvalGateAgents = "approvalGateAgents"
     static let approvalDegradation = "approvalDegradation"
     static let ompGateConfigBackupPath = "ompGateConfigBackupPath"
     static let ompGateConfigOriginalTimeout = "ompGateConfigOriginalTimeout"
@@ -266,7 +265,9 @@ nonisolated enum AppSettings {
   ///
   /// 抽出来是为了能单测：这条口径一旦算错，用户的监控列表会被静默改掉（升级用户掉线，
   /// 或全新安装被被动接管）。签名保持纯数据进出，不碰 UserDefaults。
-  static func enablementAfterMigration(legacyDisabled: [String], isFreshInstall: Bool) -> Set<String> {
+  static func enablementAfterMigration(legacyDisabled: [String], isFreshInstall: Bool) -> Set<
+    String
+  > {
     // 全新安装：什么都不启用（「默认关闭」）。
     guard !isFreshInstall else { return [] }
     let disabled = Set(legacyDisabled)
@@ -276,7 +277,6 @@ nonisolated enum AppSettings {
         .map(\.rawValue)
     )
   }
-
 
   // MARK: - Claude Directory
 
@@ -293,29 +293,12 @@ nonisolated enum AppSettings {
     }
   }
 
-  // MARK: - 审批闸门
+  // MARK: - 审批闸门策略
 
-  /// 某个 Agent 是否在刘海上审批它的工具调用。默认关：只有用户显式打开后才有闸门。
-  /// 只有装了「闸门版扩展」的 Agent（omp / pi）才有意义，见 `AgentIntegrationInstaller`。
-  static func isApprovalGateEnabled(_ kind: AgentKind) -> Bool {
-    approvalGateAgents.contains(kind.rawValue)
-  }
-
-  static func setApprovalGate(_ kind: AgentKind, enabled: Bool) {
-    var agents = approvalGateAgents
-    if enabled {
-      agents.insert(kind.rawValue)
-    } else {
-      agents.remove(kind.rawValue)
-    }
-    approvalGateAgents = agents
-  }
-
-  private static var approvalGateAgents: Set<String> {
-    get { Set(defaults.stringArray(forKey: Keys.approvalGateAgents) ?? []) }
-    set { defaults.set(Array(newValue).sorted(), forKey: Keys.approvalGateAgents) }
-  }
-
+  /// 闸门**随启用而来**、不再是独立开关：omp / pi 一旦被监控，就装闸门版扩展并由刘海
+  /// 接管它的工具调用审批（见 `AgentIntegrationInstaller.gateIsActive`）。设置里因此没有
+  /// 「开/关闸门」，只剩下面两个**全局**策略档位；不想被拦住就改「运行前询问什么」。
+  ///
   /// 闸门问什么（写/执行档要不要阻塞等人点按）；默认「都问」。
   /// 随扩展文件下发（写进闸门版扩展文件头的标记与策略常量），不写用户的 agent 配置。
   /// 读写走偏好骨架（`PreferenceStore`），设置行里改档位与本入口落同一处。

@@ -18,7 +18,8 @@ import Foundation
 import os.log
 
 nonisolated enum AgentIntegrationInstaller {
-  private static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "Integration")
+  private static let logger = Logger(
+    subsystem: "com.celestial.AgentIsland", category: "Integration")
 
   /// pi 系扩展文件名（同一份源码安装到 omp 与 pi 各自的目录）。
   static let piFamilyExtensionName = "agent-island-state.ts"
@@ -90,30 +91,25 @@ nonisolated enum AgentIntegrationInstaller {
     }
   }
 
-  /// 是否有任何一个 Agent 开着「刘海审批闸门」：闸门的两个全局档位（问什么、
-  /// 应用未运行时）没有开着的闸门时没有意义，设置页据此整行禁用。
+  /// 该 Agent 现在是否该跑闸门版扩展。
   ///
-  /// 必须同时要求「该 Agent 已被启用」：Agent 默认关闭，「全部关闭并卸载」之后
-  /// 闸门标志还留着（那是有意的，重新启用时会用回原档位），但此时没有任何闸门在
-  /// 工作，档位行不该还是可用的。
-  static var hasEnabledGate: Bool {
-    AgentKind.allCases.contains {
-      supportsApprovalGate($0) && AppSettings.isApprovalGateEnabled($0)
-        && AppSettings.isAgentEnabled($0)
-    }
+  /// **闸门随启用而来**，没有独立的开/关：被监控的 omp / pi 一律装闸门版扩展（设置里
+  /// 因此没有任何审批开关与字样）。要「不被打断」的出口是全局档位
+  /// （`ApprovalAskScope.alwaysAllow`），而不是关掉闸门——关掉意味着该 Agent 回到
+  /// 完全无人把关的状态（omp / pi 自己的 `approvalMode` 是 yolo，不会回落到原生提示）。
+  static func gateIsActive(_ kind: AgentKind) -> Bool {
+    supportsApprovalGate(kind) && AppSettings.isAgentEnabled(kind)
   }
 
-  /// 重装**已开启闸门且仍在监控**的 Agent 的扩展。档位值烘焙在扩展文件里，
-  /// 换档必须重装才会生效。
-  ///
-  /// 必须带上 `isAgentEnabled`：关闭某个 Agent 会卸掉它的集成，但不清闸门标志
-  /// （见 `AgentSettingsSection.toggle`）。少了这一条，关掉 Agent 之后再改闸门档位
-  /// 会把扩展写回它的目录，和「关掉即卸载」这条不变量冲突。
+  /// 是否有任何一个 Agent 在跑闸门版扩展：闸门策略的两个全局档位（问什么、应用未运行时）
+  /// 没有生效的闸门时没有意义，设置页据此整行禁用、并说明原因。
+  static var hasEnabledGate: Bool {
+    AgentKind.allCases.contains { gateIsActive($0) }
+  }
+
+  /// 重装**正在跑闸门**的 Agent 的扩展。档位值烘焙在扩展文件里，换档必须重装才会生效。
   static func reinstallGateExtensions() {
-    for kind in AgentKind.allCases
-    where supportsApprovalGate(kind) && AppSettings.isApprovalGateEnabled(kind)
-      && AppSettings.isAgentEnabled(kind)
-    {
+    for kind in AgentKind.allCases where gateIsActive(kind) {
       install(kind)
     }
   }
@@ -129,12 +125,9 @@ nonisolated enum AgentIntegrationInstaller {
     }
   }
 
-  /// 该 Agent 当前应安装哪个变体：开关关闭（或该 Agent 不支持闸门）时用只上报版。
+  /// 该 Agent 当前应安装哪个变体：支持闸门且正在被监控时用闸门版，其余用只上报版。
   static func piFamilyExtensionVariant(_ kind: AgentKind) -> Variant {
-    guard supportsApprovalGate(kind), AppSettings.isApprovalGateEnabled(kind) else {
-      return .reportOnly
-    }
-    return .gate
+    gateIsActive(kind) ? .gate : .reportOnly
   }
 
   /// 改名前的 pi 系扩展文件名：Agent 会加载目录里所有扩展，旧文件不清掉等于旧脚本
@@ -177,7 +170,25 @@ nonisolated enum AgentIntegrationInstaller {
       HookInstaller.installIfNeeded()
       return HookInstaller.isInstalled()
     case .ohMyPi, .pi:
-      return installPiFamilyExtension(kind)
+      let installed = installPiFamilyExtension(kind)
+      // 闸门版扩展还要 omp 抬一次 handler 预算（见 `OmpConfigInstaller`）：omp 的默认
+      // active-work 预算是 30s，用户在刘海上犹豫超过它，omp 会自己 fail-closed，超时理由
+      // 变成不可读的通用串。这一步在这里「确保」而不是只在设置页做，是因为**升级路径也
+      // 走这里**（启动时 `installIfNeeded` 会把已监控的 omp 换成闸门版扩展）。
+      //
+      // 失败不算安装失败：扩展已经在位、闸门照常工作，缺的只是预算；算成失败会连带挡掉
+      // 「启用」（例如 GUI 环境找不到 omp 可执行文件），代价更大。原因只记日志——设置页
+      // 上没有任何可展示它的位置（这一条是本次改造后唯一的用户不可见失败）。
+      if installed, kind == .ohMyPi, piFamilyExtensionVariant(kind) == .gate {
+        do {
+          try OmpConfigInstaller.applyGateTimeout()
+        } catch {
+          logger.error(
+            "omp 闸门预算写入失败（闸门仍可用，只是超时理由会变成 omp 自己的串）：\(error.localizedDescription, privacy: .public)"
+          )
+        }
+      }
+      return installed
     case .opencode:
       return installOpenCodePlugin()
     default:
@@ -204,7 +215,8 @@ nonisolated enum AgentIntegrationInstaller {
     case .opencode:
       if let file = openCodePluginFile() {
         removeFile(file, label: "OpenCode 插件")
-        removeLegacyFiles(in: file.deletingLastPathComponent(), names: Self.legacyOpenCodePluginNames)
+        removeLegacyFiles(
+          in: file.deletingLastPathComponent(), names: Self.legacyOpenCodePluginNames)
       }
     default:
       // 只摘掉这个 Agent 的条目；共享脚本保留（其它工具还引用它）。
@@ -254,13 +266,15 @@ nonisolated enum AgentIntegrationInstaller {
       return false
     }
     let variant = piFamilyExtensionVariant(kind)
-    guard markerValue(in: contents, prefix: versionMarkerPrefix) == String(piFamilyExtensionVersion),
+    guard
+      markerValue(in: contents, prefix: versionMarkerPrefix) == String(piFamilyExtensionVersion),
       markerValue(in: contents, prefix: kindMarkerPrefix) == variant.rawValue
     else {
       return false
     }
     if variant == .gate,
-      markerValue(in: contents, prefix: degradationMarkerPrefix) != AppSettings.approvalDegradation.rawValue
+      markerValue(in: contents, prefix: degradationMarkerPrefix)
+        != AppSettings.approvalDegradation.rawValue
     {
       return false
     }
@@ -366,7 +380,8 @@ nonisolated enum AgentIntegrationInstaller {
     do {
       try FileManager.default.removeItem(at: file)
     } catch {
-      logger.error("删除 \(label, privacy: .public) 失败：\(error.localizedDescription, privacy: .public)")
+      logger.error(
+        "删除 \(label, privacy: .public) 失败：\(error.localizedDescription, privacy: .public)")
     }
   }
 
@@ -411,7 +426,8 @@ nonisolated enum AgentIntegrationInstaller {
         withIntermediateDirectories: true
       )
       try contents.write(to: destination, atomically: true, encoding: .utf8)
-      removeLegacyFiles(in: destination.deletingLastPathComponent(), names: Self.legacyOpenCodePluginNames)
+      removeLegacyFiles(
+        in: destination.deletingLastPathComponent(), names: Self.legacyOpenCodePluginNames)
       return true
     } catch {
       logger.error("写入 OpenCode 插件失败：\(error.localizedDescription, privacy: .public)")

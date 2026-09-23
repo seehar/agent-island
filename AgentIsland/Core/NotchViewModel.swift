@@ -170,7 +170,7 @@ class NotchViewModel: ObservableObject {
                 NotificationScopeSelector.shared.expandedPickerHeight,
             ].reduce(0, +)
         case .agents:
-            // 智能体页可展开的有：三个闸门档位（问什么 / 应用未运行时 / 待批时自动展开）
+            // 智能体页可展开的有：三个保护档位（问什么 / 应用未运行时 / 有待处理请求时自动展开）
             // 与 **某个 Agent 行内的目录编辑器**（同一时刻只开一个，展开高度是单份的）。
             return AgentDirSelector.shared.expandedPickerHeight
                 + ApprovalDegradationSelector.shared.expandedPickerHeight
@@ -241,7 +241,7 @@ class NotchViewModel: ObservableObject {
 
         // 行为类偏好：展开态影响面板高度，取值影响面板尺寸等派生值，
         // 因此统一按「任一变化即重发布」订阅。
-        // 「待批时自动展开」与「问什么」也跟着「智能体」页的高度走：它们在那一页展开时
+        // 「有待处理请求时自动展开」与「问什么」也跟着「智能体」页的高度走：它们在那一页展开时
         // 同样要撑高面板。
         observe(PanelSizeSelector.shared)
         observe(HoverExpandSelector.shared)
