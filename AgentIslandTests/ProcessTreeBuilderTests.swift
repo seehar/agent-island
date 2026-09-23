@@ -107,4 +107,42 @@ struct ProcessTreeBuilderTests {
         let processTree = tree([(600, 1, "Terminal")])
         #expect(ProcessTreeBuilder.shared.findTerminalPid(forProcess: 600, tree: processTree) == 600)
     }
+
+    @Test("findAncestor 按调用方给的判定找祖先，并支持从自身出发")
+    func findAncestorUsesCallerPredicate() {
+        let processTree = tree([
+            (800, 700, "claude"), (700, 600, "zsh"), (600, 500, "tmux"), (500, 1, "Terminal"),
+        ])
+        let builder = ProcessTreeBuilder.shared
+
+        // 判定由调用方给：这里只认命令里含 "tmux" 的那一层。
+        #expect(
+            builder.findAncestor(fromProcess: 800, tree: processTree) {
+                $0.command.contains("tmux")
+            } == 600)
+        // 起点自己也算：含 "Terminal" 的那一层在更上面，但从 Terminal 出发应命中自己。
+        #expect(
+            builder.findAncestor(fromProcess: 500, tree: processTree) {
+                $0.command == "Terminal"
+            } == 500)
+        // 谁都不匹配时返回 nil，而不是硬走到根。
+        #expect(
+            builder.findAncestor(fromProcess: 800, tree: processTree) { $0.command == "nope" } == nil)
+    }
+
+    @Test("findAncestor 的深度上限与 findTerminalPid 同源：超过 20 层不再上溯")
+    func findAncestorStopsAtDepthLimit() {
+        var rows: [(pid: Int, ppid: Int, command: String)] = []
+        for offset in 0..<25 {
+            rows.append((1000 + offset, 1001 + offset, "zsh"))
+        }
+        rows.append((1025, 1, "Terminal"))
+        let deep = tree(rows)
+
+        #expect(ProcessTreeBuilder.shared.findTerminalPid(forProcess: 1000, tree: deep) == nil)
+        #expect(
+            ProcessTreeBuilder.shared.findAncestor(fromProcess: 1000, tree: deep) {
+                $0.command == "Terminal"
+            } == nil)
+    }
 }

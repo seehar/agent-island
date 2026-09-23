@@ -71,15 +71,22 @@ struct ProcessTreeBuilder: Sendable {
         return false
     }
 
-    /// Walk up the process tree to find the terminal app PID
-    nonisolated func findTerminalPid(forProcess pid: Int, tree: [Int: ProcessInfo]) -> Int? {
+    /// 沿祖先链（含起点自己）找第一个满足 `predicate` 的进程。
+    ///
+    /// 走法只有这一份（≤20 层、`ppid` 走到 1 为止）：判定由调用方给——「哪个祖先算终端」
+    /// 与「哪个祖先算 GUI 宿主应用」是两个问题，但不该各写一遍遍历。
+    nonisolated func findAncestor(
+        fromProcess pid: Int,
+        tree: [Int: ProcessInfo],
+        matching predicate: (ProcessInfo) -> Bool
+    ) -> Int? {
         var current = pid
         var depth = 0
 
         while current > 1 && depth < 20 {
             guard let info = tree[current] else { break }
 
-            if TerminalAppRegistry.isTerminal(info.command) {
+            if predicate(info) {
                 return current
             }
 
@@ -88,6 +95,11 @@ struct ProcessTreeBuilder: Sendable {
         }
 
         return nil
+    }
+
+    /// Walk up the process tree to find the terminal app PID
+    nonisolated func findTerminalPid(forProcess pid: Int, tree: [Int: ProcessInfo]) -> Int? {
+        findAncestor(fromProcess: pid, tree: tree) { TerminalAppRegistry.isTerminal($0.command) }
     }
 
     /// Check if targetPid is a descendant of ancestorPid

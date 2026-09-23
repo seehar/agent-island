@@ -69,6 +69,25 @@ actor TmuxTargetFinder {
         return nil
     }
 
+    /// 连接到某个会话的 tmux 客户端进程 pid（也就是显示这个会话的终端那侧）。
+    ///
+    /// 用处：没有 yabai 时定位「哪个终端窗口在显示这个会话」——tmux 服务端被 launchd 收养，
+    /// 面板进程（claude/omp）的祖先链上根本没有终端，只有客户端那一侧才有。
+    func clientPids(forSession session: String) async -> [Int] {
+        guard let tmuxPath = await TmuxPathFinder.shared.getTmuxPath() else {
+            return []
+        }
+
+        guard let output = await runTmuxCommand(tmuxPath: tmuxPath, args: [
+            "list-clients", "-t", session, "-F", "#{client_pid}"
+        ]) else {
+            return []
+        }
+
+        return output.components(separatedBy: "\n")
+            .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+    }
+
     /// Check if a session's tmux pane is currently the active pane
     func isSessionPaneActive(claudePid: Int) async -> Bool {
         guard let tmuxPath = await TmuxPathFinder.shared.getTmuxPath() else {
