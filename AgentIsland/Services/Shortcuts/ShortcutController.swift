@@ -17,22 +17,10 @@ import os
 final class ShortcutController: ObservableObject {
     static let shared = ShortcutController()
 
-    /// 录制过程中的一次拒绝原因（视图负责把它翻成文案，模型里不放文案）。
-    enum RecordingRejection: Equatable {
-        /// 该组合已被另一个动作占用。
-        case conflicting(ShortcutAction)
-        /// 可打印字符没带修饰键。
-        case needsModifier
-        /// 不受支持的键（F 键、多媒体键等）。
-        case unsupportedKey
-        /// 全局组合必须带 ⌥ 或 ⌃。
-        case globalNeedsOptionOrControl
-    }
-
     /// 正在录制的动作；非空时本地监视进入录制模式（消费所有按键）。
     @Published private(set) var recording: ShortcutAction?
-    /// 上次录制的拒绝原因，`cancelRecording()` 时清空。
-    @Published private(set) var rejection: RecordingRejection?
+    /// 上次录制的拒绝原因（视图负责翻成文案），`cancelRecording()` 时清空。
+    @Published private(set) var rejection: ShortcutRecorder.Rejection?
     /// 全局热键当前是否注册成功；false 时设置页给一行提示。
     @Published private(set) var globalHotKeyAvailable = true
 
@@ -150,42 +138,31 @@ final class ShortcutController: ObservableObject {
         return true
     }
 
-    /// 录制模式：消费所有按键，Esc 取消、裸 ⌫ 清空、其余按键尝试写成绑定。
+    /// 录制模式：消费所有按键。规则本身在 `ShortcutRecorder`（纯函数，可单测），
+    /// 这里只负责把事件拆成入参、按结果落库。
     private func handleRecording(_ event: NSEvent, action: ShortcutAction) {
-        // Esc 取消
-        if event.keyCode == 53 {
+        let modifiers = KeyChord.Modifier(event.modifierFlags)
+        let chord = KeyChord.from(event)
+        let outcome = ShortcutRecorder.outcome(
+            keyCode: event.keyCode,
+            modifiers: modifiers,
+            chord: chord,
+            action: action,
+            conflict: chord.flatMap { ShortcutBindings.shared.conflict(for: $0, excluding: action) }
+        )
+
+        switch outcome {
+        case .cancel:
             cancelRecording()
-            return
-        }
-        // 裸 ⌫ 清空绑定
-        if event.keyCode == 51, KeyChord.Modifier(event.modifierFlags).isEmpty {
+        case .unbind:
             ShortcutBindings.shared.clear(action)
             cancelRecording()
-            return
+        case .reject(let rejection):
+            self.rejection = rejection
+        case .bind(let chord):
+            ShortcutBindings.shared.set(chord, for: action)
+            cancelRecording()
         }
-
-        guard let chord = KeyChord.from(event) else {
-            rejection = .unsupportedKey
-            return
-        }
-        guard chord.isRecordable else {
-            rejection = .needsModifier
-            return
-        }
-        if action.allowsGlobalBinding,
-            chord.modifiers.intersection([.option, .control]).isEmpty
-        {
-            // 全局热键会被系统吞掉：不加这条，用户把唤出绑成 ⌘C 就等于全系统失去复制。
-            rejection = .globalNeedsOptionOrControl
-            return
-        }
-        if let conflicting = ShortcutBindings.shared.conflict(for: chord, excluding: action) {
-            rejection = .conflicting(conflicting)
-            return
-        }
-
-        ShortcutBindings.shared.set(chord, for: action)
-        cancelRecording()
     }
 
     // MARK: - 动作执行
