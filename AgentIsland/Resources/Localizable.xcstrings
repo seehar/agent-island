@@ -1,70 +1,137 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "Follow System" : {
-      "comment" : "语言选择器档位：跟随系统语言（曾与通用页 System 分组标题共用一键）",
+    "Scroll the list to see all supported agents." : {
+      "comment" : "智能体卡脚注：Agent 超过卡片可见行数时提示列表可滚动。",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Follow System"
+            "value" : "Scroll the list to see all supported agents."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "跟随系统"
+            "value" : "列表可滚动查看全部受支持的 Agent。"
           }
         }
       }
     },
-    "%@ · %@ to %@" : {
-      "comment" : "微调行的工具提示与无障碍值：标签 · 下限 到 上限",
+    "Dangerous commands run" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ · %@ to %@"
+            "value" : "Dangerous commands run"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ · %@ 到 %@"
+            "value" : "危险命令会直接运行"
           }
         }
       }
     },
-    "Increase" : {
-      "comment" : "微调行的 ＋ 按钮",
+    "Status check %@ · session scan %@" : {
+      "comment" : "刷新频率行：分别显示会话状态复核和磁盘会话扫描的间隔。",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Increase"
+            "value" : "Status check %@ · session scan %@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "增加"
+            "value" : "状态复核 %@ · 会话扫描 %@"
           }
         }
       }
     },
-    "Decrease" : {
-      "comment" : "微调行的 − 按钮",
+    "Requires a tmux session and yabai; otherwise opens chat." : {
+      "comment" : "聚焦终端单击动作的前置条件和回退行为。",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Decrease"
+            "value" : "Requires a tmux session and yabai; otherwise opens chat."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "减少"
+            "value" : "需要 tmux 会话和 yabai；否则改为打开对话。"
+          }
+        }
+      }
+    },
+    "Environment directory: %@" : {
+      "comment" : "Codex / Grok 环境变量指定的实际配置根目录。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Environment directory: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "环境变量目录：%@"
+          }
+        }
+      }
+    },
+    "OMP approval wait budget is not active. Re-enable OMP to retry; approvals may time out sooner than expected." : {
+      "comment" : "OMP 闸门扩展已装，但应用写入 handler 等待预算失败时的行内警告。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OMP approval wait budget is not active. Re-enable OMP to retry; approvals may time out sooner than expected."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OMP 的审批等待预算未生效。重新启用 OMP 可重试；等待时间可能短于预期。"
+          }
+        }
+      }
+    },
+    "Select the folder where %@ installs its hooks. Session records remain in VS Code global storage." : {
+      "comment" : "Cline 目录选择器仅指定 hook 安装位置，不改变 VS Code 中的会话记录位置。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select the folder where %@ installs its hooks. Session records remain in VS Code global storage."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择 %@ 安装 hook 的目录。会话记录仍保存在 VS Code 全局存储中。"
+          }
+        }
+      }
+    },
+    "This session has no process or tmux pane to focus." : {
+      "comment" : "会话行「去终端」按钮禁用（仅凭记录发现的会话）时工具提示",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This session has no process or tmux pane to focus."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个会话没有可定位的进程或 tmux 面板。"
           }
         }
       }
@@ -120,19 +187,36 @@
         }
       }
     },
-    "This session has no process or tmux pane to focus." : {
-      "comment" : "会话行「去终端」按钮禁用（仅凭记录发现的会话）时工具提示",
+    "%@ · %@ to %@" : {
+      "comment" : "微调行的工具提示与无障碍值：标签 · 下限 到 上限",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This session has no process or tmux pane to focus."
+            "value" : "%@ · %@ to %@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "这个会话没有可定位的进程或 tmux 面板。"
+            "value" : "%@ · %@ 到 %@"
+          }
+        }
+      }
+    },
+    "Follow System" : {
+      "comment" : "语言选择器档位：跟随系统语言（曾与通用页 System 分组标题共用一键）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Follow System"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "跟随系统"
           }
         }
       }
@@ -371,6 +455,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Basso"
+          }
+        }
+      }
+    },
+    "Increase" : {
+      "comment" : "微调行的 ＋ 按钮",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Increase"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "增加"
+          }
+        }
+      }
+    },
+    "Decrease" : {
+      "comment" : "微调行的 − 按钮",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Decrease"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "减少"
           }
         }
       }
@@ -2576,7 +2694,6 @@
         }
       }
     },
-
     "Models" : {
       "localizations" : {
         "en" : {
@@ -3712,7 +3829,7 @@
       }
     },
     "System" : {
-      "comment" : "通用页：系统组标题（语言档位的「跟随系统」走 Follow System 键）",
+      "comment" : "语言选择器：跟随系统语言",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3723,7 +3840,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "系统"
+            "value" : "跟随系统"
           }
         }
       }
@@ -3788,22 +3905,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "待办"
-          }
-        }
-      }
-    },
-    "Turning an agent off also uninstalls its live integration." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Turning an agent off also uninstalls its live integration."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "关闭某个智能体时，会同时卸载它的实时集成。"
           }
         }
       }

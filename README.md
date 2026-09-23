@@ -150,10 +150,11 @@ Already monitoring these agents? The next launch rewrites their extension to the
 
 |Page|What's in it|
 |---|---|
-|**General**|Language, screen, notch height, notch width, content text size, panel size · launch at login, accessibility status|
-|**Agents**|**Enable All and Install** / **Disable All and Uninstall** bulk actions; per-agent enable switch, integration status and where it lives, and an expandable **config directory** editor on every row (auto-detect / choose folder / reset). Enabling `omp` / `pi` also installs their notch-approval extension (no separate switch) · **Tool Call Guard** card: what it asks about (writes and commands / dangerous commands only / always allow), what happens when AgentIsland is not running, and whether the notch auto-expands on new requests (Only when the notch decides / Always / Never)|
-|**Behavior**|Hover expand (Never / Fast / Standard / Slow), idle capsule (Always / When Active / Keep 3 Seconds), completion badge (10 s / 30 s / 1 min / Always) · ended-session retention, row density, click action (None / Open Chat / Focus Terminal), refresh rate · notification sound, notification scope (Ready only / Ready and approvals)|
-|**About**|Version, check for updates, automatic update checks, star on GitHub, quit|
+|**General**|Language, screen, notch height/width, content text size, panel size · launch at login, accessibility status, and keyboard-focus behavior on open.|
+|**Behavior**|Hover expand, idle capsule, completion badge · ended-session retention, row density, click action (Focus Terminal falls back to chat without tmux/yabai), both status-check and session-scan intervals · notification sound and scope.|
+|**Agents**|Enable/disable and integration state for each agent; per-agent config root; tool-call guard scope and offline behavior. The agent list scrolls within its card.|
+|**Statistics**|Token, session and tool-call totals, trends, per-agent/model breakdown, date range and full rescan. Also reachable from the chart button.|
+|**About**|Version, check for updates, automatic update checks, star on GitHub, quit.|
 
 Single-clicking a session row follows the *click action* above; double-click always opens its chat.
 

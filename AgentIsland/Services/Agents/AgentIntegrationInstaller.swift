@@ -183,6 +183,7 @@ nonisolated enum AgentIntegrationInstaller {
         do {
           try OmpConfigInstaller.applyGateTimeout()
         } catch {
+          AppSettings.ompGateTimeoutSetupFailed = true
           logger.error(
             "omp 闸门预算写入失败（闸门仍可用，只是超时理由会变成 omp 自己的串）：\(error.localizedDescription, privacy: .public)"
           )

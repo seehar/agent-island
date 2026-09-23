@@ -91,6 +91,7 @@ private struct ApprovalAskScopePickerRow: View {
             ForEach(ApprovalAskScope.allCases, id: \.self) { option in
                 SettingsOptionRow(
                     label: optionTitle(option),
+                    detail: option == .alwaysAllow ? l10n.t("Dangerous commands run") : nil,
                     isSelected: selector.option == option
                 ) {
                     selector.select(option)
@@ -103,6 +104,7 @@ private struct ApprovalAskScopePickerRow: View {
         .disabled(isEnabled == false)
         .opacity(isEnabled ? 1 : 0.5)
         .help(explanation)
+        .accessibilityHint(Text(explanation))
     }
 
     /// 行内取值：短文案（完整文案在选项列表里，行内放不下）。
@@ -186,6 +188,7 @@ private struct ApprovalDegradationPickerRow: View {
         .disabled(isEnabled == false)
         .opacity(isEnabled ? 1 : 0.5)
         .help(explanation)
+        .accessibilityHint(Text(explanation))
     }
 
     /// 行内取值：短文案（完整文案在选项列表里，行内放不下）。

@@ -96,8 +96,13 @@ struct AgentDirPickerRow: View {
     private func openFolderPicker() {
         let panel = NSOpenPanel()
         panel.title = l10n.t("Choose Config Directory")
-        panel.message = l10n.t(
-            "Select the folder %@ uses for its config and session records.", kind.displayName)
+        panel.message =
+            kind == .cline
+            ? l10n.t(
+                "Select the folder where %@ installs its hooks. Session records remain in VS Code global storage.",
+                kind.displayName)
+            : l10n.t(
+                "Select the folder %@ uses for its config and session records.", kind.displayName)
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false

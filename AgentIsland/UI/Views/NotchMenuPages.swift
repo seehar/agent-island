@@ -144,22 +144,17 @@ struct GeneralSettingsPage: View {
 /// 其 hook 集成的安装与卸载，设置里也不再单独提供 Hooks 开关。
 struct AgentsSettingsPage: View {
     @ObservedObject private var l10n = LocalizationManager.shared
-    /// 有没有生效的闸门：保护卡片的两行据此启用/禁用。由 Agent 行的启用/关闭动作回调刷新
-    /// （兄弟视图不会因为对方改了自己的 `@State` 而重画，所以这条得由页面来记）。
+    /// 有没有生效的闸门：保护卡片的两行据此启用/禁用。
     @State private var hasEnabledGate = AgentIntegrationInstaller.hasEnabledGate
-    /// 监控卡的回执行：由卡片写入，渲染在这一页的脚注槽里（见 `AgentSettingsSection`）。
+    /// Agent 卡片操作回执；与脚注同占一行，不能改变高度预算。
     @State private var agentNotice: String?
-    /// 回执是否是失败：成功与失败共用同一行，只有颜色不同。
     @State private var agentNoticeIsError = false
-
     var body: some View {
         VStack(alignment: .leading, spacing: NotchMenuMetrics.groupSpacing) {
             SettingsGroup(
                 title: l10n.t("Monitored Agents"),
-                // 脚注这一格恒占 20pt（已进高度预算）：没有回执时显示常驻提示，
-                // 有点过开关、做过批量动作时换成那条回执——回执因此一定看得见。
                 footnote: agentNotice
-                    ?? l10n.t("Turning an agent off also uninstalls its live integration."),
+                    ?? l10n.t("Scroll the list to see all supported agents."),
                 footnoteColor: agentNotice == nil
                     ? AppPalette.tertiaryText
                     : (agentNoticeIsError ? AppPalette.danger : AppPalette.secondaryText)
@@ -173,13 +168,13 @@ struct AgentsSettingsPage: View {
                 )
             }
 
-            // 档位是**全局**的（问什么 / 应用未运行时 / 有待处理请求时自动展开），不属于任何
-            // 单个 Agent，因此从 Agent 列表卡片里拎出来单独成卡。
             SettingsGroup(title: l10n.t("Tool Call Guard")) {
                 ApprovalGateSettingsGroup(isEnabled: hasEnabledGate)
             }
         }
-        .onAppear { hasEnabledGate = AgentIntegrationInstaller.hasEnabledGate }
+        .onAppear {
+            hasEnabledGate = AgentIntegrationInstaller.hasEnabledGate
+        }
     }
 }
 
@@ -241,7 +236,8 @@ struct BehaviorSettingsPage: View {
                         source: .symbol(name: "cursorarrow.click", tint: AppPalette.accent)),
                     title: l10n.t("Click Action"),
                     selector: SessionRowClickActionSelector.shared,
-                    label: clickActionLabel
+                    label: clickActionLabel,
+                    detail: clickActionDetail
                 )
                 PreferencePickerRow(
                     badge: SettingsBadge(
@@ -326,6 +322,11 @@ struct BehaviorSettingsPage: View {
         }
     }
 
+    private func clickActionDetail(_ option: SessionRowClickAction) -> String? {
+        guard option == .focusTerminal else { return nil }
+        return l10n.t("Requires a tmux session and yabai; otherwise opens chat.")
+    }
+
     private func refreshCadenceLabel(_ option: RefreshCadence) -> String {
         switch option {
         case .fast: return l10n.t("Fast")
@@ -335,7 +336,11 @@ struct BehaviorSettingsPage: View {
     }
 
     private func refreshCadenceDetail(_ option: RefreshCadence) -> String? {
-        settingsSecondsLabel(TimeInterval(option.statusSeconds))
+        l10n.t(
+            "Status check %@ · session scan %@",
+            settingsSecondsLabel(TimeInterval(option.statusSeconds)),
+            settingsSecondsLabel(TimeInterval(option.discoverySeconds))
+        )
     }
 
     private func notificationScopeLabel(_ option: NotificationScope) -> String {

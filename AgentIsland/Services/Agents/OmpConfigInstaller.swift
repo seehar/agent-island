@@ -151,6 +151,7 @@ nonisolated enum OmpConfigInstaller {
         AppSettings.ompGateConfigBackupPath = backup.path
         AppSettings.ompGateConfigOriginalTimeout = original
         AppSettings.ompGateConfigAppliedAt = Date()
+        AppSettings.ompGateTimeoutSetupFailed = false
     }
 
     // MARK: - 备份 / 回滚
