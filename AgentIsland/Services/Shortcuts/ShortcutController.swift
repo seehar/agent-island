@@ -254,16 +254,11 @@ final class ShortcutController: ObservableObject {
 
     private func moveSelection(by offset: Int, viewModel: NotchViewModel) {
         let ordered = visibleSessions()
-        guard !ordered.isEmpty else { return }
-
         let current = ordered.firstIndex { $0.sessionKey == viewModel.selectedSessionKey }
-        let next: Int
-        if let current {
-            next = min(max(current + offset, 0), ordered.count - 1)
-        } else {
-            // 还没有选中项：向下从第一行开始，向上从最后一行开始（方向感一致）。
-            next = offset > 0 ? 0 : ordered.count - 1
-        }
+        guard
+            let next = ShortcutTargeting.movedSelectionIndex(
+                current: current, offset: offset, count: ordered.count)
+        else { return }
         viewModel.selectedSessionKey = ordered[next].sessionKey
     }
 

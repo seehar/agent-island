@@ -48,6 +48,16 @@ nonisolated enum ShortcutResolver {
 
 /// 键盘动作作用到哪一行会话。
 nonisolated enum ShortcutTargeting {
+    /// 上下移动之后的落点索引；列表为空时返回 nil（不动作）。
+    ///
+    /// 还没有选中项时，向下落在第一行、向上落在最后一行（方向感一致）；到边界就不再动，
+    /// 不环绕——绕回另一头会让「按了两下」的预期落空。
+    static func movedSelectionIndex(current: Int?, offset: Int, count: Int) -> Int? {
+        guard count > 0 else { return nil }
+        guard let current else { return offset > 0 ? 0 : count - 1 }
+        return min(max(current + offset, 0), count - 1)
+    }
+
     /// 打开对话这类动作的目标：显式选中优先；没有选中（或选中的会话已经不在列表里）时
     /// 取排序第一行——按键总要做点看得见的事。
     static func selectionTarget(in ordered: [SessionState], selected: SessionKey?) -> SessionState?

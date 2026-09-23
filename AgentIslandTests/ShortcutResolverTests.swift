@@ -159,6 +159,29 @@ struct ShortcutTargetingTests {
             phase: .idle, lastActivity: lastActivity)
     }
 
+    @Test("上下移动：无选中时按方向落到两端，到边界不环绕，空列表不动作")
+    func movedSelectionIndexBoundaries() {
+        // 空列表：不动
+        #expect(ShortcutTargeting.movedSelectionIndex(current: nil, offset: 1, count: 0) == nil)
+        #expect(ShortcutTargeting.movedSelectionIndex(current: 0, offset: -1, count: 0) == nil)
+
+        // 还没有选中项：向下落第一行，向上落最后一行
+        #expect(ShortcutTargeting.movedSelectionIndex(current: nil, offset: 1, count: 4) == 0)
+        #expect(ShortcutTargeting.movedSelectionIndex(current: nil, offset: -1, count: 4) == 3)
+
+        // 中间：正常加减
+        #expect(ShortcutTargeting.movedSelectionIndex(current: 2, offset: 1, count: 4) == 3)
+        #expect(ShortcutTargeting.movedSelectionIndex(current: 2, offset: -1, count: 4) == 1)
+
+        // 边界：停住，不绕回另一头
+        #expect(ShortcutTargeting.movedSelectionIndex(current: 0, offset: -1, count: 4) == 0)
+        #expect(ShortcutTargeting.movedSelectionIndex(current: 3, offset: 1, count: 4) == 3)
+
+        // 单行：怎么按都是它
+        #expect(ShortcutTargeting.movedSelectionIndex(current: nil, offset: 1, count: 1) == 0)
+        #expect(ShortcutTargeting.movedSelectionIndex(current: 0, offset: -1, count: 1) == 0)
+    }
+
     @Test("打开对话的目标：选中优先，没有选中时取第一行")
     func selectionTargetPrefersSelection() {
         let first = idle(sessionId: "first")
