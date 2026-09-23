@@ -33,6 +33,16 @@ Pods/
 *.iml
 .vscode/
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
 # Sparkle signing keys (NEVER commit these!)
 .sparkle-keys/
 

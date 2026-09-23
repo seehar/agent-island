@@ -21,6 +21,7 @@ grok / trae / traecli）；本脚本只服务「配置文件型」来源，omp/p
 import json
 import os
 import socket
+import subprocess
 import sys
 from urllib.parse import quote
 
@@ -208,10 +209,127 @@ def nested_mapping(container, key):
     return value if isinstance(value, dict) else {}
 
 
+# 各来源对应的 CLI 二进制名：上报的 `pid` 必须落在这些进程上，绝不能落在跑 hook 的
+# 瞬时 shell 上（多数工具用 `sh -c` 起 hook，父进程几毫秒后就死了；应用侧按 pid 存活
+# 回收会话，报错 pid 会让会话「闪一下就没了」，见 SessionStore 的 recheckAllSessions）。
+# Cline 没有 CLI 二进制（VSCode 扩展），因此**不在表里** ⇒ 一律不发 pid。
+SOURCE_BINARIES = {
+    "claude": ("claude",),
+    "qoder": ("qodercli", "qoderclicn"),
+    "droid": ("droid",),
+    "codebuddy": ("codebuddy",),
+    "codex": ("codex",),
+    "gemini": ("gemini",),
+    "cursor": ("cursor-agent",),
+    "copilot": ("copilot",),
+    "kimi": ("kimi",),
+    "grok": ("grok",),
+    "trae": ("coco",),
+    "traecli": ("traecli",),
+    "dsh": ("dsh",),
+}
+# 祖先链向上最多走几层。
+ANCESTRY_LIMIT = 8
+# 脚本型 CLI 的 argv 里是 `.../gemini.js` 这类带后缀的名字，比对时去掉这些后缀。
+BINARY_SUFFIXES = (".js", ".mjs", ".cjs", ".py")
+
+
+def process_table():
+    """一次拿到 `pid -> (ppid, comm, argv)`；拿不到就返回空表（调用方按「没有祖先」处理）。
+
+    只调一次 `ps`（进程表整体读出后在内存里走链），失败/超时一律不抛异常。
+    """
+    try:
+        result = subprocess.run(
+            ["ps", "-eo", "pid=,ppid=,comm=,command="],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except Exception:
+        return {}
+    table = {}
+    for line in result.stdout.splitlines():
+        parts = line.split(None, 3)
+        if len(parts) < 3:
+            continue
+        try:
+            pid = int(parts[0])
+            ppid = int(parts[1])
+        except ValueError:
+            continue
+        argv = parts[3].split() if len(parts) > 3 else []
+        table[pid] = (ppid, parts[2], argv)
+    return table
+
+
+def _binary_name(token):
+    """把一个路径/命令串归成可比对的二进制名（小写、去脚本后缀）。"""
+    name = os.path.basename(token).lower()
+    for suffix in BINARY_SUFFIXES:
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+
+def process_binary_names(entry):
+    """一个进程可能被认出的二进制名集合。
+
+    两条来源：可执行路径的 basename（真 CLI 二进制都在这条上）与 argv 的 basename
+    （脚本型 CLI 与 node 型 CLI 只在这条上：两者的可执行路径是解释器，真正的名字在
+    argv[0] / `.../gemini.js` 里）。
+
+    argv 只认 **argv[0]** 与**含路径分隔符**的 token：`ps` 的 command 列是白空格拼接
+    后的结果，参数值会被切成裸词——实测 `sh -c 'python3 … --source codex'` 会被误判成
+    「链上有 codex 进程」。带 `/` 的 token 是真实可执行引用，裸词只可能是参数值。
+    """
+    _ppid, comm, argv = entry
+    names = {_binary_name(comm)}
+    for index, token in enumerate(argv):
+        if token.startswith("-"):
+            continue
+        if index > 0 and "/" not in token:
+            continue
+        names.add(_binary_name(token))
+    return names
+
+
+def matches_source_binary(entry, source):
+    """该进程是否就是这个来源的 CLI（按 basename 比二进制名）。"""
+    expected = SOURCE_BINARIES.get(source)
+    if not expected:
+        return False
+    lowered = {name.lower() for name in expected}
+    return any(name in lowered for name in process_binary_names(entry))
+
+
+def resolve_tracked_pid(source, table):
+    """祖先链里**最高**（离根最近）的那个匹配进程的 pid；没有匹配返回 None。
+
+    取最高而不是最近，是为了让同一个 CLI 派生出的多个子进程收敛到同一张卡上（上游
+    `CLIProcessResolver.resolvedSessionPID` 的同一条理由），而且根上那个才是长命的——
+    离 hook 最近的匹配点可能是个几秒后就退出的子进程。没有匹配返回 None，调用方
+    **不发 pid**（应用侧因此走「空闲多久回收」那条分支，不会秒回收）。
+    """
+    if not SOURCE_BINARIES.get(source):
+        return None
+    pid = os.getppid()
+    matched = None
+    for _ in range(ANCESTRY_LIMIT):
+        entry = table.get(pid)
+        if entry is None:
+            break
+        if matches_source_binary(entry, source):
+            matched = pid
+        ppid = entry[0]
+        if ppid <= 1 or ppid == pid:
+            break
+        pid = ppid
+    return matched
+
+
 def get_tty():
     """Get the TTY of the Claude process (parent)"""
-    import subprocess
-
     # Get parent PID (Claude process)
     ppid = os.getppid()
 
@@ -293,9 +411,14 @@ def normalize_event(native_event):
     return EVENT_ALIASES.get(native_event, native_event)
 
 
-def resolve_session_id(data, source):
+def resolve_session_id(data, source, tracked_pid=None):
     """会话 id：`session_id` → `sessionId` → `conversationId` → `taskId` → `payload.*`
-    → `data.*`，都缺时用 `<source>-ppid-<ppid>` 兜底（与 CodeIsland bridge 的兜底同形）。
+    → `data.*`，都缺时用 `<source>-ppid-<pid>` 兜底。
+
+    兜底里的 pid **优先用祖先解析命中的那个 CLI 进程**（`tracked_pid`）：hook 多经
+    `sh -c` 启动，`getppid()` 每个事件都是不同的瞬时 shell，拿它做 id 会让同一个会话
+    的每个事件都变成一条新会话（比「pid 死掉被回收」更隐蔽）。链上没有该 CLI 时才退回
+    `getppid()`——此时它至少在同一棵进程树内是稳定的。
 
     第三方来源各有各的字段名：Cursor/Grok/Copilot 用 `sessionId`，Google Antigravity
     用 `conversationId`，Cline 用 `taskId`（见 CodeIsland bridge 的适配段）。
@@ -308,7 +431,9 @@ def resolve_session_id(data, source):
             )
             if found:
                 break
-    return found or "%s-ppid-%d" % (source, os.getppid())
+    if found:
+        return found
+    return "%s-ppid-%d" % (source, tracked_pid if tracked_pid is not None else os.getppid())
 
 
 def resolve_cwd(data, source):
@@ -689,19 +814,26 @@ def main():
     event = normalize_event(native_event)
     tool_name, tool_input = resolve_tool(data)
 
+    # 祖先解析一次（Cline 没有 CLI 二进制，直接跳过，连 `ps` 都不跑）：它同时服务
+    # 两件事——上报的 `pid` 与兜底 `session_id` 的那一段 pid。
+    tracked_pid = None if source == CLINE_SOURCE else resolve_tracked_pid(source, process_table())
+
     state = {
-        "session_id": resolve_session_id(data, source),
+        "session_id": resolve_session_id(data, source, tracked_pid),
         "cwd": resolve_cwd(data, source),
         "event": event,
         "agent": source,
     }
     if source == CLINE_SOURCE:
-        # Cline 的 hook 由 VSCode 派生的临时 shell 拉起：ppid 不是常驻进程，报上去会被
-        # 应用的存活检查秒回收（CodeIsland 同样清掉这个 pid）。因此不带 pid / tty。
+        # Cline 没有 CLI 二进制（VSCode 扩展派生的临时 shell 起 hook），上报的 pid 会被
+        # 应用侧按存活检查秒回收（上游同样把它清成 0）：因此一律不带 pid / tty。
         pass
     else:
-        state["pid"] = os.getppid()
         state["tty"] = get_tty()
+        # pid 必须是祖先链里**活得久**的那个 CLI 进程：多数工具用 `sh -c` 起 hook，
+        # 直接报 ppid 的话报的是几毫秒后即死的瞬时 shell。链上没有匹配就不报 pid。
+        if tracked_pid is not None:
+            state["pid"] = tracked_pid
 
     session_file = resolve_session_file(data, source, state["session_id"], state["cwd"])
     if session_file:

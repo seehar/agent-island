@@ -261,8 +261,10 @@ nonisolated enum TranscriptUsageScanner {
       // Claude 系：用量在 `message.usage`，工具调用在 `message.content[].tool_use`。
       return [Array("\"usage\"".utf8), Array("\"tool_use\"".utf8)]
     case .codeBuddy:
-      // 记录外壳与 Claude 不同（`type:"message"` + 顶层 `role`），且本机 2 个文件里
-      // 没有出现任何 token 字段 ⇒ 只统计工具调用行，用量恒为 0。
+      // 记录外壳与 Claude 不同（`type:"message"` + 顶层 `role` + 毫秒 epoch），本机样本
+      // 里既没有 token 字段也没有助手/工具行，上游（CodeIsland `readRecentFromCodeBuddyTranscript`）
+      // 也只取文本、不抽工具 ⇒ 「工具块叫 `tool_use`」这条**未经证实**。这里保留该标记：
+      // 命中就多一行工具计数，不命中就什么都不产出，两种结果都不会污染已有的数字。
       return [Array("\"tool_use\"".utf8)]
     case .ohMyPi, .pi:
       return [Array("\"usage\"".utf8), Array("\"toolCall\"".utf8)]

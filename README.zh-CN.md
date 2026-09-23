@@ -48,7 +48,7 @@ tmux 里开两个 Agent，你就得在两个 pane 之间切来切去看谁在等
 
 **在刘海上审批。** 凡是能把决定回传的 Agent 都支持 Allow / Deny：Claude Code 及其分支（Qoder）、Codex、Gemini CLI、Trae CLI 走各自的权限 hook，`omp`/`pi` 走扩展的阻塞闸门（需手动开启），OpenCode 走插件；其余 Agent 照常出现在列表里，审批在它们自己的终端完成。被判为危险的调用（`rm -rf /`、`sudo rm`、`mkfs`、`dd … of=/dev/…`、`curl … | sh`、反弹 shell、`kill -9 1` 等）会标红，且**永不**走「不可达就放行」这条降级路径。
 
-**用量统计。** 统计页在设置面板的「统计」分组里（头部图表按钮一点直达）：token 总量（含输入 / 输出 / 缓存读 / 缓存写与命中率）、会话数与工具调用次数，按 **今天 / 本周 / 本月 / 全部** 分档，并按 Agent 拆分，另带趋势柱图与工具榜。数字来自对 Agent 自身会话记录的索引，已结束的会话也计入。
+**用量统计。** 覆盖范围取决于各工具自己写了什么。token 数字来自记录里**核对过** token 字段的 Agent —— Claude Code（及其分支 Qoder / Factory）、Oh My Pi、Pi、Codex、OpenCode。工具调用计数按各 Agent 自己的记录格式提取：Claude Code 及其分支、Oh My Pi、Pi、Codex、Cursor、Copilot。Gemini、Kimi、Cline、Grok、Trae、Trae CLI、DSH 的记录里没有可核对的用量字段（或根本没有可解析记录），因此不出现在统计页。统计页在设置面板的「统计」分组里（头部图表按钮一点直达）：token 总量（含输入 / 输出 / 缓存读 / 缓存写与命中率）、会话数与工具调用次数，按 **今天 / 本周 / 本月 / 全部** 分档，并按 Agent 拆分，另带趋势柱图与工具榜。数字来自对 Agent 自身会话记录的索引，已结束的会话也计入。
 
 **渲染出来的对话历史。** 完整会话内容：Markdown 渲染、工具调用卡片带结果、子代理运行内联显示；工具在等你回答时，问题也在这里。
 

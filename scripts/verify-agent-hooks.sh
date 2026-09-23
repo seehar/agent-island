@@ -222,6 +222,86 @@ PY
 # 老版本逐字比对（Claude 路径必须与改造前一致）
 # ---------------------------------------------------------------------------
 
+write_pid_checker() {
+  cat > "$1" <<'PY'
+"""断言信封里的 pid 落在「活的、确实是该来源 CLI」的祖先进程上。
+
+用法：check_pid.py <被验证脚本> <信封 jsonl> <来源> <mode>
+mode：
+  absent        这条事件不该带 pid（cline，或链上没有该 CLI）
+  ancestor      pid 若存在，必须是**活的**且二进制名命中该来源；不存在也通过
+  equals:<pid>  pid 必须等于该 pid，且同样要活着、命中
+
+判据直接复用被验证脚本自己的 `process_table` / `matches_source_binary`，避免两份规则漂移。
+打印 `OK <证据>` 或 `FAIL <原因>`（退出码 0/1）。
+"""
+import importlib.util
+import json
+import sys
+
+
+def load_module(path):
+    spec = importlib.util.spec_from_file_location("agent_island_state_under_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def last_request(path):
+    with open(path, encoding="utf-8") as fh:
+        lines = [line for line in fh.read().splitlines() if line.strip()]
+    if not lines:
+        raise AssertionError("没有收到任何信封")
+    return json.loads(lines[-1]).get("request", {})
+
+
+def main():
+    script_path, envelope_path, source, mode = sys.argv[1:5]
+    module = load_module(script_path)
+    request = last_request(envelope_path)
+    pid = request.get("pid")
+    table = module.process_table()
+
+    def report(message):
+        print(message)
+
+    if mode == "absent":
+        if pid is None:
+            report("OK absent（链上没有 %s 的匹配祖先）" % source)
+            return
+        entry = table.get(pid)
+        detail = entry[1] if entry else "进程已不在表里"
+        report("FAIL 不该带 pid，却有 pid=%s（%s）" % (pid, detail))
+        return
+
+    if pid is None:
+        if mode == "ancestor":
+            report("OK absent（链上没有 %s 的匹配祖先）" % source)
+        else:
+            report("FAIL 期望 pid=%s，信封里没有 pid 字段" % mode.split(":", 1)[1])
+        return
+
+    entry = table.get(pid)
+    if entry is None:
+        report("FAIL pid=%s 已不在进程表里（上报了会秒退的进程）" % pid)
+        return
+    if not module.matches_source_binary(entry, source):
+        report("FAIL pid=%s 的进程不是 %s 的 CLI（comm=%s argv=%s）" % (pid, source, entry[1], entry[2]))
+        return
+    if mode.startswith("equals:"):
+        want = int(mode.split(":", 1)[1])
+        if pid != want:
+            report("FAIL pid=%s != 期望的 %s" % (pid, want))
+            return
+        report("OK pid=%s 就是链上那个 %s 进程（comm=%r）" % (pid, source, entry[1]))
+        return
+    report("OK pid=%s 活着且命中 %s（comm=%r）" % (pid, source, entry[1]))
+
+
+main()
+PY
+}
+
 write_envelope_comparator() {
   cat > "$1" <<'PY'
 """比对两条信封是否等价（忽略新脚本新增的键）。
@@ -287,6 +367,7 @@ prepare_sandbox() {
   write_double "$ROOT/notch_double.py"
   write_stdout_checker "$ROOT/check_stdout.py"
   write_envelope_comparator "$ROOT/compare_envelope.py"
+  write_pid_checker "$ROOT/check_pid.py"
   printf '%s\n' 'silence' > "$MODE_FILE"
   printf '{}' > "$ANSWERS_FILE"
 }
@@ -361,6 +442,17 @@ PY
   case "$verdict" in
     OK*) pass "$3：$verdict" ;;
     *)   fail "$3：$verdict" ;;
+  esac
+}
+
+# pid 判据：复用 check_pid.py（absent / ancestor / equals:<pid>）。
+assert_pid() {
+  local file="$1" source="$2" mode="$3" label="$4"
+  local output
+  output="$(python3 "$ROOT/check_pid.py" "$SCRIPT" "$file" "$source" "$mode" 2>&1)"
+  case "$output" in
+    OK*) pass "${label}（${source}/${mode}）：${output#OK }" ;;
+    *)   fail "${label}（${source}/${mode}）：${output}" ;;
   esac
 }
 
@@ -539,22 +631,35 @@ LEGACY_CASES=(
   "ask-answer|answer|{\"session_id\":\"legacy-ask\",\"cwd\":\"/tmp/legacy\",\"hook_event_name\":\"PermissionRequest\",\"tool_name\":\"AskUserQuestion\",\"tool_input\":{\"questions\":[{\"question\":\"C_LEGACY?\",\"options\":[{\"label\":\"C1\"},{\"label\":\"C2\"}]}]}}"
 )
 
+# 取「改造前那一版」脚本：从历史里找**最新的、还不含 --source 的**那一次修订。
+# 不直接用 HEAD：新脚本一旦被提交，HEAD 就变成了新版，比对会静默失去意义（实测踩到）。
+find_legacy_blob() {
+  local destination="$1" revision
+  while read -r revision; do
+    [ -n "$revision" ] || continue
+    if git -C "$REPO_ROOT" show "$revision:AgentIsland/Resources/agent-island-state.py" \
+        > "$destination" 2>/dev/null && [ -s "$destination" ] \
+        && ! grep -qF -- '--source' "$destination"; then
+      printf '%s' "$revision"
+      return 0
+    fi
+  done < <(git -C "$REPO_ROOT" log -n 100 --format=%H -- AgentIsland/Resources/agent-island-state.py)
+  return 1
+}
+
 run_legacy_case() {
   local dir="$ROOT/cases/legacy-equivalence"
   rm -rf "$dir"
   mkdir -p "$dir"
   local legacy="$dir/legacy-state.py"
-  git -C "$REPO_ROOT" show HEAD:AgentIsland/Resources/agent-island-state.py > "$legacy" 2>/dev/null
-  if [ ! -s "$legacy" ]; then
-    fail "legacy-equivalence：拿不到 HEAD 版脚本（git show 失败）"
-    return
-  fi
-  if grep -qF -- '--source' "$legacy"; then
-    log "=== case=legacy-equivalence：跳过（HEAD 版已含 --source，无法逐字比对）"
+  local legacy_rev
+  legacy_rev="$(find_legacy_blob "$legacy")"
+  if [ -z "$legacy_rev" ]; then
+    fail "legacy-equivalence：历史里找不到改造前的版本（100 次修订里都带 --source）"
     return
   fi
 
-  log "=== case=legacy-equivalence（新脚本 vs HEAD 版：${#LEGACY_CASES[@]} 条 claude 载荷）"
+  log "=== case=legacy-equivalence（新脚本 vs 改造前版本 ${legacy_rev:0:8}：${#LEGACY_CASES[@]} 条 claude 载荷）"
   printf '%s' '{"C_LEGACY?": ["C1"]}' > "$ANSWERS_FILE"
   local row label mode payload
   for row in "${LEGACY_CASES[@]}"; do
@@ -579,6 +684,7 @@ run_legacy_case() {
 
     assert_exit_zero "$old_code" "legacy(${label}) 老脚本"
     assert_exit_zero "$new_code" "legacy(${label}) 新脚本"
+    # 老脚本会把 ppid 当 pid 报（这次要修的缺陷），比对时 pid/tty 一律忽略（见比对器注释）。
 
     if cmp -s "$dir/$label.old.out" "$dir/$label.new.out"; then
       pass "legacy(${label})：stdout 字节相等（$(wc -c < "$dir/$label.new.out" | tr -d ' ') 字节）"
@@ -662,6 +768,185 @@ run_malformed_case() {
       assert_contains "$dir/$label.jsonl" '"session_id": "claude-ppid-' "malformed(${label}) 会话 id 兜底"
     fi
   done
+  log ""
+}
+
+# ---------------------------------------------------------------------------
+# 祖先解析：pid 与兜底 session_id 都必须落在「活得久的 CLI 进程」上
+# ---------------------------------------------------------------------------
+
+# 假 CLI 祖先：把 /bin/sh **符号链接**成目标名字（拷贝会被代码签名杀掉，实测 exit 137）。
+# 进程镜像是解释器，名字只在 argv 里——这正是脚本型 / node 型 CLI 的真实形态，
+# 因此判据必须同时看 comm 与 argv。
+#
+# 链路：假 CLI（argv[0] 的名字）→ 瞬时 sh → hook。`repeats` 次事件各起一个瞬时 sh，
+# 用来证明「同一会话的多个事件拿到同一个兜底 session_id」。
+FAKE_DIR="$ROOT/cases/fake-ancestor"
+FAKE_SPAWN="$FAKE_DIR/spawn.sh"
+FAKE_PID=""
+
+spawn_fake_chain() {
+  local fake="$1" source="$2" payload="$3" repeats="$4" out="$5" err="$6"
+  mkdir -p "$FAKE_DIR/bin"
+  ln -sf /bin/sh "$FAKE_DIR/bin/$fake"
+  {
+    printf '#!/bin/sh\n'
+    local index
+    for index in $(seq 1 "$repeats"); do
+      printf "sh -c 'python3 \"%s\" --source \"%s\" < \"%s\"; :'\n" "$SCRIPT" "$source" "$payload"
+      printf 'sleep 0.3\n'
+    done
+    printf 'sleep 5\n:\n'
+  } > "$FAKE_SPAWN"
+  # 环境必须显式给：链路里的 hook 要拿到 AGENT_ISLAND_SOCKET 等沙箱环境。
+  # 这里**不能**套 hook_env（shell 函数）：`函数 &` 会多一层 fork，`$!` 拿到的是那层
+  # 包装进程而不是假 CLI，后面 `equals:$FAKE_PID` 的断言就会假失败。`env … 命令 &`
+  # 是简单命令的后台 fork+exec，`$!` 就是 env→假 CLI 这个进程本身。
+  env HOME="$HOME_SANDBOX" GROK_HOME="$GROK_HOME" AGENT_ISLAND_SOCKET="$SOCK" \
+    AGENT_ISLAND_APPROVAL_TIMEOUT_SECONDS="$APPROVAL_BUDGET" \
+    AGENT_ISLAND_ASK_TIMEOUT_SECONDS="$ASK_BUDGET" \
+    "$FAKE_DIR/bin/$fake" "$FAKE_SPAWN" > "$out" 2> "$err" &
+  FAKE_PID=$!
+  # 自检：后台 pid 必须真的是那个假 CLI（argv 里带假 CLI 路径），否则断言的前提不成立。
+  if ! ps -o command= -p "$FAKE_PID" 2>/dev/null | grep -qF "$FAKE_DIR/bin/$fake"; then
+    fail "假祖先没起来（pid=${FAKE_PID} 的 argv 里没有 $FAKE_DIR/bin/$fake）"
+  fi
+}
+
+stop_fake_chain() {
+  if [ -n "$FAKE_PID" ]; then kill "$FAKE_PID" 2>/dev/null; fi
+  FAKE_PID=""
+}
+
+wait_for_envelopes() {
+  local before="$1" want="$2" waited=0
+  while [ "$(( $(count_log) - before ))" -lt "$want" ] && [ "$waited" -lt 60 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+}
+
+# 断言文件里出现某串恰好 N 次。
+assert_count() {
+  local file="$1" needle="$2" want="$3" label="$4" got
+  got="$(grep -cF -- "$needle" "$file" 2>/dev/null || true)"
+  if [ "${got:-0}" = "$want" ]; then
+    pass "${label}：出现 ${want} 次「${needle}」"
+  else
+    fail "${label}：期望 ${want} 次「${needle}」，实际 ${got:-0} 次"
+  fi
+}
+
+run_fake_ancestor_case() {
+  mkdir -p "$ROOT/cases"
+  printf '%s\n' 'silence' > "$MODE_FILE"
+  log "=== case=fake-ancestor（假 CLI 祖先 → 瞬时 sh → hook；两条链路各一次）"
+
+  # ① 假 codex 祖先 + 两次事件（载荷**不带 session_id**）：pid 与兜底 session_id 都必须
+  #    落在假祖先上，且两次的 session_id 完全一致（这就是「sh -c 起 hook 会让兜底 id 漂移」的回归判据）。
+  local dir="$FAKE_DIR/codex-twice"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  printf '%s' '{"cwd":"/tmp/fake","hook_event_name":"PreToolUse","tool_name":"shell","tool_input":{"command":"ls"}}' \
+    > "$dir/payload.json"
+  local before
+  before="$(count_log)"
+  spawn_fake_chain codex codex "$dir/payload.json" 2 "$dir/out.txt" "$dir/err.txt"
+  local fake_codex_pid="$FAKE_PID"
+  wait_for_envelopes "$before" 2
+  sed -n "$((before + 1)),\$p" "$LOG" > "$dir/envelopes.jsonl" 2>/dev/null || true
+
+  log "    ---- 信封（假 codex 祖先 pid=${fake_codex_pid}）----"
+  sed 's/^/    /' "$dir/envelopes.jsonl"
+  assert_count "$dir/envelopes.jsonl" '"agent": "codex"' 2 "fake-ancestor(codex-twice) 两条事件都上报"
+  assert_pid "$dir/envelopes.jsonl" codex "equals:${fake_codex_pid}" "fake-ancestor(codex-twice)"
+  assert_count "$dir/envelopes.jsonl" "\"pid\": ${fake_codex_pid}" 2 "fake-ancestor(codex-twice) pid 都是假祖先"
+  assert_count "$dir/envelopes.jsonl" "\"session_id\": \"codex-ppid-${fake_codex_pid}\"" 2 \
+    "fake-ancestor(codex-twice) 两次事件同一个兜底 session_id"
+  # pid 的「活着」判据要在窗口内跑，所以 stop 放在断言之后
+  stop_fake_chain
+  if [ -s "$dir/err.txt" ]; then
+    fail "fake-ancestor(codex-twice)：stderr 有输出「$(head -c 200 "$dir/err.txt")」"
+  else
+    pass "fake-ancestor(codex-twice)：stderr 为空"
+  fi
+
+  # ② 假 cline 祖先 + cline：即使链上有一个叫 cline 的祖先，也必须**不发 pid**（cline 没有
+  #    CLI 二进制，是 VSCode 扩展派生的脚本）。stdout 仍必须是 {"cancel":false}。
+  dir="$FAKE_DIR/cline"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  printf '%s' '{"taskId":"cline-fake-1","hookName":"PreToolUse","preToolUse":{"toolName":"execute_command","parameters":{"command":"ls"}}}' \
+    > "$dir/payload.json"
+  before="$(count_log)"
+  spawn_fake_chain cline cline "$dir/payload.json" 1 "$dir/out.txt" "$dir/err.txt"
+  local fake_cline_pid="$FAKE_PID"
+  wait_for_envelopes "$before" 1
+  sed -n "$((before + 1)),\$p" "$LOG" > "$dir/envelopes.jsonl" 2>/dev/null || true
+
+  log "    ---- stdout / 信封（假 cline 祖先 pid=${fake_cline_pid}）----"
+  sed 's/^/    /' "$dir/out.txt"
+  sed 's/^/    /' "$dir/envelopes.jsonl"
+  assert_stdout_shape "$dir/out.txt" cline-cancel "fake-ancestor(cline)"
+  assert_contains "$dir/envelopes.jsonl" '"session_id": "cline-fake-1"' "fake-ancestor(cline) 会话 id 来自 taskId"
+  assert_pid "$dir/envelopes.jsonl" cline absent "fake-ancestor(cline)"
+  stop_fake_chain
+  log ""
+}
+
+# 链上没有该 CLI（= 本 harness 直接调起 hook）：pid 不发，兜底 session_id 仍要**非空且稳定**。
+run_no_ancestor_case() {
+  mkdir -p "$ROOT/cases"
+  printf '%s\n' 'silence' > "$MODE_FILE"
+  local dir="$ROOT/cases/no-ancestor"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  log "=== case=no-ancestor（链上没有 codex：不发 pid，兜底 id 在同一棵树内稳定）"
+  # 两次事件必须落在**同一棵进程树**里（同一个瞬时 sh 顺序起两次 hook）：链上没有匹配
+  # 祖先时，兜底用的就是那个瞬时 shell 的 pid，换一棵树它本来就该不同——这正是需要
+  # 祖先解析的理由。本 case 断言的是「同一棵树内稳定且非空」。
+  printf '%s' '{"cwd":"/tmp/noanc","hook_event_name":"PreToolUse","tool_name":"shell","tool_input":{"command":"ls"}}' \
+    > "$dir/payload.json"
+  local before
+  before="$(count_log)"
+  hook_env /bin/sh -c "python3 \"$SCRIPT\" --source codex < \"$dir/payload.json\"; :; python3 \"$SCRIPT\" --source codex < \"$dir/payload.json\"; :" \
+    > "$dir/sh.out" 2> "$dir/sh.err"
+  sed -n "$((before + 1)),\$p" "$LOG" > "$dir/envelopes.jsonl" 2>/dev/null || true
+
+  log "    ---- 信封 ----"
+  sed 's/^/    /' "$dir/envelopes.jsonl"
+  assert_count "$dir/envelopes.jsonl" '"agent": "codex"' 2 "no-ancestor 两条事件都上报"
+  assert_pid "$dir/envelopes.jsonl" codex absent "no-ancestor"
+  local verdict
+  verdict="$(python3 - "$dir/envelopes.jsonl" <<'PY'
+import json
+import re
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as fh:
+    lines = [line for line in fh.read().splitlines() if line.strip()]
+ids = [json.loads(line)["request"]["session_id"] for line in lines]
+if len(ids) < 2:
+    print("MISSING 只收到 %d 条信封" % len(ids))
+elif not ids[0]:
+    print("EMPTY 兜底 session_id 是空串")
+elif ids[0] != ids[1]:
+    print("UNSTABLE 同一棵树内两次不同：%r vs %r" % (ids[0], ids[1]))
+elif not re.fullmatch(r"codex-ppid-\d+", ids[0]):
+    print("SHAPE 形状不对：%r" % ids[0])
+else:
+    print("OK %s" % ids[0])
+PY
+)"
+  case "$verdict" in
+    OK*) pass "no-ancestor：兜底 session_id 非空且同一棵树内一致 → ${verdict#OK }" ;;
+    *)   fail "no-ancestor：${verdict}" ;;
+  esac
+  if [ -s "$dir/sh.err" ]; then
+    fail "no-ancestor：stderr 有输出「$(head -c 200 "$dir/sh.err")」"
+  else
+    pass "no-ancestor：stderr 为空"
+  fi
   log ""
 }
 
@@ -813,7 +1098,11 @@ run_cases_one() {
       run_case claude-default - - silence empty \
         '{"session_id":"claude-legacy-1","cwd":"/tmp/legacy","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"},"tool_use_id":"tu-legacy"}' \
         '"agent": "claude"' '"event": "PreToolUse"' '"status": "running_tool"' \
-        '"session_id": "claude-legacy-1"' '"tool": "Bash"' '"tool_use_id": "tu-legacy"' '"pid":'
+        '"session_id": "claude-legacy-1"' '"tool": "Bash"' '"tool_use_id": "tu-legacy"'
+      # pid 判据（不是恒真断言）：若带 pid，它必须是**活的、且确实是 claude 的**祖先进程。
+      # 这个 harness 的链路（verify 脚本 → 瞬时环境 → hook）里通常没有 claude 二进制，
+      # 因此预期 absent；改造前那种「pid = getppid()」的实现会在这里报到瞬时 shell 上而失败。
+      assert_pid "$ROOT/cases/claude-default/envelopes.jsonl" claude ancestor claude-default
       ;;
 
     # Claude：阻塞审批（allow / deny）
@@ -957,7 +1246,8 @@ run_cases_one() {
 TIMEOUT_BUDGET=3
 ALL_CASES=(claude-default claude-permission-allow claude-permission-deny qoder-permission-allow
   codex-pretool codex-permission-deny gemini-before-tool cursor-shell copilot-pretool kimi-stop
-  cline-pretool cline-suppressed grok-runtime-dedup grok-stop-failure grok-workspace-env trae-shell
+  cline-pretool cline-suppressed fake-ancestor no-ancestor grok-runtime-dedup grok-stop-failure
+  grok-workspace-env trae-shell
   traecli-permission traecli-permission-event-flag
   claude-ask-answer
   legacy-equivalence socket-absent malformed-stdin timeout-negative)
@@ -991,6 +1281,8 @@ for name in "${selected[@]}"; do
     malformed-stdin)    run_malformed_case ;;
     cline-suppressed)   run_cline_suppressed_case ;;
     grok-runtime-dedup) run_grok_dedup_case ;;
+    fake-ancestor)      run_fake_ancestor_case ;;
+    no-ancestor)        run_no_ancestor_case ;;
     *)                  run_cases_one "$name" ;;
   esac
   ran=$((ran + 1))
