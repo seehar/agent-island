@@ -280,7 +280,8 @@ nonisolated final class UsageStatsStore {
   }
 
   private func upsert(_ deltas: [UsageBucketDelta], sourceId: String, agent: AgentKind) throws {
-    guard !deltas.isEmpty else { return }
+    // 这里**不**按「没有 deltas」提前返回：整源重放（`replace`）时进度行必须跟着写，
+    // 否则「这一遍什么都没读出来」的源会永远停在旧进度上，每轮都被再重放一次。
     let sql =
       """
       INSERT INTO usage_bucket

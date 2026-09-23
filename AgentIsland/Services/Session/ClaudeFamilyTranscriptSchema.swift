@@ -69,7 +69,15 @@ nonisolated final class CodeBuddyTranscriptSchema: JSONLTranscriptSchema {
         state: inout TranscriptParseState,
         result: inout TranscriptReadResult
     ) {
-        guard json["type"] as? String == "message",
+        guard let type = json["type"] as? String else { return }
+
+        // 顶层 `function_call` 行先处理：它没有 `message` 数据，落进下面会被静默忽略。
+        if type == "function_call" {
+            _ = consumeFunctionCall(json, state: &state, result: &result)
+            return
+        }
+
+        guard type == "message",
             let role = json["role"] as? String,
             role == "user" || role == "assistant"
         else { return }
@@ -134,12 +142,51 @@ nonisolated final class CodeBuddyTranscriptSchema: JSONLTranscriptSchema {
                 state.seenToolIds.insert(tool.id)
                 state.toolIdToName[tool.id] = tool.name
                 state.toolInputs[tool.id] = tool.input
-                result.activity.append(.toolStarted(id: tool.id, name: tool.name, input: tool.input))
+                result.activity.append(
+                    .toolStarted(id: tool.id, name: tool.name, input: tool.input))
             }
         }
 
-        // 用量：本机样本里只有用户文本行，助手行是否带 token 计数无法验证，
-        // 因此这里不读、也不猜用数字段（宁可不统计，也不产出假数字）。
+        // 用量：`message.usage`（**每次调用的增量**，与 `providerData.usage` 同源）。
+        // `input_tokens` 含缓存命中，要减去 `cache_read_input_tokens` 才是非缓存输入
+        // （与 Claude / Codex 的口径一致，见 TranscriptUsageScanner.applyCodeBuddyUsage）。
+        if let usage = (json["message"] as? [String: Any])?["usage"] as? [String: Any] {
+            let cached = Self.intValue(usage["cache_read_input_tokens"])
+            let prompt = Self.intValue(usage["input_tokens"])
+            state.usage.inputTokens += max(0, prompt - cached)
+            state.usage.outputTokens += Self.intValue(usage["output_tokens"])
+            state.usage.cacheReadTokens += cached
+            state.usage.cacheCreationTokens += Self.intValue(usage["cache_creation_input_tokens"])
+        }
+    }
+
+    /// 顶层 `function_call` 行：一次工具调用（`name` / `callId` 在顶层），没有任何
+    /// 对话文本，与 Claude 的 `tool_use` 块同义（返回假表示这行不是工具调用）。
+    private func consumeFunctionCall(
+        _ json: [String: Any],
+        state: inout TranscriptParseState,
+        result: inout TranscriptReadResult
+    ) -> Bool {
+        guard (json["type"] as? String) == "function_call",
+            let name = json["name"] as? String, !name.isEmpty
+        else { return false }
+
+        // 调用 id 取 `callId`（`id` 与 `messageId` 同值，是那条消息的 id，不是调用 id）。
+        guard let callId = json["callId"] as? String, !callId.isEmpty else { return false }
+        let input = TranscriptParsing.stringifyInput(
+            json["arguments"] as? [String: Any])
+        state.seenToolIds.insert(callId)
+        state.toolIdToName[callId] = name
+        state.toolInputs[callId] = input
+        result.activity.append(.toolStarted(id: callId, name: name, input: input))
+        return true
+    }
+
+    /// 从字典里取整数（字段是字符串的数字也认）。
+    private static func intValue(_ value: Any?) -> Int {
+        if let number = value as? NSNumber, !(number is Bool) { return number.intValue }
+        if let text = value as? String { return Int(text) ?? 0 }
+        return 0
     }
 
     // MARK: - 工具
@@ -154,7 +201,8 @@ nonisolated final class CodeBuddyTranscriptSchema: JSONLTranscriptSchema {
             return nil
         }
         return ToolUseBlock(
-            id: id, name: name, input: TranscriptParsing.stringifyInput(block["input"] as? [String: Any]))
+            id: id, name: name,
+            input: TranscriptParsing.stringifyInput(block["input"] as? [String: Any]))
     }
 
     /// 解析工具结果块：登记结果内容与结构化结果，并上报「工具结束」。

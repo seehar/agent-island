@@ -39,7 +39,10 @@ struct UsageStatsIndexerTests {
     let url = FileManager.default.temporaryDirectory
       .appendingPathComponent("usage-stats-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-    return url
+    // 源发现走 `FileManager` 枚举，返回的是展开后的路径（macOS 上临时目录是 /var 而
+    // 枚举给 /private/var）。进度行按枚举结果落库，夹具根因此一开始就取同一份规范化
+    // 路径，否则「同一个文件」会因为没有唯一约束而落成两行、用量被重复计入。
+    return AgentProviderRoot.canonical(url)
   }
 
   private func write(_ text: String, to url: URL) throws {
@@ -78,6 +81,20 @@ struct UsageStatsIndexerTests {
     return """
       {"type":"assistant","isSidechain":\(isSidechain),"timestamp":"\(iso(date))","message":{"role":"assistant","model":"\(model)","usage":{"input_tokens":\(input),"output_tokens":\(output),"cache_read_input_tokens":\(cacheRead),"cache_creation_input_tokens":\(cacheWrite)},"content":[\(content)]}}\(suffix)
       """
+  }
+
+  /// CodeBuddy 的记录：顶层毫秒 epoch 时间戳，一次调用一行 `function_call`
+  /// （`name` / `callId` 在顶层），token 挂在 `message.usage` 上（`input_tokens` 含缓存命中）。
+  private func codeBuddyLine(
+    date: Date, input: Int, output: Int, cacheRead: Int, tools: [String],
+    model: String = "deepseek-v4-flash"
+  ) -> String {
+    let milliseconds = Int(date.timeIntervalSince1970 * 1000)
+    return tools.enumerated().map { index, tool in
+      """
+      {"id":"cb-\(milliseconds)-\(index)","timestamp":\(milliseconds),"type":"function_call","name":"\(tool)","callId":"call_\(index)","arguments":{},"sessionId":"cb-sess","providerData":{"model":"\(model)"},"message":{"usage":{"input_tokens":\(input),"output_tokens":\(output),"cache_read_input_tokens":\(cacheRead)}}}
+      """
+    }.joined(separator: "\n")
   }
 
   /// 搭一套两个 Agent 的临时记录树，返回根目录。
@@ -208,7 +225,8 @@ struct UsageStatsIndexerTests {
     #expect(byAgent[.claudeCode]?.sessions == 1)
 
     // 8 天前的记录只出现在「全部」里。
-    let all = try store.snapshot(window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
+    let all = try store.snapshot(
+      window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
     #expect(all.totals.input == 161 + 1000)
     #expect(all.totals.sessions == 3)
     #expect(all.tools.first?.name == "grep" || all.tools.contains { $0.name == "grep" })
@@ -223,11 +241,13 @@ struct UsageStatsIndexerTests {
     let now = Date()
     // 夹具：今天的记录（omp 根 + 子代理 + Claude 主/子代理，输入 161）与 8 天前的一条
     // （输入 1000）。8 天前在「近一周」窗口外、在「近一月」窗口内。
-    let day = try store.snapshot(window: .preset(.lastDay), calendar: calendar, now: now, isIndexing: false)
+    let day = try store.snapshot(
+      window: .preset(.lastDay), calendar: calendar, now: now, isIndexing: false)
     #expect(day.totals.input == 161)
     #expect(day.trend.count == 24)
 
-    let week = try store.snapshot(window: .preset(.lastWeek), calendar: calendar, now: now, isIndexing: false)
+    let week = try store.snapshot(
+      window: .preset(.lastWeek), calendar: calendar, now: now, isIndexing: false)
     #expect(week.totals.input == 161)
     #expect(week.totals.sessions == 2)
     #expect(week.trend.count == 7)
@@ -247,9 +267,11 @@ struct UsageStatsIndexerTests {
     let discovered = sources(root: root)
 
     pass.ingest(sources: discovered)
-    let first = try store.snapshot(window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
+    let first = try store.snapshot(
+      window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
     pass.ingest(sources: discovered)
-    let second = try store.snapshot(window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
+    let second = try store.snapshot(
+      window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
 
     #expect(comparable(first) == comparable(second))
   }
@@ -304,7 +326,8 @@ struct UsageStatsIndexerTests {
     let discovered = sources(root: root)
 
     pass.ingest(sources: discovered)
-    let first = try store.snapshot(window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
+    let first = try store.snapshot(
+      window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
 
     // 重算不该重复计数：同一批文件从头再读一遍，结果必须一模一样。
     pass.ingest(sources: discovered, rebuilding: true)
@@ -388,7 +411,9 @@ struct UsageStatsIndexerTests {
       try scalar(
         "SELECT COALESCE(SUM(input + output + cache_read + cache_write), 0) FROM usage_bucket WHERE tool <> '';",
         in: root) == 0)
-    #expect(try scalar("SELECT COUNT(*) FROM usage_bucket WHERE tool <> '' AND model <> '';", in: root) == 0)
+    #expect(
+      try scalar("SELECT COUNT(*) FROM usage_bucket WHERE tool <> '' AND model <> '';", in: root)
+        == 0)
     // 模型榜上之和就是全库总量：没有模型标识的记录（理论上有的话）不会漏进榜里，
     // 也不会被凭空算成一行。
     #expect(snapshot.models.map(\.totals.total).reduce(0, +) == snapshot.totals.total)
@@ -443,19 +468,67 @@ struct UsageStatsIndexerTests {
     #expect(!rebuilt.models.isEmpty)
   }
 
+  @Test("CodeBuddy：顶层 function_call 行同时产工具调用与 token，旧的 EOF 进度会重放一次")
+  func codeBuddyRowsAreIndexedAndStaleProgressReplays() throws {
+    let root = try tempRoot()
+    let codeBuddyRoot = root.appendingPathComponent("codebuddy")
+    // 一行同时是「一次工具调用」和「一次调用的 token」：input 1000 含 400 缓存命中
+    // ⇒ 非缓存输入 600；总量 1050 = 600 + 50 + 400。
+    let file = codeBuddyRoot.appendingPathComponent("Users-tester-work-demo/sess-cb.jsonl")
+    // 源发现走 `FileManager` 枚举：临时目录在 macOS 上是 `/var`，枚举返回的是展开后的
+    // `/private/var`。进度行按枚举结果落库，因此种子与断言都要用同一份规范化路径。
+    let sourcePath = AgentProviderRoot.canonical(file).path
+    let line =
+      codeBuddyLine(date: todayBase, input: 1_000, output: 50, cacheRead: 400, tools: ["Bash"])
+      + "\n"
+    try write(line, to: file)
+    let size = UInt64(line.utf8.count)
+
+    let store = try makeStore(in: root)
+    let discovered = TranscriptUsageScanner.sources(for: .codeBuddy, roots: [codeBuddyRoot])
+    #expect(discovered.count == 1)
+
+    // 造「改版前的进度行」：文件已读到底、`cursor` 里没有解析器版本。增量扫描本来会
+    // 判定「没有变化」而永远跳过它——这道闸门就是为这个现场加的。
+    try execSQL(
+      """
+      INSERT INTO indexed_source (source_id, agent, size_bytes, read_offset, mtime, cursor, updated_at)
+      VALUES ('\(sourcePath)', 'codebuddy', \(size), \(size), 0, NULL, 0);
+      """,
+      at: root.appendingPathComponent("usage.sqlite"))
+
+    pass(store).ingest(sources: discovered)
+
+    let snapshot = try store.snapshot(
+      window: .preset(.today), calendar: calendar, now: Date(), isIndexing: false)
+    let codeBuddy = try #require(snapshot.agents.first { $0.agent == .codeBuddy })
+    #expect(codeBuddy.totals.input == 600)
+    #expect(codeBuddy.totals.output == 50)
+    #expect(codeBuddy.totals.cacheRead == 400)
+    #expect(codeBuddy.totals.total == 1_050)
+    #expect(codeBuddy.totals.sessions == 1)
+    #expect(codeBuddy.totals.calls == 1)
+    #expect(snapshot.tools.contains { $0.name == "bash" && $0.calls == 1 })
+    // 进度行现在带上了版本：下一轮回到增量语义，不会每次重读全量。
+    let cursor = try store.sourceRecords()[sourcePath]?.state.cursor
+    #expect(cursor != nil, "重放后进度行必须带上解析器版本，实际 cursor=\(String(describing: cursor))")
+  }
+
   @Test("记录文件删除后历史用量仍然保留")
   func deletedFileKeepsHistory() throws {
     let root = try makeFixtureTree()
     let store = try makeStore(in: root)
     try pass(store).ingest(sources: sources(root: root))
-    let before = try store.snapshot(window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
+    let before = try store.snapshot(
+      window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
 
     // 删掉一个记录文件，并清掉它的进度行（与索引器的清理路径一致）。
     let target = root.appendingPathComponent("claude/proj/sess-1.jsonl")
     try FileManager.default.removeItem(at: target)
     try store.forgetCursor(sourceId: target.path)
 
-    let after = try store.snapshot(window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
+    let after = try store.snapshot(
+      window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
     #expect(comparable(before) == comparable(after))
   }
 
@@ -474,7 +547,8 @@ struct UsageStatsIndexerTests {
     #expect(outcome.failures == 0)
 
     // 其余记录的用量照常入库：omp 根会话 + 子代理（不含被删掉的 Claude 会话）。
-    let snapshot = try store.snapshot(window: .preset(.today), calendar: calendar, now: Date(), isIndexing: false)
+    let snapshot = try store.snapshot(
+      window: .preset(.today), calendar: calendar, now: Date(), isIndexing: false)
     #expect(snapshot.totals.input == 150)
     #expect(snapshot.totals.sessions == 1)
   }
@@ -650,7 +724,8 @@ struct UsageStatsIndexerTests {
         UsageStatsKey.bucket(for: $0.start, granularity: .hour, calendar: zoneCalendar)
       })
 
-    #expect(plannedKeys == expectedKeys, "计划必须覆盖窗口内每个整点键，缺 \(expectedKeys.subtracting(plannedKeys))")
+    #expect(
+      plannedKeys == expectedKeys, "计划必须覆盖窗口内每个整点键，缺 \(expectedKeys.subtracting(plannedKeys))")
     #expect(dataKeys == expectedKeys, "有数据的桶必须都在计划里，缺 \(expectedKeys.subtracting(dataKeys))")
     #expect(snapshot.trend.count == expectedKeys.count)
   }

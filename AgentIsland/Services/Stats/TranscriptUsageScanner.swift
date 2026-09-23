@@ -63,7 +63,8 @@ nonisolated enum TranscriptUsageScanner {
           continue
         }
         results.append(
-          describe(url: url, relativePath: Self.relativePath(of: url, under: rootComponents), agent: kind)
+          describe(
+            url: url, relativePath: Self.relativePath(of: url, under: rootComponents), agent: kind)
         )
       }
     }
@@ -176,9 +177,14 @@ nonisolated enum TranscriptUsageScanner {
       ))
 
     // 变小 = 被截断或整体重写；大小没变但修改时间变了 = 同长度重写。
+    // 解析规则变过、而进度行还是改前的（`cursor` 里没有版本）：也整源重放一次——
+    // 增量路径只看文件尾巴，会把「已经追到 EOF、但那套规则读不出数据」的文件永远跳过。
+    let parserVersion = Self.parserVersion(for: source.agent)
+    let staleParser = parserVersion != nil && previous?.cursor != parserVersion
     if let previous,
       size < previous.readOffset
         || (size == previous.readOffset && abs(mtime - previous.mtime) > 0.000_001)
+        || staleParser
     {
       result.needsReplace = true
       result.state.readOffset = 0
@@ -202,7 +208,7 @@ nonisolated enum TranscriptUsageScanner {
     // codex 的 token 行不带模型名（模型只写在同一个 `turn_context` 行里），因此按文件
     // 顺序记住最近一次看到的模型，并随进度标记（`cursor`）带到下一次读取：否则应用
     // 重启后新追加的 token 会落进空模型桶，模型榜就不等于全库总量了。
-    var model = source.agent == .codex ? (previous?.cursor ?? "") : ""
+    var model = source.agent == .codex ? Self.codexModel(from: previous) : ""
 
     while true {
       guard let chunk = try? handle.read(upToCount: chunkBytes), !chunk.isEmpty else { break }
@@ -227,9 +233,35 @@ nonisolated enum TranscriptUsageScanner {
     }
 
     result.state.readOffset += consumed
-    if source.agent == .codex { result.state.cursor = model }
+    // codex 用 `cursor` 带模型；解析规则变过的 Agent 用它带版本（见 `parserVersion(for:)`）。
+    if source.agent == .codex {
+      result.state.cursor = model
+    } else if let parserVersion = Self.parserVersion(for: source.agent) {
+      result.state.cursor = parserVersion
+    }
     result.deltas = Array(deltas.values)
     return result
+  }
+
+  // MARK: - 解析器版本
+
+  /// 记录解析规则的版本标记。只给「解析规则变过、旧进度会漏数据」的 Agent 发版本号。
+  ///
+  /// 进度行里的 `cursor` 一旦不是当前版本，那个源就整源重放一次（见 `read`）：没有这道
+  /// 闸，增量路径会认为「已经追到文件末尾、没有变化」，新规则永远读不到老文件里的数据
+  /// （CodeBuddy 的工具调用与 token 就是这么漏掉的——它们的行当时一条都没被解析）。
+  private enum ParserVersion: String {
+    case codeBuddy = "cb-v2"
+  }
+
+  /// 该 Agent 当前要求的解析器版本；`nil` 表示不需要版本（进度行里的 `cursor` 另有用途）。
+  private static func parserVersion(for agent: AgentKind) -> String? {
+    agent == .codeBuddy ? ParserVersion.codeBuddy.rawValue : nil
+  }
+
+  /// 进度里带过来的 codex 模型名（`cursor` 对 codex 存模型，不要当成版本号）。
+  private static func codexModel(from previous: UsageSourceState?) -> String {
+    previous?.cursor ?? ""
   }
 
   /// codex `turn_context` 行里的模型名（token 行本身不带模型）。
@@ -261,11 +293,14 @@ nonisolated enum TranscriptUsageScanner {
       // Claude 系：用量在 `message.usage`，工具调用在 `message.content[].tool_use`。
       return [Array("\"usage\"".utf8), Array("\"tool_use\"".utf8)]
     case .codeBuddy:
-      // 记录外壳与 Claude 不同（`type:"message"` + 顶层 `role` + 毫秒 epoch），本机样本
-      // 里既没有 token 字段也没有助手/工具行，上游（CodeIsland `readRecentFromCodeBuddyTranscript`）
-      // 也只取文本、不抽工具 ⇒ 「工具块叫 `tool_use`」这条**未经证实**。这里保留该标记：
-      // 命中就多一行工具计数，不命中就什么都不产出，两种结果都不会污染已有的数字。
-      return [Array("\"tool_use\"".utf8)]
+      // 工具调用与 token 都在 **顶层信封**上（本机实测）：一次调用是一行
+      // `type:"function_call"`（`name` / `callId` 在顶层），token 挂在它的
+      // `message.usage` 上（`input_tokens` / `output_tokens` / `cache_read_input_tokens`）。
+      // `tool_use` 是不再产出的旧外壳，留着只为认历史文件；`"usage"` 是助手文本行
+      // （只有 `message.usage`、没有工具块）的唯一特征，漏了它整行会被跳过。
+      return [
+        Array("\"function_call\"".utf8), Array("\"tool_use\"".utf8), Array("\"usage\"".utf8),
+      ]
     case .ohMyPi, .pi:
       return [Array("\"usage\"".utf8), Array("\"toolCall\"".utf8)]
     case .codex:
@@ -418,16 +453,35 @@ nonisolated enum TranscriptUsageScanner {
       return record
 
     case .codeBuddy:
-      // 记录外壳不同：`type == "message"` + 顶层 `role` + 毫秒 epoch 时间戳。
-      // 本机 2 个文件里没有出现任何 token 字段（也没有助手行样本）⇒ 这一行只携带
-      // 工具调用（`carriesTokens` 保持默认的 false），不建 token 桶。
-      guard (json["type"] as? String) == "message",
-        (json["role"] as? String) == "assistant"
-      else { return nil }
+      // 两类行（本机实测，毫秒 epoch 时间戳）：
+      //   · `type == "function_call"`：一次工具调用（顶层 `name`），并且**同时是 token 行**
+      //     —— `message.usage` 是这次调用的增量（`input_tokens` 含缓存命中，要减去
+      //     `cache_read_input_tokens`，与 Codex / Claude 的口径一致）；
+      //   · `type == "message"` + 顶层 `role == "assistant"`：助手文本行，同样带
+      //     `message.usage`；旧外壳里工具块写在 `content[].tool_use`。
+      guard let type = json["type"] as? String else { return nil }
+      let model =
+        (json["providerData"] as? [String: Any])?["model"] as? String ?? ""
+
+      if type == "function_call" {
+        guard let name = json["name"] as? String, !name.isEmpty else { return nil }
+        var record = RecordUsage(
+          date: millisecondsTimestamp(json["timestamp"]) ?? fallbackDate)
+        record.tools = [name]
+        record.model = model
+        // 只有真的带 `message.usage` 才算 token 行：不带 usage 的调用（旧记录里常见）
+        // 若也建 token 桶，会落一行「模型非空、token 全零」的空桶，把模型榜与会话读数搞脏。
+        applyCodeBuddyUsage(json["message"], into: &record)
+        return record
+      }
+
+      guard type == "message", (json["role"] as? String) == "assistant" else { return nil }
       var record = RecordUsage(
         date: millisecondsTimestamp(json["timestamp"]) ?? fallbackDate)
       record.tools = toolNames(in: json, blockType: "tool_use")
-      guard !record.tools.isEmpty else { return nil }
+      applyCodeBuddyUsage(json["message"], into: &record)
+      guard record.carriesTokens || !record.tools.isEmpty else { return nil }
+      record.model = model
       return record
 
     case .ohMyPi, .pi:
@@ -504,6 +558,24 @@ nonisolated enum TranscriptUsageScanner {
       // token 字段，Trae / Trae CLI / DSH 没有可解析的记录。
       return nil
     }
+  }
+
+  /// CodeBuddy 的用量块（挂在顶层 `message.usage` 上）。
+  ///
+  /// 口径（本机实测 450 行、`requests` 恒为 1）：`input_tokens` 是这次调用的提示词
+  /// token **且含缓存命中**（`input_tokens - cache_read_input_tokens` 等于
+  /// `providerData.rawUsage.prompt_cache_miss_tokens`），因此相减后才是「非缓存输入」；
+  /// `cache_creation_input_tokens` 在本机样本里恒为 0，但语义与 Claude 一致，照收。
+  private static func applyCodeBuddyUsage(_ message: Any?, into record: inout RecordUsage) {
+    guard let message = message as? [String: Any],
+      let usage = message["usage"] as? [String: Any]
+    else { return }
+    let cached = intValue(usage["cache_read_input_tokens"])
+    record.input = max(0, intValue(usage["input_tokens"]) - cached)
+    record.output = intValue(usage["output_tokens"])
+    record.cacheRead = cached
+    record.cacheWrite = intValue(usage["cache_creation_input_tokens"])
+    record.carriesTokens = true
   }
 
   /// 条目级毫秒 epoch 时间戳（CodeBuddy 的记录用这个口径）。

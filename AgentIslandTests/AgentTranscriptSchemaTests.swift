@@ -277,7 +277,9 @@ struct AgentTranscriptSchemaTests {
             result.activity.contains(
                 .toolStarted(
                     id: "call_1", name: "exec_command", input: ["cmd": "ls -la"])))
-        #expect(result.activity.contains(.toolFinished(id: "call_1", name: "exec_command", isError: false)))
+        #expect(
+            result.activity.contains(
+                .toolFinished(id: "call_1", name: "exec_command", isError: false)))
         #expect(fixture.state.toolResults["call_1"]?.content == "total 0")
         #expect(result.activity.contains(.turnFinished))
     }
@@ -311,8 +313,16 @@ struct AgentTranscriptSchemaTests {
         #expect(result.newMessages.first?.role == .user)
         #expect(result.newMessages.first?.textContent == "看下这个函数")
         #expect(result.activity.contains(.promptSubmitted(text: "看下这个函数")))
-        #expect(result.activity.contains { if case .toolStarted(_, let name, _) = $0 { return name == "read_file" }; return false })
-        #expect(result.activity.contains { if case .toolFinished(_, let name, _) = $0 { return name == "read_file" }; return false })
+        #expect(
+            result.activity.contains {
+                if case .toolStarted(_, let name, _) = $0 { return name == "read_file" }
+                return false
+            })
+        #expect(
+            result.activity.contains {
+                if case .toolFinished(_, let name, _) = $0 { return name == "read_file" }
+                return false
+            })
         #expect(fixture.state.completedToolIds.count == 1)
         // `info` 行（CLI 提示）不产出内容。
         #expect(!result.newMessages.contains { $0.textContent.contains("模型重试中") })
@@ -395,7 +405,8 @@ struct AgentTranscriptSchemaTests {
         defer { try? FileManager.default.removeItem(at: scratch.directory) }
         let schema = TempFileClineSchema(fileURL: scratch.file)
 
-        let first = #"[{"role":"user","content":"第一问"},{"role":"assistant","content":[{"type":"text","text":"第一答"}]}]"#
+        let first =
+            #"[{"role":"user","content":"第一问"},{"role":"assistant","content":[{"type":"text","text":"第一答"}]}]"#
         try first.write(to: scratch.file, atomically: true, encoding: .utf8)
 
         var state = TranscriptParseState()
@@ -505,11 +516,11 @@ struct AgentTranscriptUsageScannerTests {
     @Test("Codex：token 归到 turn_context 记下的模型，工具调用单独成行")
     func codexTokensCarryModel() throws {
         let lines = #"""
-        {"timestamp":"2026-06-15T03:52:02.209Z","type":"turn_context","payload":{"turn_id":"t-1","model":"gpt-5.5"}}
-        {"timestamp":"2026-06-15T03:52:10.280Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":31877,"cached_input_tokens":27520,"output_tokens":350}}}}
-        {"timestamp":"2026-06-15T03:52:10.281Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{}","call_id":"call_1"}}
+            {"timestamp":"2026-06-15T03:52:02.209Z","type":"turn_context","payload":{"turn_id":"t-1","model":"gpt-5.5"}}
+            {"timestamp":"2026-06-15T03:52:10.280Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":31877,"cached_input_tokens":27520,"output_tokens":350}}}}
+            {"timestamp":"2026-06-15T03:52:10.281Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{}","call_id":"call_1"}}
 
-        """#
+            """#
         let scratch = try fixtureFile(lines)
         defer { try? FileManager.default.removeItem(at: scratch.directory) }
 
@@ -531,7 +542,8 @@ struct AgentTranscriptUsageScannerTests {
 
         // 下一批文件里只有 token 行、没有 turn_context：模型要从进度里带过来
         // （文件更短，会走「整源重放」，模型仍然取上一次记住的那个）。
-        try #"{"timestamp":"2026-06-15T03:53:10.280Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":5}}}}"#
+        try
+            #"{"timestamp":"2026-06-15T03:53:10.280Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":5}}}}"#
             .appending("\n")
             .write(to: scratch.file, atomically: true, encoding: .utf8)
 
@@ -545,10 +557,10 @@ struct AgentTranscriptUsageScannerTests {
     @Test("没有 token 字段的 Agent 不产出 token（Copilot 只留下工具行）")
     func copilotProducesToolRowsOnly() throws {
         let lines = #"""
-        {"type":"user.message","data":{"content":"帮我抽帧"},"id":"e1","timestamp":"2026-04-25T09:12:04.959Z","parentId":null}
-        {"type":"tool.execution_start","data":{"toolCallId":"call_1","toolName":"list_dir","arguments":{}},"id":"e5","timestamp":"2026-04-25T09:12:10.440Z","parentId":null}
+            {"type":"user.message","data":{"content":"帮我抽帧"},"id":"e1","timestamp":"2026-04-25T09:12:04.959Z","parentId":null}
+            {"type":"tool.execution_start","data":{"toolCallId":"call_1","toolName":"list_dir","arguments":{}},"id":"e5","timestamp":"2026-04-25T09:12:10.440Z","parentId":null}
 
-        """#
+            """#
         let scratch = try fixtureFile(lines)
         defer { try? FileManager.default.removeItem(at: scratch.directory) }
 
@@ -562,10 +574,90 @@ struct AgentTranscriptUsageScannerTests {
         #expect(result.deltas.contains { $0.tool == "list_dir" && $0.calls == 1 })
     }
 
+    @Test("CodeBuddy：顶层 function_call 行计工具调用，token 相减后取非缓存输入")
+    func codeBuddyCountsCallsAndTokens() throws {
+        // 本机真实形状：一次调用 = 一行 `function_call`（毫秒 epoch，`name` / `callId`
+        // 在顶层），token 挂在 `message.usage` 上且 `input_tokens` 含缓存命中。
+        let call =
+            #"{"id":"c1","timestamp":1790151484553,"type":"function_call","name":"Bash","callId":"call_1","arguments":{"command":"ls"},"sessionId":"s1","providerData":{"model":"deepseek-v4-flash"}}"#
+        let assistant =
+            #"{"id":"c2","timestamp":1790151484600,"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}],"sessionId":"s1","providerData":{"model":"deepseek-v4-flash"},"message":{"usage":{"input_tokens":1000,"output_tokens":50,"cache_read_input_tokens":400}}}"#
+        let scratch = try fixtureFile(call + "\n" + assistant + "\n")
+        defer { try? FileManager.default.removeItem(at: scratch.directory) }
+
+        let source = UsageSourceFile(
+            path: scratch.file.path, agent: .codeBuddy, sessionId: "s1")
+        let first = TranscriptUsageScanner.read(
+            source: source, previous: nil, calendar: calendar)
+
+        let calls = try #require(first.deltas.first { $0.tool != "" })
+        #expect(calls.tool == "bash")  // 工具名入库前归一为小写
+        #expect(calls.calls == 1)
+        // 工具行不带模型：模型榜只按 token 行拆。
+        #expect(calls.model == "")
+        #expect(calls.input == 0 && calls.output == 0)
+
+        let tokens = try #require(first.deltas.first { $0.tool == "" })
+        #expect(tokens.model == "deepseek-v4-flash")
+        #expect(tokens.input == 600)  // 1000 含 400 缓存命中
+        #expect(tokens.cacheRead == 400)
+        #expect(tokens.output == 50)
+        #expect(tokens.records == 1)
+
+        // 模拟改版前的进度行：那时文件已经读到底（EOF）而 `cursor` 还是空。
+        // 没有版本闸门的话这里会判定「没有变化」直接跳过，这些行就永远读不出来。
+        var stale = first.state
+        stale.cursor = nil
+        let replay = TranscriptUsageScanner.read(
+            source: source, previous: stale, calendar: calendar)
+        #expect(replay.needsReplace, "解析规则变过时必须整源重放，否则旧进度会永远跳过这些行")
+        #expect(replay.deltas.contains { $0.tool == "bash" && $0.calls == 1 })
+    }
+
+    @Test("CodeBuddy：带 usage 的助手行与带工具的行都不会被行级标记漏掉")
+    func codeBuddyMarkersCoverBothRowKinds() throws {
+        // 行级标记（markers）先于 JSON 解析：漏一个标记就整行跳过。真实记录里有两类行——
+        // `function_call`（工具调用）与只带 `message.usage` 的助手行——两类都必须命中。
+        let assistant =
+            #"{"id":"c2","timestamp":1790151484600,"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}],"sessionId":"s1","providerData":{"model":"deepseek-v4-flash"},"message":{"usage":{"input_tokens":1000,"output_tokens":50,"cache_read_input_tokens":400}}}"#
+        let call =
+            #"{"id":"c1","timestamp":1790151484553,"type":"function_call","name":"Bash","callId":"call_1","arguments":{"command":"ls"},"sessionId":"s1","providerData":{"model":"deepseek-v4-flash"}}"#
+
+        let assistantScratch = try fixtureFile(assistant + "\n")
+        defer { try? FileManager.default.removeItem(at: assistantScratch.directory) }
+        let assistantRead = TranscriptUsageScanner.read(
+            source: UsageSourceFile(
+                path: assistantScratch.file.path, agent: .codeBuddy, sessionId: "s1"),
+            previous: nil, calendar: calendar)
+        let tokens = try #require(
+            assistantRead.deltas.first { $0.tool == "" },
+            "助手行的 message.usage 被行级标记漏掉了（markers 里少了 \"usage\"）")
+        #expect(tokens.input == 600)
+        #expect(tokens.cacheRead == 400)
+        #expect(tokens.output == 50)
+        #expect(tokens.model == "deepseek-v4-flash")
+
+        let callScratch = try fixtureFile(call + "\n")
+        defer { try? FileManager.default.removeItem(at: callScratch.directory) }
+        let callRead = TranscriptUsageScanner.read(
+            source: UsageSourceFile(path: callScratch.file.path, agent: .codeBuddy, sessionId: "s1"),
+            previous: nil, calendar: calendar)
+        let calls = try #require(
+            callRead.deltas.first { $0.tool != "" },
+            "function_call 行被行级标记漏掉了")
+        #expect(calls.tool == "bash")
+        #expect(calls.calls == 1)
+        // 没有 usage 的调用不建 token 桶：模型榜里不该出现「全零」的桶。
+        #expect(callRead.deltas.allSatisfy { $0.tool != "" })
+    }
+
     @Test("无法核对 token 字段的 Agent（Gemini / Kimi / Grok）一条用量都不产出")
     func agentsWithoutVerifiedTokensProduceNoUsage() throws {
         let fixtures: [(AgentKind, String)] = [
-            (.gemini, #"{"id":"m2","type":"gemini","content":[{"text":"答"}],"model":"gemini-2.5-pro","tokens":{"input":1,"output":1}}"#),
+            (
+                .gemini,
+                #"{"id":"m2","type":"gemini","content":[{"text":"答"}],"model":"gemini-2.5-pro","tokens":{"input":1,"output":1}}"#
+            ),
             (.kimi, #"{"type":"turn.prompt","input":[{"type":"text","text":"问"}]}"#),
             (.grok, #"{"type":"assistant","message":{"content":"答"}}"#),
         ]
