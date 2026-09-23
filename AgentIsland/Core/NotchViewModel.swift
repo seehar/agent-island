@@ -20,6 +20,9 @@ enum NotchOpenReason {
     case hover
     case notification
     case boot
+    /// 全局热键唤出。语义与 `.unknown` 相同（不是通知触发的展开，因此会
+    /// 恢复上次的对话面）。
+    case hotkey
     case unknown
 }
 
@@ -57,6 +60,21 @@ class NotchViewModel: ObservableObject {
     /// 上一次待过的非统计分组（`menuSection` 的 didSet 维护）。
     private var lastSettingsSection: NotchMenuSection = .general
     @Published var isHovering: Bool = false
+
+    /// 会话列表的键盘选中项（快捷键导航写它，行高亮与滚动读它）。
+    /// 选中的会话消失后不必清理：读的时候找不到就回落第一行。
+    @Published var selectedSessionKey: SessionKey?
+
+    /// 列表**当前显示**的会话（顺序即显示顺序），由 `ClaudeInstancesView`
+    /// 渲染时写回。快捷键的上下移动与「打开对话 / 聚焦终端」按它定位——列表
+    /// 口径（保留窗口、隐藏闲置等）因此只有一处实现。
+    @Published private(set) var visibleSessionKeys: [SessionKey] = []
+
+    /// 写回可见列表（顺序即显示顺序）。
+    func updateVisibleSessions(_ keys: [SessionKey]) {
+        guard keys != visibleSessionKeys else { return }
+        visibleSessionKeys = keys
+    }
 
     // MARK: - Dependencies
 
@@ -178,6 +196,9 @@ class NotchViewModel: ObservableObject {
                 + ApprovalDegradationSelector.shared.expandedPickerHeight
                 + ApprovalAskScopeSelector.shared.expandedPickerHeight
                 + ApprovalAutoExpandSelector.shared.expandedPickerHeight
+        case .shortcuts:
+            // 快捷键页没有可展开的选择器：录制行是行内的按键块，不撑高面板。
+            return 0
         case .statistics:
             // 统计页的时间范围控件在设置页的页眉行里（见 `StatsRangePicker`）：它的展开块
             // 是插在分段条与滚动区之间的固定块，挤占页内滚动视口而不撑高面板，因此增量是 0。
@@ -463,6 +484,13 @@ class NotchViewModel: ObservableObject {
     func openAgentsSettings() {
         contentType = .menu
         menuSection = .agents
+    }
+
+    /// 直接跳到「快捷键」页。关于页那一行入口用它（快捷键页不占分段位，
+    /// 没有其它常驻入口）。
+    func openShortcutsSettings() {
+        contentType = .menu
+        menuSection = .shortcuts
     }
 
     /// 离开设置面板回到会话列表（设置页页眉的返回箭头与两个按钮的 xmark 共用）。

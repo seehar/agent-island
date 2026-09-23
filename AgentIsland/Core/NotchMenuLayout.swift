@@ -26,6 +26,9 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
     case statistics
     /// 版本与更新、GitHub、退出。
     case about
+    /// 键盘快捷键：全局一条 + 面板内数条，可逐条录制。**不占分段位**——分段条
+    /// 放不下第六段（实测见 `NotchMenuTabBar`），入口在「关于」页。
+    case shortcuts
 
     var id: String { rawValue }
 
@@ -43,6 +46,7 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
         case .notifications: return "bell.badge"
         case .agents: return "cpu"
         case .statistics: return "chart.bar.xaxis"
+        case .shortcuts: return "keyboard"
         case .about: return "info.circle"
         }
     }
@@ -157,7 +161,7 @@ nonisolated enum NotchMenuMetrics {
     /// （菜单栏 24/25）→ 36/37；内置刘海 32 → 44；`notch` 档在没有内置刘海的屏上 38 → 50；
     /// 胶囊高度自定义 16…64 → 28…76。因此「装得下」是按页给阈值的——允许的最大 chrome
     /// （= 728 − 内容高 − 该页最高单个展开）：通用 **76**、行为 **110**、通知 **246**、
-    /// 智能体 **58**、统计 76、关于 343。
+    /// 智能体 **58**、统计 76、关于 343、**快捷键** 104。
     /// 通用页加过「接管键盘焦点」（单行开关 42）之后，它在 chrome 76 那一档**刚好**落到
     /// 728：此时余量为 0，再加任何一行都会让 `general@76` 变成被夹取的组合——那种情况下
     /// 需要显式登记进 `NotchMenuMetricsTests.clampedPairs`，并接受该档下页内滚动。
@@ -279,6 +283,13 @@ nonisolated enum NotchMenuMetrics {
                 // 工具调用保护：问什么 / 应用未运行时 / 有待处理请求时自动展开（三个全局档位）
                 Block(rows: Array(repeating: rowHeight, count: 3)),
             ]
+        case .shortcuts:
+            return [
+                // 全局：唤出/收起 + 脚注槽（注册失败的提示）
+                Block(rows: [rowHeight], hasFootnote: true),
+                // 面板内：十条动作 + 脚注槽（输入框规则 / 录制被拒的原因）
+                Block(rows: Array(repeating: rowHeight, count: 10), hasFootnote: true),
+            ]
         case .statistics:
             // 统计页是整页读数：高度由 UsageStatsMetrics.sectionHeight 给出（与页面实际
             // 排版一致），不按设置行算——它没有行，面板高度也不随数据多少变化。
@@ -287,8 +298,8 @@ nonisolated enum NotchMenuMetrics {
             return [
                 // 标识块（图标 + 名称 + 版本）：不画卡片也没有标题
                 Block(hasHeader: false, rows: [appIdentityHeight]),
-                // 检查更新 / 自动检查更新（开关行）/ GitHub
-                Block(hasHeader: false, rows: [twoLineRowHeight, toggleRowHeight, rowHeight]),
+                // 检查更新 / 自动检查更新（开关行）/ GitHub / 键盘快捷键
+                Block(hasHeader: false, rows: [twoLineRowHeight, toggleRowHeight, rowHeight, rowHeight]),
                 // 退出（破坏性操作单独一张卡片）
                 Block(hasHeader: false, rows: [rowHeight]),
             ]

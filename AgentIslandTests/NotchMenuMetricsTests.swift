@@ -213,6 +213,8 @@ struct NotchMenuMetricsTests {
             // 展开块占的是页内滚动视口（见 UsageStatsLayoutTests.rangePickerLeavesUsableViewport）。
             .statistics: 0,
             .about: 0,
+            // 快捷键页也没有撑高面板的展开项：录制行是行内的按键块，不展开。
+            .shortcuts: 0,
         ]
 
         for section in NotchMenuSection.allCases {

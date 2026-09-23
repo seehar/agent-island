@@ -88,6 +88,12 @@ struct NotchMenuView: View {
 
             Spacer(minLength: 8)
 
+            // 快捷键页的「恢复默认」：与统计页的重扫按钮同一格。页眉这一行不占页面
+            // 高度，页面里因此只有动作行，版面表与高度解析式保持一一对应。
+            if viewModel.menuSection == .shortcuts {
+                ShortcutResetButton()
+            }
+
             // 统计页的时间范围控件在这一行里（不再占页面顶部一行）：左侧的分段控件
             // 形状与设置页的分组切换条相同，两条叠在一起会被读成「第二层导航」。
             if viewModel.menuSection == .statistics {
@@ -112,10 +118,12 @@ struct NotchMenuView: View {
             NotificationsSettingsPage()
         case .agents:
             AgentsSettingsPage()
+        case .shortcuts:
+            ShortcutsSettingsPage()
         case .statistics:
             UsageStatisticsSettingsPage(viewModel: statsViewModel)
         case .about:
-            AboutSettingsPage(updateManager: updateManager)
+            AboutSettingsPage(updateManager: updateManager, viewModel: viewModel)
         }
     }
 }

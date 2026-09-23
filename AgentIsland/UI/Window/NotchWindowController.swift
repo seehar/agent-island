@@ -11,6 +11,9 @@ import SwiftUI
 
 class NotchWindowController: NSWindowController {
     let viewModel: NotchViewModel
+    /// 会话监视器：由窗口层独占持有并向下传——快捷键控制器在 AppKit 层，
+    /// 放在 SwiftUI 视图里就拿不到它。
+    let sessionMonitor = ClaudeSessionMonitor()
     private let screen: NSScreen
     private var cancellables = Set<AnyCancellable>()
 
@@ -47,10 +50,14 @@ class NotchWindowController: NSWindowController {
         super.init(window: notchWindow)
 
         // Create the SwiftUI view with pass-through hosting
-        let hostingController = NotchViewController(viewModel: viewModel)
+        let hostingController = NotchViewController(viewModel: viewModel, sessionMonitor: sessionMonitor)
         notchWindow.contentViewController = hostingController
 
         notchWindow.setFrame(windowFrame, display: true)
+
+        // 快捷键控制器挂接这个窗口（弱引用：窗口随屏幕变化重建时会重新挂接）。
+        ShortcutController.shared.attach(
+            panel: notchWindow, viewModel: viewModel, sessionMonitor: sessionMonitor)
 
         // Dynamically toggle mouse event handling based on notch state:
         // - Closed: ignoresMouseEvents = true (clicks pass through to menu bar/apps)

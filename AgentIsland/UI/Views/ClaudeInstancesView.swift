@@ -100,54 +100,55 @@ struct ClaudeInstancesView: View {
 
     // MARK: - Instances List
 
-    /// Priority: active (approval/processing/compacting) > waitingForInput > idle
-    /// Secondary sort: by last user message date (stable - doesn't change when agent responds)
-    /// Note: approval requests stay in their date-based position to avoid layout shift
+    /// 显示顺序：相位优先级 + 最近用户消息。
+    /// 口径抽在 `SessionListOrdering`（纯函数，可单测），快捷键按同一顺序导航。
     private var sortedInstances: [SessionState] {
-        visibleInstances.sorted { a, b in
-            let priorityA = phasePriority(a.phase)
-            let priorityB = phasePriority(b.phase)
-            if priorityA != priorityB {
-                return priorityA < priorityB
-            }
-            // Sort by last user message date (more recent first)
-            // Fall back to lastActivity if no user messages yet
-            let dateA = a.lastUserMessageDate ?? a.lastActivity
-            let dateB = b.lastUserMessageDate ?? b.lastActivity
-            return dateA > dateB
-        }
-    }
-
-    /// Lower number = higher priority
-    /// Approval requests share priority with processing to maintain stable ordering
-    private func phasePriority(_ phase: SessionPhase) -> Int {
-        switch phase {
-        case .waitingForApproval, .processing, .compacting: return 0
-        case .waitingForInput: return 1
-        case .idle, .ended: return 2
-        }
+        SessionListOrdering.sorted(visibleInstances)
     }
 
     private var instancesList: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(spacing: 2) {
-                ForEach(sortedInstances) { session in
-                    InstanceRow(
-                        session: session,
-                        isCriticalApproval: sessionMonitor.approvalDisplay(
-                            for: session.sessionKey)?.isCritical == true,
-                        onFocus: { focusSession(session) },
-                        onChat: { openChat(session) },
-                        onArchive: { archiveSession(session) },
-                        onApprove: { approveSession(session) },
-                        onReject: { rejectSession(session) }
-                    )
-                    .id(session.stableId)
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 2) {
+                    ForEach(sortedInstances) { session in
+                        InstanceRow(
+                            session: session,
+                            isCriticalApproval: sessionMonitor.approvalDisplay(
+                                for: session.sessionKey)?.isCritical == true,
+                            isSelected: viewModel.selectedSessionKey == session.sessionKey,
+                            onSelect: { viewModel.selectedSessionKey = session.sessionKey },
+                            onFocus: { focusSession(session) },
+                            onChat: { openChat(session) },
+                            onArchive: { archiveSession(session) },
+                            onApprove: { approveSession(session) },
+                            onReject: { rejectSession(session) }
+                        )
+                        .id(session.stableId)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            // 键盘导航后把选中的那一行滚进视野（居中，不贴边）。
+            .onChange(of: viewModel.selectedSessionKey) { _, key in
+                guard let key,
+                    let session = sortedInstances.first(where: { $0.sessionKey == key })
+                else { return }
+                withAnimation(.easeOut(duration: 0.15)) {
+                    proxy.scrollTo(session.stableId, anchor: .center)
                 }
             }
-            .padding(.vertical, 4)
+            // 把当前显示顺序写回视图模型：快捷键按它定位。
+            .onAppear { publishVisibleSessions() }
+            .onChange(of: sortedInstances.map(\.stableId)) { _, _ in
+                publishVisibleSessions()
+            }
         }
-        .scrollBounceBehavior(.basedOnSize)
+    }
+
+    /// 写回「当前显示的会话 + 顺序」（比较标识数组，顺序没变就不写）。
+    private func publishVisibleSessions() {
+        viewModel.updateVisibleSessions(sortedInstances.map(\.sessionKey))
     }
 
     // MARK: - Actions
@@ -189,6 +190,10 @@ struct InstanceRow: View {
     let session: SessionState
     /// 该会话的待批工具是否命中危险命令档（集成侧判定）；行内据此给出警示。
     let isCriticalApproval: Bool
+    /// 是否是键盘选中项（背景高亮）。
+    let isSelected: Bool
+    /// 点这一行时把选中态同步过来（键盘与鼠标不会各指一行）。
+    let onSelect: () -> Void
     let onFocus: () -> Void
     let onChat: () -> Void
     let onArchive: () -> Void
@@ -237,6 +242,7 @@ struct InstanceRow: View {
 
     /// 单击的落点由档位决定（见 `SessionRowClickAction.singleTapTarget`）。
     private func handleSingleTap() {
+    onSelect()
         switch clickAction.option.singleTapTarget(isInTmux: session.isInTmux) {
         case .chat:
             onChat()
@@ -461,6 +467,7 @@ struct InstanceRow: View {
         // 结果都收敛到「双击只进聊天」，而单击仍即时响应（不被双击等待窗口拖慢）。
         .onTapGesture(count: 2) {
             lastDoubleTapAt = Date()
+            onSelect()
             onChat()
         }
         .onTapGesture(count: 1) {
@@ -472,7 +479,10 @@ struct InstanceRow: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isWaitingForApproval)
         .background(
             RoundedRectangle(cornerRadius: AppRadius.panel)
-                .fill(isHovered ? AppPalette.rowHover : Color.clear)
+                .fill(
+                    isSelected
+                        ? AppPalette.segmentedThumb
+                        : (isHovered ? AppPalette.rowHover : Color.clear))
         )
         .onHover { isHovered = $0 }
     }

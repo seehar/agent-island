@@ -437,9 +437,11 @@ struct NotificationsSettingsPage: View {
 
 // MARK: - 关于
 
-/// 「关于」页：应用标识、版本与更新、GitHub、退出。
+/// 「关于」页：应用标识、版本与更新、GitHub、键盘快捷键、退出。
 struct AboutSettingsPage: View {
     @ObservedObject var updateManager: UpdateManager
+    /// 「键盘快捷键」那一行的跳转入口（快捷键页不占分段位，只能从这里进）。
+    @ObservedObject var viewModel: NotchViewModel
     @ObservedObject private var l10n = LocalizationManager.shared
 
     var body: some View {
@@ -467,8 +469,15 @@ struct AboutSettingsPage: View {
                     badge: SettingsBadge(
                         source: .symbol(name: "star", tint: AppPalette.accent)),
                     title: l10n.t("Star on GitHub"),
-                    showsSeparator: false,
                     action: openRepository
+                )
+
+                SettingsButtonRow(
+                    badge: SettingsBadge(
+                        source: .symbol(name: "keyboard", tint: AppPalette.accent)),
+                    title: l10n.t("Keyboard Shortcuts"),
+                    showsSeparator: false,
+                    action: { viewModel.openShortcutsSettings() }
                 )
             }
 

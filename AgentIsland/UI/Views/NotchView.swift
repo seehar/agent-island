@@ -27,7 +27,7 @@ private let headerBadgeTrailing: CGFloat = 4
 
 struct NotchView: View {
  @ObservedObject var viewModel: NotchViewModel
- @StateObject private var sessionMonitor = ClaudeSessionMonitor()
+ @ObservedObject var sessionMonitor: ClaudeSessionMonitor
  /// 统计页的视图模型：与 `sessionMonitor` 同款，由内容根持有——统计页在设置面板
  /// 里，分组切走再切回来（或从头部图标与齿轮两个入口进）都不重建：时间窗口、
  /// 已取到的快照都留着。

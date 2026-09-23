@@ -64,6 +64,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
   }
   NSApplication.shared.setActivationPolicy(.accessory)
 
+  // 快捷键：装本地监视、注册全局热键（内部自带「测试宿主不装」守卫）。
+  ShortcutController.shared.start()
+
   windowManager = WindowManager()
   _ = windowManager?.setupNotchWindow()
 
