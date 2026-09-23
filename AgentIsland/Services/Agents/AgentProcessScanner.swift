@@ -80,7 +80,7 @@ final class AgentProcessScanner: @unchecked Sendable {
 
       guard
         let agent = AgentKind.allCases.first(where: {
-          matches($0, executable: executable, command: comm)
+          Self.matches($0, executable: executable, command: comm)
         })
       else {
         continue
@@ -92,7 +92,10 @@ final class AgentProcessScanner: @unchecked Sendable {
 
   /// 进程名经常被截断或改写（pi 实际以 node 运行），因此同时匹配可执行名
   /// 和磁盘上的启动路径。
-  private func matches(_ agent: AgentKind, executable: String, command: String) -> Bool {
+  ///
+  /// 判据不依赖实例状态，故做成 `nonisolated static` 的静态入口，供用例直调
+  /// （用例只钉判据本身，不用造真进程）。
+  nonisolated static func matches(_ agent: AgentKind, executable: String, command: String) -> Bool {
     // 没有 CLI 的 Agent（Cline）`binaryName` 是空串：不加这个守卫，空的 `comm`
     // 会被判成它。
     if !agent.binaryName.isEmpty, executable == agent.binaryName { return true }
@@ -110,17 +113,50 @@ final class AgentProcessScanner: @unchecked Sendable {
       // Cline 是 VSCode 扩展：没有独立 CLI 进程，永不匹配（也不认 VSCode 主进程）。
       return false
     case .cursor:
-      // IDE 与 CLI 都走 `cursor-agent`。
+      // CLI 是 `cursor-agent`；IDE 本体的主二进制是 `Cursor`（只认 `Contents/MacOS/`
+      // 下的主二进制，理由同 `.trae`）。判据取自 CodeIsland 的 findCursorPids
+      //   （Sources/CodeIsland/AppState.swift:4432-4442）。
       return command.contains("cursor-agent")
+        || command.lowercased().contains("/cursor.app/contents/macos/cursor")
     case .trae:
-      // Trae IDE 的可执行名是 `coco`（`binaryName`）——名字被截断时按路径包含认。
+      // Trae 是 IDE：CLI 的可执行名是 `coco`（`binaryName`），而 IDE 本体的可执行
+      // 文件叫 `Trae`。只认 `coco` 的话 IDE 会话拿不到 pid，永远不会因「进程退出」被
+      // 回收（只能等空闲超时）。应用包路径判据取自 CodeIsland 的 findTraePids /
+      // findTraeCNPids（Sources/CodeIsland/AppState.swift:4563-4593，那边同样先
+      // lowercased 再比较）：国际版 `<bundle>/Contents/MacOS/Trae`（:4566），国内版
+      // `traecn.app` / `trae-cn.app` 的 `Contents/MacOS/Trae`（:4581-4582），再补上
+      // 国内版真实的包名 `Trae CN.app`。
+      // 只认 `Contents/MacOS/` 下的主二进制，不认 `Contents/Frameworks/* Helper`：
+      // 辅助进程随窗口结束就退出，且发现器要求「该 Agent 只有一个进程」才关联
+      // pid（AgentSessionDiscovery.tick 的 soleProcess）——多认一个辅助进程反而会
+      // 让关联整个失效。
+      let lowered = command.lowercased()
       return command.contains("coco")
+        || lowered.contains("/trae.app/contents/macos/trae")
+        || lowered.contains("/trae cn.app/contents/macos/")
+        || lowered.contains("/trae-cn.app/contents/macos/trae")
+        || lowered.contains("/traecn.app/contents/macos/trae")
     case .qoder:
+      // CLI 是 `qodercli`；IDE 本体的主二进制按包名分两代：Qoder IDE 1.25.1 把 bundle
+      // `Qoder.app` → `Qoder IDE.app`、可执行文件 `Electron` → `Qoder`（见 CodeIsland
+      // 引入该判据的提交 3e2b467）。上游 findQoderPids 用的是包目录前缀
+      // `/qoder.app/contents/`、`/qoder ide.app/contents/`（AppState.swift:4460-4466，
+      // 前缀表在 :630-633）——那会把 `Contents/Frameworks/` 里的 Qoder Helper 一起认进来，
+      // 这里按主二进制收窄到 `contents/macos/<主二进制名>`（理由同 `.trae`）。
+      let lowered = command.lowercased()
       return command.contains("qodercli")
+        || lowered.contains("/qoder.app/contents/macos/electron")
+        || lowered.contains("/qoder ide.app/contents/macos/qoder")
     case .kimi:
       return command.contains("/kimi") || command.contains("kimi-cli")
         || command.contains("kimi_cli")
-    case .codex, .gemini, .copilot, .factory, .codeBuddy, .grok, .traeCli, .deepSeekHarness:
+    case .factory:
+      // CLI 是 `droid`（`binaryName`）；IDE 本体的主二进制是 Electron 默认名，判据取自
+      // CodeIsland 的 findFactoryPids（Sources/CodeIsland/AppState.swift:4506-4513）的
+      // `/factory.app/contents/macos/electron`（同样只认主二进制，理由同 `.trae`）。
+      return command.contains("/droid")
+        || command.lowercased().contains("/factory.app/contents/macos/electron")
+    case .codex, .gemini, .copilot, .codeBuddy, .grok, .traeCli, .deepSeekHarness:
       // 这几个 CLI 以真实可执行文件运行，`ps` 的 `comm` 就是它的启动路径：
       // 名字完整时上面的快路径已命中，这里再认「路径里含 /<二进制名>」。
       return command.contains("/\(agent.binaryName)")

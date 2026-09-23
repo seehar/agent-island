@@ -112,6 +112,15 @@ nonisolated enum NotchMenuMetrics {
     static let contentTopGap: CGFloat = 10
     /// 关于页的标识块（图标 + 名称 + 版本）的高度。
     static let appIdentityHeight: CGFloat = 99
+    /// 「监控的智能体」卡片要**渲染**多少行、可视窗口多高。
+    ///
+    /// 这条不变量是踩过坑的：曾经把「渲染」也按可见行数截断，于是窗口里没有可滚动的
+    /// 内容，第 N+1 个之后的 Agent 在设置面板里**永远够不着**（关不掉、也看不到集成
+    /// 状态）。正确形态是：渲染全部行，只有窗口高度封顶，滚动由卡内接管。
+    static func agentCardLayout(total: Int) -> (renderedRows: Int, windowHeight: CGFloat) {
+        (renderedRows: total, windowHeight: CGFloat(min(total, visibleAgentRows)) * twoLineRowHeight)
+    }
+
     /// 「监控的智能体」卡片里最多同时显示多少行：其余行在卡内滚动
     /// （与音效选择器的 `maxVisibleOptions` 同一套做法）。
     ///

@@ -572,3 +572,127 @@ struct AgentProviderTests {
     #expect(plain.subagentTranscriptFiles(sessionId: "sid", cwd: "/Users/tester/work").isEmpty)
   }
 }
+
+// MARK: - 进程判据
+
+/// `AgentProcessScanner.matches` 是「会话 ↔ 进程」关联的唯一判据：判错了要么会话拿不到
+/// pid（永远不会因「进程退出」被回收，只能等空闲超时），要么把别的工具认成某个 Agent
+/// （会话串台、互相踢掉）。这里直接喂真实形态的启动路径——`ps -Ao comm=` 给的就是完整
+/// 路径，扫描器把它的最后一段当 `executable`——因此用例不依赖真机上跑着什么进程。
+@Suite("Agent 进程判据")
+struct AgentProcessMatchTests {
+  /// 扫描器的喂法：`executable` 是 `comm` 的最后一段。
+  private func hit(_ agent: AgentKind, _ command: String) -> Bool {
+    AgentProcessScanner.matches(
+      agent, executable: (command as NSString).lastPathComponent, command: command)
+  }
+
+  /// 扫描器的真实用法：按 `AgentKind.allCases` 顺序取第一个命中的 Agent。判据各自正确
+  /// 但顺序错位时，会话照样会被算到别的 Agent 名下，因此这条要一起钉住。
+  private func owner(of command: String) -> AgentKind? {
+    AgentKind.allCases.first { hit($0, command) }
+  }
+
+  @Test("Trae 的 IDE 与 CLI 都命中")
+  func traeMatchesIDEAndCLI() {
+    let cases = [
+      "/Applications/Trae.app/Contents/MacOS/Trae",  // 国际版 IDE 主二进制
+      "/Applications/Trae CN.app/Contents/MacOS/Trae CN",  // 国内版的真实包名
+      "/Applications/Trae-CN.app/Contents/MacOS/Trae",  // 上游另有这两种包名
+      "/Applications/TraeCN.app/Contents/MacOS/Trae",
+      "/Users/tester/.local/bin/coco",  // CLI（`binaryName`）
+      "/applications/trae.app/contents/macos/trae",  // 判据是小写后比较
+    ]
+    for command in cases {
+      #expect(hit(.trae, command), "\(command) 应命中 Trae")
+    }
+  }
+
+  @Test("Trae 不误命中别的 Agent 与辅助进程")
+  func traeDoesNotOverreach() {
+    let misses = [
+      "/Users/tester/.local/bin/traecli",  // 是另一个 Agent（Trae CLI）
+      "/Users/tester/.nvm/versions/node/v20.11.0/bin/claude",
+      "/Applications/Cursor.app/Contents/MacOS/Cursor",
+      // 辅助进程随窗口结束就退出，而发现器要「该 Agent 只有一个进程」才关联 pid：
+      // 多认一个辅助进程只会让关联整个失效，所以只认 `Contents/MacOS/` 下的主二进制。
+      "/Applications/Trae.app/Contents/Frameworks/Trae Helper (Renderer).app/Contents/MacOS/Trae Helper (Renderer)",
+      "/Applications/Trae CN.app/Contents/Frameworks/Trae CN Helper.app/Contents/MacOS/Trae CN Helper",
+    ]
+    for command in misses {
+      #expect(!hit(.trae, command), "\(command) 不应命中 Trae")
+    }
+    // traecli 归 Trae CLI，IDE 本体归 Trae：两边都别越界。
+    #expect(hit(.traeCli, "/Users/tester/.local/bin/traecli"))
+    #expect(!hit(.traeCli, "/Applications/Trae.app/Contents/MacOS/Trae"))
+  }
+
+  @Test("IDE 本体判给各自的 Agent")
+  func ideBundlesResolveToOwnAgent() {
+    let cases: [(command: String, owner: AgentKind, others: [AgentKind])] = [
+      (
+        "/Applications/Cursor.app/Contents/MacOS/Cursor", .cursor,
+        [.trae, .traeCli, .qoder, .factory]
+      ),
+      (
+        "/Applications/Factory.app/Contents/MacOS/Electron", .factory,
+        [.cursor, .trae, .qoder, .claudeCode]
+      ),
+      // Qoder IDE 1.25.1 把包名与可执行名一起改了，两种组合都要认。
+      (
+        "/Applications/Qoder.app/Contents/MacOS/Electron", .qoder,
+        [.cursor, .factory, .trae]
+      ),
+      (
+        "/Applications/Qoder IDE.app/Contents/MacOS/Qoder", .qoder,
+        [.cursor, .factory, .trae]
+      ),
+    ]
+    for entry in cases {
+      #expect(
+        owner(of: entry.command) == entry.owner, "\(entry.command) 应判给 \(entry.owner.rawValue)")
+      for other in entry.others {
+        #expect(!hit(other, entry.command), "\(entry.command) 不应命中 \(other.rawValue)")
+      }
+    }
+  }
+
+  @Test("IDE 的辅助进程一律不命中")
+  func ideHelpersDoNotMatch() {
+    let cases: [(command: String, agent: AgentKind)] = [
+      (
+        "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper (Renderer).app/Contents/MacOS/Cursor Helper (Renderer)",
+        .cursor
+      ),
+      (
+        "/Applications/Factory.app/Contents/Frameworks/Factory Helper.app/Contents/MacOS/Factory Helper",
+        .factory
+      ),
+      (
+        "/Applications/Qoder.app/Contents/Frameworks/Qoder Helper.app/Contents/MacOS/Qoder Helper",
+        .qoder
+      ),
+      (
+        "/Applications/Qoder IDE.app/Contents/Frameworks/Qoder Helper.app/Contents/MacOS/Qoder Helper",
+        .qoder
+      ),
+    ]
+    for entry in cases {
+      #expect(
+        !hit(entry.agent, entry.command),
+        "\(entry.command) 是辅助进程，不应命中 \(entry.agent.rawValue)")
+    }
+  }
+
+  @Test("IDE 判据不挤掉原有的 CLI 判据")
+  func cliFormsStillMatch() {
+    let cases: [(command: String, agent: AgentKind)] = [
+      ("/Users/tester/.local/bin/cursor-agent", .cursor),
+      ("/Users/tester/.qoder/bin/qodercli", .qoder),
+      ("/Users/tester/.local/bin/droid", .factory),
+    ]
+    for entry in cases {
+      #expect(hit(entry.agent, entry.command), "\(entry.command) 应命中 \(entry.agent.rawValue)")
+    }
+  }
+}

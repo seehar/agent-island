@@ -15,7 +15,11 @@
 //    - 读不懂的 JSON 放弃写入（返回 false）：宁可这次装不上，也不清空用户的配置；
 //    - 写前把上一版留成 `<文件名>.agent-island-backup`；
 //    - 原子替换；内容没有变化就一个字节都不写（不刷新时间戳，重复安装字节相同）；
-//    - 卸载只删自己的条目，别人的条目与其它键都留着。
+//    - 卸载只删自己的条目，别人的条目与其它键都留着；
+//    - 但「原本不存在、由我们创建的配置文件」在摘完我们的条目后已无内容（只剩我们种下的
+//      `version: 1`、或空白 / 空容器键）时整份删掉 —— 安装与卸载一一对应，不给用户留下
+//      我们造出来的空壳文件。判据是**备份文件是否存在**（`write` 只为原本已存在的文件落
+//      备份），不是推测。
 //
 //  两种写入口径（别混）：
 //    - JSON 事件表（claude / nested / flat / traeIDE / copilot）是**整体重写**：
@@ -39,6 +43,11 @@ nonisolated enum AgentConfigInstaller {
 
     /// 备份后缀：`<原文件名>.agent-island-backup`（与 `HookInstaller` 同款命名）。
     private static let backupExtension = "agent-island-backup"
+
+    /// Copilot / Trae IDE 的 schema 版本号：我们只在用户自己没设过时种下它，卸载时又按
+    /// 「顶层只剩这一个我们种的键」判空 —— 种什么、判什么必须是同一个值，因此放在一处。
+    private static let seededVersionKey = "version"
+    private static let seededVersionValue = 1
 
     // MARK: - 安装
 
@@ -90,9 +99,13 @@ nonisolated enum AgentConfigInstaller {
 
         switch spec.format {
         case .kimi:
-            rewriteText(at: location.configFile) { AgentConfigMerger.removingKimiHooks(from: $0) }
+            removeTextHooks(at: location.configFile) {
+                AgentConfigMerger.removingKimiHooks(from: $0)
+            }
         case .traecli:
-            rewriteText(at: location.configFile) { AgentConfigMerger.removingTraecliHooks(from: $0) }
+            removeTextHooks(at: location.configFile) {
+                AgentConfigMerger.removingTraecliHooks(from: $0)
+            }
         case .cline:
             removeClineFiles(spec: spec, location: location)
         case .claude, .nested, .flat, .traeIDE, .copilot:
@@ -253,8 +266,9 @@ nonisolated enum AgentConfigInstaller {
         root = AgentConfigMerger.appendingOwnEntries(
             entries, to: root, configKey: spec.configKey)
         // Copilot / Trae IDE 的 schema 版本号：用户自己设过就别动（他可能是为工具升级预留的）
-        if spec.format == .copilot || spec.format == .traeIDE, root["version"] == nil {
-            root["version"] = 1
+        if spec.format == .copilot || spec.format == .traeIDE,
+           root[seededVersionKey] == nil {
+            root[seededVersionKey] = seededVersionValue
         }
 
         guard let data = try? JSONSerialization.data(
@@ -493,6 +507,9 @@ nonisolated enum AgentConfigInstaller {
 
     /// 原子写入：内容没变化就一个字节都不写；`backup` 为真时先把上一版留成
     /// `<文件名>.agent-island-backup`（Cline 的事件文件不落备份：那个目录会被 Cline 当 hook 扫）。
+    ///
+    /// **原本不存在的文件不落备份**，因此「没有备份」等价于「这个文件是我们创建的」——
+    /// 卸载的对称性判据（`wasCreatedByUs`）就是靠这条，不另存状态。
     @discardableResult
     private static func write(_ data: Data, to file: URL, backup: Bool = true) -> Bool {
         let original = try? Data(contentsOf: file)
@@ -511,6 +528,12 @@ nonisolated enum AgentConfigInstaller {
 
         do {
             try data.write(to: file, options: .atomic)
+            // 首次启动会往**每个检测到的工具**的配置里写条目，所以「改了哪个文件、
+            // 备份在哪」必须在日志里看得见（notice 级：debug 不会被持久化）。
+            let backupFile = backupURL(for: file)
+            let origin = FileManager.default.fileExists(atPath: backupFile.path)
+                ? "备份 \(backupFile.path)" : "无备份（文件原本不存在）"
+            logger.notice("已写入 \(file.path, privacy: .public)（\(origin, privacy: .public)）")
             return true
         } catch {
             logger.error("写入失败：\(file.path, privacy: .public) — \(error.localizedDescription, privacy: .public)")
@@ -518,12 +541,56 @@ nonisolated enum AgentConfigInstaller {
         }
     }
 
-    /// 读文本 → 变换 → 变了才写（`removingKimiHooks` 这类摘除路径共用）。
-    private static func rewriteText(at file: URL, _ transform: (String) -> String) {
+    /// 行手术格式（kimi / traecli）的卸载：读文本 → 摘掉托管块 → 变了才写回。
+    ///
+    /// 卸载对称性：这个文件原本不存在（无备份）、摘完后只剩空白或我们建出来的空容器键
+    /// （traecli 的 `hooks:`）⇒ 整份删掉；用户自己写过任何键、注释或列表项就保留。
+    private static func removeTextHooks(at file: URL, _ transform: (String) -> String) {
         guard case let .text(original) = readText(at: file) else { return }
         let updated = transform(original)
         guard updated != original else { return }
+        if wasCreatedByUs(file), isEffectivelyEmpty(updated) {
+            removeCreatedFile(file, reason: "卸载后已无内容")
+            return
+        }
         write(Data(updated.utf8), to: file)
+    }
+
+    /// 这个文件是不是本应用凭空创建的：判据是**没有**对应的 `<文件名>.agent-island-backup`
+    /// —— `write` 只为「原本已存在」的文件落备份，所以「无备份」等价于「我们创建的」，
+    /// 不需要另存一份状态（重启、重装后依然成立）。
+    private static func wasCreatedByUs(_ file: URL) -> Bool {
+        !FileManager.default.fileExists(atPath: backupURL(for: file).path)
+    }
+
+    /// 摘掉我们的条目后，顶层是否只剩下我们为写入而种下的键（目前只有 Copilot / Trae IDE 的
+    /// `seededVersionKey`）—— 「这个文件卸完已无内容」的判据；用户加过别的键就算有内容。
+    private static func holdsOnlySeededKeys(_ root: [String: Any]) -> Bool {
+        if root.isEmpty { return true }
+        return root.count == 1
+            && root[seededVersionKey] as? Int == seededVersionValue
+    }
+
+    /// 行手术格式卸载后是否已无内容：只剩空白行，或只剩我们建出来的空容器键（`hooks:`）。
+    private static func isEffectivelyEmpty(_ text: String) -> Bool {
+        text.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .allSatisfy { $0.isEmpty || $0 == "hooks:" }
+    }
+
+    /// 删掉我们创建的配置文件；删不掉只记日志（卸载不该因此中断）。
+    private static func removeCreatedFile(_ file: URL, reason: String) {
+        do {
+            try FileManager.default.removeItem(at: file)
+            logger.notice("已删除 \(file.path, privacy: .public)（\(reason, privacy: .public)）")
+        } catch {
+            logger.error("删除失败：\(file.path, privacy: .public) — \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// 备份文件的落点（`<文件名>.agent-island-backup`）。
+    private static func backupURL(for file: URL) -> URL {
+        file.appendingPathExtension(backupExtension)
     }
 
     /// 摘掉本应用的事件表条目；没有我们条目的文件原样不动（免得把用户的排版重排一遍）。
@@ -538,6 +605,13 @@ nonisolated enum AgentConfigInstaller {
 
         let stripped = AgentConfigMerger.strippingOwnEntries(
             from: load.settings, configKey: spec.configKey)
+        // 卸载对称性：文件是我们凭空创建的（无备份）、摘掉我们的条目后又只剩我们种下的键
+        // （Copilot / Trae IDE 的 `version: 1`）或什么都不剩 ⇒ 整份删掉；用户后来自己加过
+        // 顶层键就说明这文件已经归他，只摘我们的条目、文件留着。
+        if wasCreatedByUs(location.configFile), holdsOnlySeededKeys(stripped) {
+            removeCreatedFile(location.configFile, reason: "卸载后已无内容")
+            return
+        }
         guard let data = try? JSONSerialization.data(
             withJSONObject: stripped, options: [.prettyPrinted, .sortedKeys]
         ) else {

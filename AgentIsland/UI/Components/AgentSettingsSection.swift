@@ -38,8 +38,8 @@ struct AgentSettingsSection: View {
             // 下面的「审批闸门」与「Claude Code 配置目录」两张卡也还在手边。
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
-                    // 注意：这里**不能**只渲染前 N 行——那样卡内就没有可滚动的内容，
-                    // 第 N+1 个之后的 Agent 在设置面板里永远够不着。窗口高度才是上限。
+                    // 渲染**全部**行：只截断窗口高度（见 `NotchMenuMetrics.agentCardLayout`），
+                    // 否则窗口外的 Agent 在设置面板里永远够不着。
                     ForEach(Array(orderedAgents.enumerated()), id: \.element) { index, kind in
                         AgentSettingsRow(
                             kind: kind,
@@ -53,7 +53,7 @@ struct AgentSettingsSection: View {
                     }
                 }
             }
-            .frame(height: CGFloat(visibleRowCount) * NotchMenuMetrics.twoLineRowHeight)
+            .frame(height: NotchMenuMetrics.agentCardLayout(total: orderedAgents.count).windowHeight)
 
             if let installError {
                 SettingsNotice(message: installError)
@@ -63,11 +63,6 @@ struct AgentSettingsSection: View {
             refreshState()
             orderedAgents = Self.installedFirstOrder()
         }
-    }
-
-    /// 卡内实际显示的 Agent 行数：与 `NotchMenuMetrics` 的高度预算同一个来源。
-    private var visibleRowCount: Int {
-        min(AgentKind.allCases.count, NotchMenuMetrics.visibleAgentRows)
     }
 
     /// 显示顺序：**已安装**（配置目录存在）的排在前面，其余按枚举顺序。
@@ -245,8 +240,8 @@ private struct AgentSettingsRow: View {
 
     /// 悬停说明。
     ///
-    /// 这里必须说清「关闭 = 没有任何闸门」：omp 生效的 `approvalMode` 已是 yolo，
-    /// 关闭本开关不会恢复 omp 自己的提示，而是把它变成完全没有闸门的 agent。
+    /// 这里必须说清「关闭 = 没有任何闸门」：`omp` / `pi` 生效的 `approvalMode` 已是 yolo，
+    /// 关闭本开关不会恢复它们自己的提示，而是把它变成完全没有闸门的 agent。
     private var gateHelp: String {
         guard isEnabled else {
             return l10n.t("Enable %@ first", kind.displayName)
@@ -254,7 +249,9 @@ private struct AgentSettingsRow: View {
         if isGateEnabled {
             return l10n.t("On: %@ no longer prompts on its own. Turning this off leaves it with no approval gate at all.", kind.displayName)
         }
-        return l10n.t("Approve %@ tool calls on the notch. Its default approvalMode is already yolo, so omp never prompts on its own.", kind.displayName)
+        return l10n.t(
+            "Approve %@ tool calls on the notch. Its own approval mode is already yolo, so it never prompts by itself.",
+            kind.displayName)
     }
 
     // MARK: - Presentation

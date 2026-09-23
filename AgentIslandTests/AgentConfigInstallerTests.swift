@@ -717,4 +717,83 @@ struct AgentConfigInstallerTests {
         let after = try Data(contentsOf: installed)
         #expect(after == before)
     }
+
+    // MARK: - 卸载对称性（原本不存在的文件，卸完就删）
+
+    @Test("卸载对称性：原本不存在的 copilot 文件（我们种的 version 1）卸载后整份删除")
+    func uninstallDeletesCreatedPlainFile() throws {
+        let home = try makeHome()
+        try makeDirectory(home.appendingPathComponent(".copilot"))
+        let file = home.appendingPathComponent(".copilot/hooks/agent-island.json")
+        let backup = file.appendingPathExtension("agent-island-backup")
+
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        #expect(AgentConfigInstaller.install(.copilot, home: home))
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        // 我们创建的文件不落备份：「没有备份」正是「这个文件是我们造的」的判据
+        #expect(!FileManager.default.fileExists(atPath: backup.path))
+        #expect(try json(file)["version"] as? Int == 1)
+
+        AgentConfigInstaller.uninstall(.copilot, home: home)
+
+        // 摘完只剩 `{"version": 1}` 的空壳：整个删掉，别留在用户机器上
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        #expect(!FileManager.default.fileExists(atPath: backup.path))
+        #expect(!AgentConfigInstaller.isInstalled(.copilot, home: home))
+        #expect(AgentConfigInstaller.installedFiles(.copilot, home: home).isEmpty)
+    }
+
+    @Test("卸载对称性：我们创建的文件被用户加过顶层键后，卸载保留文件、只摘我们的条目")
+    func uninstallKeepsCreatedFileOnceUserAddsKeys() throws {
+        let home = try makeHome()
+        try makeDirectory(home.appendingPathComponent(".gemini"))
+        let file = home.appendingPathComponent(".gemini/settings.json")
+
+        #expect(AgentConfigInstaller.install(.gemini, home: home))
+        // 用户后来自己往这个文件里写了别的东西：它已经归他，卸载不能再整份删
+        var root = try json(file)
+        root["theme"] = "dark"
+        try canonical(root).write(to: file)
+
+        AgentConfigInstaller.uninstall(.gemini, home: home)
+
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        let uninstalled = try json(file)
+        #expect(uninstalled["theme"] as? String == "dark")
+        #expect(uninstalled["hooks"] == nil)
+        #expect(!AgentConfigInstaller.isInstalled(.gemini, home: home))
+    }
+
+    @Test("卸载对称性：原本不存在的 kimi config.toml 卸载后整份删除")
+    func uninstallDeletesCreatedKimiFile() throws {
+        let home = try makeHome()
+        try makeDirectory(home.appendingPathComponent(".kimi"))
+        let file = home.appendingPathComponent(".kimi/config.toml")
+
+        #expect(AgentConfigInstaller.install(.kimi, home: home))
+        #expect((try text(file)).contains("[[hooks]]"))
+        #expect(AgentConfigInstaller.isInstalled(.kimi, home: home))
+
+        AgentConfigInstaller.uninstall(.kimi, home: home)
+
+        // 摘完只剩空白：整个删掉（用户自己写过的文件走另一条路，逐字节还原）
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        #expect(!AgentConfigInstaller.isInstalled(.kimi, home: home))
+    }
+
+    @Test("卸载对称性：原本不存在的 traecli.yaml 卸载后整份删除（空 hooks 键不算内容）")
+    func uninstallDeletesCreatedTraecliFile() throws {
+        let home = try makeHome()
+        try makeDirectory(home.appendingPathComponent(".trae"))
+        let file = home.appendingPathComponent(".trae/traecli.yaml")
+
+        #expect(AgentConfigInstaller.install(.traeCli, home: home))
+        #expect((try text(file)).hasPrefix("hooks:\n  - type: command\n"))
+        #expect(AgentConfigInstaller.isInstalled(.traeCli, home: home))
+
+        AgentConfigInstaller.uninstall(.traeCli, home: home)
+
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        #expect(!AgentConfigInstaller.isInstalled(.traeCli, home: home))
+    }
 }

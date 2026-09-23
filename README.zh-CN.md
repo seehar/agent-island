@@ -119,7 +119,7 @@ cd agent-island
 
 ## 首次运行
 
-AgentIsland 只为每个 Agent 写**一个**文件（它的集成），并在你关闭该 Agent 时删掉。磁盘上其它东西一概不动。
+AgentIsland 只碰各 Agent 自己的接入面：共用脚本 `~/.agent-island/hooks/agent-island-state.py`，以及合并进该工具自身配置里的条目（见下表）。每个被改写的配置文件都会先备份成 `<文件名>.agent-island-backup`；由我们创建的文件在卸载时会删掉；关闭某个 Agent 只摘掉它的条目，共用脚本保留（别的工具还在用）。**更新后第一次启动会为每个检测到的工具安装 hook** —— 不想要哪个，就在「设置 → 智能体」里关掉它。
 
 |Agent|写入文件|还会动到|
 |---|---|---|

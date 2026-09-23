@@ -119,7 +119,7 @@ The script runs `scripts/gate.sh` first — the localization guard plus a Releas
 
 ## First run
 
-AgentIsland writes exactly one file per agent (its integration) and deletes it when you turn that agent off. Nothing else on disk is touched.
+AgentIsland only touches each agent's own integration surface: the shared hook script at `~/.agent-island/hooks/agent-island-state.py`, plus the entries it merges into that tool's own config (table below). Every config file it rewrites is copied first to `<name>.agent-island-backup`; a file AgentIsland created itself is removed again on uninstall; turning an agent off strips only its entries and leaves the shared script in place (the other tools still use it). On the first launch after an update, hooks are installed for **every detected tool** — if you don't want one of them, switch that agent off in **Settings → Agents**.
 
 |Agent|File written|Also touched|
 |---|---|---|

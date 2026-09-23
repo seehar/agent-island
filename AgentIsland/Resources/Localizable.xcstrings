@@ -4037,23 +4037,6 @@
         }
       }
     },
-    "Approve %@ tool calls on the notch. Its default approvalMode is already yolo, so omp never prompts on its own." : {
-      "comment" : "闸门关闭态的悬停说明；%@ = Agent 产品名",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Approve %@ tool calls on the notch. Its default approvalMode is already yolo, so omp never prompts on its own."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "在刘海上批准 %@ 的工具调用。它的默认 approvalMode 已是 yolo，因此 omp 自身不会提示。"
-          }
-        }
-      }
-    },
     "Off" : {
       "comment" : "闸门按钮的无障碍状态值（开态复用既有键 On）",
       "localizations" : {
@@ -5238,6 +5221,23 @@
         }
       },
       "shouldTranslate" : false
+    },
+    "Approve %@ tool calls on the notch. Its own approval mode is already yolo, so it never prompts by itself." : {
+      "comment" : "闸门关闭态的悬停说明；%@ = Agent 产品名",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Approve %@ tool calls on the notch. Its own approval mode is already yolo, so it never prompts by itself."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在刘海上批准 %@ 的工具调用。它自己的 approval mode 已是 yolo，因此它自身不会提示。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

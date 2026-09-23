@@ -12,8 +12,9 @@ nonisolated struct HookInstaller {
     /// 失败原因走日志而不是界面：界面上「是否已装」由集成状态表达，日志里才写得下原因。
     private static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "Integration")
 
-    /// hook 脚本文件名（各 Agent 的安装逻辑共用这个名字）。
-    static let hookScriptName = "agent-island-state.py"
+    /// hook 脚本文件名。**只有一处事实源**（`AgentHookScript.fileName`）：脚本落点、
+    /// 各工具配置里引用的路径、以及卸载时的判据都从那里取，避免两处常量各自漂移。
+    static var hookScriptName: String { AgentHookScript.fileName }
 
     /// 改名前的脚本名。老用户机器上 ~/.claude/settings.json 与 hooks 目录里仍有它，
     /// 安装与卸载都要一并清理，否则旧脚本会继续往已废弃的 socket 发状态。
@@ -142,7 +143,9 @@ nonisolated struct HookInstaller {
 
         do {
             try data.write(to: settingsURL, options: [.atomic])
-            logger.debug("已写入 Claude hook 配置：\(settingsURL.path, privacy: .public)")
+            // notice 级：首次启动会往每个检测到的工具的配置里写条目，用户与我们都得能
+            // 从日志里看出「改了哪个文件、备份在哪」（debug 不会被持久化）。
+            logger.notice("已写入 Claude hook 配置：\(settingsURL.path, privacy: .public)")
         } catch {
             logger.error("写入 settings.json 失败：\(error.localizedDescription, privacy: .public)")
         }

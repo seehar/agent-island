@@ -51,22 +51,6 @@ nonisolated enum AgentRegistry {
         provider(for: kind).integrationStatus()?.health == .installed
     }
 
-    /// 需要用户安装实时事件集成的 Agent。
-    static var installableIntegrations: [AgentKind] {
-        enabled.filter { $0.requiresIntegrationInstall }
-    }
-
-    /// 判断某个会话记录文件属于哪个 Provider。
-    /// Claude 与 pi 系都用 `.jsonl`，因此按固定顺序检查，先识别者获胜。
-    static func provider(owningTranscript path: String) -> (any AgentProvider)? {
-        for kind in enabledAndInstalled {
-            let candidate = provider(for: kind)
-            if candidate.isTranscriptFile(path) {
-                return candidate
-            }
-        }
-        return nil
-    }
 }
 
 // MARK: - 跨 Provider 共用的事实

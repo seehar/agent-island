@@ -88,6 +88,21 @@ struct NotchMenuMetricsTests {
         #expect(blocks[2].rows == [NotchMenuMetrics.rowHeight])
     }
 
+    @Test("智能体卡片：渲染全部行，只有窗口封顶（漏掉这条就会让窗口外的 Agent 够不着）")
+    func agentCardRendersEveryRowAndOnlyCapsTheWindow() {
+        let total = AgentKind.allCases.count
+        let layout = NotchMenuMetrics.agentCardLayout(total: total)
+        // 渲染数必须等于全部 Agent：截断渲染会让第 N+1 个之后的行在面板里永远够不着。
+        #expect(layout.renderedRows == total)
+        // 窗口封顶，且真的比内容矮 ⇒ 卡内是可滚动的（这正是「够得着」的前提）。
+        #expect(layout.windowHeight == CGFloat(NotchMenuMetrics.visibleAgentRows) * NotchMenuMetrics.twoLineRowHeight)
+        #expect(layout.windowHeight < CGFloat(total) * NotchMenuMetrics.twoLineRowHeight)
+        // 少到装得下时不封顶（窗口就是内容高）。
+        let few = NotchMenuMetrics.agentCardLayout(total: 2)
+        #expect(few.renderedRows == 2)
+        #expect(few.windowHeight == 2 * NotchMenuMetrics.twoLineRowHeight)
+    }
+
     @Test("受支持的 Agent 多于卡片可见行数时，卡片高度不再随 Agent 数量变化")
     func agentsCardHeightIsCappedByVisibleRows() {
         // 这条钉住「接入新 Agent 不会偷偷把智能体页撑长」：只要受支持的 Agent 数量

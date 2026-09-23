@@ -141,6 +141,28 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 - 发版前必须 bump `CURRENT_PROJECT_VERSION`（appcast 里的 `sparkle:version` 就是它）：build 号不变，已装用户收不到更新提示。
 - 发布验收要独立复核：release 附件字节与本地 DMG 一致（`shasum`）、appcast 的 `length`/`edSignature` 与产物一致、`sign_update --verify` 通过。
 
+### 各 Agent 接入的事实来源与证据等级
+
+新接入的 13 个 Agent 里，本机装着的只有 Codex（`codex`）与 Qoder（`qodercli`），其余
+（Gemini / Cursor / Copilot / Factory / CodeBuddy / Kimi / Cline / Grok / Trae / Trae CLI /
+DSH）**没有本机样本**。所以这一块的证据分三档，动这些地方之前先认清自己手里是哪一档：
+
+| 档位 | 含义 | 涉及 |
+|---|---|---|
+| 本机实测 | 用真机记录与配置逐字核对过字段 | Codex（`~/.codex/sessions/**` 真记录 + `hooks.json` + `config.toml` 的 `[features] hooks`）、Qoder（真记录，Claude 格式，项目目录编码与 Claude 一致）、CodeBuddy（真记录，外壳不同且编码少一个前导短横线） |
+| 上游源码 | 逐条照 CodeIsland 的实现与其行号，但本机无法复跑 | 各工具的配置路径/格式/事件表、Cursor 与 Copilot 的记录字段、Kimi 两代索引、Cline 的 VSCode 存储、Grok 的 `$GROK_HOME` 布局、Trae/Trae CLI 的布局 |
+| 合成载荷 | 只有矩阵脚本造的信封能证明 | 事件名归一与按工具回写的形状（`scripts/verify-agent-hooks.sh`，25 个 case / 283 条断言） |
+
+**未验证清单**（装上真机后应优先复核，改这块前先看这里）：
+
+1. Gemini：事件里的 `session_id` 是否等于记录首行的 `sessionId`。不等的话状态正常但聊天历史为空；`GeminiAgentProvider.transcriptFile` 已同时按文件名前缀与首行 `sessionId` 兜底，仍需真机确认。
+2. Gemini / Kimi / Cline / Grok 的工具调用字段：本批**故意**不抽（没有可核对的字段名，猜错会把统计放大），因此它们在统计页上不出现。
+3. Trae CLI 的 `permission_request` 回写形状（按 Claude 信封写，与上游一致但未真机验证）；Trae / Trae CLI 没有可解析记录，只有实时事件。
+4. Copilot 的两代记录布局（`jb/<id>/partition-*.jsonl` 当前 + `session-state/<id>/events.jsonl` 旧版）：本机只见到前者。
+5. DSH：记录是 zstd 压缩（系统无 zstd API，不解析），事件依赖外部 dsh 插件直接写 socket——本应用不装它的集成。
+
+**首次启动的足迹**：新 Agent 默认启用，因此更新后第一次启动会为**每个配置目录存在的工具**写 hook 条目（本机实测 7 个），每个被改写的文件旁留 `<文件名>.agent-island-backup`，写入动作是 notice 级日志。关掉某个 Agent 只摘它的条目，共用脚本保留。
+
 ## 约束
 
 - **注释一律中文**：新增文件、被改动代码的注释（含 `///` 文档注释与 `// MARK:` 标题）。文件头保留既有「文件路径 + 中文简述」注释块风格。
