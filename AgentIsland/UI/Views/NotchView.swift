@@ -15,8 +15,8 @@ private let cornerRadiusInsets = (
  closed: (top: CGFloat(6), bottom: CGFloat(14))
 )
 
-// 头部行的间距（实测校准）。展开态右端是「图表 · 齿轮 · 计数」：
-//   · 两个按钮之间用 `headerControlSpacing`（原先固定 12，字形之间因此有 ~22pt）；
+// 头部行的间距（实测校准）。展开态右端是「图表 · 额度 · 齿轮 · 计数」：
+//   · 三个按钮之间用 `headerControlSpacing`（原先固定 12，字形之间因此有 ~22pt）；
 //   · 计数与齿轮之间再多给 `headerGlyphMargin`——按钮是 22pt 的方形悬停框、图标字形
 //     只占中间约 12pt（左右各留约 5pt），而计数是字形直接起笔；不多给这 5pt，计数会
 //     看起来比两个图标之间更近（原先的算式甚至把计数贴到齿轮上，实测间距 ~6pt）。
@@ -32,6 +32,8 @@ struct NotchView: View {
  /// 里，分组切走再切回来（或从头部图标与齿轮两个入口进）都不重建：时间窗口、
  /// 已取到的快照都留着。
  @StateObject private var usageStatsViewModel = UsageStatsViewModel()
+ /// 额度页的视图模型：同样由内容根持有——头部额度按钮与设置面板两个入口共用一份配置与读数。
+ @StateObject private var balanceViewModel = NewAPIBalanceViewModel()
  @StateObject private var activityCoordinator = NotchActivityCoordinator.shared
  @ObservedObject private var updateManager = UpdateManager.shared
  @ObservedObject private var textSizeSelector = TextSizeSelector.shared
@@ -52,6 +54,8 @@ struct NotchView: View {
  @State private var isMenuButtonHovered: Bool = false
  /// 头部右上角统计按钮的悬停态（与设置面板、设置按钮同一反馈口径）
  @State private var isStatsButtonHovered: Bool = false
+ /// 头部右上角额度按钮的悬停态（与统计、设置按钮同一反馈口径）
+ @State private var isQuotaButtonHovered: Bool = false
 
  @Namespace private var activityNamespace
 
@@ -524,6 +528,28 @@ struct NotchView: View {
     .buttonStyle(SettingsCompactButtonStyle())
     .accessibilityLabel(Text(l10n.t("Statistics")))
 
+    // 额度入口：与统计、设置按钮并列，规则同前——内容面就是额度页时显示 xmark（点击退回
+    // 会话列表），否则显示信用卡图标。额度页同样是设置面板里的一个分组，因此这个按钮等价于
+    // 「设置面板 → 额度」。
+    Button {
+     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+      viewModel.toggleQuota()
+     }
+    } label: {
+     Image(systemName: viewModel.isShowingQuota ? "xmark" : "creditcard")
+      .font(.system(size: 11, weight: .medium))
+      .foregroundColor(.white.opacity(0.4))
+      .frame(width: 22, height: 22)
+      .background(
+       RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous)
+        .fill(isQuotaButtonHovered ? AppPalette.rowHover : Color.clear)
+      )
+      .contentShape(Rectangle())
+      .onHover { isQuotaButtonHovered = $0 }
+    }
+    .buttonStyle(SettingsCompactButtonStyle())
+    .accessibilityLabel(Text(l10n.t("Quota")))
+
     // Menu toggle
     Button {
      withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -584,7 +610,11 @@ struct NotchView: View {
     // 内容面按用户的字号档位缩放；设置面板（.menu）不注入，保持解析式高度
     .environment(\.appTextScale, textSizeSelector.scale)
    case .menu:
-    NotchMenuView(viewModel: viewModel, statsViewModel: usageStatsViewModel)
+    NotchMenuView(
+     viewModel: viewModel,
+     statsViewModel: usageStatsViewModel,
+     balanceViewModel: balanceViewModel
+    )
    case .chat(let session):
     ChatView(
      key: session.sessionKey,

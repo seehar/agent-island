@@ -49,15 +49,17 @@ class NotchViewModel: ObservableObject {
     @Published var contentType: NotchContentType = .instances
     /// 设置面板当前所在的分组。设置项按分组分页，面板只按当前分组撑高。
     ///
-    /// 顺带记住上一次待过的**非统计**分组：统计分组是「看数据」的页，用户从它用齿轮
-    /// 回到设置时应当回到原来的位置（见 `toggleMenu()`）。
+    /// 顺带记住上一次待过的**分段页**分组：统计与额度都不占分段位（是「看数据」与
+    /// 「看额度」的页），用户从它们用齿轮回到设置时应当回到原来的位置（见 `toggleMenu()`）。
     @Published var menuSection: NotchMenuSection = .general {
         didSet {
-            if menuSection != .statistics { lastSettingsSection = menuSection }
+            if menuSection != .statistics && menuSection != .quota {
+                lastSettingsSection = menuSection
+            }
         }
     }
 
-    /// 上一次待过的非统计分组（`menuSection` 的 didSet 维护）。
+    /// 上一次待过的分段页分组（`menuSection` 的 didSet 维护）。
     private var lastSettingsSection: NotchMenuSection = .general
     @Published var isHovering: Bool = false
 
@@ -202,6 +204,9 @@ class NotchViewModel: ObservableObject {
         case .statistics:
             // 统计页的时间范围控件在设置页的页眉行里（见 `StatsRangePicker`）：它的展开块
             // 是插在分段条与滚动区之间的固定块，挤占页内滚动视口而不撑高面板，因此增量是 0。
+            return 0
+        case .quota:
+            // 额度页没有可展开的选择器：四行输入框 + 两行读数，刷新控件在页眉行里（同统计页）。
             return 0
         case .about:
             return 0
@@ -450,10 +455,16 @@ class NotchViewModel: ObservableObject {
         contentType == .menu && menuSection == .statistics
     }
 
-    /// 内容面在设置面板里、且不在统计分组。头部齿轮按钮据此显示 xmark——
-    /// 它与 `isShowingStatistics` 正好把「在设置里」分完，两个按钮不会同时显示 xmark。
+    /// 内容面就是额度页（设置面板的额度分组）。头部额度按钮据此显示 xmark。
+    var isShowingQuota: Bool {
+        contentType == .menu && menuSection == .quota
+    }
+
+    /// 内容面在设置面板里、且不在统计与额度分组。头部齿轮按钮据此显示 xmark——
+    /// 它与 `isShowingStatistics`、`isShowingQuota` 正好把「在设置里」分完，
+    /// 三个按钮任何时刻最多一个显示 xmark。
     var isShowingSettings: Bool {
-        contentType == .menu && menuSection != .statistics
+        contentType == .menu && menuSection != .statistics && menuSection != .quota
     }
 
     /// 图表按钮：进统计页；已经在统计页时退回会话列表。
@@ -466,14 +477,24 @@ class NotchViewModel: ObservableObject {
         }
     }
 
-    /// 齿轮按钮：进设置面板；已经在设置里时退回会话列表；在统计分组或从统计页回来时，
+    /// 额度按钮：进额度页；已经在额度页时退回会话列表（与图表按钮同构）。
+    func toggleQuota() {
+        if isShowingQuota {
+            exitMenu()
+        } else {
+            contentType = .menu
+            menuSection = .quota
+        }
+    }
+
+    /// 齿轮按钮：进设置面板；已经在设置里时退回会话列表；在统计 / 额度分组或从它们回来时，
     /// 回到上一次待过的设置分组，而不是从「通用」重来。
     func toggleMenu() {
         if isShowingSettings {
             exitMenu()
         } else {
             contentType = .menu
-            if menuSection == .statistics {
+            if menuSection == .statistics || menuSection == .quota {
                 menuSection = lastSettingsSection
             }
         }

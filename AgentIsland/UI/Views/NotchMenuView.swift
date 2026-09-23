@@ -15,6 +15,9 @@ struct NotchMenuView: View {
     /// 统计页的视图模型：由内容根（`NotchView`）持有并透传——头部图标与设置面板两个
     /// 入口共用同一份状态（时间窗口、快照），从分组切回来不会重新取一次数据。
     @ObservedObject var statsViewModel: UsageStatsViewModel
+    /// 额度页的视图模型：同样由内容根（`NotchView`）持有并透传——头部额度按钮与设置面板
+    /// 共用一个实例，从哪边进来看到的配置与读数都是同一份。
+    @ObservedObject var balanceViewModel: NewAPIBalanceViewModel
     @ObservedObject private var updateManager = UpdateManager.shared
     @ObservedObject private var screenSelector = ScreenSelector.shared
     @ObservedObject private var l10n = LocalizationManager.shared
@@ -99,6 +102,9 @@ struct NotchMenuView: View {
             if viewModel.menuSection == .statistics {
                 StatsRangeControl(viewModel: statsViewModel)
                 StatsRescanButton(viewModel: statsViewModel)
+            } else if viewModel.menuSection == .quota {
+                // 额度页没有范围可挑，这一格只放「更新于 HH:MM + 刷新」（与统计页互斥的另一支）。
+                QuotaRefreshControl(viewModel: balanceViewModel)
             }
         }
         .frame(height: NotchMenuMetrics.pageHeaderHeight)
@@ -122,6 +128,8 @@ struct NotchMenuView: View {
             ShortcutsSettingsPage()
         case .statistics:
             UsageStatisticsSettingsPage(viewModel: statsViewModel)
+        case .quota:
+            QuotaSettingsPage(viewModel: balanceViewModel)
         case .about:
             AboutSettingsPage(updateManager: updateManager, viewModel: viewModel)
         }

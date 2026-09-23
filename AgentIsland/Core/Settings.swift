@@ -93,6 +93,14 @@ nonisolated enum AppSettings {
     static let ompGateConfigBackupPath = "ompGateConfigBackupPath"
     static let ompGateConfigOriginalTimeout = "ompGateConfigOriginalTimeout"
     static let ompGateConfigAppliedAt = "ompGateConfigAppliedAt"
+    /// New API 服务器地址（形如 `https://api.example.com`）。
+    static let newAPIServerURL = "newAPIServerURL"
+    /// New API 的 API Key（`sk-…`）。
+    static let newAPIKey = "newAPIKey"
+    /// New API 的用户访问令牌。
+    static let newAPIAccessToken = "newAPIAccessToken"
+    /// New API 的用户 ID（旧版实例查账户余额要它）。
+    static let newAPIUserID = "newAPIUserID"
   }
 
   // MARK: - Notification Sound
@@ -336,6 +344,38 @@ nonisolated enum AppSettings {
       return stored
     }
     set { defaults.set(newValue, forKey: Keys.panelTakesFocus) }
+  }
+
+  // MARK: - New API 额度
+
+  /// 「额度」页要用的四项配置（服务器地址 / API Key / 访问令牌 / 用户 ID）。
+  ///
+  /// 凭据按用户的选择存在偏好域里（**不是**钥匙串）：本应用是 ad-hoc 签名，每次重装都会换
+  /// 代码签名，而钥匙串条目绑在签名上——那会变成「每装一次都要重新授权一次」。这条取舍
+  /// 在「额度」页的脚注里如实写给了用户。
+  ///
+  /// 空串就是「没配」：`NewAPIConfig.isConfigured` 据此决定要不要发请求。
+  static var newAPIServerURL: String {
+    get { defaults.string(forKey: Keys.newAPIServerURL) ?? "" }
+    set { defaults.set(newValue, forKey: Keys.newAPIServerURL) }
+  }
+
+  /// New API 的 API Key（`sk-…`）：查当前 Key 的额度用它。
+  static var newAPIKey: String {
+    get { defaults.string(forKey: Keys.newAPIKey) ?? "" }
+    set { defaults.set(newValue, forKey: Keys.newAPIKey) }
+  }
+
+  /// New API 的用户访问令牌：查账户余额用它（该端点不接受 `sk-`）。
+  static var newAPIAccessToken: String {
+    get { defaults.string(forKey: Keys.newAPIAccessToken) ?? "" }
+    set { defaults.set(newValue, forKey: Keys.newAPIAccessToken) }
+  }
+
+  /// New API 的用户 ID：旧版实例要求 `New-Api-User` 头，新版忽略它。
+  static var newAPIUserID: String {
+    get { defaults.string(forKey: Keys.newAPIUserID) ?? "" }
+    set { defaults.set(newValue, forKey: Keys.newAPIUserID) }
   }
 
   // MARK: - 审批闸门策略

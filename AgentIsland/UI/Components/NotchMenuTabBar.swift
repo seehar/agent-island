@@ -102,6 +102,7 @@ extension NotchMenuSection {
         case .notifications: return l10n.t("Notifications")
         case .agents: return l10n.t("Agents")
         case .statistics: return l10n.t("Statistics")
+        case .quota: return l10n.t("Quota")
         case .shortcuts: return l10n.t("Keyboard Shortcuts")
         case .about: return l10n.t("About")
         }

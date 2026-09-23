@@ -24,6 +24,8 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
     case agents
     /// 用量统计：token、会话与工具调用的汇总读数（只读页，不是配置）。
     case statistics
+    /// New API 额度：账户余额与当前 Key 额度的读数 + 取数配置（只读页，不是分段位）。
+    case quota
     /// 版本与更新、GitHub、退出。
     case about
     /// 键盘快捷键：全局一条 + 面板内数条，可逐条录制。**不占分段位**——分段条
@@ -46,6 +48,7 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
         case .notifications: return "bell.badge"
         case .agents: return "cpu"
         case .statistics: return "chart.bar.xaxis"
+        case .quota: return "creditcard"
         case .shortcuts: return "keyboard"
         case .about: return "info.circle"
         }
@@ -293,6 +296,13 @@ nonisolated enum NotchMenuMetrics {
             // 统计页是整页读数：高度由 UsageStatsMetrics.sectionHeight 给出（与页面实际
             // 排版一致），不按设置行算——它没有行，面板高度也不随数据多少变化。
             return [Block(hasHeader: false, fixedHeight: UsageStatsMetrics.sectionHeight)]
+        case .quota:
+            return [
+                // New API：服务器地址 / API 密钥 / 访问令牌 / 用户 ID（每行两行高：标题 + 说明）
+                Block(rows: Array(repeating: twoLineRowHeight, count: 4)),
+                // 余额：账户 / 密钥（两行高：标题 + 用量说明）+ 脚注
+                Block(rows: Array(repeating: twoLineRowHeight, count: 2), hasFootnote: true),
+            ]
         case .about:
             return [
                 // 标识块（图标 + 名称 + 版本）：不画卡片也没有标题

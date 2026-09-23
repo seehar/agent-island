@@ -433,4 +433,59 @@ struct UsageStatsLayoutTests {
       UsageStatsMetrics.emptyStateMinHeight
         >= UsageStatsMetrics.sectionHeight - UsageStatsMetrics.contentTopGap - 40)
   }
+
+  @Test("额度入口：三个头部按钮的 xmark 互斥，且不污染上一次待过的设置分组")
+  @MainActor
+  func quotaEntryKeepsThreeFacesExclusive() {
+    let model = makeModel()
+    #expect(model.isShowingQuota == false)
+
+    // 额度按钮：进设置面板的额度分组。
+    model.toggleQuota()
+    #expect(model.contentType == .menu)
+    #expect(model.menuSection == .quota)
+    #expect(model.isShowingQuota)
+    // 额度页上只有额度按钮显示 xmark（图表与齿轮都显示自己的图标）。
+    #expect(model.isShowingStatistics == false)
+    #expect(model.isShowingSettings == false)
+
+    // 齿轮按钮：从额度分组回到上一次待的设置分组。
+    model.toggleMenu()
+    #expect(model.contentType == .menu)
+    #expect(model.menuSection == .general)
+    #expect(model.isShowingSettings)
+
+    // 在设置里点额度按钮：再进额度分组；再点一次退回会话列表。
+    model.toggleQuota()
+    #expect(model.menuSection == .quota)
+    model.toggleQuota()
+    #expect(model.contentType == .instances)
+
+    // 额度页不污染「上一次待过的设置分组」：先进智能体页，再从额度页用齿轮回来。
+    let other = makeModel()
+    other.contentType = .menu
+    other.menuSection = .agents
+    other.toggleQuota()
+    #expect(other.menuSection == .quota)
+    other.toggleMenu()
+    #expect(other.menuSection == .agents)
+  }
+
+  @Test("额度页的真实排版高度等于解析式")
+  @MainActor
+  func quotaPageHeightMatchesMetrics() {
+    let contentWidth = NotchMenuMetrics.panelWidthMax - NotchMenuMetrics.listPaddingHeight
+    let view = QuotaSettingsPage(viewModel: NewAPIBalanceViewModel())
+      .frame(width: contentWidth)
+    let measured = NSHostingView(rootView: view).fittingSize.height
+
+    // 页面自己只画分组：页眉、分段条与顶部间距由设置页给（见 `NotchMenuView`）。
+    let pageChrome =
+      NotchMenuMetrics.listPaddingHeight + NotchMenuMetrics.pageHeaderHeight
+      + NotchMenuMetrics.rowSpacing + NotchMenuMetrics.tabBarHeight
+      + NotchMenuMetrics.rowSpacing + NotchMenuMetrics.contentTopGap
+    let expected = NotchMenuMetrics.contentHeight(for: .quota) - pageChrome
+
+    #expect(measured == expected, "额度页实际排版 \(measured) ≠ 解析式 \(expected)")
+  }
 }
