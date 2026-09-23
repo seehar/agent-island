@@ -4,7 +4,8 @@
 //
 //  Single source of truth for all Claude config directory paths.
 //  Resolves automatically via CLAUDE_CONFIG_DIR env var or filesystem detection,
-//  with an optional user override via AppSettings.claudeDirectoryName.
+//  with an optional user override via the 「智能体」 settings page
+//  (AppSettings.agentRootOverride) and the legacy AppSettings.claudeDirectoryName.
 //
 
 import Foundation
@@ -21,11 +22,12 @@ nonisolated enum ClaudePaths {
 
     /// Root Claude config directory, resolved once and cached.
     ///
-    /// Resolution order:
+    /// Resolution order (环境变量 > 用户指定目录 > 自动检测):
     /// 1. CLAUDE_CONFIG_DIR environment variable (if set and exists)
-    /// 2. AppSettings.claudeDirectoryName override (if changed from default)
-    /// 3. ~/.config/claude/ (new default since Claude Code v2.1.30+, if projects/ exists)
-    /// 4. ~/.claude/ (legacy fallback)
+    /// 2. 用户在「智能体」页指定的配置目录（AppSettings.agentRootOverride）
+    /// 3. AppSettings.claudeDirectoryName（旧口径，保留读法作兼容）
+    /// 4. ~/.config/claude/ (new default since Claude Code v2.1.30+, if projects/ exists)
+    /// 5. ~/.claude/ (legacy fallback)
     static var claudeDir: URL {
         cacheLock.lock()
         if let cached = _cachedDir {
@@ -94,8 +96,16 @@ nonisolated enum ClaudePaths {
             }
         }
 
-        // 2. User override via settings — accepts either an absolute path (chosen
-        //    via the folder picker) or a legacy directory name under ~/
+        // 2. 用户在「智能体」页指定的配置目录（新口径，见 AgentRootOverride）。环境变量
+        //    压过它——那是 Claude Code 自己的配置方式。指到不存在的目录时原样返回：那是
+        //    用户的显式选择（与其余 Agent 的 Provider 一致，由各自的判据处理）。
+        if let override = AgentRootOverride.userOverride(for: .claudeCode) {
+            return override
+        }
+
+        // 3. 旧口径的 claudeDirectoryName（安装时已被迁移进新表，这里保留读法作兼容）
+        //    — accepts either an absolute path (chosen via the folder picker) or a
+        //    legacy directory name under ~/
         let settingsValue = AppSettings.claudeDirectoryName
         if !settingsValue.isEmpty && settingsValue != ".claude" {
             if settingsValue.hasPrefix("/") {
@@ -105,13 +115,13 @@ nonisolated enum ClaudePaths {
             }
         }
 
-        // 3. New default ~/.config/claude/ (if projects/ exists there)
+        // 4. New default ~/.config/claude/ (if projects/ exists there)
         let newDefault = home.appendingPathComponent(".config/claude")
         if fm.fileExists(atPath: newDefault.appendingPathComponent("projects").path) {
             return newDefault
         }
 
-        // 4. Legacy fallback
+        // 5. Legacy fallback
         return home.appendingPathComponent(".claude")
     }
 

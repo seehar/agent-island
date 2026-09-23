@@ -29,9 +29,11 @@ nonisolated struct ClaudeFamilyAgentProvider: AgentProvider {
 
     // MARK: - 布局
 
-    /// 该 fork 的配置根（hook 写在 `<配置根>/settings.json`）。
+    /// 该 fork 的配置根（hook 写在 `<配置根>/settings.json`）：用户在设置面板里指定的
+    /// 目录优先（`AgentRootOverride`），否则 `~/.<名字>`。记录根就在这个根之下，因此
+    /// **这个指定目录同时影响安装与记录**。
     private var configRoot: URL {
-        home.appendingPathComponent(configRootName)
+        AgentRootOverride.userOverride(for: kind) ?? home.appendingPathComponent(configRootName)
     }
 
     /// 记录根：Qoder / CodeBuddy 用 `projects/`，Factory 用 `sessions/`。

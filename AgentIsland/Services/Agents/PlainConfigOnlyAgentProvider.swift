@@ -36,7 +36,11 @@ nonisolated struct PlainConfigOnlyAgentProvider: AgentProvider {
     }
 
     func paths() -> AgentPaths? {
-        let configDir = home.appendingPathComponent(configDirName)
+        // 用户在设置面板里指定的目录优先（`AgentRootOverride`）。这几个 Agent 没有可解析的
+        // 磁盘记录（会话只能靠实时事件），因此**这个指定目录只影响配置根**。
+        let configDir =
+            AgentRootOverride.userOverride(for: kind)
+            ?? home.appendingPathComponent(configDirName)
         guard FileManager.default.fileExists(atPath: configDir.path) else { return nil }
         return AgentPaths(configDir: configDir)
     }

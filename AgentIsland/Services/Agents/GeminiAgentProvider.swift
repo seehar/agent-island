@@ -31,9 +31,11 @@ nonisolated struct GeminiAgentProvider: AgentProvider {
 
     // MARK: - 布局
 
-    /// Gemini 的配置根（`settings.json`、`projects.json` 都在这里）。
+    /// Gemini 的配置根（`settings.json`、`projects.json` 都在这里）：用户在设置面板里
+    /// 指定的目录优先（`AgentRootOverride`），否则 `~/.gemini`。记录根（`tmp/`）也在它
+    /// 之下，因此**这个指定目录同时影响安装与记录**。
     var configRoot: URL {
-        home.appendingPathComponent(".gemini")
+        AgentRootOverride.userOverride(for: kind) ?? home.appendingPathComponent(".gemini")
     }
 
     /// 记录根：每个项目一个哈希目录，会话在其 `chats/` 下。

@@ -62,7 +62,6 @@ class NotchViewModel: ObservableObject {
 
     private let screenSelector = ScreenSelector.shared
     private let soundSelector = SoundSelector.shared
-    private let claudeDirSelector = ClaudeDirSelector.shared
     private let languageSelector = LanguageSelector.shared
     private let heightSelector = NotchHeightSelector.shared
     private let widthSelector = NotchWidthSelector.shared
@@ -171,9 +170,9 @@ class NotchViewModel: ObservableObject {
                 NotificationScopeSelector.shared.expandedPickerHeight,
             ].reduce(0, +)
         case .agents:
-            // 智能体页有四个可展开的行：三个闸门档位（问什么 / 应用未运行时 /
-            // 待批时自动展开）与 Claude 配置目录。
-            return claudeDirSelector.expandedPickerHeight
+            // 智能体页可展开的有：三个闸门档位（问什么 / 应用未运行时 / 待批时自动展开）
+            // 与 **某个 Agent 行内的目录编辑器**（同一时刻只开一个，展开高度是单份的）。
+            return AgentDirSelector.shared.expandedPickerHeight
                 + ApprovalDegradationSelector.shared.expandedPickerHeight
                 + ApprovalAskScopeSelector.shared.expandedPickerHeight
                 + ApprovalAutoExpandSelector.shared.expandedPickerHeight
@@ -218,7 +217,8 @@ class NotchViewModel: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
-        claudeDirSelector.$isPickerExpanded
+        // 智能体页的目录编辑器：展开态同样算进面板高度。
+        AgentDirSelector.shared.$expandedKind
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
@@ -453,6 +453,13 @@ class NotchViewModel: ObservableObject {
                 menuSection = lastSettingsSection
             }
         }
+    }
+
+    /// 直接跳到「智能体」页。空态里那枚按钮用它——Agent 默认关闭之后，
+    /// 「没有会话」最常见的成因就是「一个都没启用」，得给出唯一那步动作。
+    func openAgentsSettings() {
+        contentType = .menu
+        menuSection = .agents
     }
 
     /// 离开设置面板回到会话列表（设置页页眉的返回箭头与两个按钮的 xmark 共用）。

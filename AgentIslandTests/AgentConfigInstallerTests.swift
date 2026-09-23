@@ -14,6 +14,11 @@
 //  文件重新序列化一次；为了不受这一点影响，另外再用「卸载后重装 == 第一次安装的字节」
 //  钉住「卸载只摘走了我们自己的条目」。
 //
+//  用户指定目录（设置面板的目录选择器）也在这里钉住：它替换的是**该工具自己的根**，因此
+//  `.gemini/settings.json` 变成 `<指定目录>/settings.json`（Cline 的 `Documents/Cline/Hooks`
+//  变成 `<指定目录>/Hooks`），环境变量仍然压过它，指定到不存在的目录则整轮跳过。
+//  这些用例会写进程级偏好（`UserDefaults.standard`），所以本 suite 是 `.serialized`。
+//
 
 import Foundation
 import Testing
@@ -76,6 +81,16 @@ struct AgentConfigInstallerTests {
     ) -> [String] {
         eventEntries(root, configKey, event).flatMap(commands)
             .filter { HookInstaller.isOwnHookCommand($0) }
+    }
+
+    /// 用户在设置面板里指定的配置目录（写的是与界面同一个键；进程级，结束后一律复原）。
+    private func withRootOverride(_ kind: AgentKind, _ path: String?, _ body: () throws -> Void)
+        throws
+    {
+        let previous = AppSettings.agentRootOverride(kind)
+        AppSettings.setAgentRootOverride(kind, path: path)
+        defer { AppSettings.setAgentRootOverride(kind, path: previous) }
+        try body()
     }
 
     /// 环境变量临时改写（进程级；结束后一律复原）。
@@ -795,5 +810,130 @@ struct AgentConfigInstallerTests {
 
         #expect(!FileManager.default.fileExists(atPath: file.path))
         #expect(!AgentConfigInstaller.isInstalled(.traeCli, home: home))
+    }
+
+    // MARK: - 用户指定目录（设置面板的目录选择器）
+
+    @Test("指定目录：`.gemini/settings.json` 写到它下面；卸载只摘我们的条目")
+    func installUsesRootOverride() throws {
+        let home = try makeHome()
+        let override = home.appendingPathComponent("custom-gemini")
+        let file = override.appendingPathComponent("settings.json")
+        let originalText =
+            #"{"theme":"dark","hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"/usr/local/bin/other.sh","timeout":5}]}]}}"#
+        try write(originalText, to: file)
+
+        try withRootOverride(.gemini, override.path) {
+            #expect(AgentConfigInstaller.install(.gemini, home: home))
+            #expect(AgentConfigInstaller.isInstalled(.gemini, home: home))
+            let afterFirstInstall = try Data(contentsOf: file)
+
+            // 用户自己的键与条目都留着，我们的条目追加在其后
+            let installed = try json(file)
+            #expect(installed["theme"] as? String == "dark")
+            let allCommands = eventEntries(installed, "hooks", "SessionStart").flatMap(commands)
+            #expect(allCommands.first == "/usr/local/bin/other.sh")
+            #expect(allCommands.count == 2)
+            #expect(ownCommands(installed, "hooks", "SessionStart").count == 1)
+            // 默认根（~/.gemini）一个字节都不该出现
+            #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent(".gemini").path))
+
+            AgentConfigInstaller.uninstall(.gemini, home: home)
+            #expect(!AgentConfigInstaller.isInstalled(.gemini, home: home))
+
+            // 除排版外，内容与原始一模一样
+            let restored = try json(file)
+            let original = try #require(
+                try JSONSerialization.jsonObject(with: Data(originalText.utf8)) as? [String: Any])
+            #expect(try canonical(restored) == canonical(original))
+            // 卸载没有多摘也没有少摘：再装一次回到第一次安装后的字节
+            #expect(AgentConfigInstaller.install(.gemini, home: home))
+            #expect(try Data(contentsOf: file) == afterFirstInstall)
+        }
+    }
+
+    @Test("指定目录：cline 的 hook 根换成它（`~/Documents/Cline` → 指定目录）")
+    func clineInstallUsesRootOverride() throws {
+        let home = try makeHome()
+        let override = home.appendingPathComponent("custom-cline")
+        try makeDirectory(override)
+
+        try withRootOverride(.cline, override.path) {
+            #expect(AgentConfigInstaller.install(.cline, home: home))
+            #expect(AgentConfigInstaller.isInstalled(.cline, home: home))
+            let event = override.appendingPathComponent("Hooks/PreToolUse")
+            let contents = try text(event)
+            #expect(contents.contains("--source cline"))
+            // 默认位置（~/Documents/Cline）一个字节都不写
+            #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent("Documents").path))
+
+            AgentConfigInstaller.uninstall(.cline, home: home)
+            #expect(!AgentConfigInstaller.isInstalled(.cline, home: home))
+            #expect(!FileManager.default.fileExists(atPath: event.path))
+            #expect(FileManager.default.fileExists(atPath: override.path))
+        }
+    }
+
+    @Test("指定目录：kimi 的 config.toml 写在它下面（不再走 ~/.kimi-code 择优）")
+    func kimiInstallUsesRootOverride() throws {
+        let home = try makeHome()
+        try makeDirectory(home.appendingPathComponent(".kimi-code"))
+        let override = home.appendingPathComponent("custom-kimi")
+        try makeDirectory(override)
+
+        try withRootOverride(.kimi, override.path) {
+            #expect(AgentConfigInstaller.install(.kimi, home: home))
+            #expect(AgentConfigInstaller.isInstalled(.kimi, home: home))
+            let contents = try text(override.appendingPathComponent("config.toml"))
+            #expect(contents.contains("[[hooks]]"))
+            // 择优出来的现代根不该再被写：写在这、读在那会让装好的集成看不见
+            #expect(
+                !FileManager.default.fileExists(
+                    atPath: home.appendingPathComponent(".kimi-code/config.toml").path))
+        }
+    }
+
+    @Test("指定目录不存在：安装跳过（返回 true）且一个字节都不写")
+    func missingRootOverrideSkipsInstall() throws {
+        let home = try makeHome()
+        let missing = home.appendingPathComponent("nowhere")
+
+        try withRootOverride(.gemini, missing.path) {
+            #expect(AgentConfigInstaller.install(.gemini, home: home))
+            #expect(!FileManager.default.fileExists(atPath: missing.path))
+            #expect(AgentConfigInstaller.isInstalled(.gemini, home: home) == false)
+            #expect(AgentConfigInstaller.installedFiles(.gemini, home: home).isEmpty)
+        }
+    }
+
+    @Test("指定目录与 $CODEX_HOME 同时给出：环境变量获胜（与读取链路同一优先级）")
+    func environmentWinsOverRootOverride() throws {
+        let home = try makeHome()
+        let envRoot = home.appendingPathComponent("env-codex")
+        let overrideRoot = home.appendingPathComponent("custom-codex")
+        try makeDirectory(envRoot)
+        try makeDirectory(overrideRoot)
+
+        try withRootOverride(.codex, overrideRoot.path) {
+            withEnvironment("CODEX_HOME", envRoot.path) {
+                #expect(AgentConfigInstaller.install(.codex, home: home))
+                #expect(AgentConfigInstaller.isInstalled(.codex, home: home))
+                #expect(
+                    FileManager.default.fileExists(
+                        atPath: envRoot.appendingPathComponent("hooks.json").path))
+                #expect(
+                    !FileManager.default.fileExists(
+                        atPath: overrideRoot.appendingPathComponent("hooks.json").path))
+            }
+        }
+        // 环境变量撤掉之后才轮到用户指定目录
+        try withRootOverride(.codex, overrideRoot.path) {
+            withEnvironment("CODEX_HOME", nil) {
+                #expect(AgentConfigInstaller.install(.codex, home: home))
+                #expect(
+                    FileManager.default.fileExists(
+                        atPath: overrideRoot.appendingPathComponent("hooks.json").path))
+            }
+        }
     }
 }

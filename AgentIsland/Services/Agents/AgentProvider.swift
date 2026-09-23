@@ -35,6 +35,21 @@ nonisolated protocol AgentProvider: Sendable {
     func integrationStatus() -> AgentIntegrationStatus?
 }
 
+// 必须显式 `nonisolated`：工程默认 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`，未标注的
+// extension 成员会变成主 actor 隔离，于是 Provider/安装器这些 nonisolated 上下文用不了它。
+nonisolated extension AgentProvider {
+    /// 这台机器上是否**装了**该工具（配置根真的存在）。
+    ///
+    /// 不能只看 `paths() != nil`：Claude / omp / pi 的 Provider 不做存在性检查（它们的集成是
+    /// 扩展/脚本型，不需要写工具自己的配置），任何机器上都会返回非 nil。拿它当「已安装」
+    /// 会凭空给没装这些工具的用户造目录——`installPiFamilyExtension` 会真的
+    /// `createDirectory`，而「宁可不动用户的机器，也不要凭空造目录」是本仓的既定纪律。
+    var isToolInstalled: Bool {
+        guard let paths = paths() else { return false }
+        return FileManager.default.fileExists(atPath: paths.configDir.path)
+    }
+}
+
 /// Provider 的根目录归一。
 ///
 /// 必须做这一步：`FileManager` 的目录遍历返回的是**已解析符号链接**的路径，而调用方

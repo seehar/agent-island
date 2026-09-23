@@ -31,8 +31,10 @@ nonisolated struct CursorAgentProvider: AgentProvider {
 
     // MARK: - 布局
 
+    /// 配置根：用户在设置面板里指定的目录优先（`AgentRootOverride`），否则 `~/.cursor`。
+    /// 记录在它下面的 `projects/` 里，因此**这个指定目录同时影响安装与记录**。
     var configRoot: URL {
-        home.appendingPathComponent(".cursor")
+        AgentRootOverride.userOverride(for: kind) ?? home.appendingPathComponent(".cursor")
     }
 
     var recordsRoot: URL {

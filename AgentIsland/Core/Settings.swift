@@ -66,7 +66,16 @@ nonisolated enum AppSettings {
     static let notificationSound = "notificationSound"
     static let claudeDirectoryName = "claudeDirectoryName"
     static let language = "language"
-    static let disabledAgents = "disabledAgents"
+    /// 显式启用集合（新口径）：不在集合里就是「关」。
+    static let enabledAgents = "enabledAgents"
+    /// 旧口径的禁用集合：只用于一次性迁移，不再写。
+    static let legacyDisabledAgents = "disabledAgents"
+    /// 逐 Agent 的配置根覆盖：`[AgentKind.rawValue: 绝对路径]`。
+    static let agentRootOverrides = "agentRootOverrides"
+    /// 「启用口径迁移」只做一次的标记。
+    static let enablementMigrationMarker = "didMigrateAgentEnablement"
+    /// 「旧口径 Claude 目录 → 通用覆盖表」迁移只做一次的标记。
+    static let claudeDirMigrationMarker = "didMigrateClaudeDirectoryOverride"
     static let approvalGateAgents = "approvalGateAgents"
     static let approvalDegradation = "approvalDegradation"
     static let ompGateConfigBackupPath = "ompGateConfigBackupPath"
@@ -110,26 +119,164 @@ nonisolated enum AppSettings {
 
   // MARK: - Agents
 
-  /// notch 是否监控某个 Agent CLI。默认全部启用，新装应用即可自动接管
-  /// 用户已在使用的那一个。
+  /// notch 是否监控某个 Agent CLI。
+  ///
+  /// **默认关闭**：应用不替用户接管任何工具，启用必须是一次显式动作（行内开关，
+  /// 或「智能体」页的「全部启用并安装」）。历史上这里是「默认全开 + 禁用集合」，
+  /// 升级用户由 `migrateAgentEnablementIfNeeded()` 换算一次。
   static func isAgentEnabled(_ kind: AgentKind) -> Bool {
-    !disabledAgents.contains(kind.rawValue)
+    enabledAgents.contains(kind.rawValue)
   }
 
   static func setAgent(_ kind: AgentKind, enabled: Bool) {
-    var disabled = disabledAgents
+    var enabledKinds = enabledAgents
     if enabled {
-      disabled.remove(kind.rawValue)
+      enabledKinds.insert(kind.rawValue)
     } else {
-      disabled.insert(kind.rawValue)
+      enabledKinds.remove(kind.rawValue)
     }
-    disabledAgents = disabled
+    enabledAgents = enabledKinds
   }
 
-  private static var disabledAgents: Set<String> {
-    get { Set(defaults.stringArray(forKey: Keys.disabledAgents) ?? []) }
-    set { defaults.set(Array(newValue).sorted(), forKey: Keys.disabledAgents) }
+  private static var enabledAgents: Set<String> {
+    get { Set(defaults.stringArray(forKey: Keys.enabledAgents) ?? []) }
+    set { defaults.set(Array(newValue).sorted(), forKey: Keys.enabledAgents) }
   }
+
+  // MARK: - 逐 Agent 配置目录
+
+  /// 用户为某个 Agent 指定的配置根目录（绝对路径或 `~/…`）。nil = 自动检测。
+  ///
+  /// 优先级由各 Provider 决定（与环境变量的关系见 `AgentRootOverride`）：环境变量
+  /// 仍然压过这里——那是工具自己的配置方式。
+  static func agentRootOverride(_ kind: AgentKind) -> String? {
+    let path = agentRootOverrides[kind.rawValue]?.trimmingCharacters(in: .whitespaces) ?? ""
+    return path.isEmpty ? nil : path
+  }
+
+  /// 写入/清除某个 Agent 的配置根目录；nil 或空白 = 恢复自动检测。
+  static func setAgentRootOverride(_ kind: AgentKind, path: String?) {
+    var overrides = agentRootOverrides
+    let trimmed = path?.trimmingCharacters(in: .whitespaces) ?? ""
+    if trimmed.isEmpty {
+      overrides.removeValue(forKey: kind.rawValue)
+    } else {
+      overrides[kind.rawValue] = trimmed
+    }
+    agentRootOverrides = overrides
+
+    // Claude 的目录有跨线程缓存（`ClaudePaths`），改完必须让它下次重新解析。
+    if kind == .claudeCode { ClaudePaths.invalidateCache() }
+  }
+
+  private static var agentRootOverrides: [String: String] {
+    get { defaults.dictionary(forKey: Keys.agentRootOverrides) as? [String: String] ?? [:] }
+    set { defaults.set(newValue, forKey: Keys.agentRootOverrides) }
+  }
+
+  // MARK: - 启用口径迁移（只做一次）
+
+  /// 把「默认全开 + 禁用集合」的旧口径换算成「显式启用集合」。
+  ///
+  /// 两条都不该发生：① 升级用户原本在监控的 Agent 因为换口径而掉线；② 本特性新接入的
+  /// 那 13 个 Agent 因为「旧口径默认全开」而被动接管用户的机器。因此迁移只保留
+  /// **改口径之前就默认启用**的那几个（`AgentKind.defaultEnabledBeforeOptIn`）里、
+  /// 用户没有显式关掉的那些。
+  ///
+  /// 全新安装（偏好域里没有任何我们的键）什么都不迁：保持「默认关闭」。
+  /// - Parameter hadPreviousInstall: **本机此前是否运行过本应用**（含改名前的版本）。
+  ///   必须由调用方在**任何本次写入之前**判定并传进来——见 `hadPreviousInstallFootprint`。
+  static func migrateAgentEnablementIfNeeded(hadPreviousInstall: Bool) {
+    guard defaults.object(forKey: Keys.enablementMigrationMarker) == nil else { return }
+
+    enabledAgents = enablementAfterMigration(
+      legacyDisabled: defaults.stringArray(forKey: Keys.legacyDisabledAgents) ?? [],
+      isFreshInstall: !hadPreviousInstall
+    )
+    // 旧键到此已经换算完，删掉它：留着会让 `defaults read` 里同时出现「禁用集合（空）」
+    // 与「启用集合」，读起来像是「全都启用」——与新口径正好相反。
+    defaults.removeObject(forKey: Keys.legacyDisabledAgents)
+    // 标记最后写：中途崩掉时宁可下次重新换算，也不要留下「标记已写、集合为空」（那样
+    // 用户会得到一个「全都关着」的既成事实，且再也不会自动换算）。
+    defaults.set(true, forKey: Keys.enablementMigrationMarker)
+  }
+
+  /// 本机此前是否运行过本应用（或其改名前的版本）。
+  ///
+  /// 判据**不能**是「偏好域里有没有键」：
+  /// - 同一次启动里，改名迁移会**无条件**写下 `didMigrateFromLegacyBundle`，所以那个标记
+  ///   出现在域里不代表以前跑过（本仓曾因此把全新安装判成升级，白白接管了 4 个工具）；
+  /// - Sparkle 的 `SU*` 键也不能用：`updater.start()` 在同一个进程里更早就跑过了。
+  ///
+  /// 改用**磁盘上的集成足迹**：上一个版本启动时会装集成（共享脚本 / 扩展 / 插件文件），
+  /// 这些文件才是「跑过」的硬证据。而一个从没装过集成、也没改过设置的旧用户，本来就没有
+  /// 在监控的对象——当作全新安装（什么都不启用）反而是对的。
+  static func hadPreviousInstallFootprint(
+    home: URL = FileManager.default.homeDirectoryForCurrentUser
+  ) -> Bool {
+    if hasInstallFootprintFiles(home: home) { return true }
+    // 改名前的偏好域里有东西也算（老用户可能把集成删了，但设置还在）。
+    guard let legacy = UserDefaults(suiteName: legacyBundleIdentifier),
+      let values = legacy.persistentDomain(forName: legacyBundleIdentifier)
+    else { return false }
+    return !values.isEmpty
+  }
+
+  /// 集成足迹的**纯文件判据**（按给的 home 查，便于用临时目录单测）。
+  static func hasInstallFootprintFiles(home: URL) -> Bool {
+    let footprints = [
+      ".agent-island/hooks/agent-island-state.py",  // 现行的共享脚本
+      ".claude/hooks/agent-island-state.py",  // 旧落点（本批之前）
+      ".claude/hooks/claude-island-state.py",  // 改名前的脚本名
+      ".omp/agent/extensions/agent-island-state.ts",
+      ".pi/agent/extensions/agent-island-state.ts",
+      ".config/opencode/plugins/agent-island-state.js",
+    ]
+    let fm = FileManager.default
+    return footprints.contains { fm.fileExists(atPath: home.appendingPathComponent($0).path) }
+  }
+
+  /// 旧口径的 Claude 配置目录（`claudeDirectoryName`：绝对路径，或家目录下的一个名字）
+  /// 换算成通用覆盖表里的一条。
+  ///
+  /// `.claude`（旧口径的默认值）与空值都等于「自动检测」，因此不进覆盖表——进去了会让
+  /// 界面一直显示「自定义目录」，而它其实只是默认值。
+  static func claudeOverrideAfterMigration(legacyDirectoryName: String) -> String? {
+    let trimmed = legacyDirectoryName.trimmingCharacters(in: .whitespaces)
+    guard !trimmed.isEmpty, trimmed != ".claude" else { return nil }
+    return trimmed.hasPrefix("/") ? trimmed : "~/" + trimmed
+  }
+
+  /// 把旧口径的 Claude 目录搬进通用覆盖表（只做一次）。
+  ///
+  /// 不迁的话，界面行会显示「自动检测」而 `ClaudePaths` 仍按旧键解析到别处——
+  /// 「显示与生效不一致」是这类设置最讨厌的一种 bug。
+  static func migrateClaudeDirectoryOverrideIfNeeded() {
+    guard defaults.object(forKey: Keys.claudeDirMigrationMarker) == nil else { return }
+    defaults.set(true, forKey: Keys.claudeDirMigrationMarker)
+    guard agentRootOverride(.claudeCode) == nil else { return }
+    guard
+      let migrated = claudeOverrideAfterMigration(
+        legacyDirectoryName: defaults.string(forKey: Keys.claudeDirectoryName) ?? "")
+    else { return }
+    setAgentRootOverride(.claudeCode, path: migrated)
+  }
+
+  /// 迁移的**纯函数**部分：旧口径的禁用集合 + 「是否全新安装」→ 新的启用集合。
+  ///
+  /// 抽出来是为了能单测：这条口径一旦算错，用户的监控列表会被静默改掉（升级用户掉线，
+  /// 或全新安装被被动接管）。签名保持纯数据进出，不碰 UserDefaults。
+  static func enablementAfterMigration(legacyDisabled: [String], isFreshInstall: Bool) -> Set<String> {
+    // 全新安装：什么都不启用（「默认关闭」）。
+    guard !isFreshInstall else { return [] }
+    let disabled = Set(legacyDisabled)
+    return Set(
+      AgentKind.defaultEnabledBeforeOptIn
+        .filter { !disabled.contains($0.rawValue) }
+        .map(\.rawValue)
+    )
+  }
+
 
   // MARK: - Claude Directory
 

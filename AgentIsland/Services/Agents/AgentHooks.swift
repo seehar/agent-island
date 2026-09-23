@@ -344,6 +344,23 @@ nonisolated extension AgentKind {
     ]
 }
 
+nonisolated extension AgentKind {
+    /// 「配置目录覆盖」实际作用在哪个目录：**安装器写 hook 的那个根**。
+    ///
+    /// 对绝大多数 Agent 来说它就是 `provider.paths().configDir`；**Cline 是例外**——它的对话
+    /// 记录在 VSCode globalStorage，而目录选择器管的是 hook 根（`~/Documents/Cline`）。
+    /// 显示错的那一个会让用户以为选的是记录目录，所以界面的「自动检测」与选择面板的起始目录
+    /// 都走这里。
+    func directoryOverrideRoot(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL? {
+        if let gatePath = hookSpec?.gatePath {
+            return home.appendingPathComponent(gatePath)
+        }
+        return AgentRegistry.provider(for: self).paths()?.configDir
+    }
+}
+
 // MARK: - hook 脚本
 
 /// 上报脚本在机器上的唯一落点。

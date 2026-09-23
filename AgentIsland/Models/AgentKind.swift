@@ -190,6 +190,13 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
         }
     }
 
+    /// 启用口径改成「显式启用集合」（默认全关）之前，应用**默认启用**的那几个 Agent。
+    ///
+    /// 只在一次性迁移里用（`AppSettings.migrateAgentEnablementIfNeeded()`）：升级用户
+    /// 原本在监控的就是这几个，不该因为换口径而掉线；而本特性之后新接入的 Agent 一律
+    /// 保持关闭（它们是「旧口径默认全开」的副作用，不是用户的选择）。
+    static let defaultEnabledBeforeOptIn: [AgentKind] = [.claudeCode, .ohMyPi, .pi, .opencode]
+
     /// 全部 Agent 的 subAgent 派生工具名并集。实时事件只带工具名、不带 Agent
     /// 归属，因此按并集判定；各 Agent 之间名称互不冲突。
     static let allSubagentToolNames: Set<String> = Set(allCases.flatMap(\.subagentToolNames))

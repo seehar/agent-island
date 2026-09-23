@@ -30,6 +30,15 @@
 //  存在性闸门：`requiresExistingRoot` 为真时，该工具自己的目录不存在就**跳过**（返回 true）
 //  —— 用户没装这个工具，凭空替他造一个 `~/.gemini/` 是越界。
 //
+//  用户指定目录（「智能体」页的目录选择器，见 `AgentRootOverride.userOverride`）：每个 Agent
+//  的配置根都可以被用户改到别处。优先级与环境变量的口径**逐字一致**：
+//  **环境变量 > 用户指定目录 > 自动检测**。指定目录替换的是**该工具自己的根**
+//  （`~/.gemini`、`$CODEX_HOME`、`~/Documents/Cline`…），因此带 `rootEnvVar` 的工具与 kimi
+//  的 `configPath`（`hooks.json` / `config.toml`）原样使用，其余的要摘掉根那一层
+//  （`.gemini/settings.json` → `settings.json`，`Documents/Cline/Hooks` → `Hooks`）。
+//  存在性闸门的判据也换成该目录本身：用户指到一个不存在的目录 ⇒ 那个根上没有这个工具，
+//  跳过而不是凭空造目录。
+//
 //  没有闸门降级：配置文件型 Agent 与 Claude 一致 —— 脚本等刘海决定，应用不在（socket
 //  连不上）时脚本不输出任何内容、由工具自己弹原生审批。因此这里**不读**
 //  `AppSettings.isApprovalGateEnabled`，也没有「只上报版」配置。
@@ -436,7 +445,8 @@ nonisolated enum AgentConfigInstaller {
 
     /// 落点解析的结果。
     private struct Location {
-        /// `configPath` 的基准目录（环境变量根目录、kimi 的择优根目录，或 `home`）。
+        /// `configPath` 的基准目录（环境变量根目录、用户指定目录、kimi 的择优根目录，
+        /// 或 `home`）。
         let base: URL
         /// 配置文件（`.cline` 这里是事件文件所在的目录）。
         let configFile: URL
@@ -448,30 +458,42 @@ nonisolated enum AgentConfigInstaller {
     /// 拿 `home` 判断等于永远为真，会替没装该工具的用户凭空造出 `~/.gemini/`。
     /// 口径与 CodeIsland `installExternalHooks` 的存在性闸门一致
     /// （ConfigInstaller.swift:1463-1516：各工具分支 + 兜底的 `cli.dirPath` 判断）。
+    /// 用户指定目录生效时判据就是该目录本身（见 `configBase`）。
     private static func location(
         for kind: AgentKind,
         spec: AgentHookSpec,
         home: URL
     ) -> Location? {
         let base = configBase(for: kind, spec: spec, home: home)
-        let configFile = base.appendingPathComponent(spec.configPath)
+        let configFile = base.url.appendingPathComponent(
+            base.fromUserOverride
+                ? configPath(for: kind, spec: spec, onUserOverrideRoot: true)
+                : spec.configPath
+        )
 
         if spec.requiresExistingRoot {
-            // 闸门判据：显式给的 gatePath > 环境变量 / 择优根目录 > 配置文件所在的最上层目录
+            // 闸门判据：用户指定目录（就是它本身）> 显式给的 gatePath > 环境变量 / 择优根目录
+            // > 配置文件所在的最上层目录
             let gate: URL
-            if let explicit = spec.gatePath {
+            if base.fromUserOverride {
+                gate = base.url
+            } else if let explicit = spec.gatePath {
                 gate = home.appendingPathComponent(explicit)
             } else if spec.rootEnvVar != nil || kind == .kimi {
-                gate = base
+                gate = base.url
             } else {
-                gate = home.appendingPathComponent(firstComponent(of: spec.configPath))
+                gate = home.appendingPathComponent(toolRootName(relativeToHomeFor: spec))
             }
             guard FileManager.default.fileExists(atPath: gate.path) else { return nil }
         }
-        return Location(base: base, configFile: configFile)
+        return Location(base: base.url, configFile: configFile)
     }
 
-    /// `configPath` 的基准目录。
+    /// `configPath` 的基准目录，以及它是不是来自用户指定目录。
+    ///
+    /// 优先级与 Provider 的读取链路**逐字一致**：环境变量 > 用户指定目录 > 自动检测。
+    /// 同一个 Agent 的「写配置」与「推导记录路径」解析成不同目录时，设置行会一边说
+    /// 「工具没装」、一边被装进另一个目录。
     ///
     /// `rootEnvVar`（`CODEX_HOME` / `GROK_HOME`）没设时退到 `~/.<rawValue>`：这两个工具的
     /// 默认根目录就是 `~/.codex` / `~/.grok`（CodeIsland `codexHome()` / `grokHome()`，
@@ -481,16 +503,60 @@ nonisolated enum AgentConfigInstaller {
     /// 解析复用 Provider 的 `AgentRootOverride.resolve`（`~` / `~/x` 展开、空白按未设处理）：
     /// 同一个环境变量必须在「写配置」与「推导记录路径」两侧解析成同一个目录，否则设置行会
     /// 一边说「工具没装」一边被装进另一个目录。
-    private static func configBase(for kind: AgentKind, spec: AgentHookSpec, home: URL) -> URL {
-        if let name = spec.rootEnvVar {
-            return AgentRootOverride.resolve(
-                Foundation.ProcessInfo.processInfo.environment[name],
-                fallback: home.appendingPathComponent("." + kind.rawValue),
-                home: home
-            )
+    private static func configBase(
+        for kind: AgentKind,
+        spec: AgentHookSpec,
+        home: URL
+    ) -> (url: URL, fromUserOverride: Bool) {
+        // 「自动检测」下的基准：带 `rootEnvVar` 的工具是 `~/.<rawValue>`，其余以 `home`
+        // 为基准（它们的 `configPath` 自带工具目录名，如 `.gemini/settings.json`）。
+        let defaultBase =
+            spec.rootEnvVar == nil
+            ? home
+            : AgentProviderRoot.canonical(home.appendingPathComponent("." + kind.rawValue))
+
+        if let name = spec.rootEnvVar, let value = nonEmptyEnvironmentValue(name) {
+            return (AgentRootOverride.resolve(value, fallback: defaultBase, home: home), false)
         }
-        if kind == .kimi { return kimiRoot(home: home) }
-        return home
+        // 环境变量没设（或空白）时，用户指定目录压过自动检测。
+        if let override = AgentRootOverride.userOverride(for: kind) { return (override, true) }
+        if kind == .kimi { return (kimiRoot(home: home), false) }
+        return (defaultBase, false)
+    }
+
+    /// 环境变量的值；空白视作未设置。
+    private static func nonEmptyEnvironmentValue(_ name: String) -> String? {
+        let raw =
+            Foundation.ProcessInfo.processInfo.environment[name]?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        return raw.isEmpty ? nil : raw
+    }
+
+    /// 用户指定目录下 `configPath` 的写法。
+    ///
+    /// `configPath` 大多相对**用户主目录**写（`.gemini/settings.json`），而用户指定目录替换的
+    /// 正是其中的**工具自己的目录**（`~/.gemini`）；不摘掉这一层就会写到
+    /// `<指定目录>/.gemini/settings.json`。带 `rootEnvVar` 的工具（`$CODEX_HOME` 下的
+    /// `hooks.json` / `hooks/agent-island.json`）与 kimi（根下的 `config.toml`）本来就是相对自己的
+    /// 根写的，原样使用。Cline 的根比 `configPath` 的第一段还深一层
+    /// （`Documents/Cline` ← `Documents/Cline/Hooks`），判据同样取 `gatePath`。
+    private static func configPath(
+        for kind: AgentKind,
+        spec: AgentHookSpec,
+        onUserOverrideRoot: Bool
+    ) -> String {
+        guard onUserOverrideRoot else { return spec.configPath }
+        guard spec.rootEnvVar == nil, kind != .kimi else { return spec.configPath }
+        let toolRoot = toolRootName(relativeToHomeFor: spec)
+        guard !toolRoot.isEmpty, spec.configPath.hasPrefix(toolRoot + "/") else {
+            return spec.configPath
+        }
+        return String(spec.configPath.dropFirst(toolRoot.count + 1))
+    }
+
+    /// 该工具自己的目录（相对用户主目录）：显式 `gatePath` 优先，否则 `configPath` 的最上层。
+    private static func toolRootName(relativeToHomeFor spec: AgentHookSpec) -> String {
+        spec.gatePath ?? firstComponent(of: spec.configPath)
     }
 
     /// kimi 的配置根目录：与读记录那一侧共用同一个择优函数，避免「写在这、读在那」。

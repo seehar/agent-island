@@ -141,6 +141,13 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 - 发版前必须 bump `CURRENT_PROJECT_VERSION`（appcast 里的 `sparkle:version` 就是它）：build 号不变，已装用户收不到更新提示。
 - 发布验收要独立复核：release 附件字节与本地 DMG 一致（`shasum`）、appcast 的 `length`/`edSignature` 与产物一致、`sign_update --verify` 通过。
 
+### 启用口径与逐 Agent 配置目录
+
+- **默认关闭**：`AppSettings.isAgentEnabled` 读的是**显式启用集合**（`enabledAgents`）。应用不会自己接管任何工具；启用是显式动作（行内开关，或「智能体」页的「全部启用并安装」）。历史上是「默认全开 + 禁用集合」，升级用户由 `AppSettings.migrateAgentEnablementIfNeeded()` 换算一次：只保留 `AgentKind.defaultEnabledBeforeOptIn`（改口径前就默认启用的 4 个）里、用户没显式关掉的那些；全新安装什么都不启用。判定被抽成纯函数 `enablementAfterMigration(legacyDisabled:isFreshInstall:)` 并有单测（算错会把用户的监控列表静默改掉）。
+- **逐 Agent 配置目录**：`AppSettings.agentRootOverride(_:)` / `setAgentRootOverride(_:path:)` 存 `[rawValue: 路径]`，界面在「智能体」页每行的展开编辑器里改。优先级 **环境变量（`CODEX_HOME` / `GROK_HOME` / `CLAUDE_CONFIG_DIR`）> 用户指定目录 > 自动检测**——环境变量是工具自己的配置方式，仍然压过界面选择。解析统一走 `AgentRootOverride.userOverride(for:)`（`~` 展开 + `AgentProviderRoot.canonical`）。
+- **例外**：Cline 的 override 只影响**安装器写 hook 的根**（`~/Documents/Cline`）；它的对话记录在 VSCode globalStorage，与那个根无关。
+- **入站也认这道开关**：`HookSocketServer.shouldIgnore(_:)` 在登记待批/缓存之前就把**已关闭** Agent 的事件丢掉（上一个构建装的集成、或卸载失败留下的条目仍会上报，那些事件不该再建会话）。丢弃是安全的：阻塞型集成等不到应答会回落到工具自己的原生提示（与「应用没在运行」同一条路径）。
+
 ### 各 Agent 接入的事实来源与证据等级
 
 新接入的 13 个 Agent 里，本机装着的只有 Codex（`codex`）与 Qoder（`qodercli`），其余
@@ -161,7 +168,7 @@ DSH）**没有本机样本**。所以这一块的证据分三档，动这些地�
 4. Copilot 的两代记录布局（`jb/<id>/partition-*.jsonl` 当前 + `session-state/<id>/events.jsonl` 旧版）：本机只见到前者。
 5. DSH：记录是 zstd 压缩（系统无 zstd API，不解析），事件依赖外部 dsh 插件直接写 socket——本应用不装它的集成。
 
-**首次启动的足迹**：新 Agent 默认启用，因此更新后第一次启动会为**每个配置目录存在的工具**写 hook 条目（本机实测 7 个），每个被改写的文件旁留 `<文件名>.agent-island-backup`，写入动作是 notice 级日志。关掉某个 Agent 只摘它的条目，共用脚本保留。
+**首次启动的足迹**：Agent 默认关闭，因此**不会**有任何写入，直到用户在「智能体」页启用（单行或「全部启用并安装」）——那一刻才会为已启用的、且配置目录存在的工具写 hook 条目，每个被改写的文件旁留 `<文件名>.agent-island-backup`，写入动作是 notice 级日志。关掉某个 Agent 只摘它的条目，共用脚本保留。升级用户如果原本在监控 claude/omp/pi/opencode，迁移会保留它们（见上一节），那一次启动会照旧维护它们的集成。
 
 ## 约束
 

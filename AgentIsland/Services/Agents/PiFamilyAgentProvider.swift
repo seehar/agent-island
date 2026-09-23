@@ -22,7 +22,12 @@ nonisolated struct PiFamilyAgentProvider: AgentProvider {
 
     func paths() -> AgentPaths? {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        let agentDir = home.appendingPathComponent(agentDirName)
+        // 用户指定目录（`AgentRootOverride`）替换的是 **agent 目录**（`~/.omp/agent` /
+        // `~/.pi/agent`）；记录在它的 `sessions/` 下，因此**这个指定目录同时影响记录**。
+        // 扩展与插件目录由工具自己的安装位置决定，不跟着走。
+        let agentDir =
+            AgentRootOverride.userOverride(for: kind)
+            ?? home.appendingPathComponent(agentDirName)
         let plugins =
             kind == .ohMyPi
             ? home.appendingPathComponent(".omp/plugins")

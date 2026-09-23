@@ -37,11 +37,14 @@ nonisolated struct GrokAgentProvider: AgentProvider {
 
     // MARK: - 布局
 
-    /// 配置根：`$GROK_HOME` 优先，否则 `~/.grok`。
+    /// 配置根：`$GROK_HOME` 优先（那是 Grok 自己的配置方式），其次用户在设置面板里
+    /// 指定的目录（`AgentRootOverride`），否则 `~/.grok`。记录在它下面的 `sessions/` 里，
+    /// 因此**这个指定目录同时影响安装与记录**。
     var configRoot: URL {
         AgentRootOverride.resolve(
             environment["GROK_HOME"],
-            fallback: home.appendingPathComponent(".grok"),
+            fallback: AgentRootOverride.userOverride(for: kind)
+                ?? home.appendingPathComponent(".grok"),
             home: home
         )
     }

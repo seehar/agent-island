@@ -992,6 +992,17 @@ class HookSocketServer {
   handleClient(clientSocket)
  }
 
+ /// 该事件是否应当在门口丢弃：Agent 被关掉时丢弃。Agent **默认关闭**，「关掉」在设置页
+ /// 里是明确动作（同时会摘掉集成）；但上一个构建装的集成、或卸载失败留下的条目仍会继续
+ /// 上报——那些事件不该再建立会话、更不该出现在刘海里。丢弃是安全的：阻塞型集成等不到
+ /// 应答就回落到工具自己的原生提示（与「应用没在运行」同一条路径）。
+ ///
+ /// 抽成静态函数是为了能单测这条策略：真实 socket 是单例、绑在固定的
+ /// `/tmp/agent-island.sock` 上，用例里绑它会与正在运行的应用抢路径。
+ nonisolated static func shouldIgnore(_ event: HookEvent) -> Bool {
+  !AppSettings.isAgentEnabled(event.agentKind)
+ }
+
  private func handleClient(_ clientSocket: Int32) {
   let flags = fcntl(clientSocket, F_GETFL)
   _ = fcntl(clientSocket, F_SETFL, flags | O_NONBLOCK)
@@ -1041,6 +1052,20 @@ class HookSocketServer {
 
   logger.debug(
    "Received: \(event.event, privacy: .public) for \(event.sessionId.prefix(8), privacy: .public)")
+
+  // 已关闭的 Agent 的事件在门口丢掉（策略见 `shouldIgnore(_:)`）。阻塞型事件要先回一个
+  // 显式应答再关连接：`passthrough` 的语义是「闸门不可用」——omp/pi 的扩展据此**按降级档**
+  // 裁决（默认放行 + 终端提示），而不是把「服务端主动关闭」读成用户拒绝。hook 脚本型 Agent
+  // 本来就不看这条（拿不到决定就不输出、回落原生审批），因此对它们无副作用。
+  guard !Self.shouldIgnore(event) else {
+   logger.debug(
+    "Ignoring event from disabled agent \(event.agentKind.rawValue, privacy: .public)")
+   if event.expectsResponse {
+    replyGateUnavailable(clientSocket: clientSocket, event: event)
+   }
+   closeClient(clientSocket)
+   return
+  }
 
   if event.event == "PreToolUse" {
    cacheToolUseId(event: event)
@@ -1152,6 +1177,25 @@ class HookSocketServer {
  ///
  /// 回传体与「用户点了 Allow」逐字相同（`{"decision":"allow"}`），集成侧因此走同一条放行
  /// 分支。写失败不重试：集成侧拿不到决定会按自己的降级档回落（不会挂住）。
+ /// 回一个「闸门不可用」（`passthrough`）应答；调用方随后会关掉这条连接。
+ ///
+ /// 决策字符串由集成侧约定（见 pi 扩展的结局解析）：不阻塞 + 按降级档裁决。写入方式与
+ /// `autoAllow` 一致（同一条编码器、同样的 write 兜错）。
+ private func replyGateUnavailable(clientSocket: Int32, event: HookEvent) {
+  let response = AskAnswerBuilder.normalized(decision: "passthrough", answers: nil, reason: nil)
+  guard let data = try? Self.responseEncoder.encode(response) else { return }
+  logger.info(
+   "Agent \(event.sessionKey.agent.rawValue, privacy: .public) is disabled - replying passthrough for session \(event.sessionId.prefix(8), privacy: .public) tool \(event.tool ?? "-", privacy: .public)"
+  )
+  data.withUnsafeBytes { bytes in
+   guard let baseAddress = bytes.baseAddress else { return }
+   let result = write(clientSocket, baseAddress, data.count)
+   if result < 0 {
+    logger.error("Gate-unavailable write failed with errno: \(errno)")
+   }
+  }
+ }
+
  private func autoAllow(event: HookEvent, clientSocket: Int32) {
   let response = AskAnswerBuilder.normalized(decision: "allow", answers: nil, reason: nil)
   guard let data = try? Self.responseEncoder.encode(response) else {

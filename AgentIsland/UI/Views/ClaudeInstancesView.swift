@@ -40,13 +40,35 @@ struct ClaudeInstancesView: View {
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            Text(l10n.t("No sessions"))
-                .appFont(13, weight: .medium)
-                .foregroundColor(AppPalette.tertiaryText)
+            if AgentRegistry.enabled.isEmpty {
+                // Agent 默认关闭：此时「没有会话」几乎总是因为一个都没启用，
+                // 因此换成能直接走通的那一步，而不是让用户以为应用坏了。
+                Text(l10n.t("No agents enabled"))
+                    .appFont(13, weight: .medium)
+                    .foregroundColor(AppPalette.tertiaryText)
 
-            Text(l10n.t("Sessions appear here when you run an agent in a terminal."))
-                .appFont(11)
-                .foregroundColor(AppPalette.subtleText)
+                Text(l10n.t("Turn an agent on in Settings → Agents, or install them all at once."))
+                    .appFont(11)
+                    .foregroundColor(AppPalette.subtleText)
+
+                Button {
+                    viewModel.openAgentsSettings()
+                } label: {
+                    Text(l10n.t("Open Agents Settings"))
+                        .appFont(11, weight: .medium)
+                        .foregroundColor(AppPalette.accent)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+            } else {
+                Text(l10n.t("No sessions"))
+                    .appFont(13, weight: .medium)
+                    .foregroundColor(AppPalette.tertiaryText)
+
+                Text(l10n.t("Sessions appear here when you run an agent in a terminal."))
+                    .appFont(11)
+                    .foregroundColor(AppPalette.subtleText)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

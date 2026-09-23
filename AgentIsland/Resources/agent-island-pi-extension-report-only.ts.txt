@@ -357,7 +357,13 @@ function deliver(body: Record<string, unknown>): Promise<boolean> {
 
 /** 一次询问的结果。 */
 interface ApprovalOutcome {
-  kind: "decision" | "timeout" | "unreachable" | "aborted";
+  /**
+   * `passthrough` = 「闸门没处理这一条」：应用明确回了 `passthrough`，或连接建立后被应用
+   * 主动收掉（例如该 Agent 已被用户关闭，应用在门口丢弃这条信封）。语义是**放行但不阻塞**
+   * ——让 omp 走它自己的审批路径，绝不能当成「用户拒绝」（这条从没问过任何人）。
+   * `aborted` 只留给**我们确实拿到 abort 语义**的场景（本地 `cancel()`：原生 ask 先答）。
+   */
+  kind: "decision" | "timeout" | "unreachable" | "aborted" | "passthrough";
   decision?: string;
   reason?: string;
   /** `ask` 作答（`decision === "answer"`）；其余决定不带这个键。 */
@@ -433,7 +439,8 @@ function startDecisionRequest(body: Record<string, unknown>, timeoutMs: number):
       try {
         socket?.write(JSON.stringify(body));
       } catch {
-        done({ kind: "aborted" });
+        // 连上了却写不出去：闸门实际不可用（不是「用户拒绝」）。
+        done({ kind: "passthrough" });
       }
     });
     timer = setTimeout(() => done({ kind: "timeout" }), timeoutMs);
@@ -456,8 +463,11 @@ function startDecisionRequest(body: Record<string, unknown>, timeoutMs: number):
         // 数据还没收全：继续累积，直到超时。
       }
     });
-    socket.on("error", () => done(connected ? { kind: "aborted" } : { kind: "unreachable" }));
-    socket.on("close", () => done(connected ? { kind: "aborted" } : { kind: "unreachable" }));
+    // 连上之后被关掉（应用在门口丢弃了这条信封、或应用中途退出）且**没给任何决定**：
+    // 这是「闸门不可用」，不是「用户拒绝」——走 passthrough，由调用方按降级档裁决 /
+    // 影子 ask 交回原生。`aborted` 仍只代表本地 `cancel()`。
+    socket.on("error", () => done(connected ? { kind: "passthrough" } : { kind: "unreachable" }));
+    socket.on("close", () => done(connected ? { kind: "passthrough" } : { kind: "unreachable" }));
   } catch {
     done({ kind: "unreachable" });
   }
@@ -944,7 +954,9 @@ async function raceIslandAndNativeAsk(args: {
       nativeController.abort();
       return buildIslandAskResult(questions, answers);
     }
-    if (first.outcome.kind === "decision") {
+    // `passthrough`（应用明确不处理这条 / 连接被应用收掉）不是「拒绝」：不掐原生那条，
+    // 直接落到下面的 `settleNative()` 让用户在终端里作答。
+    if (first.outcome.kind === "decision" && first.outcome.decision !== "passthrough") {
       nativeController.abort();
       cancelAskFromIsland(context);
     }

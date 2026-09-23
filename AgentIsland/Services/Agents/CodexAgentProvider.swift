@@ -31,11 +31,14 @@ nonisolated struct CodexAgentProvider: AgentProvider {
 
     // MARK: - 布局
 
-    /// 配置根：`$CODEX_HOME` 优先，否则 `~/.codex`。
+    /// 配置根：`$CODEX_HOME` 优先（那是 Codex 自己的配置方式），其次用户在设置面板里
+    /// 指定的目录（`AgentRootOverride`），否则 `~/.codex`。会话记录在它下面的
+    /// `sessions/` 里，因此**这个指定目录同时影响安装与记录**。
     var configRoot: URL {
         AgentRootOverride.resolve(
             environment["CODEX_HOME"],
-            fallback: home.appendingPathComponent(".codex"),
+            fallback: AgentRootOverride.userOverride(for: kind)
+                ?? home.appendingPathComponent(".codex"),
             home: home
         )
     }

@@ -77,6 +77,24 @@ nonisolated enum AgentRootOverride {
         }
         return AgentProviderRoot.canonical(URL(fileURLWithPath: trimmed))
     }
+
+    /// 用户在设置面板里为该 Agent 指定的配置根（`AppSettings.agentRootOverride`）。
+    ///
+    /// 这个偏好只在这一处读：Provider（推导记录路径）与安装器（写 hook 配置）都从这里取，
+    /// 两侧必须解析成**同一个目录** —— 否则设置行会一边说「工具没装」，一边被装进另一个
+    /// 目录。空串 / 空白由 `AppSettings` 归成 nil；`~` 与 `~/…` 展开到当前用户主目录；
+    /// 结果过 `AgentProviderRoot.canonical`（目录存在时解析软链，不存在时原样返回，交给
+    /// 调用方各自的存在性判据）。
+    ///
+    /// 优先级：环境变量（各 Provider 自己先看）> 这里 > 自动检测。
+    static func userOverride(for kind: AgentKind) -> URL? {
+        // `fallback` 不会被命中：`AppSettings.agentRootOverride` 已把空串 / 空白归成 nil，
+        // 走到这里的一定是非空白值。复用 `resolve` 是为了与环境变量一侧共用同一套 `~`
+        // 展开与软链归一。
+        guard let raw = AppSettings.agentRootOverride(kind) else { return nil }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return resolve(raw, fallback: home, home: home)
+    }
 }
 
 nonisolated extension AgentProvider {

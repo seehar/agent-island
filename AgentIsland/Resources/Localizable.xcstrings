@@ -1098,22 +1098,6 @@
         }
       }
     },
-    "Choose Claude Config Directory" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose Claude Config Directory"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择 Claude 配置目录"
-          }
-        }
-      }
-    },
     "Choose folder…" : {
       "localizations" : {
         "en" : {
@@ -1163,22 +1147,6 @@
         }
       },
       "shouldTranslate" : false
-    },
-    "Claude Directory" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Claude Directory"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Claude 目录"
-          }
-        }
-      }
     },
     "Click Action" : {
       "localizations" : {
@@ -3121,22 +3089,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "可多选"
-          }
-        }
-      }
-    },
-    "Select the folder Claude Code uses (typically ~/.claude or ~/.config/claude)." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Select the folder Claude Code uses (typically ~/.claude or ~/.config/claude)."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择 Claude Code 使用的文件夹（通常是 ~/.claude 或 ~/.config/claude）。"
           }
         }
       }
@@ -5235,6 +5187,262 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "在刘海上批准 %@ 的工具调用。它自己的 approval mode 已是 yolo，因此它自身不会提示。"
+          }
+        }
+      }
+    },
+    "Enable All and Install" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable All and Install"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部启用并安装"
+          }
+        }
+      }
+    },
+    "Disable All and Uninstall" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disable All and Uninstall"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部关闭并卸载"
+          }
+        }
+      }
+    },
+    "Disable all agents and remove their integrations?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disable all agents and remove their integrations?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭所有 Agent 并移除它们的集成？"
+          }
+        }
+      }
+    },
+    "Every enabled agent will be switched off and its integration removed. The tools themselves keep working in their terminals." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every enabled agent will be switched off and its integration removed. The tools themselves keep working in their terminals."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有已启用的 Agent 都会被关闭并移除集成；工具本身在各自的终端里照常可用。"
+          }
+        }
+      }
+    },
+    "Disable All" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disable All"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部关闭"
+          }
+        }
+      }
+    },
+    "Cancel" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消"
+          }
+        }
+      }
+    },
+    "Reset to Default" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset to Default"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复默认"
+          }
+        }
+      }
+    },
+    "Choose Config Directory" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose Config Directory"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择配置目录"
+          }
+        }
+      }
+    },
+    "Select the folder %@ uses for its config and session records." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select the folder %@ uses for its config and session records."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择 %@ 存放配置与会话记录的文件夹。"
+          }
+        }
+      }
+    },
+    "Enabled and installed every detected agent." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enabled and installed every detected agent."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已为每个检测到的 Agent 启用并安装。"
+          }
+        }
+      }
+    },
+    "Disabled every agent and removed its integrations." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disabled every agent and removed its integrations."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已关闭所有 Agent 并移除它们的集成。"
+          }
+        }
+      }
+    },
+    "Some integrations could not be installed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some integrations could not be installed."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分集成未能安装。"
+          }
+        }
+      }
+    },
+    "Custom directory: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom directory: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义目录：%@"
+          }
+        }
+      }
+    },
+    "No agents enabled" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No agents enabled"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未启用任何 Agent"
+          }
+        }
+      }
+    },
+    "Turn an agent on in Settings → Agents, or install them all at once." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn an agent on in Settings → Agents, or install them all at once."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "去「设置 → 智能体」启用一个，或一次全部安装。"
+          }
+        }
+      }
+    },
+    "Open Agents Settings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Agents Settings"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开智能体设置"
           }
         }
       }

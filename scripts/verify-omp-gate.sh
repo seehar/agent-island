@@ -149,6 +149,14 @@ def handle(conn: socket.socket) -> None:
             conn.sendall(b'{"decision":"allow"}')
         elif mode == "deny":
             conn.sendall(b'{"decision":"deny","reason":"denied by notch test double"}')
+        elif mode == "passthrough":
+            # 应用在门口丢弃这条信封时回的显式应答（`shouldIgnore`）：语义是「闸门不处理
+            # 这一条」，扩展必须按降级档裁决，**不是**用户拒绝。
+            conn.sendall(b'{"decision":"passthrough"}')
+        elif mode == "hangup":
+            # 应用只关连接、不给任何应答（旧行为 / 应用中途退出）：不做任何事，
+            # 走 finally 的 close。扩展必须把「连上后被收掉」也当「闸门不可用」。
+            pass
         else:
             # silence：不发应答、保持连接打开（最多 120s），等客户端自己超时。
             for _ in range(1200):
@@ -324,6 +332,31 @@ count_tool_approvals() {
   printf '%s' "${n:-0}"
 }
 
+# 反向判据：会话记录里**不该**出现某段文本（例如被误当成「用户拒绝」的理由）。
+assert_transcript_absent() {
+  local run="$1" needle="$2" label="$3" hits
+  hits="$(grep -rF -- "$needle" "$run/agent/sessions" 2>/dev/null | head -2)"
+  if [ -z "$hits" ]; then
+    pass "${label}：记录里没有「${needle}」"
+  else
+    fail "${label}：记录里出现了「${needle}」"
+  fi
+}
+
+# 轮询式信封断言：降级审计是异步补投的（下一次上报成功时冲刷），给它一点时间。
+assert_payload_soon() {
+  local run="$1" needle="$2" label="$3" waited=0
+  while [ "$waited" -lt 200 ]; do
+    if grep -qF -- "$needle" "$run/out/server.jsonl" 2>/dev/null; then
+      pass "${label}：信封里有 ${needle}"
+      return
+    fi
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  fail "${label}：信封里缺 ${needle}（等 20s）"
+}
+
 # 沙箱会话记录里是否出现某段文本（确定性证人：不依赖模型复述）。
 assert_transcript() {
   local run="$1" needle="$2" label="$3"
@@ -426,7 +459,7 @@ assert_isolation() {
 
   local verdict
   verdict="$(python3 - "$slog" "$ROOT/pids-before.txt" <<'PY'
-import json, pathlib, sys
+import json, pathlib, subprocess, sys
 
 log, before = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 pids = set()
@@ -437,8 +470,21 @@ for line in log.read_text(encoding="utf-8").splitlines():
 known = set()
 if before.exists():
     known = {int(x) for x in before.read_text(encoding="utf-8").split() if x.strip().isdigit()}
-stale = sorted(pids & known)
-print("ok %s" % sorted(pids) if not stale else "stale %s" % stale)
+
+# **必须与「此刻仍活着」的基线 pid 取交集**：pid 会被系统回收，开跑前存在、跑完时已经死掉的
+# 那个号会被新进程（本 case 自己的 omp）复用 —— 实测在并发会话多的机器上撞过一次
+# （基线 12 个 omp pid，其中 22886 中途退出，本 case 的 omp 恰好拿到这个号 → 假 FAIL）。
+# 判据的本意是「上报的 pid 是不是**同一个仍在运行的**旧进程」，所以只比活着的。
+alive = set()
+try:
+    table = subprocess.run(["ps", "-eo", "pid="], capture_output=True, text=True, timeout=5).stdout
+    alive = {int(x) for x in table.split() if x.isdigit()}
+except Exception:
+    alive = known  # ps 失败时退回旧语义（宁可严一点）
+stale = sorted(pids & known & alive)
+recycled = sorted(pids & known - alive)
+print("ok %s%s" % (sorted(pids), "" if not recycled else "（回收复用：%s）" % recycled)
+      if not stale else "stale %s" % stale)
 PY
 )"
   case "$verdict" in
@@ -504,6 +550,28 @@ run_case() {
       assert_guard_intact "$run" "$name"
       assert_payload "$run" '"approval_kind": "critical"' "$name"
       assert_transcript "$run" "denied by notch test double" "$name 理由回灌"
+      ;;
+    passthrough)
+      # 应用明确「这条我不处理」⇒ 一律走降级档（notify-only = 放行），而不是用户拒绝。
+      assert_file_exists "$run/ran.txt" "$name 闸门不处理这条 ⇒ 工具照跑"
+      assert_payload "$run" '"event": "ToolApproval"' "$name 闸门确实问过"
+      assert_transcript_absent "$run" "AgentIsland is no longer available" "$name 不是「用户拒绝」语义"
+      assert_transcript_absent "$run" "denied by notch test double" "$name 没有被拒"
+      assert_payload_soon "$run" '"status": "degraded_allowed"' "$name 降级放行的审计事件"
+      assert_payload_soon "$run" 'gate unavailable' "$name 可读提示文案（TUI 状态行同一串）"
+      ;;
+    passthrough-critical)
+      # passthrough **不是**无条件放行：危险命令仍由 tier 兜底拒绝。
+      assert_guard_intact "$run" "$name 危险命令仍被拦"
+      assert_transcript "$run" "known-dangerous command while the approval gate is unreachable" "$name 拒绝理由"
+      assert_absent "$run/out/server.jsonl" '"status": "degraded_allowed"' "$name 危险命令没有降级放行"
+      ;;
+    gate-hangup)
+      # 只关连接、不给应答（旧行为 / 应用中途退出）也必须走降级档，不能再报
+      # 「AgentIsland is no longer available」。
+      assert_file_exists "$run/ran.txt" "$name 连接被收掉 ⇒ 工具照跑"
+      assert_transcript_absent "$run" "AgentIsland is no longer available" "$name 不再报「应用不可用」"
+      assert_payload_soon "$run" 'gate unavailable' "$name 可读提示文案"
       ;;
     enoent-exec)
       assert_file_exists "$run/ran.txt" "$name 降级放行"
@@ -731,6 +799,66 @@ run_case_tui_enoent() {
   # ③ 帧里没有 omp 自己的审批弹窗
   assert_frames_absent "Allow tool" "tui-enoent" "$run/out/frame-exec.txt" "$run/out/frame-critical.txt"
   assert_isolation "$run" "tui-enoent"
+  log ""
+}
+
+# ---------------------------------------------------------------------------
+# 真 TUI：闸门「不处理这一条」时降级必须**可见**
+# ---------------------------------------------------------------------------
+
+# 与 tui-enoent 的区别：应用在（socket 通、替身应答），但替身回的是 `passthrough`
+# （应用在门口丢弃了这条信封）。本 case 只证明**只有 TUI 才能证明的那一半**：
+#   ① 帧里能看到「gate unavailable，已降级为 <档>」（`ctx.hasUI` 才有的可视提示）
+#   ② 普通命令照跑 ③ 帧里没有 omp 自己的审批弹窗 ④ 降级审计事件真的补投给了应用
+# 「passthrough 不是无条件放行（危险命令仍被 tier 拦）」由**无头**的 passthrough-critical
+# 确定性覆盖：这里曾经也发危险命令，但模型会拒绝执行 `rm -rf …/guard .`（实测它回
+# 「Refusing: 会递归删掉当前工作目录」），gate 根本没被问到 —— 那是模型抽样不是回归。
+run_case_tui_passthrough() {
+  local sock="-L agent-island-p1-tui-passthrough"
+  tmux $sock kill-server 2>/dev/null
+  sleep 1
+  local run="$ROOT/case-tui-passthrough-$$"
+  prepare_case "$run" notify-only
+  SERVER_PID=""
+  log "=== case=tui-passthrough（真 omp TUI + 替身回 passthrough；沙箱 ${run}）"
+  start_server "$run" passthrough || { assert_isolation "$run" "tui-passthrough"; return; }
+
+  tmux $sock new-session -d -s omp -x 200 -y 50 \
+    "env HOME=$run/home PI_CODING_AGENT_DIR=$run/agent AGENT_ISLAND_SOCKET=$run/approve.sock AGENT_ISLAND_APPROVAL_TIMEOUT_MS=120000 $OMP --model $MODEL --smol $MODEL --slow $MODEL --plan $MODEL"
+  local pane_pid pgid
+  pane_pid="$(tmux $sock list-panes -t omp -F '#{pane_pid}' 2>/dev/null | head -1)"
+  pgid="$(ps -o pgid= -p "${pane_pid:-0}" 2>/dev/null | tr -d ' ')"
+  sleep 10
+  tmux $sock send-keys -t omp Escape
+  sleep 2
+
+  tmux $sock send-keys -t omp "Run the shell command \`printf TUI_PASS > $run/ran.txt\` with the bash tool, then reply OK." Enter
+  sleep 18
+  tmux $sock capture-pane -p -t omp > "$run/out/frame-exec.txt" 2>/dev/null
+
+  tmux $sock kill-server 2>/dev/null
+  if [ -n "${pgid:-}" ]; then
+    kill -TERM -"$pgid" 2>/dev/null
+    sleep 1
+    kill -KILL -"$pgid" 2>/dev/null
+  fi
+  stop_server
+
+  log "    ---- 帧（可视区）里的提示行 ----"
+  grep -nE "gate unavailable|gate offline|degraded" "$run/out/frame-exec.txt" 2>/dev/null | head -8 | sed 's/^/    /'
+  log "    ---- 断言 ----"
+
+  # ① 降级可见（TUI 状态行/通知里的同一串文案）：这是本 case 唯一无法在无头下证明的事
+  assert_frame_contains "$run/out/frame-exec.txt" "gate unavailable" "tui-passthrough 可视提示"
+  # ② 普通命令照跑
+  assert_file_exists "$run/ran.txt" "tui-passthrough 普通命令照跑"
+  assert_transcript_absent "$run" "AgentIsland is no longer available" "tui-passthrough 不是「用户拒绝」语义"
+  # ③ 帧里没有 omp 自己的审批弹窗（唯一入口仍是刘海这一侧）
+  assert_frames_absent "Allow tool" "tui-passthrough" "$run/out/frame-exec.txt"
+  # ④ 审计事件真的补投给了应用（含可读文案）
+  assert_payload_soon "$run" '"status": "degraded_allowed"' "tui-passthrough 降级审计事件"
+  assert_payload_soon "$run" 'gate unavailable' "tui-passthrough 审计里的文案"
+  assert_isolation "$run" "tui-passthrough"
   log ""
 }
 
@@ -975,6 +1103,11 @@ spec() {
     deny)            printf '%s %s %s %s %s' "$1" notify-only      deny     120000 exec ;;
     silence)         printf '%s %s %s %s %s' "$1" notify-only      silence  3000   exec ;;
     deny-critical)   printf '%s %s %s %s %s' "$1" notify-only      deny     120000 critical ;;
+    # 闸门「不处理这一条」：显式 passthrough / 只关连接不给应答 —— 都必须走降级档（放行 + 提示），
+    # 不是「用户拒绝」；危险命令仍受 tier 保护。
+    passthrough)          printf '%s %s %s %s %s' "$1" notify-only passthrough 120000 exec ;;
+    passthrough-critical) printf '%s %s %s %s %s' "$1" notify-only passthrough 120000 critical ;;
+    gate-hangup)          printf '%s %s %s %s %s' "$1" notify-only hangup      120000 exec ;;
     enoent-exec)     printf '%s %s %s %s %s' "$1" notify-only      none     120000 exec ;;
     enoent-critical) printf '%s %s %s %s %s' "$1" notify-only      none     120000 critical ;;
     enoent-strict)   printf '%s %s %s %s %s' "$1" strict           none     120000 exec ;;
@@ -995,7 +1128,7 @@ pgrep -f "$OMP" > "$ROOT/pids-before.txt" 2>/dev/null || true
 
 selected=("$@")
 if [ "${#selected[@]}" -eq 0 ]; then
-  selected=(allow deny silence deny-critical enoent-exec enoent-critical enoent-strict enoent-readonly scope-critical-exec scope-critical-danger scope-always-exec scope-always-danger live-scope tui tui-enoent report-only-ask zero-select-multi zero-select-mixed ask-deny-control)
+  selected=(allow deny silence deny-critical passthrough passthrough-critical gate-hangup enoent-exec enoent-critical enoent-strict enoent-readonly scope-critical-exec scope-critical-danger scope-always-exec scope-always-danger live-scope tui tui-enoent tui-passthrough report-only-ask zero-select-multi zero-select-mixed ask-deny-control)
 fi
 
 for name in "${selected[@]}"; do
@@ -1005,6 +1138,10 @@ for name in "${selected[@]}"; do
   fi
   if [ "$name" = "tui-enoent" ]; then
     run_case_tui_enoent
+    continue
+  fi
+  if [ "$name" = "tui-passthrough" ]; then
+    run_case_tui_passthrough
     continue
   fi
   if [ "$name" = "report-only-ask" ]; then

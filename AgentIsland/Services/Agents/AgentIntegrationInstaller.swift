@@ -35,9 +35,10 @@ nonisolated enum AgentIntegrationInstaller {
   /// 3 = 新增交互提问（`question`）的远程作答。
   static let openCodePluginVersion = 3
 
+  /// 6 = 闸门不可用（含「该 Agent 已被关闭」）改走降级档，而不是把服务端关闭读成拒绝。
   /// 当前应用期望的扩展版本戳：改 pi/omp 扩展时必须同步 +1。
   /// `isInstalled` 按它比对（不再只看「文件在不在」），用户手改过或升级未重写都能被发现。
-  static let piFamilyExtensionVersion = 5
+  static let piFamilyExtensionVersion = 6
 
   /// 扩展源码里声明版本 / 变体 / 降级档的三行注释标记。
   private static let versionMarkerPrefix = "// agent-island-extension-version:"
@@ -91,8 +92,15 @@ nonisolated enum AgentIntegrationInstaller {
 
   /// 是否有任何一个 Agent 开着「刘海审批闸门」：闸门的两个全局档位（问什么、
   /// 应用未运行时）没有开着的闸门时没有意义，设置页据此整行禁用。
+  ///
+  /// 必须同时要求「该 Agent 已被启用」：Agent 默认关闭，「全部关闭并卸载」之后
+  /// 闸门标志还留着（那是有意的，重新启用时会用回原档位），但此时没有任何闸门在
+  /// 工作，档位行不该还是可用的。
   static var hasEnabledGate: Bool {
-    AgentKind.allCases.contains { supportsApprovalGate($0) && AppSettings.isApprovalGateEnabled($0) }
+    AgentKind.allCases.contains {
+      supportsApprovalGate($0) && AppSettings.isApprovalGateEnabled($0)
+        && AppSettings.isAgentEnabled($0)
+    }
   }
 
   /// 重装**已开启闸门且仍在监控**的 Agent 的扩展。档位值烘焙在扩展文件里，
@@ -158,6 +166,12 @@ nonisolated enum AgentIntegrationInstaller {
   /// 安装某个 Agent 的集成；返回是否安装成功。
   @discardableResult
   static func install(_ kind: AgentKind) -> Bool {
+    // 工具没装就什么都不做：Claude / omp / pi 的 Provider 不做存在性检查（扩展/脚本型），
+    // 少了这道闸门就会给没装它们的用户凭空造出 `~/.omp/agent/extensions/` 这类目录。
+    // 「跳过」与配置文件型 Agent 的存在性闸门同口径——不算失败（返回 true），
+    // 界面上的状态由 `integrationStatus()` 表达（未安装/不可用）。
+    guard AgentRegistry.provider(for: kind).isToolInstalled else { return true }
+
     switch kind {
     case .claudeCode:
       HookInstaller.installIfNeeded()

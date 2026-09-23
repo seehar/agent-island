@@ -38,20 +38,27 @@ nonisolated struct KimiAgentProvider: AgentProvider {
 
     // MARK: - 布局
 
+    /// kimi-code（现行）根：用户在设置面板里指定的目录优先（`AgentRootOverride`），
+    /// 否则 `~/.kimi-code`。
     var modernRoot: URL {
-        home.appendingPathComponent(modernDirName)
+        AgentRootOverride.userOverride(for: kind) ?? home.appendingPathComponent(modernDirName)
     }
 
+    /// 旧版 kimi-cli 根（`~/.kimi`）。
     var legacyRoot: URL {
         home.appendingPathComponent(legacyDirName)
     }
 
-    /// 数据根：`~/.kimi-code` 优先，缺失时退回 `~/.kimi`（迁移期两代并存）。
+    /// 数据根：用户指定了目录就**钉死**它（不再做现代/旧版择优——他已经指了目录，再去
+    /// 别的根找记录、写配置就是错配）；没指定时 `~/.kimi-code` 优先，缺失才退回
+    /// `~/.kimi`（迁移期两代并存）。
     ///
     /// 两代都不存在时给**现代**路径（与 CodeIsland `kimiHome(fm:)` 一致）。这条口径
     /// 只有一处：安装器也调 `preferredRoot(home:)`，不许各写一份——否则会出现
     /// 「读记录看现代根、写配置落旧根」这种谁都没装却互不相认的状态。
-    var configRoot: URL { Self.preferredRoot(home: home) }
+    var configRoot: URL {
+        AgentRootOverride.userOverride(for: kind) ?? Self.preferredRoot(home: home)
+    }
 
     /// 配置/数据根的择优（供 Provider 与安装器共用）。
     nonisolated static func preferredRoot(home: URL) -> URL {
@@ -63,9 +70,18 @@ nonisolated struct KimiAgentProvider: AgentProvider {
         return modern
     }
 
-    /// 记录的两个候选根：记录 API 依次看这两处，任一存在即可解析。
+    /// 记录根候选：没指定目录时两代并存（现代优先），指定了就只剩它。
     var roots: [URL] {
-        [modernRoot, legacyRoot]
+        guard let override = AgentRootOverride.userOverride(for: kind) else {
+            return [modernRoot, legacyRoot]
+        }
+        return [override]
+    }
+
+    /// 旧版布局（`sessions/<md5(cwd)>/<会话 id>/wire.jsonl`）的基准根：没指定目录时是
+    /// `~/.kimi`；指定了目录时两代布局都落在那个数据根下。
+    private var legacyLayoutRoot: URL {
+        AgentRootOverride.userOverride(for: kind) ?? legacyRoot
     }
 
     var sessionsRoot: URL {
@@ -95,7 +111,7 @@ nonisolated struct KimiAgentProvider: AgentProvider {
         }
         // 旧版：`sessions/<md5(cwd)>/<会话 id>/wire.jsonl`。
         let legacy =
-            legacyRoot
+            legacyLayoutRoot
             .appendingPathComponent(sessionsDirName)
             .appendingPathComponent(KimiAgentProvider.workdirHash(for: cwd))
             .appendingPathComponent(sessionId)

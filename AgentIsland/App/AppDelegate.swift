@@ -39,13 +39,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
    return
   }
 
-  // 偏好域跟着 bundle id 走，改名后要先搬旧域的设置，再读任何配置。
-  AppSettings.migrateLegacyDefaultsIfNeeded()
+  // 这一段全是**真实副作用**（写偏好、写用户的 agent 配置、删旧 socket），因此测试宿主
+  // 里整段跳过：`xcodebuild test` 会把测试装进本应用里跑（TEST_HOST 就是它，见
+  // `AppEnvironment.isRunningTests`），跑一次单测不该改写用户的 agent 配置，也不该往用户
+  // 的偏好域里塞迁移标记。测试要验的都是按临时目录/home 注入的，不依赖这段。
+  if !AppEnvironment.isRunningTests {
+    // 「本机此前是否跑过本应用」必须在**任何本次写入之前**判定：改名迁移会无条件写下
+    // 它自己的标记，拿偏好域当判据会把全新安装判成升级（见 `hadPreviousInstallFootprint`）。
+    let hadPreviousInstall = AppSettings.hadPreviousInstallFootprint()
 
-  // 改名遗留的旧 socket 文件：老客户端会继续往一个无人监听的地址发状态，清一次。
-  LegacyArtifacts.removeLegacySockets()
+    // 偏好域跟着 bundle id 走，改名后要先搬旧域的设置，再读任何配置。
+    AppSettings.migrateLegacyDefaultsIfNeeded()
+    // 顺序有讲究：先把改名前的域搬过来，再换算启用口径——否则老用户存在旧域里的
+    // 禁用集合还没搬进来，迁移会把它当成「全新安装」而什么都不保留。
+    AppSettings.migrateAgentEnablementIfNeeded(hadPreviousInstall: hadPreviousInstall)
+    // 旧口径的 Claude 目录（`claudeDirectoryName`）搬进通用覆盖表：不然界面显示
+    // 「自动检测」而实际解析到别处。
+    AppSettings.migrateClaudeDirectoryOverrideIfNeeded()
 
-  AgentIntegrationInstaller.installIfNeeded()
+    // 改名遗留的旧 socket 文件：老客户端会继续往一个无人监听的地址发状态，清一次。
+    LegacyArtifacts.removeLegacySockets()
+
+    AgentIntegrationInstaller.installIfNeeded()
+  }
   NSApplication.shared.setActivationPolicy(.accessory)
 
   windowManager = WindowManager()

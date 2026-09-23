@@ -375,7 +375,7 @@ pi.on("tool_call", async (event, ctx) => {          // omp: 在 tool_execution_s
 | **决策返回 `deny`** | 工具不执行，理由回灌模型 | `return { block: true, reason }` | RUN D：模型逐字复述理由 |
 | **决策返回 `allow`** | 放行 | `return undefined` | RUN C：`ISLAND_TOOL_RAN` |
 | **决策到达前会话被中止**（Esc/Ctrl+C） | omp 侧 fail-closed；扩展侧撤下等待、释放 fd | 监听 omp 的 `ctx.signal`（若有）与 socket `close/error` → `destroy()`；应用侧 M9 的 cancel | 源码 `extensibility/extensions/runner.ts:1523-1525`：`Tool execution was cancelled while an extension handler was pending` |
-| **应用在等待中被杀**（连接断开，已投递过卡片） | **拒绝**（已问过人，不静默放行）→ 待拍板（§10-4） | 等待态收到 `close`/`error` → `{block:true, reason:"AgentIsland is no longer available"}` | [推断] 语义选择，非实测 |
+| **应用在等待中被杀 / 该 Agent 已被关闭**（连接断开，已投递过卡片） | **按降级档裁决**（默认放行 + TUI 可见提示）：客户端无法区分「应用被杀」与「该 Agent 被关闭」，两者都是 close；把它读成「用户拒绝」会让门口过滤（关闭某个 Agent）变成静默拒绝 | 等待态收到 `close`/`error` → 走 `resolveWhenGateUnavailable(tier)`；服务端在主动丢弃已关闭 Agent 的阻塞事件时还会先回一个显式 `{"decision":"passthrough"}`（`HookSocketServer.replyGateUnavailable`），把语义写明白 | 2026-09 实测（gate 矩阵新增 `passthrough` / `gate-hangup` / `tui-passthrough` 三条 + 真 TUI 帧里逐字看到 `AgentIsland gate unavailable — degraded to notify-only`）；`aborted` 现在只由本地 `cancel()` 产生，仍为拒绝；**超时仍为拒绝**（不变量未动） |
 | **扩展内部异常（bug）** | **绝不抛错**；catch 后放行（保留 critical 拒绝） | handler 全体包 `try/catch`，`catch { return critical ? {block:true,…} : undefined }` | 抛错 → omp 报 `Extension <path> failed: <msg>` 并**阻塞**（RUN E）→ 会把「我们的 bug」变成「用户的工具不可用」 |
 | **OMP 自己也在问**（`yolo` + 显式 `prompt` 策略、`computer` 的 `provider safetyChecks`、或非 yolo mode 的 exec 档） | 刘海**让位**：撤下自己的 Allow/Deny，只显示「终端正在询问」（三态状态机见 §5.7） | 扩展订阅 `tool_approval_requested` / `tool_approval_resolved`（`...ts.txt:383` 已有）→ 上报 `omp_owns_approval: true`；应用侧据此把卡片切到「OMP 负责」态 | T2/T10 + `wrapper.ts:271-341`；WS-E §3.4（两个入口互相等待） |
 | **OMP 自己拒绝**（headless/子 agent/no-UI：`requires approval but no interactive UI available`） | 刘海必须**与自己拒绝区分**：不同卡片状态 + 不同 `reason` 前缀，否则用户会以为是自己点的拒绝 | 应用侧按「该 tool_call 是否曾进入 pending」判定归属；UI 文案用 `OMP 拒绝（无审批 UI）` 而非 `已拒绝` | WS-E §2.3 第 2 点（这两类拒绝在 UI 上语义不同） |
@@ -800,7 +800,7 @@ ask: { questions: [ { id, question, header?, multi_select, free_text, options: [
 
 ### 12.4 只上报版也带影子 ask
 
-`agent-island-pi-extension-report-only.ts.txt` 与闸门版**同源**，同样注册影子 ask：「只上报」只表示**不做闸门**（不拦 `tool_call`），问答通道与闸门开关无关。两个变体的版本戳同为 **3**（`AgentIntegrationInstaller.piFamilyExtensionVersion = 3`；安装器按「版本 + 变体 + （闸门版）降级档」判定是否重装）。
+`agent-island-pi-extension-report-only.ts.txt` 与闸门版**同源**，同样注册影子 ask：「只上报」只表示**不做闸门**（不拦 `tool_call`），问答通道与闸门开关无关。两个变体的版本戳由同一个常量给出（当前 **6**：`AgentIntegrationInstaller.piFamilyExtensionVersion`；安装器按「版本 + 变体 + （闸门版）降级档」判定是否重装，改扩展就必须 +1，否则已装用户不会被重写）。
 
 ### 12.5 仍然存在的边界
 

@@ -34,8 +34,11 @@ nonisolated struct CopilotAgentProvider: AgentProvider {
 
     // MARK: - 布局
 
+    /// 配置根：用户在设置面板里指定的目录优先（`AgentRootOverride`），否则 `~/.copilot`。
+    /// 两代记录根（`jb/`、`session-state/`）都在它之下，因此**这个指定目录同时影响安装
+    /// 与记录**。
     var configRoot: URL {
-        home.appendingPathComponent(".copilot")
+        AgentRootOverride.userOverride(for: kind) ?? home.appendingPathComponent(".copilot")
     }
 
     /// 当前版本的会话根。

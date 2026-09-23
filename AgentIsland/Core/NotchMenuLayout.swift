@@ -117,20 +117,30 @@ nonisolated enum NotchMenuMetrics {
     /// 这条不变量是踩过坑的：曾经把「渲染」也按可见行数截断，于是窗口里没有可滚动的
     /// 内容，第 N+1 个之后的 Agent 在设置面板里**永远够不着**（关不掉、也看不到集成
     /// 状态）。正确形态是：渲染全部行，只有窗口高度封顶，滚动由卡内接管。
-    static func agentCardLayout(total: Int) -> (renderedRows: Int, windowHeight: CGFloat) {
-        (renderedRows: total, windowHeight: CGFloat(min(total, visibleAgentRows)) * twoLineRowHeight)
+    ///
+    /// `directoryEditorHeight` 是某个 Agent 行展开的目录编辑器高度：它长在窗口内部，
+    /// 因此要把它加进窗口高度，否则展开的编辑器会被窗口裁掉一半。
+    static func agentCardLayout(
+        total: Int,
+        directoryEditorHeight: CGFloat = 0
+    ) -> (renderedRows: Int, windowHeight: CGFloat) {
+        (
+            renderedRows: total,
+            windowHeight: CGFloat(min(total, visibleAgentRows)) * twoLineRowHeight
+                + directoryEditorHeight
+        )
     }
 
     /// 「监控的智能体」卡片里最多同时显示多少行：其余行在卡内滚动
     /// （与音效选择器的 `maxVisibleOptions` 同一套做法）。
     ///
     /// 取值与高度预算绑定：agent 页内容高 = 92（页眉/分段控件等固定开销）
-    /// + 20 + 行数×48 + 26（脚注）+ 140（闸门卡三行）+ 60（Claude 配置目录卡）
-    /// + 24（组间距）。4 行时实测 **548**（离屏探针打印 `contentHeight(for: .agents)`），
-    /// 与接入 17 个 Agent 之前的版面**逐点相同**——也就是那条已知会被夹取的组合
-    /// （`agents@76`：548 + 106 + 76 > 728）仍然成立，没有因为接入面变大而让这一页
-    /// 再长高。再加行就必须重新核 728 的预算并登记新的夹取组合。
-    static let visibleAgentRows = 4
+    /// + 20（卡标题）+ 40（动作条：全部启用/全部关闭）+ 行数×48 + 26（脚注）+ 12（组间距）
+    /// + 20 + 120（审批闸门卡）+ 0（Claude 配置目录卡**已并入逐行编辑器**）。
+    /// 5 行时是 **570**：加最大的单个展开 106 后在 chrome ≤ 50 时仍 ≤ 728，
+    /// 只有 chrome 76（胶囊高度自定义到最大）那一档被夹取 —— 与改造前登记的
+    /// `agents@76` 同一档，夹取组合没有增加。
+    static let visibleAgentRows = 5
 
     /// 面板高度上限：分组内容超出时由页内滚动接管，面板不再继续变长。
     ///
@@ -231,21 +241,21 @@ nonisolated enum NotchMenuMetrics {
             ]
         case .agents:
             return [
-                // 监控的智能体：每个 Agent 一行（标题 + 集成状态），带一行脚注。
+                // 监控的智能体：动作条（全部启用并安装 / 全部关闭并卸载）+ 每个 Agent 一行
+                // （标题 + 集成状态；行内可展开该 Agent 的目录编辑器）+ 一行脚注。
                 // 受支持的 Agent 会随接入面扩大而增加（现在 17 个），整张卡片按
                 // `visibleAgentRows` 封顶、超出的在卡内滚动——否则这一页会把面板
                 // 撑到上限之外，用户得滚很久才能摸到下面的闸门开关。
                 Block(
-                    rows: Array(
-                        repeating: twoLineRowHeight,
-                        count: min(AgentKind.allCases.count, visibleAgentRows)
-                    ),
+                    rows: [rowHeight]
+                        + Array(
+                            repeating: twoLineRowHeight,
+                            count: min(AgentKind.allCases.count, visibleAgentRows)
+                        ),
                     hasFootnote: true
                 ),
                 // 审批闸门：问什么 / 应用未运行时 / 待批时自动展开（三个全局档位）
                 Block(rows: Array(repeating: rowHeight, count: 3)),
-                // Claude Code：配置目录
-                Block(rows: [rowHeight]),
             ]
         case .statistics:
             // 统计页是整页读数：高度由 UsageStatsMetrics.sectionHeight 给出（与页面实际

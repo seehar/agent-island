@@ -119,7 +119,7 @@ The script runs `scripts/gate.sh` first — the localization guard plus a Releas
 
 ## First run
 
-AgentIsland only touches each agent's own integration surface: the shared hook script at `~/.agent-island/hooks/agent-island-state.py`, plus the entries it merges into that tool's own config (table below). Every config file it rewrites is copied first to `<name>.agent-island-backup`; a file AgentIsland created itself is removed again on uninstall; turning an agent off strips only its entries and leaves the shared script in place (the other tools still use it). On the first launch after an update, hooks are installed for **every detected tool** — if you don't want one of them, switch that agent off in **Settings → Agents**.
+AgentIsland only touches each agent's own integration surface: the shared hook script at `~/.agent-island/hooks/agent-island-state.py`, plus the entries it merges into that tool's own config (table below) — and only for the agents you enabled. Each agent's config root can be overridden from the settings row (e.g. `$CODEX_HOME`-style custom homes); environment variables still win over the picked folder. Every config file it rewrites is copied first to `<name>.agent-island-backup`; a file AgentIsland created itself is removed again on uninstall; turning an agent off strips only its entries and leaves the shared script in place (the other tools still use it). Nothing is installed until you enable an agent: the settings row's switch, or **Enable All and Install**, is what writes these entries.
 
 |Agent|File written|Also touched|
 |---|---|---|
@@ -134,7 +134,7 @@ AgentIsland only touches each agent's own integration surface: the shared hook s
 |Grok CLI / Trae / Trae CLI|`~/.agent-island/hooks/agent-island-state.py` (shared)|`$GROK_HOME/hooks/agent-island.json` / `~/.trae/hooks.json` / `~/.trae/traecli.yaml`|
 |DeepSeek Harness|—|— (the dsh plugin owns its own integration)|
 
-Open **Settings → Agents** (the gear button in the panel, then the *Agents* page) to see each agent's integration status and where it lives. Status **Outdated — reinstall** means the file on disk is not the one this build expects — toggle the agent off and on to rewrite it.
+Every agent starts **switched off** — AgentIsland never takes over a tool on its own. Open **Settings → Agents** (the gear button in the panel, then the *Agents* page) and hit **Enable All and Install** to turn on every tool it found and install their integrations, or flip the switch on individual rows. The same page has **Disable All and Uninstall** to undo everything in one go, a per-agent **config directory** picker (the folder/power buttons on a row) for tools whose records live somewhere non-standard, and each agent's integration status and where it lives. Status **Outdated — reinstall** means the file on disk is not the one this build expects — toggle the agent off and on to rewrite it.
 
 **Enabling the approval gate on `omp` / `pi`.** The shield button in the agent row makes the notch that agent's approval gate. Two facts worth knowing first:
 
@@ -148,7 +148,7 @@ Open **Settings → Agents** (the gear button in the panel, then the *Agents* pa
 |Page|What's in it|
 |---|---|
 |**General**|Language, screen, notch height, notch width, content text size, panel size · launch at login, accessibility status|
-|**Agents**|Enable switch per agent, integration status and path, approval-gate shield (`omp` / `pi`), Claude Code config directory · **Approval Gate** card: what it asks about (writes and commands / dangerous commands only / always allow), what happens when AgentIsland is not running, approval auto-expand (Only when the notch decides / Always / Never)|
+|**Agents**|**Enable All and Install** / **Disable All and Uninstall** bulk actions; per-agent enable switch, integration status and where it lives, approval-gate shield (`omp` / `pi`), and an expandable **config directory** editor on every row (auto-detect / choose folder / reset) · **Approval Gate** card: what it asks about (writes and commands / dangerous commands only / always allow), what happens when AgentIsland is not running, approval auto-expand (Only when the notch decides / Always / Never)|
 |**Behavior**|Hover expand (Never / Fast / Standard / Slow), idle capsule (Always / When Active / Keep 3 Seconds), completion badge (10 s / 30 s / 1 min / Always) · ended-session retention, row density, click action (None / Open Chat / Focus Terminal), refresh rate · notification sound, notification scope (Ready only / Ready and approvals)|
 |**About**|Version, check for updates, automatic update checks, star on GitHub, quit|
 

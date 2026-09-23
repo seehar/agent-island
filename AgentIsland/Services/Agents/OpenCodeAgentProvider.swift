@@ -23,9 +23,14 @@ nonisolated struct OpenCodeAgentProvider: AgentProvider {
 
     func paths() -> AgentPaths? {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        let dataDir = home.appendingPathComponent(".local/share/opencode")
+        // 用户指定目录（`AgentRootOverride`）替换的是 **数据根**（`~/.local/share/opencode`）：
+        // 会话数据库与插件目录都在它之下，因此**这个指定目录同时影响记录**；
+        // `~/.config/opencode` 是 OpenCode 自己的配置位置，不跟着走。
+        let dataDir =
+            AgentRootOverride.userOverride(for: kind)
+            ?? home.appendingPathComponent(".local/share/opencode")
         guard FileManager.default.fileExists(atPath: dataDir.path) else {
-            Self.reportMissingDataDirectory()
+            Self.reportMissingDataDirectory(dataDir)
             return nil
         }
         return AgentPaths(
@@ -40,10 +45,10 @@ nonisolated struct OpenCodeAgentProvider: AgentProvider {
     ///
     /// 这一步返回 nil 会让整个 OpenCode 接入被静默跳过（发现不到会话、记录读不出
     /// 内容），界面上只表现为「没有会话」，因此留下日志说明原因。
-    private static func reportMissingDataDirectory() {
+    private static func reportMissingDataDirectory(_ dataDir: URL) {
         guard !didReportMissingDataDirectory else { return }
         didReportMissingDataDirectory = true
-        logger.debug("OpenCode 数据目录不存在（~/.local/share/opencode），该 Agent 的接入被跳过")
+        logger.debug("OpenCode 数据目录不存在（\(dataDir.path, privacy: .public)），该 Agent 的接入被跳过")
     }
 
     /// 权威会话数据库路径。

@@ -6,8 +6,13 @@
 //    · `paths()` 只在配置根存在时给值（缺根一律 nil），记录 API 在缺根时安全返回；
 //    · 目录发现能认出会话，且 `sessionId` / `cwd` 与记录一致；
 //    · `isTranscriptFile` 不认别的 Agent 的记录（否则会话会串台）；
-//    · `$CODEX_HOME` / `$GROK_HOME` 覆盖（含 `~/` 展开）生效。
+//    · `$CODEX_HOME` / `$GROK_HOME` 覆盖（含 `~/` 展开）生效；
+//    · 用户在设置面板里指定的配置目录（`AppSettings.agentRootOverride`）优先于自动检测，
+//      但被环境变量压过（Claude 例外见 `ClaudePaths`，Cline 例外见 `ClineAgentProvider`）。
 //  记录内容只要能解析出 cwd 就够，不追求真实对话。
+//
+//  `.serialized`：用户指定目录是本进程的偏好（`UserDefaults.standard`），与安装器用例写的是
+//  同一个键，串行跑才不会互相看见对方设的值。
 //
 
 import Foundation
@@ -15,7 +20,7 @@ import Testing
 
 @testable import AgentIsland
 
-@Suite("Agent Provider 记录布局")
+@Suite("Agent Provider 记录布局", .serialized)
 struct AgentProviderTests {
   // MARK: - 夹具
 
@@ -570,6 +575,453 @@ struct AgentProviderTests {
     #expect(plain.sessionId(fromTranscriptFile: cases[0].ownPath) == nil)
     #expect(try plain.cwd(fromTranscriptFile: cases[0].ownPath) == nil)
     #expect(plain.subagentTranscriptFiles(sessionId: "sid", cwd: "/Users/tester/work").isEmpty)
+  }
+
+  // MARK: - 用户指定目录（设置面板里的目录选择器）
+
+  /// 注入「用户指定目录」——设置面板写的是同一个键（进程级偏好），用完必须复原。
+  private func withRootOverride(_ kind: AgentKind, _ path: String, _ body: () throws -> Void)
+    throws
+  {
+    let previous = AppSettings.agentRootOverride(kind)
+    AppSettings.setAgentRootOverride(kind, path: path)
+    defer { AppSettings.setAgentRootOverride(kind, path: previous) }
+    try body()
+  }
+
+  @Test("指定目录：`~` 展开、绝对路径归一，空白视作未设置")
+  func userOverridePathResolution() throws {
+    let home = try tempHome()
+    defer { remove(home) }
+
+    let realHome = AgentProviderRoot.canonical(FileManager.default.homeDirectoryForCurrentUser)
+    try withRootOverride(.gemini, "~/agent-island-override-check") {
+      #expect(
+        AgentRootOverride.userOverride(for: .gemini)?.path
+          == realHome.appendingPathComponent("agent-island-override-check").path,
+        "`~/…` 应展开到当前用户主目录")
+    }
+    // 空白/空串：视作没有指定（设置面板的「恢复自动检测」写的就是空串）
+    try withRootOverride(.gemini, "   ") {
+      #expect(AgentRootOverride.userOverride(for: .gemini) == nil)
+    }
+    try withRootOverride(.gemini, home.path) {
+      #expect(AgentRootOverride.userOverride(for: .gemini)?.path == home.path)
+    }
+  }
+
+  @Test("指定目录：claude 家族（qoder / factory）的配置根与记录都指向它")
+  func rootOverrideMovesClaudeFamily() throws {
+    let home = try tempHome()
+    defer { remove(home) }
+
+    let cwd = "/Users/tester/work/demo"
+    let sessionId = "11111111-2222-3333-4444-555555555555"
+    let record = #"{"type":"user","sessionId":"\#(sessionId)","cwd":"\#(cwd)"}"#
+
+    for (kind, recordsDir) in [(AgentKind.qoder, "projects"), (.factory, "sessions")] {
+      let override = home.appendingPathComponent("custom-\(kind.rawValue)")
+      let file = try write(
+        record,
+        to: override.appendingPathComponent(
+          "\(recordsDir)/-Users-tester-work-demo/\(sessionId).jsonl"))
+      let provider = ClaudeFamilyAgentProvider(kind: kind, home: home)
+
+      try withRootOverride(kind, override.path) {
+        let name = kind.rawValue
+        #expect(provider.paths()?.configDir.path == override.path, "\(name) 配置根未指向指定目录")
+        #expect(
+          provider.paths()?.sessionsDir?.path
+            == override.appendingPathComponent(recordsDir).path)
+        #expect(provider.transcriptFile(sessionId: sessionId, cwd: cwd) == file)
+        #expect(provider.isTranscriptFile(file.path))
+        let recordCwd = try provider.cwd(fromTranscriptFile: file.path)
+        #expect(recordCwd == cwd)
+        #expect(
+          provider.isTranscriptFile(
+            home.appendingPathComponent("elsewhere/\(sessionId).jsonl").path) == false,
+          "\(name) 不应认指定目录之外的记录")
+
+        #expect(sessions(provider).map(\.sessionId) == [sessionId], "\(name) 发现不到指定目录里的会话")
+      }
+    }
+  }
+
+  @Test("指定目录：codex 的记录根与发现都指向它")
+  func rootOverrideMovesCodex() throws {
+    let home = try tempHome()
+    defer { remove(home) }
+
+    let uuid = "019d0a9e-a27a-7651-bc6d-1c6f5f90e358"
+    let cwd = "/Users/tester/work/codex"
+    let override = home.appendingPathComponent("custom-codex")
+    let file = try write(
+      #"{"timestamp":"2026-09-22T10:11:12.000Z","type":"session_meta","payload":{"id":"\#(uuid)","cwd":"\#(cwd)"}}"#,
+      to: override.appendingPathComponent(
+        "sessions/2026/09/22/rollout-2026-09-22T10-11-12-\(uuid).jsonl"))
+
+    let provider = CodexAgentProvider(home: home)
+    try withRootOverride(.codex, override.path) {
+      #expect(provider.paths()?.configDir.path == override.path)
+      #expect(
+        provider.paths()?.sessionsDir?.path
+          == override.appendingPathComponent("sessions").path)
+      #expect(provider.isTranscriptFile(file.path))
+      #expect(provider.transcriptFile(sessionId: uuid, cwd: cwd) == file)
+      let recordCwd = try provider.cwd(fromTranscriptFile: file.path)
+      #expect(recordCwd == cwd)
+      let found = sessions(provider)
+      #expect(found.map(\.sessionId) == [uuid])
+      #expect(found.first?.transcriptPath == file.path)
+      #expect(
+        provider.isTranscriptFile(
+          home.appendingPathComponent(".codex/sessions/2026/09/22/rollout-x-\(uuid).jsonl").path)
+          == false, "默认根下的记录不再属于它")
+    }
+  }
+
+  @Test("指定目录：gemini 的配置根与记录都指向它")
+  func rootOverrideMovesGemini() throws {
+    let home = try tempHome()
+    defer { remove(home) }
+
+    let cwd = "/Users/tester/work/gemini"
+    let sessionId = "a2a-server"
+    let override = home.appendingPathComponent("custom-gemini")
+    try write(
+      #"{"sessionId":"\#(sessionId)","projectHash":"abc123"}"#,
+      to: override.appendingPathComponent(
+        "tmp/abc123/chats/session-2026-06-03T07-46-a2a-serv.jsonl"))
+    try write(
+      #"{"projects":{"\#(cwd)":"abc123"}}"#, to: override.appendingPathComponent("projects.json"))
+
+    let provider = GeminiAgentProvider(home: home)
+    try withRootOverride(.gemini, override.path) {
+      #expect(provider.paths()?.configDir.path == override.path)
+      #expect(provider.paths()?.sessionsDir?.path == override.appendingPathComponent("tmp").path)
+      let file = try #require(provider.transcriptFile(sessionId: sessionId, cwd: cwd))
+      #expect(file.path.hasPrefix(override.path + "/"))
+      #expect(provider.isTranscriptFile(file.path))
+      #expect(sessions(provider).map(\.sessionId) == [sessionId])
+      #expect(
+        provider.isTranscriptFile(
+          home.appendingPathComponent(".gemini/tmp/abc123/chats/session-x.jsonl").path) == false)
+    }
+  }
+
+  @Test("指定目录：cursor 的记录根与发现都指向它")
+  func rootOverrideMovesCursor() throws {
+    let home = try tempHome()
+    defer { remove(home) }
+
+    let cwd = "/Users/tester/work/cursor"
+    let sessionId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    let override = home.appendingPathComponent("custom-cursor")
+    let file = try write(
+      #"{"role":"user","message":{"content":"hi"}}"#,
+      to: override.appendingPathComponent(
+        "projects/Users-tester-work-cursor/agent-transcripts/\(sessionId)/\(sessionId).jsonl"))
+
+    let provider = CursorAgentProvider(home: home)
+    try withRootOverride(.cursor, override.path) {
+      #expect(provider.paths()?.configDir.path == override.path)
+      #expect(
+        provider.paths()?.sessionsDir?.path
+          == override.appendingPathComponent("projects").path)
+      #expect(provider.transcriptFile(sessionId: sessionId, cwd: cwd) == file)
+      #expect(provider.sessionId(fromTranscriptFile: file.path) == sessionId)
+      let recordCwd = try provider.cwd(fromTranscriptFile: file.path)
+      #expect(recordCwd == cwd)
+      #expect(sessions(provider).map(\.sessionId) == [sessionId])
+    }
+  }
+
+  @Test("指定目录：copilot 的两代记录根都指向它")
+  func rootOverrideMovesCopilot() throws {
+    let home = try tempHome()
+    defer { remove(home) }
+
+    let cwd = "/Users/tester/work/copilot"
+    let sessionId = "3f0d1a5e-1111-2222-3333-444444444444"
+    let override = home.appendingPathComponent("custom-copilot")
+    let file = try write(
+      #"{"type":"assistant.message","data":{"content":"hi"}}"#,
+      to: override.appendingPathComponent("jb/\(sessionId)/partition-1.jsonl"))
+    try write(
+      "id: \(sessionId)\ncwd: \(cwd)\n",
+      to: override.appendingPathComponent("session-state/\(sessionId)/workspace.yaml"))
+
+    let provider = CopilotAgentProvider(home: home)
+    try withRootOverride(.copilot, override.path) {
+      #expect(provider.paths()?.configDir.path == override.path)
+      #expect(provider.transcriptFile(sessionId: sessionId, cwd: cwd) == file)
+      #expect(provider.isTranscriptFile(file.path))
+      let recordCwd = try provider.cwd(fromTranscriptFile: file.path)
+      #expect(recordCwd == cwd)
+      #expect(sessions(provider).map(\.sessionId) == [sessionId])
+    }
+  }
+
+  @Test("指定目录：grok 的记录根与发现都指向它")
+  func rootOverrideMovesGrok() throws {
+    let home = try tempHome()
+    defer { remove(home) }
+
+    let cwd = "/Users/tester/work/grok"
+    let sessionId = "grok-session-1"
+    let encoded = try #require(GrokAgentProvider.encodedCwd(cwd))
+    let override = home.appendingPathComponent("custom-grok")
+    let directory = override.appendingPathComponent("sessions/\(encoded)/\(sessionId)")
+    try write(#"{"type":1}"#, to: directory.appendingPathComponent("chat_history.jsonl"))
+    try write(
+      #"{"info":{"id":"\#(sessionId)","cwd":"\#(cwd)"}}"#,
+      to: directory.appendingPathComponent("summary.json"))
+
+    let provider = GrokAgentProvider(home: home)
+    try withRootOverride(.grok, override.path) {
+      #expect(provider.paths()?.configDir.path == override.path)
+      let file = try #require(provider.transcriptFile(sessionId: sessionId, cwd: cwd))
+      #expect(provider.isTranscriptFile(file.path))
+      #expect(provider.sessionId(fromTranscriptFile: file.path) == sessionId)
+      let recordCwd = try provider.cwd(fromTranscriptFile: file.path)
+      #expect(recordCwd == cwd)
+      #expect(sessions(provider).map(\.sessionId) == [sessionId])
+    }
+  }
+
+  @Test("指定目录：omp / pi 的 agent 目录与会话根都指向它")
+  func rootOverrideMovesPiFamily() throws {
+    let home = try tempHome()
+    defer { remove(home) }
+
+    let cwd = "/Users/tester/work/omp"
+    let sessionId = "aaaaaaaa-1111-2222-3333-444444444444"
+
+    for kind in [AgentKind.ohMyPi, .pi] {
+      let override = home.appendingPathComponent("custom-\(kind.rawValue)/agent")
+      // 随便放一个分桶目录：会话 id 唯一，兜底遍历也能找回记录
+      let file = try write(
+        #"{"type":"session","cwd":"\#(cwd)"}"#,
+        to: override.appendingPathComponent(
+          "sessions/misc/2026-09-22T10-11-12_\(sessionId).jsonl"))
+      let provider = PiFamilyAgentProvider(kind: kind)
+
+      try withRootOverride(kind, override.path) {
+        #expect(provider.paths()?.configDir.path == override.path, "\(kind.rawValue) agent 目录不对")
+        #expect(
+          provider.paths()?.sessionsDir?.path
+            == override.appendingPathComponent("sessions").path)
+        #expect(provider.transcriptFile(sessionId: sessionId, cwd: cwd) == file)
+        #expect(sessions(provider).map(\.sessionId) == [sessionId])
+      }
+    }
+  }
+
+  @Test("指定目录：opencode 的数据根指向它")
+  func rootOverrideMovesOpenCode() throws {
+    let home = try tempHome()
+    defer { remove(home) }
+
+    let override = home.appendingPathComponent("custom-opencode")
+    try write("", to: override.appendingPathComponent("opencode.db"))
+
+    let provider = OpenCodeAgentProvider()
+    try withRootOverride(.opencode, override.path) {
+      #expect(provider.paths()?.dataDir?.path == override.path)
+      #expect(provider.databaseFile?.path == override.appendingPathComponent("opencode.db").path)
+    }
+  }
+
+  @Test("指定目录：trae / traecli / dsh 只换配置根（没有可解析的记录）")
+  func rootOverrideMovesPlainConfigOnly() throws {
+    let home = try tempHome()
+    defer { remove(home) }
+
+    let providers: [any AgentProvider] = [
+      PlainConfigOnlyAgentProvider(kind: .trae, home: home),
+      PlainConfigOnlyAgentProvider(kind: .traeCli, home: home),
+      PlainConfigOnlyAgentProvider(kind: .deepSeekHarness, home: home),
+    ]
+
+    for provider in providers {
+      let override = home.appendingPathComponent("custom-\(provider.kind.rawValue)")
+      try makeDirectory(override)
+      try withRootOverride(provider.kind, override.path) {
+        #expect(provider.paths()?.configDir.path == override.path)
+        #expect(provider.transcriptFile(sessionId: "sid", cwd: "/Users/tester/work") == nil)
+      }
+    }
+  }
+
+  @Test("指定目录：Cline 是例外，记录仍在 VSCode 的 globalStorage 里")
+  func rootOverrideLeavesClineRecordsAlone() throws {
+    let home = try tempHome()
+    defer { remove(home) }
+
+    let root = home.appendingPathComponent(
+      "Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev")
+    let taskId = "1758000000000"
+    let cwd = "/Users/tester/work/cline"
+    let conversation = try write(
+      #"[{"role":"user","content":"hi"}]"#,
+      to: root.appendingPathComponent("tasks/\(taskId)/api_conversation_history.json"))
+    try write(
+      #"[{"id":"\#(taskId)","ts":1758000000000,"cwdOnTaskInitialization":"\#(cwd)"}]"#,
+      to: root.appendingPathComponent("state/taskHistory.json"))
+
+    let override = home.appendingPathComponent("custom-cline")
+    try makeDirectory(override)
+
+    let provider = ClineAgentProvider(home: home)
+    try withRootOverride(.cline, override.path) {
+      // 指定目录是 Cline 自己的根（安装器写 hook 的落点），与记录路径无关
+      #expect(provider.paths()?.configDir.path == root.path)
+      #expect(provider.transcriptFile(sessionId: taskId, cwd: cwd) == conversation)
+      #expect(provider.isTranscriptFile(conversation.path))
+      let recordCwd = try provider.cwd(fromTranscriptFile: conversation.path)
+      #expect(recordCwd == cwd)
+      #expect(sessions(provider).map(\.sessionId) == [taskId])
+    }
+  }
+
+  @Test("指定目录：kimi 钉死数据根（跳过现代 / 旧版择优）")
+  func rootOverridePinsKimiRoot() throws {
+    let home = try tempHome()
+    defer { remove(home) }
+
+    // 现代根（~/.kimi-code）与旧版根（~/.kimi）都在，且各有记录
+    let modernCwd = "/Users/tester/work/kimi-modern"
+    let modernDir = home.appendingPathComponent(".kimi-code/sessions/modern")
+    try write("{}\n", to: modernDir.appendingPathComponent("agents/main/wire.jsonl"))
+    try write(
+      #"{"sessionId":"modern","sessionDir":"\#(modernDir.path)","workDir":"\#(modernCwd)"}"#,
+      to: home.appendingPathComponent(".kimi-code/session_index.jsonl"))
+    let legacyCwd = "/Users/tester/work/kimi-legacy"
+    let legacyFile = home.appendingPathComponent(
+      ".kimi/sessions/\(KimiAgentProvider.workdirHash(for: legacyCwd))/legacy/wire.jsonl")
+    try write("{}\n", to: legacyFile)
+
+    // 用户指定的数据根（索引与记录都在它下面）
+    let override = home.appendingPathComponent("custom-kimi")
+    let pinnedDir = override.appendingPathComponent("sessions/pinned")
+    try write("{}\n", to: pinnedDir.appendingPathComponent("agents/main/wire.jsonl"))
+    try write(
+      #"{"sessionId":"pinned","sessionDir":"\#(pinnedDir.path)","workDir":"\#(override.path)"}"#,
+      to: override.appendingPathComponent("session_index.jsonl"))
+
+    let provider = KimiAgentProvider(home: home)
+    // 没指定目录：现代根优先
+    #expect(provider.paths()?.configDir.path == home.appendingPathComponent(".kimi-code").path)
+
+    try withRootOverride(.kimi, override.path) {
+      #expect(provider.paths()?.configDir.path == override.path, "指定目录应钉死数据根")
+      #expect(
+        provider.paths()?.sessionsDir?.path == override.appendingPathComponent("sessions").path)
+      #expect(sessions(provider).map(\.sessionId) == ["pinned"], "指定目录下不该再看别的根")
+      #expect(provider.isTranscriptFile(legacyFile.path) == false)
+      #expect(
+        provider.isTranscriptFile(
+          home.appendingPathComponent(".kimi-code/sessions/modern/agents/main/wire.jsonl").path)
+          == false)
+    }
+  }
+
+  @Test("指定目录不存在：paths() 为 nil、记录 API 安全、安装器跳过")
+  func missingRootOverrideIsSafe() throws {
+    let home = try tempHome()
+    defer { remove(home) }
+
+    // `paths()` 带存在性闸门的 Provider：指定目录不存在 ⇒ nil（记录 API 也必须安全）。
+    let gated: [(kind: AgentKind, provider: any AgentProvider)] = [
+      (.codex, CodexAgentProvider(home: home)),
+      (.gemini, GeminiAgentProvider(home: home)),
+      (.cursor, CursorAgentProvider(home: home)),
+      (.copilot, CopilotAgentProvider(home: home)),
+      (.qoder, ClaudeFamilyAgentProvider(kind: .qoder, home: home)),
+      (.kimi, KimiAgentProvider(home: home)),
+      (.grok, GrokAgentProvider(home: home)),
+      (.trae, PlainConfigOnlyAgentProvider(kind: .trae, home: home)),
+      (.deepSeekHarness, PlainConfigOnlyAgentProvider(kind: .deepSeekHarness, home: home)),
+      (.opencode, OpenCodeAgentProvider()),
+    ]
+
+    let missing = home.appendingPathComponent("nowhere")
+    for entry in gated {
+      try withRootOverride(entry.kind, missing.path) {
+        let name = entry.kind.rawValue
+        #expect(entry.provider.paths() == nil, "\(name) 指定目录不存在时应为 nil")
+        _ = entry.provider.transcriptFile(sessionId: "sid", cwd: "/Users/tester/none")
+        #expect(entry.provider.isTranscriptFile("/tmp/whatever.jsonl") == false)
+        #expect(entry.provider.sessionId(fromTranscriptFile: "/tmp/whatever.jsonl") == nil)
+        let recordCwd = try entry.provider.cwd(fromTranscriptFile: "/tmp/whatever.jsonl")
+        #expect(recordCwd == nil)
+        #expect(
+          entry.provider.subagentTranscriptFiles(sessionId: "sid", cwd: "/Users/tester/none")
+            .isEmpty)
+        let source = entry.provider as? any AgentSessionDiscoverySource
+        #expect(
+          source?.recentSessions(since: recentSince, limit: 5).isEmpty ?? true,
+          "\(name) 指定目录不存在仍发现会话")
+      }
+    }
+
+    // omp / pi 与 Claude 同属「扩展型」集成：`paths()` 不设存在性闸门（扩展与脚本的目录由
+    // 安装器按需创建），因此判据是「指向指定目录 + 记录安全返回空值」，而不是 nil。
+    let ungated: [(kind: AgentKind, provider: any AgentProvider)] = [
+      (.ohMyPi, PiFamilyAgentProvider(kind: .ohMyPi)),
+      (.pi, PiFamilyAgentProvider(kind: .pi)),
+    ]
+    for entry in ungated {
+      try withRootOverride(entry.kind, missing.path) {
+        #expect(entry.provider.paths()?.configDir.path == missing.path)
+        #expect(
+          entry.provider.paths()?.sessionsDir?.path
+            == missing.appendingPathComponent("sessions").path)
+        #expect(entry.provider.transcriptFile(sessionId: "sid", cwd: "/Users/tester/none") == nil)
+        #expect(
+          entry.provider.subagentTranscriptFiles(sessionId: "sid", cwd: "/Users/tester/none")
+            .isEmpty)
+        let source = entry.provider as? any AgentSessionDiscoverySource
+        #expect(source?.recentSessions(since: recentSince, limit: 5).isEmpty ?? true)
+      }
+    }
+
+    // 安装器同一条判据：指定目录不存在 ⇒ 跳过（返回 true），一个字节都不写
+    try withRootOverride(.gemini, missing.path) {
+      #expect(AgentConfigInstaller.install(.gemini, home: home))
+      #expect(!FileManager.default.fileExists(atPath: missing.path))
+      #expect(AgentConfigInstaller.isInstalled(.gemini, home: home) == false)
+    }
+  }
+
+  @Test("优先级：$CODEX_HOME 压过指定目录（环境变量是工具自己的配置方式）")
+  func environmentWinsOverRootOverride() throws {
+    let home = try tempHome()
+    defer { remove(home) }
+
+    let uuid = "019d0a9e-a27a-7651-bc6d-1c6f5f90e358"
+    let cwd = "/Users/tester/work/codex"
+    let record =
+      #"{"type":"session_meta","payload":{"id":"\#(uuid)","cwd":"\#(cwd)"}}"#
+    let envRoot = home.appendingPathComponent("env-codex")
+    let envFile = try write(
+      record,
+      to: envRoot.appendingPathComponent(
+        "sessions/2026/09/22/rollout-2026-09-22T10-11-12-\(uuid).jsonl"))
+    let overrideRoot = home.appendingPathComponent("custom-codex")
+    try write(
+      record,
+      to: overrideRoot.appendingPathComponent(
+        "sessions/2026/09/22/rollout-2026-09-22T10-11-12-\(uuid).jsonl"))
+
+    let provider = CodexAgentProvider(
+      home: home, environment: ["CODEX_HOME": envRoot.path])
+    try withRootOverride(.codex, overrideRoot.path) {
+      #expect(provider.paths()?.configDir.path == envRoot.path, "环境变量应压过指定目录")
+      let found = sessions(provider)
+      #expect(found.count == 1)
+      #expect(found.first?.transcriptPath == envFile.path)
+    }
   }
 }
 

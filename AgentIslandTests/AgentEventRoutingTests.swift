@@ -27,13 +27,15 @@ struct AgentEventRoutingTests {
         status: String,
         extra: [String: Any] = [:]
     ) throws -> HookEvent {
+        // **不带 pid**：应用会周期性检查 pid 是否存活并据此回收会话（`recheckAllSessions`），
+        // 而用例里编的 pid 迟早会被判成「进程没了」——于是这条用例会随运行时机变红。
+        // 不带 pid 时走的是「多久没写入才回收」那条路，用例因此是确定的。
         var payload: [String: Any] = [
             "session_id": sessionId,
             "cwd": cwd,
             "event": event,
             "status": status,
             "agent": agent.rawValue,
-            "pid": 42,
             "tty": "/dev/ttys001",
         ]
         for (key, value) in extra { payload[key] = value }

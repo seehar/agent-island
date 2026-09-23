@@ -7,6 +7,12 @@
 //  —— `state/taskHistory.json` 是任务索引（`{id, ts, cwdOnTaskInitialization, modelId}`），
 //  每个任务的对话在 `tasks/<任务 id>/api_conversation_history.json`。
 //
+//  **例外：用户在设置面板里为 Cline 指定的目录与本 Provider 的记录路径无关。** 那个目录
+//  是 Cline 自己的根（默认 `~/Documents/Cline`），只用来定位**安装器写 hook 的落点**
+//  （`<它>/Hooks/<事件名>`，见 `AgentConfigInstaller`）；对话记录永远在 VSCode 扩展的
+//  globalStorage 下，换不了（扩展自己决定写哪）。因此这里**不读** `AgentRootOverride`：
+//  让它影响记录路径只会把记录找错地方。
+//
 //  事实来源：CodeIsland `Sources/CodeIsland/AppState.swift:5668`（findActiveClineSessions：
 //  globalStorage 根、taskHistory 排序取最近任务、会话文件 mtime 作为新鲜度）、
 //  `:5713`（clineStorageRoot）、`:5723`（readRecentFromClineHistory：条目数组 +

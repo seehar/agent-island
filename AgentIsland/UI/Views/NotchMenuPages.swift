@@ -113,9 +113,11 @@ struct GeneralSettingsPage: View {
 
 // MARK: - 智能体
 
-/// 「智能体」页：各 Agent CLI 的监控开关与实时集成状态、全局的审批闸门策略，
-/// 以及 Claude Code 的配置目录。Claude Code 一行同时负责其 hook 集成的安装与
-/// 卸载，因此设置里不再单独提供 Hooks 开关。
+/// 「智能体」页：卡片第一行是批量动作（全部启用并安装 / 全部关闭并卸载），下面逐个列出
+/// 各 Agent CLI 的监控开关、实时集成状态与各自的配置目录（文件夹按钮展开三行编辑器）；
+/// 再往下是全局的审批闸门策略。
+/// Claude Code 的配置目录也走同一套逐 Agent 编辑器，因此不再单独成卡；它一行同时负责
+/// 其 hook 集成的安装与卸载，设置里也不再单独提供 Hooks 开关。
 struct AgentsSettingsPage: View {
     @ObservedObject private var l10n = LocalizationManager.shared
     /// 有没有开着的闸门：闸门卡片的两行据此启用/禁用。由 Agent 行的闸门开关回调刷新
@@ -139,10 +141,6 @@ struct AgentsSettingsPage: View {
             // 单个 Agent，因此从 Agent 列表卡片里拎出来单独成卡。
             SettingsGroup(title: l10n.t("Approval Gate")) {
                 ApprovalGateSettingsGroup(isEnabled: hasEnabledGate)
-            }
-
-            SettingsGroup(title: l10n.t("Claude Code")) {
-                ClaudeDirPickerRow(showsSeparator: false)
             }
         }
         .onAppear { hasEnabledGate = AgentIntegrationInstaller.hasEnabledGate }

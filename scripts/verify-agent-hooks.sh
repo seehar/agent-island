@@ -133,6 +133,10 @@ def handle(conn):
         elif mode == "answer":
             payload = json.dumps({"decision": "answer", "answers": current_answers()})
             conn.sendall(payload.encode("utf-8"))
+        elif mode == "passthrough":
+            # 应用在门口丢弃这条信封时的显式应答（`shouldIgnore`）：hook 脚本必须**不输出**，
+            # 让工具回落自己的原生审批 —— 与扩展侧的 passthrough 语义一致。
+            conn.sendall(b'{"decision":"passthrough"}')
         else:
             # silence：不发应答、保持连接打开（最多 120s），等客户端自己超时。
             for _ in range(1200):
@@ -1240,6 +1244,14 @@ run_cases_one() {
         '"session_id": "traecli-2"'
       ;;
 
+    # 应用回 passthrough（例如该 Agent 已被用户关闭）：脚本不输出任何东西，回落原生审批
+    claude-passthrough)
+      run_case claude-passthrough claude - passthrough empty \
+        '{"session_id":"claude-pass-1","cwd":"/tmp/pass","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"ls"}}' \
+        '"agent": "claude"' '"event": "PermissionRequest"' '"status": "waiting_for_approval"' \
+        '"expects_response": true'
+      ;;
+
     # Claude 的 AskUserQuestion：上行带 ask 负载，作答映射回 updatedInput
     claude-ask-answer)
       printf '%s' '{"今晚吃哪种菜系？": ["C1"]}' > "$ANSWERS_FILE"
@@ -1263,7 +1275,7 @@ ALL_CASES=(claude-default claude-permission-allow claude-permission-deny qoder-p
   cline-pretool cline-suppressed fake-ancestor no-ancestor grok-runtime-dedup grok-stop-failure
   grok-workspace-env trae-shell
   traecli-permission traecli-permission-event-flag
-  claude-ask-answer
+  claude-ask-answer claude-passthrough
   legacy-equivalence socket-absent malformed-stdin timeout-negative)
 
 selected=("$@")
