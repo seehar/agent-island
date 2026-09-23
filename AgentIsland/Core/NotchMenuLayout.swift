@@ -160,18 +160,17 @@ nonisolated enum NotchMenuMetrics {
     /// chrome = `max(24, 胶囊高度) + 12`，可达区间是 **28…76**：外接屏自动档
     /// （菜单栏 24/25）→ 36/37；内置刘海 32 → 44；`notch` 档在没有内置刘海的屏上 38 → 50；
     /// 胶囊高度自定义 16…64 → 28…76。因此「装得下」是按页给阈值的——允许的最大 chrome
-    /// （= 728 − 内容高 − 该页最高单个展开）：通用 **76**、行为 **110**、通知 **246**、
+    /// （= 728 − 内容高 − 该页最高单个展开）：通用 **76**、行为 **110**、通知 **194**、
     /// 智能体 **58**、统计 76、关于 343、**快捷键** 104。
     /// 通用页加过「接管键盘焦点」（单行开关 42）之后，它在 chrome 76 那一档**刚好**落到
     /// 728：此时余量为 0，再加任何一行都会让 `general@76` 变成被夹取的组合——那种情况下
     /// 需要显式登记进 `NotchMenuMetricsTests.clampedPairs`，并接受该档下页内滚动。
-    /// 本次把通知相关的 3 行从行为页搬到独立通知页（行为页另加 2 个会话开关）：移出 3×40、
-    /// 加进 2×48，行为页内容净减 24pt，最高单展开仍是 138pt，因此 `behavior@76` 不再是
-    /// 被夹取的组合。通知页有独立预算，不再挤进行为页。
+    /// 本次将通知相关的 3 行从行为页搬到独立通知页，行为页另加 2 个会话开关；
+    /// 因为移出 3×40 再加 2×48，行为页内容净减 24pt，最高单展开仍是 138pt。
     /// 已知会被夹取的组合：chrome ≥ 59 时的智能体页（670 + chrome = 746@76），
-    /// 由页内滚动接管（滚动条是隐藏的）。
-    /// 通知页的最高展开是音效列表 4 行 + 独立试听行（`SoundSelector.previewRows`）＝170pt；
-    /// 改档位数或去掉试听行都要重核。
+    /// 由页内滚动接管（滚动条是隐藏的）。通知页有独立预算，不再挤进行为页。
+    /// 通知页最高展开是音效列表的可见行数（`SoundSelector.maxVisibleOptions`＝6）＝202；
+    /// 它的档位总数是动态的（内置 14 + 用户自带若干），超出的在列表里滚动，面板高度不变。
     /// 改任何一页的行数、档位数或某个选择器的可见选项数，都要重核这些阈值——
     /// `NotchMenuMetricsTests` 有一条表驱动的用例钉着它（chrome 取可达集合）。
     /// 展开块是**互斥**的（同一时刻只有一个，见 `PickerExpansion`），因此上面这条判据
@@ -254,16 +253,16 @@ nonisolated enum NotchMenuMetrics {
             return [
                 // 胶囊：悬停展开 / 空闲可见性（完成提示已移到通知页）
                 Block(rows: Array(repeating: rowHeight, count: 2)),
-                // 会话：保留已结束 / 信息密度 / 单击动作 / 刷新频率 + 两个两行开关
+                // 会话：保留已结束 / 信息密度 / 单击动作 / 刷新 / 子代理详情 / 隐藏闲置
                 Block(rows: [
-                    rowHeight, rowHeight, rowHeight, rowHeight,
-                    twoLineRowHeight, twoLineRowHeight,
+                    rowHeight, rowHeight, rowHeight, rowHeight, twoLineRowHeight, twoLineRowHeight,
                 ]),
             ]
         case .notifications:
             return [
-                // 通知：音效（展开块含独立试听行）/ 音量 / 安静时段 / 提示音范围 / 完成提示
-                Block(rows: Array(repeating: rowHeight, count: 5)),
+                // 通知：音效（点选即试听）/ 音量 / 安静时段 / 提示音范围 / 完成提示
+                // + 一行脚注（说明用户音效放在 ~/Library/Sounds）
+                Block(rows: Array(repeating: rowHeight, count: 5), hasFootnote: true)
             ]
         case .agents:
             return [

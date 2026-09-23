@@ -355,7 +355,12 @@ struct NotificationsSettingsPage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: NotchMenuMetrics.groupSpacing) {
-            SettingsGroup(title: l10n.t("Notifications")) {
+            SettingsGroup(
+                title: l10n.t("Notifications"),
+                // 用户音效的来源写在这里：列表里会多出几个「不在系统音效里」的档位，
+                // 这句话告诉用户它们是从哪儿来的、以及怎么再加。
+                footnote: l10n.t("Sounds in ~/Library/Sounds are listed here too.")
+            ) {
                 SoundPickerRow(soundSelector: soundSelector)
 
                 SettingsSliderRow(
@@ -368,7 +373,7 @@ struct NotificationsSettingsPage: View {
                     onEditingEnded: {
                         // 松手时播一次：音量调到哪儿，听一下就知道（试听不受安静时段限制）。
                         NotificationSoundPlayer.play(
-                            AppSettings.notificationSound, ignoresQuietHours: true)
+                            AppSettings.notificationSoundChoice, ignoresQuietHours: true)
                     }
                 )
 

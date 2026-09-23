@@ -8,7 +8,10 @@
 import Foundation
 
 /// Available notification sounds
-enum NotificationSound: String, CaseIterable {
+///
+/// `nonisolated`：它是纯值枚举，播放库与偏好读写都是非隔离代码（工程默认 MainActor 隔离，
+/// 不标注就会在那边报「main actor-isolated property can not be referenced」）。
+nonisolated enum NotificationSound: String, CaseIterable {
   case none = "None"
   case pop = "Pop"
   case ping = "Ping"
@@ -29,6 +32,10 @@ enum NotificationSound: String, CaseIterable {
   var soundName: String? {
     self == .none ? nil : rawValue
   }
+
+  /// 没设过 / 设的值失效时用的档（改造前就是它）。
+  /// 与 `NotificationSoundLibrary.defaultChoice` 同源，改这里两处一起变。
+  static var defaultSound: NotificationSound { .pop }
 }
 
 /// 应用不可达（AgentIsland 没开）时闸门怎么办。
@@ -90,19 +97,20 @@ nonisolated enum AppSettings {
 
   // MARK: - Notification Sound
 
-  /// The sound to play when Claude finishes and is ready for input
-  static var notificationSound: NotificationSound {
+  /// 提示音的持久化取值：内置音效存声音名（与历史偏好完全兼容），
+  /// 用户自带的音效存 `file:<绝对路径>`（见 `NotificationSoundLibrary`）。
+  static var notificationSoundID: String {
     get {
-      guard let rawValue = defaults.string(forKey: Keys.notificationSound),
-        let sound = NotificationSound(rawValue: rawValue)
-      else {
-        return .pop  // Default to Pop
-      }
-      return sound
+      let stored = defaults.string(forKey: Keys.notificationSound) ?? ""
+      return stored.isEmpty ? NotificationSound.defaultSound.rawValue : stored
     }
-    set {
-      defaults.set(newValue.rawValue, forKey: Keys.notificationSound)
-    }
+    set { defaults.set(newValue, forKey: Keys.notificationSound) }
+  }
+
+  /// 解析后的提示音档位：设的值失效（用户删了那个文件）时回退内置默认档，
+  /// 界面显示的就是真正会响的那一个。
+  static var notificationSoundChoice: NotificationSoundChoice {
+    NotificationSoundLibrary.choice(forID: notificationSoundID)
   }
 
   // MARK: - Notification Volume

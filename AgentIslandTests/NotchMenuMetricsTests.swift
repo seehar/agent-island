@@ -194,10 +194,10 @@ struct NotchMenuMetricsTests {
                     SessionRowDensity.allCases.count,
                     SessionRowClickAction.allCases.count,
                     RefreshCadence.allCases.count)),
-            // 音效展开块比别的多一行不滚动的「试听」：可见档位数要把它算进去。
+            // 音效列表的档位总数是动态的（内置 + 用户自带），可见行数才是常量。
             .notifications: max(
                 NotchMenuMetrics.pickerOptionsHeight(
-                    visibleOptions: SoundSelector.maxVisibleOptions + SoundSelector.previewRows),
+                    visibleOptions: SoundSelector.maxVisibleOptions),
                 NotchMenuMetrics.pickerOptionsHeight(
                     visibleOptions: max(
                         QuietHours.allCases.count,
@@ -240,10 +240,10 @@ struct NotchMenuMetricsTests {
         }
     }
 
-    @Test("音效选择器（含试听行）展开后仍装得进通知页的预算")
+    @Test("音效选择器展开后仍装得进通知页的预算")
     func soundPickerFitsNotificationsBudget() {
         let expanded = NotchMenuMetrics.pickerOptionsHeight(
-            visibleOptions: SoundSelector.maxVisibleOptions + SoundSelector.previewRows)
+            visibleOptions: SoundSelector.maxVisibleOptions)
         let height = NotchMenuMetrics.panelHeight(
             for: .notifications, expandedPickerHeight: expanded, chromeHeight: 44)
         #expect(height == 44 + NotchMenuMetrics.contentHeight(for: .notifications) + expanded)

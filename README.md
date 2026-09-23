@@ -153,7 +153,7 @@ Already monitoring these agents? The next launch rewrites their extension to the
 |**General**|Language, screen, notch height/width, content text size, panel size · launch at login, accessibility status, and keyboard-focus behavior on open.|
 |**Behavior**|Hover expand, idle capsule · ended-session retention, row density, click action (Focus Terminal falls back to chat without tmux/yabai), both status-check and session-scan intervals · subagent details in chat, hide idle sessions.|
 |**Agents**|Enable/disable and integration state for each agent; per-agent config root; tool-call guard scope and offline behavior. The agent list scrolls within its card.|
-|**Notifications**|Notification sound (with a preview line), volume, quiet hours, sound scope (ready only / ready and approvals), completion badge. Quiet hours silences the sound only — the notch still shows everything.|
+|**Notifications**|Notification sound (clicking a sound plays it), volume, quiet hours, sound scope (ready only / ready and approvals), completion badge. The list also carries your own sounds from `~/Library/Sounds`. Quiet hours silences the sound only — the notch still shows everything.|
 |**Statistics**|Token, session and tool-call totals, trends, per-agent/model breakdown, date range and full rescan. Reached from the chart button in the panel header.|
 |**About**|Version, check for updates, automatic update checks, star on GitHub, quit.|
 
