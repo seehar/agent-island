@@ -23,7 +23,9 @@ struct UpdateRow: View {
             title: title,
             subtitle: subtitle,
             subtitleColor: subtitleColor,
-            showsSeparator: false,
+            // 更新行是本卡第一行（下面还有「自动检查更新」与 GitHub）：照「非末行画线」
+            // 的约定画分隔线，否则这张三行卡只有一条线，与其它卡片不同形。
+            showsSeparator: true,
             trailing: { status },
             action: handleTap
         )

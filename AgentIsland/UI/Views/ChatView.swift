@@ -525,11 +525,8 @@ struct ChatView: View {
 
  private func focusTerminal() {
   Task {
-   if let pid = session.pid {
-    _ = await YabaiController.shared.focusWindow(forClaudePid: pid)
-   } else {
-    _ = await YabaiController.shared.focusWindow(forWorkingDirectory: session.cwd)
-   }
+   // 与列表行同一入口：yabai 优先，没有 yabai 时退到「激活宿主应用」。
+   _ = await TerminalFocuser.shared.focus(pid: session.pid, workingDirectory: session.cwd)
   }
  }
 

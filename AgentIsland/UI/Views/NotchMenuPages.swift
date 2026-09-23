@@ -25,6 +25,8 @@ struct GeneralSettingsPage: View {
     @State private var launchAtLogin = false
     /// 登录项改动失败的原因；直接写在开关行的副标题里，不再只留一行控制台日志。
     @State private var launchAtLoginError: String?
+    /// 面板展开时是否接管键盘焦点（偏好域里的布尔档，进页面与回到应用时重读）。
+    @State private var panelTakesFocus = AppSettings.panelTakesFocus
 
     var body: some View {
         VStack(alignment: .leading, spacing: NotchMenuMetrics.groupSpacing) {
@@ -63,6 +65,20 @@ struct GeneralSettingsPage: View {
                 )
                 .frame(height: NotchMenuMetrics.twoLineRowHeight)
                 AccessibilityRow(isEnabled: AXIsProcessTrusted())
+                SettingsToggleRow(
+                    badge: SettingsBadge(
+                        source: .symbol(name: "keyboard", tint: AppPalette.accent)),
+                    title: l10n.t("Take Keyboard Focus"),
+                    isOn: panelTakesFocus,
+                    // 单行开关行：版面表按 `toggleRowHeight` 计高（加副标题会多 6pt，
+                    // 而通用页在最大 chrome 那一档已经没有余量，见 `NotchMenuMetrics`），
+                    // 因此解释走提示而不是副标题。
+                    helpText: l10n.t(
+                        "Move keyboard focus to the panel when it opens. Turn this off to keep typing in your editor while the notch is open."
+                    ),
+                    onToggle: togglePanelFocus
+                )
+                .frame(height: NotchMenuMetrics.toggleRowHeight)
             }
         }
         .onAppear(perform: refresh)
@@ -78,6 +94,12 @@ struct GeneralSettingsPage: View {
 
     private func refresh() {
         launchAtLogin = SMAppService.mainApp.status == .enabled
+        panelTakesFocus = AppSettings.panelTakesFocus
+    }
+
+    private func togglePanelFocus() {
+        panelTakesFocus.toggle()
+        AppSettings.panelTakesFocus = panelTakesFocus
     }
 
     private func toggleLaunchAtLogin() {
@@ -125,17 +147,29 @@ struct AgentsSettingsPage: View {
     /// 有没有生效的闸门：保护卡片的两行据此启用/禁用。由 Agent 行的启用/关闭动作回调刷新
     /// （兄弟视图不会因为对方改了自己的 `@State` 而重画，所以这条得由页面来记）。
     @State private var hasEnabledGate = AgentIntegrationInstaller.hasEnabledGate
+    /// 监控卡的回执行：由卡片写入，渲染在这一页的脚注槽里（见 `AgentSettingsSection`）。
+    @State private var agentNotice: String?
+    /// 回执是否是失败：成功与失败共用同一行，只有颜色不同。
+    @State private var agentNoticeIsError = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: NotchMenuMetrics.groupSpacing) {
             SettingsGroup(
                 title: l10n.t("Monitored Agents"),
-                footnote: l10n.t("Turning an agent off also uninstalls its live integration.")
+                // 脚注这一格恒占 20pt（已进高度预算）：没有回执时显示常驻提示，
+                // 有点过开关、做过批量动作时换成那条回执——回执因此一定看得见。
+                footnote: agentNotice
+                    ?? l10n.t("Turning an agent off also uninstalls its live integration."),
+                footnoteColor: agentNotice == nil
+                    ? AppPalette.tertiaryText
+                    : (agentNoticeIsError ? AppPalette.danger : AppPalette.secondaryText)
             ) {
                 AgentSettingsSection(
                     onGateStateChanged: {
                         hasEnabledGate = AgentIntegrationInstaller.hasEnabledGate
-                    }
+                    },
+                    notice: $agentNotice,
+                    noticeIsError: $agentNoticeIsError
                 )
             }
 

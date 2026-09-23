@@ -89,7 +89,13 @@ struct StatsRescanButton: View {
         .buttonStyle(SettingsCompactButtonStyle())
         .disabled(isIndexing)
         .onHover { isHovered = $0 }
-        .help(l10n.t("Re-read every session record and recompute the statistics."))
+        // 禁用时把原因写进提示：索引进行中再点也只会被同一次重建吞掉，
+        // 而界面上的唯一信号是图标变淡（同面板其它禁用态都换成说明文案）。
+        .help(
+            isIndexing
+                ? l10n.t("Indexing…")
+                : l10n.t("Re-read every session record and recompute the statistics.")
+        )
         .accessibilityLabel(Text(l10n.t("Rescan")))
     }
 

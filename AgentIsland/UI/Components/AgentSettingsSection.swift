@@ -38,10 +38,13 @@ struct AgentSettingsSection: View {
     @State private var customDirectories = AgentSettingsSection.currentDirectoryMap()
     /// 卡片的显示顺序：已启用的排在前面（见 `enabledFirstOrder()`）。
     @State private var orderedAgents = AgentKind.allCases
-    /// 卡片底部的提示行（行内开关的失败原因，或批量动作的汇总）。
-    @State private var notice: String?
+    /// 卡片下方的提示行（行内开关的回执 / 失败原因，或批量动作的汇总）由**页面**持有：
+    /// 它渲染在卡片脚注那一格里（定点 20pt，已进高度预算）。画在卡片内部会凭空多出一份
+    /// 不在解析式里的高度，把下面的「工具调用保护」卡挤出可视区——而这条回执恰恰是
+    /// 用户刚点完开关在等的东西。
+    @Binding var notice: String?
     /// 提示行是否是错误：成功与失败共用这一行，只有颜色不同。
-    @State private var noticeIsError = false
+    @Binding var noticeIsError: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -63,8 +66,8 @@ struct AgentSettingsSection: View {
                             isEnabled: isEnabled[kind] ?? false,
                             customDirectory: customDirectories[kind],
                             isDirectoryExpanded: dirSelector.expandedKind == kind,
-                            // 最后一行只在下面真的跟着提示时画分隔线。
-                            showsSeparator: index < orderedAgents.count - 1 || notice != nil,
+                            // 最后一行不画分隔线（提示行已经不在卡片里了）。
+                            showsSeparator: index < orderedAgents.count - 1,
                             onToggle: { toggle(kind) },
                             onToggleDirectory: {
                                 withAnimation(SettingsMotion.expand) { dirSelector.toggle(kind) }
@@ -83,17 +86,6 @@ struct AgentSettingsSection: View {
                 ).windowHeight
             )
 
-            if let notice {
-                // 与 `SettingsNotice` 同一套排版，但颜色分「成功 / 失败」两档：`SettingsNotice`
-                // 固定用 danger 色（它是按错误提示设计的），成功文案放进去会被读成出了错。
-                Text(notice)
-                    .font(.system(size: 11))
-                    .foregroundColor(noticeIsError ? AppPalette.danger : AppPalette.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, NotchMenuMetrics.rowHorizontalPadding)
-                    .padding(.bottom, 8)
-            }
         }
         .onAppear {
             refreshState()
@@ -192,7 +184,11 @@ struct AgentSettingsSection: View {
             // 一个用不到的预算大（闸门版扩展已经卸载，没有 handler 会再用它）。
             AgentIntegrationInstaller.uninstall(kind)
             AppSettings.setAgent(kind, enabled: false)
-            notice = nil
+            // 单行关闭也要回执：这一步会删掉该工具配置里的 hook 条目（不可见、不可撤销），
+            // 而批量版既有确认也有回执——同一动作的两条路径不能只有批量那条说话。
+            setNotice(
+                l10n.t("Turned off %@ and removed its integration.", kind.displayName),
+                isError: false)
         } else if let failure = enable(kind) {
             setNotice(failure, isError: true)
         } else {

@@ -34,7 +34,16 @@ class AgentDirSelector: ObservableObject {
     }
 
     /// 点同一行是收起，点另一行是换展开（同时只能展开一行）。
+    ///
+    /// 展开时到 `PickerExpansion` 登记：面板里同一时刻只留一个展开块（含其它页的
+    /// 选择器），否则叠加的展开高度会把面板顶到上限、内容落进隐藏滚动条里。
     func toggle(_ kind: AgentKind) {
-        expandedKind = expandedKind == kind ? nil : kind
+        guard expandedKind != kind else {
+            expandedKind = nil
+            PickerExpansion.didCollapse(self)
+            return
+        }
+        PickerExpansion.willExpand(self)
+        expandedKind = kind
     }
 }

@@ -77,6 +77,10 @@ nonisolated enum AppSettings {
     /// 「旧口径 Claude 目录 → 通用覆盖表」迁移只做一次的标记。
     static let claudeDirMigrationMarker = "didMigrateClaudeDirectoryOverride"
     static let approvalDegradation = "approvalDegradation"
+    /// 面板展开时是否接管键盘焦点。
+    static let panelTakesFocus = "panelTakesFocus"
+    /// omp 闸门等待预算写入失败；扩展可能仍运行，但请求会提前超时。
+    static let ompGateTimeoutSetupFailed = "ompGateTimeoutSetupFailed"
     static let ompGateConfigBackupPath = "ompGateConfigBackupPath"
     static let ompGateConfigOriginalTimeout = "ompGateConfigOriginalTimeout"
     static let ompGateConfigAppliedAt = "ompGateConfigAppliedAt"
@@ -293,6 +297,22 @@ nonisolated enum AppSettings {
     }
   }
 
+  // MARK: - 面板焦点
+
+  /// 面板展开时是否把键盘焦点拿过来（默认**是**，与改造前一致）。
+  ///
+  /// 关掉它以后，悬停或点击展开不会再把用户正在编辑器里打的字抢走；面板本身仍然可用——
+  /// 它是 `becomesKeyOnlyIfNeeded` 的 NSPanel，点进聊天输入框时自己会变成 key window。
+  static var panelTakesFocus: Bool {
+    get {
+      // 键缺失时取 true：`bool(forKey:)` 对缺失键返回 false，直接用会把默认语义翻过来，
+      // 老用户升级后会突然「不抢焦点」。
+      guard let stored = defaults.object(forKey: Keys.panelTakesFocus) as? Bool else { return true }
+      return stored
+    }
+    set { defaults.set(newValue, forKey: Keys.panelTakesFocus) }
+  }
+
   // MARK: - 审批闸门策略
 
   /// 闸门**随启用而来**、不再是独立开关：omp / pi 一旦被监控，就装闸门版扩展并由刘海
@@ -333,6 +353,12 @@ nonisolated enum AppSettings {
   static var ompGateConfigAppliedAt: Date? {
     get { defaults.object(forKey: Keys.ompGateConfigAppliedAt) as? Date }
     set { defaults.set(newValue, forKey: Keys.ompGateConfigAppliedAt) }
+  }
+
+  /// 上次确保 omp 闸门等待预算时是否失败。
+  static var ompGateTimeoutSetupFailed: Bool {
+    get { defaults.bool(forKey: Keys.ompGateTimeoutSetupFailed) }
+    set { defaults.set(newValue, forKey: Keys.ompGateTimeoutSetupFailed) }
   }
 
   // MARK: - 改名迁移

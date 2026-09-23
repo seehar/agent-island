@@ -19,6 +19,8 @@ struct SettingsStepperRow: View {
     let decrease: () -> Void
     let increase: () -> Void
 
+    @ObservedObject private var l10n = LocalizationManager.shared
+
     var body: some View {
         HStack(spacing: 8) {
             Text(label)
@@ -30,6 +32,7 @@ struct SettingsStepperRow: View {
 
             StepperButton(
                 systemName: "minus",
+                label: l10n.t("Decrease"),
                 isEnabled: value > minimum,
                 action: decrease
             )
@@ -41,12 +44,27 @@ struct SettingsStepperRow: View {
 
             StepperButton(
                 systemName: "plus",
+                label: l10n.t("Increase"),
                 isEnabled: value < maximum,
                 action: increase
             )
         }
         .padding(.horizontal, NotchMenuMetrics.optionHorizontalPadding)
         .frame(height: NotchMenuMetrics.optionRowHeight)
+        // 可调范围在界面上无处可见（上下限随屏幕变化，如胶囊宽度下限＝物理刘海宽度），
+        // 提示里补上；辅助技术读到的是「标签 当前值 范围」。
+        .help(
+            l10n.t(
+                "%@ · %@ to %@",
+                label,
+                settingsLengthLabel(minimum),
+                settingsLengthLabel(maximum))
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(label))
+        .accessibilityValue(
+            Text("\(settingsLengthLabel(value)) (\(settingsLengthLabel(minimum))–\(settingsLengthLabel(maximum)))")
+        )
     }
 }
 
@@ -54,6 +72,8 @@ struct SettingsStepperRow: View {
 
 private struct StepperButton: View {
     let systemName: String
+    /// 无障碍与工具提示用的按钮名（「增加」/「减少」）：字形本身读不出语义。
+    let label: String
     let isEnabled: Bool
     let action: () -> Void
 
@@ -76,5 +96,7 @@ private struct StepperButton: View {
         .buttonStyle(SettingsCompactButtonStyle())
         .disabled(!isEnabled)
         .onHover { isHovered = $0 }
+        .help(label)
+        .accessibilityLabel(Text(label))
     }
 }

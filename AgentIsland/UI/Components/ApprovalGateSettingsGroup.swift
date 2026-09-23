@@ -84,7 +84,7 @@ private struct ApprovalAskScopePickerRow: View {
             showsSeparator: showsSeparator,
             onToggle: {
                 withAnimation(SettingsMotion.expand) {
-                    selector.isPickerExpanded.toggle()
+                    selector.toggleExpansion()
                 }
             }
         ) {
@@ -167,7 +167,7 @@ private struct ApprovalDegradationPickerRow: View {
             showsSeparator: showsSeparator,
             onToggle: {
                 withAnimation(SettingsMotion.expand) {
-                    selector.isPickerExpanded.toggle()
+                    selector.toggleExpansion()
                 }
             }
         ) {

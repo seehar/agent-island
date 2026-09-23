@@ -77,12 +77,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
    self?.handleScreenChange()
   }
 
-  if updater.canCheckForUpdates {
+  // 「自动检查更新」是**总开关**：它同时管住 Sparkle 自己的后台调度、启动时的这一次
+  // 检查与下面这个自建定时器。曾漏掉后两者，关掉开关的用户仍会每小时收到一次检查。
+  if updater.canCheckForUpdates, updater.automaticallyChecksForUpdates {
    updater.checkForUpdates()
   }
 
   updateCheckTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
-   guard let updater = self?.updater, updater.canCheckForUpdates else { return }
+   guard let updater = self?.updater,
+    updater.canCheckForUpdates,
+    updater.automaticallyChecksForUpdates
+   else { return }
    updater.checkForUpdates()
   }
  }

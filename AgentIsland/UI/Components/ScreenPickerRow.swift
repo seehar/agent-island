@@ -25,8 +25,10 @@ struct ScreenPickerRow: View {
             isExpanded: isExpanded,
             showsSeparator: showsSeparator,
             onToggle: {
+                // `toggleExpansion()` 而不是直接翻 Bool：展开前先收起上一个展开块
+                // （面板高度只按单个展开核对，见 `PickerExpansion`）。
                 withAnimation(SettingsMotion.expand) {
-                    screenSelector.isPickerExpanded.toggle()
+                    screenSelector.toggleExpansion()
                 }
             }
         ) {

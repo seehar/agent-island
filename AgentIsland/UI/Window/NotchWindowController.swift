@@ -62,8 +62,10 @@ class NotchWindowController: NSWindowController {
                 case .opened:
                     // Accept mouse events when opened so buttons work
                     notchWindow?.ignoresMouseEvents = false
-                    // Don't steal focus when opened by notification (task finished)
-                    if viewModel?.openReason != .notification {
+                    // 不抢键盘焦点的两种情况：通知触发的展开（任务完成），或用户在通用页
+                    // 关掉了「接管键盘焦点」。后者仍可正常使用——点进聊天输入框时，
+                    // 这个 `becomesKeyOnlyIfNeeded` 的 NSPanel 会自己变成 key window。
+                    if viewModel?.openReason != .notification, AppSettings.panelTakesFocus {
                         NSApp.activate(ignoringOtherApps: false)
                         notchWindow?.makeKey()
                     }

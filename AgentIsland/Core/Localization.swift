@@ -147,9 +147,13 @@ final class LocalizationManager: ObservableObject {
 
     /// 语言选择器中的语言名称。固定语言始终以其自身语言书写，便于用户辨认；
     /// `system` 则跟随界面当前语言。
+    ///
+    /// 「跟随系统」用**独立键**：它曾与通用页「System」分组标题共用 `System` 一键，
+    /// 中文界面下分组标题因此渲染成「跟随系统」（与组内内容不符）。键是英文源文案，
+    /// 两处同义不同用，必须分开。
     nonisolated func displayName(for language: AppLanguage) -> String {
         switch language {
-        case .system: return Self.t("System")
+        case .system: return Self.t("Follow System")
         case .english: return "English"
         case .simplifiedChinese: return "简体中文"
         }

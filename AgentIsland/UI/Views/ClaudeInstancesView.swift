@@ -128,14 +128,16 @@ struct ClaudeInstancesView: View {
     // MARK: - Actions
 
     private func focusSession(_ session: SessionState) {
-        guard session.isInTmux else { return }
-
         Task {
-            if let pid = session.pid {
-                _ = await YabaiController.shared.focusWindow(forClaudePid: pid)
-            } else {
-                _ = await YabaiController.shared.focusWindow(forWorkingDirectory: session.cwd)
-            }
+            // 不再要求「先装 yabai」：没有 yabai 时 `TerminalFocuser` 会退到
+            // 「激活宿主应用」（tmux 会话先经 tmux 客户端定位终端）。
+            let focused = await TerminalFocuser.shared.focus(
+                pid: session.pid, workingDirectory: session.cwd)
+            guard !focused else { return }
+
+            // 聚焦失败时退回打开对话：点了总要看到反馈，而对话页是这个动作的无损替代——
+            // 反过来说，原来的「静默什么都不做」是最差的一种反馈。
+            openChat(session)
         }
     }
 
@@ -173,7 +175,12 @@ struct InstanceRow: View {
     @ObservedObject private var clickAction = SessionRowClickActionSelector.shared
 
     @State private var isHovered = false
-    @State private var isYabaiAvailable = false
+    /// 上一次「双击」被处理的时刻。两个手势同时挂（见 `body` 末尾），
+    /// 这里用来在 SwiftUI 把同一次点击也交给单选手势时把重复的那次丢掉。
+    @State private var lastDoubleTapAt: Date?
+
+    /// 双击的静默窗口：比系统双击间隔略短，确保同一组点击里第二下一定落在窗口内。
+    private static let doubleTapGuard: TimeInterval = 0.35
 
     /// Whether we're showing the approval UI
     private var isWaitingForApproval: Bool {
@@ -190,6 +197,17 @@ struct InstanceRow: View {
     /// 是否在该 Agent 行显示归属角标：只有用户启用了多个 Agent 时才需要区分
     private var showsAgentBadge: Bool {
         AgentRegistry.enabled.count > 1
+    }
+
+    /// 能不能把会话所在的终端带到前台：有集成上报的 pid 就能沿进程链找宿主应用，
+    /// 只有 tmux 面板（没有 pid）也能靠面板路径找；两者都没有就是「没有线索」。
+    private var canFocusTerminal: Bool {
+        session.pid != nil || session.isInTmux
+    }
+
+    /// 禁用「去终端」时的说明：禁用必须给原因，否则用户只会觉得按钮坏了。
+    private var noFocusTargetHint: String {
+        l10n.t("This session has no process or tmux pane to focus.")
     }
 
     /// 单击的落点由档位决定（见 `SessionRowClickAction.singleTapTarget`）。
@@ -355,13 +373,13 @@ struct InstanceRow: View {
                 HStack(spacing: 8) {
                     AnswerButton(onTap: onChat)
 
-                    // Go to Terminal button (only if yabai available)
-                    if isYabaiAvailable {
-                        TerminalButton(
-                            isEnabled: session.isInTmux,
-                            onTap: { onFocus() }
-                        )
-                    }
+                    // 「去终端」不再依赖 yabai（见 `TerminalFocuser` 的回退链）；
+                    // 只有连进程与 tmux 面板都没有的会话（仅凭记录发现的）才禁用。
+                    TerminalButton(
+                        isEnabled: canFocusTerminal,
+                        helpText: canFocusTerminal ? nil : noFocusTargetHint,
+                        onTap: { onFocus() }
+                    )
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
             } else if isWaitingForApproval {
@@ -389,12 +407,12 @@ struct InstanceRow: View {
                         onChat()
                     }
 
-                    // Focus icon (only for tmux instances with yabai)
-                    if session.isInTmux && isYabaiAvailable {
-                        IconButton(icon: "eye") {
-                            onFocus()
-                        }
+                    // 聚焦终端：与「去终端」按钮同一判据（见上）
+                    IconButton(icon: "eye") {
+                        onFocus()
                     }
+                    .disabled(!canFocusTerminal)
+                    .help(canFocusTerminal ? l10n.t("Focus Terminal") : noFocusTargetHint)
 
                     // Archive button - only for idle or completed sessions
                     if session.phase == .idle || session.phase == .waitingForInput {
@@ -410,15 +428,21 @@ struct InstanceRow: View {
         .padding(.trailing, 14)
         .padding(.vertical, 10)
         .contentShape(Rectangle())
-        // 手势只挂一层，不叠 `count: 1` + `count: 2`：SwiftUI 对两者同时存在时的
-        // 仲裁没有明确契约，而默认档下双击是进聊天的唯一入口，不能拿它赌。
-        // 默认档（无单击动作）保持改造前的「双击进聊天」，设了动作才改成单击。
-        .onTapGesture(count: clickAction.option == .none ? 2 : 1) {
-            if clickAction.option == .none {
-                onChat()
-            } else {
-                handleSingleTap()
+        // 双击**始终**进聊天，单击按「单击动作」档位——两个手势同时挂，不再二选一。
+        // 曾经只挂一层（按档位在 count:1 / count:2 之间切），于是设了单击动作的用户永久
+        // 失去「双击进聊天」，且双击会连发两次单击动作。
+        // SwiftUI 对 `count: 2` 与 `count: 1` 同时存在时的仲裁没有明确契约，所以不赌它：
+        // 双击路径记下时刻，单击路径看到刚发生过双击就跳过——无论系统怎么派发，
+        // 结果都收敛到「双击只进聊天」，而单击仍即时响应（不被双击等待窗口拖慢）。
+        .onTapGesture(count: 2) {
+            lastDoubleTapAt = Date()
+            onChat()
+        }
+        .onTapGesture(count: 1) {
+            if let last = lastDoubleTapAt, Date().timeIntervalSince(last) < Self.doubleTapGuard {
+                return
             }
+            handleSingleTap()
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isWaitingForApproval)
         .background(
@@ -426,9 +450,6 @@ struct InstanceRow: View {
                 .fill(isHovered ? AppPalette.rowHover : Color.clear)
         )
         .onHover { isHovered = $0 }
-        .task {
-            isYabaiAvailable = await WindowFinder.shared.isYabaiAvailable()
-        }
     }
 
     /// 行首状态指示：**形状**区分相位、颜色只表状态（`AppPalette.warning` 需要授权、
@@ -618,6 +639,8 @@ struct AnswerButton: View {
 
 struct TerminalButton: View {
     let isEnabled: Bool
+    /// 禁用时的原因（tooltip）；可用时传 nil。
+    var helpText: String? = nil
     let onTap: () -> Void
     @ObservedObject private var l10n = LocalizationManager.shared
 
@@ -640,6 +663,7 @@ struct TerminalButton: View {
             .clipShape(Capsule())
         }
         .buttonStyle(SessionPressFeedbackStyle(shape: Capsule()))
+        .help(helpText ?? l10n.t("Focus Terminal"))
     }
 }
 

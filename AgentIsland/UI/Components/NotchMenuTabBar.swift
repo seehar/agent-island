@@ -45,9 +45,12 @@ struct NotchMenuTabBar: View {
                 Image(systemName: section.symbolName)
                     .font(.system(size: 10, weight: .semibold))
 
-                // 缩字而不是截断：面板 480 宽时每段 108pt（标签内容 45~53pt，宽裕），
-                // 但「面板尺寸」档 compact（0.88 → 面板 422）时每段只剩约 79pt，
-                // 而英文 Statistics 标签约 76pt——已经顶满，靠这档缩放兜底。
+                // 缩字而不是截断。字宽实测（`NSAttributedString`，11pt medium）：五段时
+                // 每段 90pt（面板 480 − 左右内边距 16 − 轨道内边距 4 − 段间距 8 后除以 5），
+                // 最宽的 Statistics 连图标约 66pt；「面板尺寸」档 compact（0.88 → 面板 422）
+                // 时每段只剩约 79pt，仍够。
+                // 因此**第 6 段放不下**：五段变六段会把每段压到 75pt / 紧凑档 65pt，
+                // 低于最宽标签的 66pt（除非改成只画图标或标签取更短的单字）。
                 Text(section.title(l10n))
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)

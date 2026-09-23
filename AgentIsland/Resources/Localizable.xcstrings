@@ -1,6 +1,380 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Follow System" : {
+      "comment" : "语言选择器档位：跟随系统语言（曾与通用页 System 分组标题共用一键）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Follow System"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "跟随系统"
+          }
+        }
+      }
+    },
+    "%@ · %@ to %@" : {
+      "comment" : "微调行的工具提示与无障碍值：标签 · 下限 到 上限",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %@ to %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %@ 到 %@"
+          }
+        }
+      }
+    },
+    "Increase" : {
+      "comment" : "微调行的 ＋ 按钮",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Increase"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "增加"
+          }
+        }
+      }
+    },
+    "Decrease" : {
+      "comment" : "微调行的 − 按钮",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Decrease"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "减少"
+          }
+        }
+      }
+    },
+    "Take Keyboard Focus" : {
+      "comment" : "通用页系统组：面板展开时是否抢键盘焦点",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Take Keyboard Focus"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接管键盘焦点"
+          }
+        }
+      }
+    },
+    "Move keyboard focus to the panel when it opens. Turn this off to keep typing in your editor while the notch is open." : {
+      "comment" : "「接管键盘焦点」行的工具提示",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move keyboard focus to the panel when it opens. Turn this off to keep typing in your editor while the notch is open."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板展开时把键盘焦点移到面板上。关掉它，刘海开着时也能继续在编辑器里打字。"
+          }
+        }
+      }
+    },
+    "Turned off %@ and removed its integration." : {
+      "comment" : "智能体页：单行关闭某个 Agent 后的回执行",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turned off %@ and removed its integration."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已关闭 %@ 并移除其集成。"
+          }
+        }
+      }
+    },
+    "This session has no process or tmux pane to focus." : {
+      "comment" : "会话行「去终端」按钮禁用（仅凭记录发现的会话）时工具提示",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This session has no process or tmux pane to focus."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个会话没有可定位的进程或 tmux 面板。"
+          }
+        }
+      }
+    },
+    "Pop" : {
+      "comment" : "通知音效档位：macOS 声音资源名（专有名词，两语言同一串）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pop"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pop"
+          }
+        }
+      }
+    },
+    "Ping" : {
+      "comment" : "通知音效档位：macOS 声音资源名（专有名词，两语言同一串）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ping"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ping"
+          }
+        }
+      }
+    },
+    "Tink" : {
+      "comment" : "通知音效档位：macOS 声音资源名（专有名词，两语言同一串）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tink"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tink"
+          }
+        }
+      }
+    },
+    "Glass" : {
+      "comment" : "通知音效档位：macOS 声音资源名（专有名词，两语言同一串）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glass"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glass"
+          }
+        }
+      }
+    },
+    "Blow" : {
+      "comment" : "通知音效档位：macOS 声音资源名（专有名词，两语言同一串）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blow"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blow"
+          }
+        }
+      }
+    },
+    "Bottle" : {
+      "comment" : "通知音效档位：macOS 声音资源名（专有名词，两语言同一串）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bottle"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bottle"
+          }
+        }
+      }
+    },
+    "Frog" : {
+      "comment" : "通知音效档位：macOS 声音资源名（专有名词，两语言同一串）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Frog"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Frog"
+          }
+        }
+      }
+    },
+    "Funk" : {
+      "comment" : "通知音效档位：macOS 声音资源名（专有名词，两语言同一串）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Funk"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Funk"
+          }
+        }
+      }
+    },
+    "Hero" : {
+      "comment" : "通知音效档位：macOS 声音资源名（专有名词，两语言同一串）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hero"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hero"
+          }
+        }
+      }
+    },
+    "Morse" : {
+      "comment" : "通知音效档位：macOS 声音资源名（专有名词，两语言同一串）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Morse"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Morse"
+          }
+        }
+      }
+    },
+    "Purr" : {
+      "comment" : "通知音效档位：macOS 声音资源名（专有名词，两语言同一串）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Purr"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Purr"
+          }
+        }
+      }
+    },
+    "Sosumi" : {
+      "comment" : "通知音效档位：macOS 声音资源名（专有名词，两语言同一串）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sosumi"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sosumi"
+          }
+        }
+      }
+    },
+    "Submarine" : {
+      "comment" : "通知音效档位：macOS 声音资源名（专有名词，两语言同一串）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Submarine"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Submarine"
+          }
+        }
+      }
+    },
+    "Basso" : {
+      "comment" : "通知音效档位：macOS 声音资源名（专有名词，两语言同一串）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Basso"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Basso"
+          }
+        }
+      }
+    },
     "%@ (%lld tools)" : {
       "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文无词形变化只用 other），不要拆成多条键或改回手写分支。",
       "localizations" : {
@@ -3338,7 +3712,7 @@
       }
     },
     "System" : {
-      "comment" : "语言选择器：跟随系统语言",
+      "comment" : "通用页：系统组标题（语言档位的「跟随系统」走 Follow System 键）",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3349,7 +3723,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "跟随系统"
+            "value" : "系统"
           }
         }
       }

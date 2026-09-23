@@ -68,11 +68,19 @@ struct SettingsSectionHeader: View {
 struct SettingsGroup<Content: View>: View {
     private let title: String?
     private let footnote: String?
+    /// 脚注颜色：默认是弱化灰；卡片要给「成功 / 失败」这类回执时换成对应语义色。
+    private let footnoteColor: Color
     private let content: Content
 
-    init(title: String? = nil, footnote: String? = nil, @ViewBuilder content: () -> Content) {
+    init(
+        title: String? = nil,
+        footnote: String? = nil,
+        footnoteColor: Color = AppPalette.tertiaryText,
+        @ViewBuilder content: () -> Content
+    ) {
         self.title = title
         self.footnote = footnote
+        self.footnoteColor = footnoteColor
         self.content = content()
     }
 
@@ -86,10 +94,15 @@ struct SettingsGroup<Content: View>: View {
             SettingsCard { content }
 
             if let footnote {
+                // 脚注在高度预算里是定点 20pt（`footnoteHeight`）：不换行、不撑高，
+                // 长了就省略——「有脚注就多一行」会让面板高度与解析式脱钩。
+                // 完整内容一律写进 `.help`，用户仍能读全文。
                 Text(footnote)
                     .font(.system(size: 11))
-                    .foregroundColor(AppPalette.tertiaryText)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundColor(footnoteColor)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(footnote)
                     .padding(.horizontal, NotchMenuMetrics.rowHorizontalPadding)
                     .padding(.top, NotchMenuMetrics.footnoteGap)
             }
@@ -328,6 +341,9 @@ struct SettingsToggleRow: View {
     private let subtitleColor: Color
     private let isOn: Bool
     private let showsSeparator: Bool
+    /// 开关本身的提示（tooltip）。副标题会占满两行行高，而有些行只能用单行高
+    /// （版面预算卡得很紧），解释就落到这里。
+    private let helpText: String?
     private let onToggle: () -> Void
 
     init(
@@ -337,6 +353,7 @@ struct SettingsToggleRow: View {
         subtitleColor: Color = AppPalette.secondaryText,
         isOn: Bool,
         showsSeparator: Bool = true,
+        helpText: String? = nil,
         onToggle: @escaping () -> Void
     ) {
         self.badge = badge
@@ -345,6 +362,7 @@ struct SettingsToggleRow: View {
         self.subtitleColor = subtitleColor
         self.isOn = isOn
         self.showsSeparator = showsSeparator
+        self.helpText = helpText
         self.onToggle = onToggle
     }
 
@@ -357,6 +375,9 @@ struct SettingsToggleRow: View {
                 .toggleStyle(.switch)
                 .controlSize(.small)
                 .tint(AppPalette.accent)
+                // 提示挂在开关自身上，而不是整行：容器上的 `.help` 不保证被 AppKit 认成
+                // 可悬停的视图，挂在这里才一定弹得出来。
+                .help(helpText ?? title)
                 .accessibilityLabel(Text(title))
         }
         .settingsRowSeparator(showsSeparator)
