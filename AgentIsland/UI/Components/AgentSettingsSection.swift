@@ -25,223 +25,223 @@ import Foundation
 import SwiftUI
 
 struct AgentSettingsSection: View {
-  /// 启用 / 关闭动作之后的回调：闸门策略卡片的启用态由页面持有（兄弟视图不会因为这里
-  /// 改了 `@State` 而重画），页面据此重算「有没有生效的闸门」。
-  let onGateStateChanged: () -> Void
+    /// 启用 / 关闭动作之后的回调：闸门策略卡片的启用态由页面持有（兄弟视图不会因为这里
+    /// 改了 `@State` 而重画），页面据此重算「有没有生效的闸门」。
+    let onGateStateChanged: () -> Void
 
-  @ObservedObject private var l10n = LocalizationManager.shared
-  @ObservedObject private var dirSelector = AgentDirSelector.shared
+    @ObservedObject private var l10n = LocalizationManager.shared
+    @ObservedObject private var dirSelector = AgentDirSelector.shared
 
-  /// 每个 Agent 当前是否启用，切换开关后重新读取。
-  @State private var isEnabled = AgentSettingsSection.currentEnabledMap()
-  /// 每个 Agent 指定的配置目录；不在表里 = 自动检测。
-  @State private var customDirectories = AgentSettingsSection.currentDirectoryMap()
-  /// 卡片的显示顺序：已启用的排在前面（见 `enabledFirstOrder()`）。
-  @State private var orderedAgents = AgentKind.allCases
-  /// 卡片下方的提示行（行内开关的回执 / 失败原因，或批量动作的汇总）由**页面**持有：
-  /// 它渲染在卡片脚注那一格里（定点 20pt，已进高度预算）。画在卡片内部会凭空多出一份
-  /// 不在解析式里的高度，把下面的「工具调用保护」卡挤出可视区——而这条回执恰恰是
-  /// 用户刚点完开关在等的东西。
-  @Binding var notice: String?
-  /// 提示行是否是错误：成功与失败共用这一行，只有颜色不同。
-  @Binding var noticeIsError: Bool
+    /// 每个 Agent 当前是否启用，切换开关后重新读取。
+    @State private var isEnabled = AgentSettingsSection.currentEnabledMap()
+    /// 每个 Agent 指定的配置目录；不在表里 = 自动检测。
+    @State private var customDirectories = AgentSettingsSection.currentDirectoryMap()
+    /// 卡片的显示顺序：已启用的排在前面（见 `enabledFirstOrder()`）。
+    @State private var orderedAgents = AgentKind.allCases
+    /// 卡片下方的提示行（行内开关的回执 / 失败原因，或批量动作的汇总）由**页面**持有：
+    /// 它渲染在卡片脚注那一格里（定点 20pt，已进高度预算）。画在卡片内部会凭空多出一份
+    /// 不在解析式里的高度，把下面的「工具调用保护」卡挤出可视区——而这条回执恰恰是
+    /// 用户刚点完开关在等的东西。
+    @Binding var notice: String?
+    /// 提示行是否是错误：成功与失败共用这一行，只有颜色不同。
+    @Binding var noticeIsError: Bool
 
-  var body: some View {
-    VStack(spacing: 0) {
-      AgentBulkActionsRow(
-        onEnableAll: enableAllAndInstall,
-        onDisableAll: disableAllAndUninstall
-      )
-
-      // 受支持的 Agent 有十几个，整张卡片按 `visibleAgentRows` 封顶、超出的
-      // 在卡内滚动（与音效选择器同一套做法）：面板高度因此由常量推得出，
-      // 下面的「工具调用保护」卡片也还在手边。
-      ScrollView(.vertical, showsIndicators: true) {
+    var body: some View {
         VStack(spacing: 0) {
-          // 渲染**全部**行：只截断窗口高度（见 `agentCardLayout(total:directoryEditorHeight:)`），
-          // 否则窗口外的 Agent 在设置面板里永远够不着。
-          ForEach(Array(orderedAgents.enumerated()), id: \.element) { index, kind in
-            AgentSettingsRow(
-              kind: kind,
-              isEnabled: isEnabled[kind] ?? false,
-              customDirectory: customDirectories[kind],
-              isDirectoryExpanded: dirSelector.expandedKind == kind,
-              // 最后一行不画分隔线（提示行已经不在卡片里了）。
-              showsSeparator: index < orderedAgents.count - 1,
-              onToggle: { toggle(kind) },
-              onToggleDirectory: {
-                withAnimation(SettingsMotion.expand) { dirSelector.toggle(kind) }
-              },
-              onDirectoryChanged: refreshState
+            AgentBulkActionsRow(
+                onEnableAll: enableAllAndInstall,
+                onDisableAll: disableAllAndUninstall
             )
-          }
+
+            // 受支持的 Agent 有十几个，整张卡片按 `visibleAgentRows` 封顶、超出的
+            // 在卡内滚动（与音效选择器同一套做法）：面板高度因此由常量推得出，
+            // 下面的「工具调用保护」卡片也还在手边。
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(spacing: 0) {
+                    // 渲染**全部**行：只截断窗口高度（见 `agentCardLayout(total:directoryEditorHeight:)`），
+                    // 否则窗口外的 Agent 在设置面板里永远够不着。
+                    ForEach(Array(orderedAgents.enumerated()), id: \.element) { index, kind in
+                        AgentSettingsRow(
+                            kind: kind,
+                            isEnabled: isEnabled[kind] ?? false,
+                            customDirectory: customDirectories[kind],
+                            isDirectoryExpanded: dirSelector.expandedKind == kind,
+                            // 最后一行不画分隔线（提示行已经不在卡片里了）。
+                            showsSeparator: index < orderedAgents.count - 1,
+                            onToggle: { toggle(kind) },
+                            onToggleDirectory: {
+                                withAnimation(SettingsMotion.expand) { dirSelector.toggle(kind) }
+                            },
+                            onDirectoryChanged: refreshState
+                        )
+                    }
+                }
+            }
+            // 可视窗口 = 页面上限的行数 × 两行行高 + 展开着的目录编辑器：编辑器在滚动
+            // 内容里，窗口不跟着它长高就会落到可视区之外（用户点了文件夹按钮却看不到选项）。
+            .frame(
+                height: NotchMenuMetrics.agentCardLayout(
+                    total: orderedAgents.count,
+                    directoryEditorHeight: dirSelector.expandedPickerHeight
+                ).windowHeight
+            )
+
         }
-      }
-      // 可视窗口 = 页面上限的行数 × 两行行高 + 展开着的目录编辑器：编辑器在滚动
-      // 内容里，窗口不跟着它长高就会落到可视区之外（用户点了文件夹按钮却看不到选项）。
-      .frame(
-        height: NotchMenuMetrics.agentCardLayout(
-          total: orderedAgents.count,
-          directoryEditorHeight: dirSelector.expandedPickerHeight
-        ).windowHeight
-      )
-
-    }
-    .onAppear {
-      refreshState()
-      orderedAgents = Self.enabledFirstOrder()
-    }
-  }
-
-  /// 显示顺序：**已启用**的排最前，其次是在这台机器上检测到配置目录的，其余按枚举顺序。
-  ///
-  /// 默认关闭之后，「装了但没启用」不再是用户关心的那一组——他刚打开的那几个才是
-  /// （空态里那枚「全部启用并安装」按钮跳过来时尤其如此）。卡片一次只显示
-  /// `visibleAgentRows` 行，排在窗口外的行要滚动才看得到，顺序因此是功能性的。
-  /// 排序键显式带上枚举下标：`sorted` 不保证稳定，同级的行会随实现漂移。
-  /// 只在进入页面时算一次：开关切换不该让行往上跳。
-  private static func enabledFirstOrder() -> [AgentKind] {
-    let allCasesOrder = Dictionary(
-      uniqueKeysWithValues: AgentKind.allCases.enumerated().map { ($1, $0) })
-    return AgentKind.allCases.sorted { lhs, rhs in
-      let lhsRank = sortRank(lhs)
-      let rhsRank = sortRank(rhs)
-      if lhsRank != rhsRank { return lhsRank < rhsRank }
-      return (allCasesOrder[lhs] ?? .max) < (allCasesOrder[rhs] ?? .max)
-    }
-  }
-
-  /// 排序档位：0 = 已启用，1 = 检测到配置目录但没启用，2 = 这台机器上没装这个工具。
-  private static func sortRank(_ kind: AgentKind) -> Int {
-    if AppSettings.isAgentEnabled(kind) { return 0 }
-    return AgentRegistry.provider(for: kind).isToolInstalled ? 1 : 2
-  }
-
-  // MARK: - 批量动作
-
-  /// 全部启用并安装：对**这台机器上装了**（配置目录存在）的每个 Agent 走与行内开关
-  /// 完全相同的一条路径（`enable(_:)`，其中 omp / pi 会顺带装闸门版扩展）。
-  ///
-  /// 没检测到（`paths() == nil`）的 Agent 直接跳过——跳过不是失败。
-  private func enableAllAndInstall() {
-    var failures = 0
-    for kind in AgentKind.allCases where AgentRegistry.provider(for: kind).isToolInstalled {
-      if enable(kind) != nil { failures += 1 }
+        .onAppear {
+            refreshState()
+            orderedAgents = Self.enabledFirstOrder()
+        }
     }
 
-    refreshState()
-    setNotice(
-      failures == 0
-        ? l10n.t("Enabled and installed every detected agent.")
-        : l10n.t("Some integrations could not be installed."),
-      isError: failures > 0
-    )
-  }
-
-  /// 全部关闭并卸载：先确认（这一下会摘掉所有集成，误点代价不小），再逐个卸载并停用。
-  private func disableAllAndUninstall() {
-    guard confirmDisableAll() else { return }
-
-    // 先取名单再改状态：循环里读的是会被自己改写的那份设置，边读边改会漏掉后面的。
-    let enabled = AgentKind.allCases.filter { AppSettings.isAgentEnabled($0) }
-    for kind in enabled {
-      AgentIntegrationInstaller.uninstall(kind)
-      AppSettings.setAgent(kind, enabled: false)
+    /// 显示顺序：**已启用**的排最前，其次是在这台机器上检测到配置目录的，其余按枚举顺序。
+    ///
+    /// 默认关闭之后，「装了但没启用」不再是用户关心的那一组——他刚打开的那几个才是
+    /// （空态里那枚「全部启用并安装」按钮跳过来时尤其如此）。卡片一次只显示
+    /// `visibleAgentRows` 行，排在窗口外的行要滚动才看得到，顺序因此是功能性的。
+    /// 排序键显式带上枚举下标：`sorted` 不保证稳定，同级的行会随实现漂移。
+    /// 只在进入页面时算一次：开关切换不该让行往上跳。
+    private static func enabledFirstOrder() -> [AgentKind] {
+        let allCasesOrder = Dictionary(
+            uniqueKeysWithValues: AgentKind.allCases.enumerated().map { ($1, $0) })
+        return AgentKind.allCases.sorted { lhs, rhs in
+            let lhsRank = sortRank(lhs)
+            let rhsRank = sortRank(rhs)
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
+            return (allCasesOrder[lhs] ?? .max) < (allCasesOrder[rhs] ?? .max)
+        }
     }
 
-    refreshState()
-    setNotice(l10n.t("Disabled every agent and removed its integrations."), isError: false)
-  }
-
-  /// 关闭全部的确认弹窗。
-  ///
-  /// 「取消」放在第一个：`NSAlert` 的第一个按钮既是默认按钮（回车）也在最右，而破坏性
-  /// 动作不该是回车与 Esc 的落点；「关闭全部」放第二个，用户必须点它才生效。
-  private func confirmDisableAll() -> Bool {
-    let alert = NSAlert()
-    alert.alertStyle = .warning
-    alert.messageText = l10n.t("Disable all agents and remove their integrations?")
-    alert.informativeText = l10n.t(
-      "Every enabled agent will be switched off and its integration removed. The tools themselves keep working in their terminals."
-    )
-    alert.addButton(withTitle: l10n.t("Cancel"))
-    alert.addButton(withTitle: l10n.t("Disable All"))
-
-    return withNotchPanelYielded { alert.runModal() } == .alertSecondButtonReturn
-  }
-
-  private func setNotice(_ message: String, isError: Bool) {
-    notice = message
-    noticeIsError = isError
-  }
-
-  // MARK: - Actions
-
-  private func toggle(_ kind: AgentKind) {
-    if isEnabled[kind] ?? false {
-      // 关闭：卸载集成并停用该 Agent。omp 那侧抬过的 handler 预算**保持不动**：
-      // 还原是整份写回备份，会连带盖掉用户此后自己对 omp 配置的改动，代价比留下
-      // 一个用不到的预算大（闸门版扩展已经卸载，没有 handler 会再用它）。
-      AgentIntegrationInstaller.uninstall(kind)
-      AppSettings.setAgent(kind, enabled: false)
-      // 单行关闭也要回执：这一步会删掉该工具配置里的 hook 条目（不可见、不可撤销），
-      // 而批量版既有确认也有回执——同一动作的两条路径不能只有批量那条说话。
-      setNotice(
-        l10n.t("Turned off %@ and removed its integration.", kind.displayName),
-        isError: false)
-    } else if let failure = enable(kind) {
-      setNotice(failure, isError: true)
-    } else {
-      notice = nil
+    /// 排序档位：0 = 已启用，1 = 检测到配置目录但没启用，2 = 这台机器上没装这个工具。
+    private static func sortRank(_ kind: AgentKind) -> Int {
+        if AppSettings.isAgentEnabled(kind) { return 0 }
+        return AgentRegistry.provider(for: kind).isToolInstalled ? 1 : 2
     }
 
-    refreshState()
-  }
+    // MARK: - 批量动作
 
-  /// 启用一个 Agent：装集成（omp / pi 在这里顺带装上闸门版扩展），失败即退回关闭状态。
-  ///
-  /// 顺序要紧：**先落「启用」标志再安装**——闸门版扩展是按 `gateIsActive`（= 支持闸门
-  /// 且已被监控）选的，反了会装上只上报版，用户看到的是「开着开关却没有闸门」。
-  /// omp 的 handler 预算由安装路径自己确保（见 `AgentIntegrationInstaller.install`）。
-  ///
-  /// 返回 nil 表示成功，否则是给用户看的失败原因。
-  private func enable(_ kind: AgentKind) -> String? {
-    AppSettings.setAgent(kind, enabled: true)
+    /// 全部启用并安装：对**这台机器上装了**（配置目录存在）的每个 Agent 走与行内开关
+    /// 完全相同的一条路径（`enable(_:)`，其中 omp / pi 会顺带装闸门版扩展）。
+    ///
+    /// 没检测到（`paths() == nil`）的 Agent 直接跳过——跳过不是失败。
+    private func enableAllAndInstall() {
+        var failures = 0
+        for kind in AgentKind.allCases where AgentRegistry.provider(for: kind).isToolInstalled {
+            if enable(kind) != nil { failures += 1 }
+        }
 
-    // 集成装不上时不阻塞启用：部分 Agent（如 OpenCode）不依赖集成，
-    // 没有它也能靠记录文件推断状态。装了集成的那些必须装成功，否则
-    // 开关回滚成关闭，避免「已启用但收不到实时事件」。
-    guard AgentIntegrationInstaller.install(kind) || !kind.requiresIntegrationInstall else {
-      AppSettings.setAgent(kind, enabled: false)
-      return l10n.t("Failed to install integration for %@", kind.displayName)
+        refreshState()
+        setNotice(
+            failures == 0
+                ? l10n.t("Enabled and installed every detected agent.")
+                : l10n.t("Some integrations could not be installed."),
+            isError: failures > 0
+        )
     }
-    return nil
-  }
 
-  /// 开关切换后重读状态表，并让页面重算闸门策略行的启用态。
-  private func refreshState() {
-    isEnabled = AgentSettingsSection.currentEnabledMap()
-    customDirectories = AgentSettingsSection.currentDirectoryMap()
-    onGateStateChanged()
-  }
+    /// 全部关闭并卸载：先确认（这一下会摘掉所有集成，误点代价不小），再逐个卸载并停用。
+    private func disableAllAndUninstall() {
+        guard confirmDisableAll() else { return }
 
-  private static func currentEnabledMap() -> [AgentKind: Bool] {
-    Dictionary(
-      uniqueKeysWithValues: AgentKind.allCases.map {
-        ($0, AppSettings.isAgentEnabled($0))
-      }
-    )
-  }
+        // 先取名单再改状态：循环里读的是会被自己改写的那份设置，边读边改会漏掉后面的。
+        let enabled = AgentKind.allCases.filter { AppSettings.isAgentEnabled($0) }
+        for kind in enabled {
+            AgentIntegrationInstaller.uninstall(kind)
+            AppSettings.setAgent(kind, enabled: false)
+        }
 
-  /// 用户指定了配置目录的 Agent。取值走 `AgentRootOverride`（解析 `~`、归一符号链接），
-  /// 因此这里的路径与 Provider 实际读到的是同一个。
-  private static func currentDirectoryMap() -> [AgentKind: String] {
-    Dictionary(
-      uniqueKeysWithValues: AgentKind.allCases.compactMap { kind in
-        AgentRootOverride.userOverride(for: kind).map { (kind, $0.path) }
-      }
-    )
-  }
+        refreshState()
+        setNotice(l10n.t("Disabled every agent and removed its integrations."), isError: false)
+    }
+
+    /// 关闭全部的确认弹窗。
+    ///
+    /// 「取消」放在第一个：`NSAlert` 的第一个按钮既是默认按钮（回车）也在最右，而破坏性
+    /// 动作不该是回车与 Esc 的落点；「关闭全部」放第二个，用户必须点它才生效。
+    private func confirmDisableAll() -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = l10n.t("Disable all agents and remove their integrations?")
+        alert.informativeText = l10n.t(
+            "Every enabled agent will be switched off and its integration removed. The tools themselves keep working in their terminals."
+        )
+        alert.addButton(withTitle: l10n.t("Cancel"))
+        alert.addButton(withTitle: l10n.t("Disable All"))
+
+        return withNotchPanelYielded { alert.runModal() } == .alertSecondButtonReturn
+    }
+
+    private func setNotice(_ message: String, isError: Bool) {
+        notice = message
+        noticeIsError = isError
+    }
+
+    // MARK: - Actions
+
+    private func toggle(_ kind: AgentKind) {
+        if isEnabled[kind] ?? false {
+            // 关闭：卸载集成并停用该 Agent。omp 那侧抬过的 handler 预算**保持不动**：
+            // 还原是整份写回备份，会连带盖掉用户此后自己对 omp 配置的改动，代价比留下
+            // 一个用不到的预算大（闸门版扩展已经卸载，没有 handler 会再用它）。
+            AgentIntegrationInstaller.uninstall(kind)
+            AppSettings.setAgent(kind, enabled: false)
+            // 单行关闭也要回执：这一步会删掉该工具配置里的 hook 条目（不可见、不可撤销），
+            // 而批量版既有确认也有回执——同一动作的两条路径不能只有批量那条说话。
+            setNotice(
+                l10n.t("Turned off %@ and removed its integration.", kind.displayName),
+                isError: false)
+        } else if let failure = enable(kind) {
+            setNotice(failure, isError: true)
+        } else {
+            notice = nil
+        }
+
+        refreshState()
+    }
+
+    /// 启用一个 Agent：装集成（omp / pi 在这里顺带装上闸门版扩展），失败即退回关闭状态。
+    ///
+    /// 顺序要紧：**先落「启用」标志再安装**——闸门版扩展是按 `gateIsActive`（= 支持闸门
+    /// 且已被监控）选的，反了会装上只上报版，用户看到的是「开着开关却没有闸门」。
+    /// omp 的 handler 预算由安装路径自己确保（见 `AgentIntegrationInstaller.install`）。
+    ///
+    /// 返回 nil 表示成功，否则是给用户看的失败原因。
+    private func enable(_ kind: AgentKind) -> String? {
+        AppSettings.setAgent(kind, enabled: true)
+
+        // 集成装不上时不阻塞启用：部分 Agent（如 OpenCode）不依赖集成，
+        // 没有它也能靠记录文件推断状态。装了集成的那些必须装成功，否则
+        // 开关回滚成关闭，避免「已启用但收不到实时事件」。
+        guard AgentIntegrationInstaller.install(kind) || !kind.requiresIntegrationInstall else {
+            AppSettings.setAgent(kind, enabled: false)
+            return l10n.t("Failed to install integration for %@", kind.displayName)
+        }
+        return nil
+    }
+
+    /// 开关切换后重读状态表，并让页面重算闸门策略行的启用态。
+    private func refreshState() {
+        isEnabled = AgentSettingsSection.currentEnabledMap()
+        customDirectories = AgentSettingsSection.currentDirectoryMap()
+        onGateStateChanged()
+    }
+
+    private static func currentEnabledMap() -> [AgentKind: Bool] {
+        Dictionary(
+            uniqueKeysWithValues: AgentKind.allCases.map {
+                ($0, AppSettings.isAgentEnabled($0))
+            }
+        )
+    }
+
+    /// 用户指定了配置目录的 Agent。取值走 `AgentRootOverride`（解析 `~`、归一符号链接），
+    /// 因此这里的路径与 Provider 实际读到的是同一个。
+    private static func currentDirectoryMap() -> [AgentKind: String] {
+        Dictionary(
+            uniqueKeysWithValues: AgentKind.allCases.compactMap { kind in
+                AgentRootOverride.userOverride(for: kind).map { (kind, $0.path) }
+            }
+        )
+    }
 }
 
 // MARK: - 批量动作条
@@ -252,42 +252,42 @@ struct AgentSettingsSection: View {
 /// `blocks(for: .agents)`），因此按钮只能是 11 号字的小胶囊——那一行的高度是算进
 /// 面板高度解析式的，加高按钮就等于改版面表。
 private struct AgentBulkActionsRow: View {
-  let onEnableAll: () -> Void
-  let onDisableAll: () -> Void
+    let onEnableAll: () -> Void
+    let onDisableAll: () -> Void
 
-  @ObservedObject private var l10n = LocalizationManager.shared
+    @ObservedObject private var l10n = LocalizationManager.shared
 
-  var body: some View {
-    HStack(spacing: 8) {
-      Button(action: onEnableAll) {
-        Text(l10n.t("Enable All and Install"))
-          .font(.system(size: 11, weight: .semibold))
-          .foregroundColor(.black.opacity(0.85))
-          .padding(.horizontal, 10)
-          .padding(.vertical, 4)
-          .background(Capsule().fill(AppPalette.accent))
-          .contentShape(Capsule())
-      }
-      .buttonStyle(SettingsCompactButtonStyle())
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(action: onEnableAll) {
+                Text(l10n.t("Enable All and Install"))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.black.opacity(0.85))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(AppPalette.accent))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(SettingsCompactButtonStyle())
 
-      Spacer(minLength: 8)
+            Spacer(minLength: 8)
 
-      // 破坏性操作放最右：离主操作最远，不在「顺手点一下」的位置上（它还会再弹确认）。
-      Button(action: onDisableAll) {
-        Text(l10n.t("Disable All and Uninstall"))
-          .font(.system(size: 11, weight: .semibold))
-          .foregroundColor(AppPalette.danger)
-          .padding(.horizontal, 10)
-          .padding(.vertical, 4)
-          .background(Capsule().fill(Color.white.opacity(0.08)))
-          .contentShape(Capsule())
-      }
-      .buttonStyle(SettingsCompactButtonStyle())
+            // 破坏性操作放最右：离主操作最远，不在「顺手点一下」的位置上（它还会再弹确认）。
+            Button(action: onDisableAll) {
+                Text(l10n.t("Disable All and Uninstall"))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(AppPalette.danger)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.white.opacity(0.08)))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(SettingsCompactButtonStyle())
+        }
+        .padding(.horizontal, NotchMenuMetrics.rowHorizontalPadding)
+        .frame(height: NotchMenuMetrics.rowHeight)
+        .settingsRowSeparator(true)
     }
-    .padding(.horizontal, NotchMenuMetrics.rowHorizontalPadding)
-    .frame(height: NotchMenuMetrics.rowHeight)
-    .settingsRowSeparator(true)
-  }
 }
 
 // MARK: - Agent 行
@@ -303,164 +303,164 @@ private struct AgentBulkActionsRow: View {
 /// 这里**没有**闸门开关：omp / pi 的闸门随启用而来（见 `AgentIntegrationInstaller.gateIsActive`），
 /// 页面上不出现任何审批字样。
 private struct AgentSettingsRow: View {
-  let kind: AgentKind
-  let isEnabled: Bool
-  /// 用户指定的配置目录；nil = 自动检测。
-  let customDirectory: String?
-  /// 这一行的目录编辑器是否展开（同时只有一行能展开，见 `AgentDirSelector`）。
-  let isDirectoryExpanded: Bool
-  let showsSeparator: Bool
-  let onToggle: () -> Void
-  let onToggleDirectory: () -> Void
-  let onDirectoryChanged: () -> Void
+    let kind: AgentKind
+    let isEnabled: Bool
+    /// 用户指定的配置目录；nil = 自动检测。
+    let customDirectory: String?
+    /// 这一行的目录编辑器是否展开（同时只有一行能展开，见 `AgentDirSelector`）。
+    let isDirectoryExpanded: Bool
+    let showsSeparator: Bool
+    let onToggle: () -> Void
+    let onToggleDirectory: () -> Void
+    let onDirectoryChanged: () -> Void
 
-  @ObservedObject private var l10n = LocalizationManager.shared
+    @ObservedObject private var l10n = LocalizationManager.shared
 
-  var body: some View {
-    VStack(spacing: 0) {
-      SettingsRowLabel(
-        badge: SettingsBadge(source: .agent(kind)),
-        title: kind.displayName,
-        subtitle: summary?.text,
-        subtitleColor: summary?.isWarning == true
-          ? AppPalette.warning : AppPalette.secondaryText
-      ) {
-        HStack(spacing: 10) {
-          directoryButton
+    var body: some View {
+        VStack(spacing: 0) {
+            SettingsRowLabel(
+                badge: SettingsBadge(source: .agent(kind)),
+                title: kind.displayName,
+                subtitle: summary?.text,
+                subtitleColor: summary?.isWarning == true
+                    ? AppPalette.warning : AppPalette.secondaryText
+            ) {
+                HStack(spacing: 10) {
+                    directoryButton
 
-          Toggle("", isOn: Binding(get: { isEnabled }, set: { _ in onToggle() }))
-            .labelsHidden()
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .tint(AppPalette.accent)
-            .accessibilityLabel(Text(kind.displayName))
+                    Toggle("", isOn: Binding(get: { isEnabled }, set: { _ in onToggle() }))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .tint(AppPalette.accent)
+                        .accessibilityLabel(Text(kind.displayName))
+                }
+            }
+            // 主行固定为两行的高度：有没有副标题、目录是否自定义都不改变行高，
+            // 面板高度才不会随某个 Agent 的状态漂移。
+            .frame(height: NotchMenuMetrics.twoLineRowHeight)
+
+            // 展开的目录编辑器紧跟在这一行下面（与 `SettingsPickerRow` 的展开同一套几何）：
+            // 它属于这一行，所以不另起一张卡片。
+            if isDirectoryExpanded {
+                AgentDirPickerRow(
+                    kind: kind,
+                    customDirectory: customDirectory,
+                    onChange: onDirectoryChanged
+                )
+            }
         }
-      }
-      // 主行固定为两行的高度：有没有副标题、目录是否自定义都不改变行高，
-      // 面板高度才不会随某个 Agent 的状态漂移。
-      .frame(height: NotchMenuMetrics.twoLineRowHeight)
+        .settingsRowSeparator(showsSeparator)
+        .opacity(isEnabled ? 1.0 : 0.5)
+    }
 
-      // 展开的目录编辑器紧跟在这一行下面（与 `SettingsPickerRow` 的展开同一套几何）：
-      // 它属于这一行，所以不另起一张卡片。
-      if isDirectoryExpanded {
-        AgentDirPickerRow(
-          kind: kind,
-          customDirectory: customDirectory,
-          onChange: onDirectoryChanged
+    // MARK: - 配置目录按钮
+
+    /// 「配置目录」按钮：点开 / 收起这一行的目录编辑器。
+    ///
+    /// 已自定义时用强调色——那是「这一行读的不是默认目录」在行上唯一不占字的提示
+    /// （副标题里的 `Custom directory:` 会被截断）。弱色表示一切按自动检测来。
+    private var directoryButton: some View {
+        Button(action: onToggleDirectory) {
+            Image(systemName: isCustom ? "folder.fill" : "folder")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(isCustom ? AppPalette.accent : AppPalette.tertiaryText)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(SettingsCompactButtonStyle())
+        .help(l10n.t("Choose Config Directory"))
+        .accessibilityLabel(Text(l10n.t("Choose Config Directory")))
+        .accessibilityValue(Text(directorySummaryText))
+    }
+
+    // MARK: - Presentation
+
+    private var isCustom: Bool {
+        !(customDirectory ?? "").isEmpty
+    }
+
+    /// 副标题：自定义了配置目录就先说清「读的是哪个目录」（那通常比集成状态更是用户
+    /// 刚做完的动作，也正是会被截断的那半句），否则维持集成状态。
+    private var summary: (text: String, isWarning: Bool)? {
+        if let integrationSummary, integrationSummary.isWarning { return integrationSummary }
+        if environmentConfigRoot != nil { return (directorySummaryText, false) }
+        if isCustom { return (directorySummaryText, false) }
+        return integrationSummary
+    }
+
+    /// 这一行读的是哪个目录：自定义时是它，否则是「自动检测」。
+    /// 副标题（自定义时）与文件夹按钮的无障碍取值共用同一句——VoiceOver 用户看不到
+    /// 那个按钮的强调色，也看不到被截断的副标题。
+    private var directorySummaryText: String {
+        if let environmentRoot = environmentConfigRoot {
+            return l10n.t("Environment directory: %@", shortenedPath(environmentRoot.path))
+        }
+        guard let customDirectory, !customDirectory.isEmpty else { return l10n.t("Auto-detect") }
+        return l10n.t("Custom directory: %@", shortenedPath(customDirectory))
+    }
+
+    /// Codex / Grok 的环境变量优先级高于设置页覆盖目录；摘要显示实际生效根目录。
+    private var environmentConfigRoot: URL? {
+        let variable: String
+        switch kind {
+        case .codex: variable = "CODEX_HOME"
+        case .grok: variable = "GROK_HOME"
+        default: return nil
+        }
+        guard let raw = Foundation.ProcessInfo.processInfo.environment[variable],
+            !raw.trimmingCharacters(in: .whitespaces).isEmpty
+        else { return nil }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let fallback = home.appendingPathComponent(".\(kind.rawValue)")
+        return AgentRootOverride.resolve(raw, fallback: fallback, home: home)
+    }
+
+    /// 副标题：集成状态，已安装时在后面补上写在哪（长路径交给截断）。
+    /// 不可用是唯一需要引人注意的状态，因此只有它用警告色，且不必再报路径。
+    private var integrationSummary: (text: String, isWarning: Bool)? {
+        if let warning = ompTimeoutWarning { return (warning, true) }
+        guard let status = AgentRegistry.provider(for: kind).integrationStatus() else { return nil }
+
+        if status.health == .unavailable {
+            return (healthText(status.health), true)
+        }
+        if status.health == .installed,
+            AgentIntegrationInstaller.hasVersionedIntegration(kind),
+            AgentIntegrationInstaller.isInstalled(kind) == false
+        {
+            return (l10n.t("Outdated — reinstall"), true)
+        }
+        let health = healthText(status.health)
+        guard let file = status.installedFiles.first else { return (health, false) }
+        return ("\(health) · \(shortenedPath(file.path))", false)
+    }
+
+    private var ompTimeoutWarning: String? {
+        guard kind == .ohMyPi,
+            isEnabled,
+            AppSettings.ompGateTimeoutSetupFailed,
+            AgentIntegrationInstaller.gateIsActive(.ohMyPi)
+        else { return nil }
+        return l10n.t(
+            "OMP approval wait budget is not active. Re-enable OMP to retry; approvals may time out sooner than expected."
         )
-      }
     }
-    .settingsRowSeparator(showsSeparator)
-    .opacity(isEnabled ? 1.0 : 0.5)
-  }
 
-  // MARK: - 配置目录按钮
-
-  /// 「配置目录」按钮：点开 / 收起这一行的目录编辑器。
-  ///
-  /// 已自定义时用强调色——那是「这一行读的不是默认目录」在行上唯一不占字的提示
-  /// （副标题里的 `Custom directory:` 会被截断）。弱色表示一切按自动检测来。
-  private var directoryButton: some View {
-    Button(action: onToggleDirectory) {
-      Image(systemName: isCustom ? "folder.fill" : "folder")
-        .font(.system(size: 12, weight: .semibold))
-        .foregroundColor(isCustom ? AppPalette.accent : AppPalette.tertiaryText)
-        .frame(width: 22, height: 22)
-        .contentShape(Rectangle())
+    private func healthText(_ health: AgentIntegrationStatus.Health) -> String {
+        switch health {
+        case .installed: return l10n.t("Installed")
+        case .missing: return l10n.t("Not installed")
+        case .unavailable: return l10n.t("Unavailable")
+        }
     }
-    .buttonStyle(SettingsCompactButtonStyle())
-    .help(l10n.t("Choose Config Directory"))
-    .accessibilityLabel(Text(l10n.t("Choose Config Directory")))
-    .accessibilityValue(Text(directorySummaryText))
-  }
 
-  // MARK: - Presentation
-
-  private var isCustom: Bool {
-    !(customDirectory ?? "").isEmpty
-  }
-
-  /// 副标题：自定义了配置目录就先说清「读的是哪个目录」（那通常比集成状态更是用户
-  /// 刚做完的动作，也正是会被截断的那半句），否则维持集成状态。
-  private var summary: (text: String, isWarning: Bool)? {
-    if let integrationSummary, integrationSummary.isWarning { return integrationSummary }
-    if environmentConfigRoot != nil { return (directorySummaryText, false) }
-    if isCustom { return (directorySummaryText, false) }
-    return integrationSummary
-  }
-
-  /// 这一行读的是哪个目录：自定义时是它，否则是「自动检测」。
-  /// 副标题（自定义时）与文件夹按钮的无障碍取值共用同一句——VoiceOver 用户看不到
-  /// 那个按钮的强调色，也看不到被截断的副标题。
-  private var directorySummaryText: String {
-    if let environmentRoot = environmentConfigRoot {
-      return l10n.t("Environment directory: %@", shortenedPath(environmentRoot.path))
+    /// 首页目录下的路径压缩成 `~/…`，避免长路径撑开设置面板。
+    private func shortenedPath(_ raw: String) -> String {
+        let home = NSHomeDirectory()
+        guard raw.hasPrefix(home) else { return raw }
+        return "~" + raw.dropFirst(home.count)
     }
-    guard let customDirectory, !customDirectory.isEmpty else { return l10n.t("Auto-detect") }
-    return l10n.t("Custom directory: %@", shortenedPath(customDirectory))
-  }
-
-  /// Codex / Grok 的环境变量优先级高于设置页覆盖目录；摘要显示实际生效根目录。
-  private var environmentConfigRoot: URL? {
-    let variable: String
-    switch kind {
-    case .codex: variable = "CODEX_HOME"
-    case .grok: variable = "GROK_HOME"
-    default: return nil
-    }
-    guard let raw = Foundation.ProcessInfo.processInfo.environment[variable],
-      !raw.trimmingCharacters(in: .whitespaces).isEmpty
-    else { return nil }
-    let home = FileManager.default.homeDirectoryForCurrentUser
-    let fallback = home.appendingPathComponent(".\(kind.rawValue)")
-    return AgentRootOverride.resolve(raw, fallback: fallback, home: home)
-  }
-
-  /// 副标题：集成状态，已安装时在后面补上写在哪（长路径交给截断）。
-  /// 不可用是唯一需要引人注意的状态，因此只有它用警告色，且不必再报路径。
-  private var integrationSummary: (text: String, isWarning: Bool)? {
-    if let warning = ompTimeoutWarning { return (warning, true) }
-    guard let status = AgentRegistry.provider(for: kind).integrationStatus() else { return nil }
-
-    if status.health == .unavailable {
-      return (healthText(status.health), true)
-    }
-    if status.health == .installed,
-      AgentIntegrationInstaller.hasVersionedIntegration(kind),
-      AgentIntegrationInstaller.isInstalled(kind) == false
-    {
-      return (l10n.t("Outdated — reinstall"), true)
-    }
-    let health = healthText(status.health)
-    guard let file = status.installedFiles.first else { return (health, false) }
-    return ("\(health) · \(shortenedPath(file.path))", false)
-  }
-
-  private var ompTimeoutWarning: String? {
-    guard kind == .ohMyPi,
-      isEnabled,
-      AppSettings.ompGateTimeoutSetupFailed,
-      AgentIntegrationInstaller.gateIsActive(.ohMyPi)
-    else { return nil }
-    return l10n.t(
-      "OMP approval wait budget is not active. Re-enable OMP to retry; approvals may time out sooner than expected."
-    )
-  }
-
-  private func healthText(_ health: AgentIntegrationStatus.Health) -> String {
-    switch health {
-    case .installed: return l10n.t("Installed")
-    case .missing: return l10n.t("Not installed")
-    case .unavailable: return l10n.t("Unavailable")
-    }
-  }
-
-  /// 首页目录下的路径压缩成 `~/…`，避免长路径撑开设置面板。
-  private func shortenedPath(_ raw: String) -> String {
-    let home = NSHomeDirectory()
-    guard raw.hasPrefix(home) else { return raw }
-    return "~" + raw.dropFirst(home.count)
-  }
 }
 
 // MARK: - 模态面板
@@ -470,15 +470,15 @@ private struct AgentSettingsRow: View {
 /// 刘海面板在 `.mainMenu + 3`，会盖住模态窗口；结束后原样还原。批量动作的确认弹窗与
 /// 目录编辑器里的选择面板都要走这一步，因此抽在一起、而不是各抄一份。
 func withNotchPanelYielded<T>(_ body: () -> T) -> T {
-  let notchWindow = NSApp.windows.first { $0 is NotchPanel }
-  let originalLevel = notchWindow?.level ?? (.mainMenu + 3)
-  let wasIgnoring = notchWindow?.ignoresMouseEvents ?? true
-  notchWindow?.level = .normal
-  notchWindow?.ignoresMouseEvents = true
+    let notchWindow = NSApp.windows.first { $0 is NotchPanel }
+    let originalLevel = notchWindow?.level ?? (.mainMenu + 3)
+    let wasIgnoring = notchWindow?.ignoresMouseEvents ?? true
+    notchWindow?.level = .normal
+    notchWindow?.ignoresMouseEvents = true
 
-  let result = body()
+    let result = body()
 
-  notchWindow?.level = originalLevel
-  notchWindow?.ignoresMouseEvents = wasIgnoring
-  return result
+    notchWindow?.level = originalLevel
+    notchWindow?.ignoresMouseEvents = wasIgnoring
+    return result
 }
