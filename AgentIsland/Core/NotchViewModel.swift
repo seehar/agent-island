@@ -386,6 +386,27 @@ class NotchViewModel: ObservableObject {
         }
     }
 
+    // MARK: - 面板点击转投的接口
+
+    /// 屏幕坐标点是否落在展开面板的卡片里（面板窗口的转投判据）。
+    ///
+    /// 与 `handleMouseDown(at:)` 的收起判据是同一个矩形：`NotchGeometry` 里
+    /// `isPointInOpenedPanel` 与 `isPointOutsidePanel` 互为补集，两处都按当前的
+    /// `geometry` + `openedSize` 现算、不缓存，因此不会出现「窗口判卡片外、这里判面板内」。
+    func isScreenPointInPanel(_ point: CGPoint) -> Bool {
+        geometry.isPointInOpenedPanel(point, size: openedSize)
+    }
+
+    /// 面板把一次「卡片外、被窗口吞掉」的点击转投给下层应用之后收起自己（幂等）。
+    ///
+    /// 为什么不能只靠鼠标监听：监听掩码只有 `.leftMouseDown`，**右键**转投不会触发
+    /// `handleMouseDown`，面板就会停在「看着还在、其实窗口已经让开」的状态（点不动，
+    /// 点击还会穿过去）。收起因此挂在转投那条路径上。
+    func collapseForForwardedClick() {
+        guard status == .opened else { return }
+        notchClose()
+    }
+
     // MARK: - Actions
 
     func notchOpen(reason: NotchOpenReason = .unknown) {

@@ -49,11 +49,16 @@ class NotchWindowController: NSWindowController {
 
         super.init(window: notchWindow)
 
-        // 点击转投按「面板是否展开」恢复鼠标事件接收（见 `ClickForwarding`）：
-        // 面板还开着就继续接事件，收起后保持透明，点击直接落到下层应用。
-        notchWindow.forwarding = .live(shouldAcceptMouseEvents: { [weak self] in
-            self?.viewModel.status == .opened
-        })
+        // 点击转投（见 `ClickForwarding`）：只有卡片之外的点击才交给下层应用，判据与
+        // 收起都取视图模型那套几何/状态——与「点面板外收起」同源，且收起由转投这条路径
+        // 自己保证（鼠标监听只掩码左键，右键转投不会经过它）。
+        notchWindow.forwarding = .live(
+            isPointOnPanel: { [weak self] screenPoint in
+                // 取不到视图模型时按「在卡片上」处理：宁可不转投，也不留成环或幽灵面板的可能。
+                guard let self else { return true }
+                return self.viewModel.isScreenPointInPanel(screenPoint)
+            },
+            collapse: { [weak self] in self?.viewModel.collapseForForwardedClick() })
 
         // Create the SwiftUI view with pass-through hosting
         let hostingController = NotchViewController(viewModel: viewModel, sessionMonitor: sessionMonitor)

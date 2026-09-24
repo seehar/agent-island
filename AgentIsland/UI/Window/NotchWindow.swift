@@ -24,25 +24,44 @@ nonisolated struct NotchForwardedClick: Equatable {
 
 /// 点击转投的接缝：生产实现（`live`）投合成事件，用例换成记录器 + 立即执行，
 /// 于是「一次点击只投一次」这类不变量不必真的往屏幕上点一下就能钉住。
+///
+/// 判据（`isPointOnPanel`）与收起（`collapse`）也放这里：它们是同一次转投的三个面，
+/// 拆开注入会出现「装了投递、没装收起」的半装配面板。
 nonisolated struct ClickForwarding {
+    /// 屏幕坐标点是否落在面板卡片上。**卡片外**才转投：卡片内的点击哪怕这一刻没有控件
+    /// 认领（展开动画途中卡片还没长到终值，或 SwiftUI 的透明区）也该由面板自己吞下——
+    /// 投出去只会让下层应用收到一次「隔着卡片」的点击，而且窗口一旦因此让开，注进来的
+    /// 那一下还会被本窗口重新接住，每 50ms 一环。
+    var isPointOnPanel: @MainActor (CGPoint) -> Bool
+    /// 转投之后收起面板（幂等）。它是「转投出去的点击 ⟹ 面板一定收起」的**结构性**来源：
+    /// 只靠鼠标监听的话，右键转投不会触发 `handleMouseDown`，窗口就会一直透明——面板
+    /// 看着还在、点不动，点击还会穿过去打到下层应用。
+    var collapse: @MainActor () -> Void
     /// 把这一下（按下 + 抬起）交给下层应用。
     var deliver: @MainActor (NotchForwardedClick) -> Void
     /// 投递时机：得等窗口让开之后才投，否则这一下会被本窗口再吞一次。
     var schedule: @MainActor (@escaping @MainActor () -> Void) -> Void
-    /// 此刻该不该接收鼠标事件（= 面板还开着）。转投之后窗口靠它恢复成该有的样子。
-    var shouldAcceptMouseEvents: @MainActor () -> Bool
 
-    /// 未装配的面板：不投递。用例里构造的面板走这条，因此不会点到用户的屏幕上。
+    /// 未装配的面板：判据按「都在卡片上」处理（最坏是卡片外点了没反应）且不投递 ——
+    /// 用例里构造的面板走这条，因此不会点到用户的屏幕上，也不会成环。
     static let disabled = ClickForwarding(
+        isPointOnPanel: { _ in true },
+        collapse: {},
         deliver: { _ in },
-        schedule: { $0() },
-        shouldAcceptMouseEvents: { true })
+        schedule: { $0() })
 
     /// 生产实现。
     ///
-    /// - Parameter shouldAcceptMouseEvents: 由窗口控制器接上「面板是否展开」。
-    static func live(shouldAcceptMouseEvents: @escaping @MainActor () -> Bool) -> ClickForwarding {
+    /// - Parameters:
+    ///   - isPointOnPanel: 由窗口控制器接上视图模型的几何。
+    ///   - collapse: 由窗口控制器接上视图模型的收起（幂等）。
+    static func live(
+        isPointOnPanel: @escaping @MainActor (CGPoint) -> Bool,
+        collapse: @escaping @MainActor () -> Void
+    ) -> ClickForwarding {
         ClickForwarding(
+            isPointOnPanel: isPointOnPanel,
+            collapse: collapse,
             deliver: ClickForwarding.post,
             schedule: { body in
                 // `DispatchQueue` 的闭包要求 `@Sendable`（主 actor 隔离的闭包本身就是），
@@ -50,8 +69,7 @@ nonisolated struct ClickForwarding {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                     MainActor.assumeIsolated { body() }
                 }
-            },
-            shouldAcceptMouseEvents: shouldAcceptMouseEvents)
+            })
     }
 
     /// 生产投递：把这一下作为合成事件投给下层应用。
@@ -85,7 +103,8 @@ nonisolated struct ClickForwarding {
         }
     }
 
-    /// 支持转投的按键；其它按键（中键等）保持原样：不认领也不转投。
+    /// 支持转投的按键。其它按键（中键等）不转投——事件照旧交给 `NSWindow` 分派，
+    /// 没人认领时仍然会被本窗口吞掉（不是「放行」）。
     nonisolated private static func eventTypes(
         for button: CGMouseButton
     ) -> (down: CGEventType, up: CGEventType)? {
@@ -154,8 +173,9 @@ class NotchPanel: NSPanel {
 
     // MARK: - Click-through for areas outside the panel content
 
-    /// 点击转投的接缝（见 `ClickForwarding`）。默认 `.disabled` 不投递：只有窗口控制器
-    /// 装配过的面板才会真的往屏幕投合成事件。
+    /// 点击转投的接缝（见 `ClickForwarding`）：判据、收起与投递都在它里面，
+    /// 默认 `.disabled` 既不投递也不判「卡片外」。只有窗口控制器装配过的面板才会真的
+    /// 往屏幕投合成事件。
     var forwarding: ClickForwarding = .disabled
 
     /// 本窗口吞下的点击要交给下层应用。
@@ -176,7 +196,9 @@ class NotchPanel: NSPanel {
         super.sendEvent(event)
     }
 
-    /// 这次事件要不要转投：鼠标按下、且没有任何视图认领它（`hitTest` 为 nil）。
+    /// 这次事件要不要转投：鼠标按下、落在**卡片之外**、且没有任何视图认领它
+    /// （`hitTest` 为 nil）。三个条件缺一不可——少了「卡片之外」，注入的点击会被让开后的
+    /// 本窗口重新接住并再投一次（成环），而卡片内的点击本来就该由面板吞下。
     private func forwardedClick(for event: NSEvent) -> NotchForwardedClick? {
         let button: CGMouseButton
         switch event.type {
@@ -193,6 +215,8 @@ class NotchPanel: NSPanel {
         // 高度（`NSScreen.main` 是当前有键盘焦点的屏，外接屏为主时高度不同，
         // 按它换算会把 y 投到隔壁屏上）。
         let screenLocation = convertPoint(toScreen: event.locationInWindow)
+        guard !forwarding.isPointOnPanel(screenLocation) else { return nil }
+
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         return NotchForwardedClick(
             quartzLocation: CGPoint(
@@ -201,17 +225,20 @@ class NotchPanel: NSPanel {
             clickCount: max(1, event.clickCount))
     }
 
-    /// 转投这一下：先把本窗口放开鼠标（合成事件按「此刻谁在最上面」重新命中，窗口还接着
-    /// 鼠标的话这一下会被自己再吞一次），投完按开合状态恢复——面板还开着就继续接事件，
-    /// 否则透明会一直留到下一次状态切换（面板此后点不动）。
+    /// 转投这一下：先收起面板、把本窗口放开鼠标（合成事件按「此刻谁在最上面」重新命中，
+    /// 窗口还接着鼠标的话这一下会被自己再吞一次），50ms 后再投。
+    ///
+    /// 收起挂在这条路径上（`forwarding.collapse`）而不是只靠鼠标监听：监听只掩码
+    /// `.leftMouseDown`，右键转投不会触发它就收起，窗口会一直透明。
+    ///
+    /// 投完**不**恢复接收：能走到这里的点击都在卡片之外、且这里已同步收起，透明正是该有
+    /// 的样子（`NotchWindowController` 的状态订阅随后重申同一值）；真在这儿恢复的话，
+    /// 注入的点击会被重新接住并再投一次。
     private func forward(_ click: NotchForwardedClick) {
         ignoresMouseEvents = true
+        forwarding.collapse()
         forwarding.schedule { [weak self] in
-            guard let self else { return }
-            self.forwarding.deliver(click)
-            if self.forwarding.shouldAcceptMouseEvents() {
-                self.ignoresMouseEvents = false
-            }
+            self?.forwarding.deliver(click)
         }
     }
 }
