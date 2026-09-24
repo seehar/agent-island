@@ -6973,23 +6973,6 @@
         }
       }
     },
-    "Quota is New API's internal unit; credentials are kept in this app's preferences." : {
-      "comment" : "额度页脚注：说明额度单位与凭据的落点。",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Quota is New API's internal unit; credentials are kept in this app's preferences."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "额度是 New API 的内部单位；凭据保存在本应用的偏好设置里。"
-          }
-        }
-      }
-    },
     "Account" : {
       "comment" : "额度页账号行标题",
       "localizations" : {
@@ -7105,6 +7088,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "需要 API 密钥"
+          }
+        }
+      }
+    },
+    "Amounts follow the instance's own currency setting; credentials are kept in this app's preferences." : {
+      "comment" : "额度页脚注：说明金额口径与凭据存放位置",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Amounts follow the instance's own currency setting; credentials are kept in this app's preferences."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "金额按实例自己的货币设置换算；凭据保存在本应用的偏好设置里。"
           }
         }
       }

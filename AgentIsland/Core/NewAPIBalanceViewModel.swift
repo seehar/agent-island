@@ -129,16 +129,33 @@ final class NewAPIBalanceViewModel: ObservableObject {
         let client = client
 
         refreshTask = Task { [weak self] in
+            // 先取实例的额度显示口径（`/api/status`，公开端点，按服务器去重、每台一次）：
+            // 余额本身与它无关，因此取不到就保留这个账号上一次已知的口径，不当作失败。
+            var configByServer: [String: NewAPIConfig] = [:]
+            for account in accounts where account.config.isConfigured {
+                configByServer[account.config.trimmedServerURL] = account.config
+            }
+            var currencies: [String: NewAPICurrency] = [:]
+            await withTaskGroup(of: (String, NewAPICurrency?).self) { group in
+                for (server, config) in configByServer {
+                    group.addTask { (server, try? await client.siteCurrency(config)) }
+                }
+                for await (server, currency) in group {
+                    if let currency { currencies[server] = currency }
+                }
+            }
+
             var readings: [UUID: NewAPIAccountReading] = [:]
             await withTaskGroup(of: (UUID, NewAPIAccountReading).self) { group in
                 for account in accounts {
                     let config = account.config
                     let carried = previous[account.id]
                     group.addTask {
-                        (
-                            account.id,
-                            await Self.read(config: config, previous: carried, client: client)
-                        )
+                        var reading = await Self.read(
+                            config: config, previous: carried, client: client)
+                        reading.siteCurrency =
+                            currencies[config.trimmedServerURL] ?? carried.siteCurrency
+                        return (account.id, reading)
                     }
                 }
                 for await (id, reading) in group { readings[id] = reading }

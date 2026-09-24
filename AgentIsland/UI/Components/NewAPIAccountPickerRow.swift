@@ -143,11 +143,13 @@ struct NewAPIAccountPickerRow: View {
 
     /// 选项行右侧的补充：该账号的账户余额；没取到就写清为什么。
     private func detail(for account: NewAPIAccount) -> String {
-        let reading = viewModel.reading(for: account).account
+        let accountReading = viewModel.reading(for: account)
+        let reading = accountReading.account
         if let value = reading.lastValue {
             // 这里必然是账户槽，而账户端点不给「不限额度」（见 `decodeAccountUsage`），
-            // 因此不判 `unlimited`。
-            return NewAPIBalanceFormat.quota(value.available, locale: locale)
+            // 因此不判 `unlimited`。金额按站点口径写，和下面两张读数卡同一个数字。
+            return NewAPIBalanceFormat.display(
+                value.available, currency: accountReading.siteCurrency, locale: locale)
         }
         switch reading {
         case .loading: return l10n.t("Loading…")

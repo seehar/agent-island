@@ -188,6 +188,79 @@ struct NewAPIBalanceTests {
 
   // MARK: - 展示与配置
 
+  @Test("实例显示口径：按 /api/status 解出换算参数，缺项按「显示内部单位」兜底")
+  func decodesSiteCurrency() throws {
+    let currency = try NewAPIBalanceClient.decodeSiteCurrency(json(Self.statusBody))
+    #expect(currency.displayType == .usd)
+    #expect(currency.displayInCurrency)
+    #expect(currency.quotaPerUnit == 500_000)
+    #expect(currency.usdExchangeRate == 7.3)
+    #expect(currency.customSymbol == "¤")
+
+    // 站点没给这些键（老版本 / 精简部署）：宁可显示内部单位，也不要凭空算金额。
+    let bare = try NewAPIBalanceClient.decodeSiteCurrency(
+      json(#"{"success":true,"message":"","data":{}}"#))
+    #expect(bare == NewAPICurrency.rawQuota)
+    #expect(bare.displayInCurrency == false)
+
+    // 不认识的显示类型按美元兜底（实例前端同样是 default → USD）。
+    let unknown = try NewAPIBalanceClient.decodeSiteCurrency(
+      json(#"{"success":true,"data":{"quota_display_type":"XYZ","display_in_currency":true}}"#))
+    #expect(unknown.displayType == .usd)
+    #expect(unknown.quotaPerUnit == 500_000)
+  }
+
+  @Test("金额按站点口径写：美元 / 人民币 / 自定义 / token 数 / 关掉货币显示")
+  func formatsWithSiteCurrency() {
+    let en = Locale(identifier: "en_US")
+    // 实测实例：quota_per_unit = 500000、quota_display_type = USD。
+    let usd = NewAPICurrency(displayInCurrency: true, quotaPerUnit: 500_000)
+
+    #expect(NewAPIBalanceFormat.display(175_134_432, currency: usd, locale: en) == "$350.27")
+    #expect(NewAPIBalanceFormat.display(8_274_865_568, currency: usd, locale: en) == "$16,549.73")
+    // 整数不补零（平台前端的最小/最大小数位是 0 与 2）。
+    #expect(NewAPIBalanceFormat.display(175_000_000, currency: usd, locale: en) == "$350")
+
+    let cny = NewAPICurrency(
+      displayType: .cny, displayInCurrency: true, quotaPerUnit: 500_000, usdExchangeRate: 7.3)
+    #expect(NewAPIBalanceFormat.display(175_134_432, currency: cny, locale: en) == "¥2,556.96")
+
+    let custom = NewAPICurrency(
+      displayType: .custom, displayInCurrency: true, quotaPerUnit: 500_000,
+      customSymbol: "¤", customExchangeRate: 2)
+    #expect(NewAPIBalanceFormat.display(175_134_432, currency: custom, locale: en) == "¤ 700.54")
+
+    // token 档位与「站点关掉货币显示」都写内部单位（改造前就是这么显示的）。
+    let tokens = NewAPICurrency(displayType: .tokens, displayInCurrency: true)
+    #expect(NewAPIBalanceFormat.display(175_134_432, currency: tokens, locale: en) == "175,134,432")
+    #expect(
+      NewAPIBalanceFormat.display(
+        175_134_432, currency: NewAPICurrency(displayInCurrency: false), locale: en)
+        == "175,134,432")
+
+    // 站点把换算参数写成 0（或缺失）时按缺省走，别算出 0 元或无穷大。
+    let zeroed = NewAPICurrency(
+      displayInCurrency: true, quotaPerUnit: 0, usdExchangeRate: 0)
+    #expect(NewAPIBalanceFormat.display(500_000, currency: zeroed, locale: en) == "$1")
+  }
+
+  /// 实例 `/api/status` 的响应形状（字段与实测实例一致，数值是造的）。
+  private static let statusBody = #"""
+    {
+      "success": true,
+      "message": "",
+      "data": {
+        "display_in_currency": true,
+        "quota_display_type": "USD",
+        "quota_per_unit": 500000,
+        "usd_exchange_rate": 7.3,
+        "custom_currency_symbol": "¤",
+        "custom_currency_exchange_rate": 1,
+        "HeaderNavModules": "{\"home\":true}"
+      }
+    }
+    """#
+
   @Test("额度数字按 locale 分组")
   func formatsQuota() {
     let en = Locale(identifier: "en_US")
@@ -481,17 +554,18 @@ struct NewAPIBalanceTests {
       body:
         #"{"code":true,"message":"ok","data":{"total_granted":1000000,"total_used":12345,"total_available":987655}}"#
     )
+    BalanceStubProtocol.responses["/api/status"] = (status: 200, body: Self.statusBody)
 
     let defaults = try isolatedDefaults()
     // 账号一：只有访问令牌（就是报障的那种填法）。
     let tokenOnly = NewAPIAccount(
       label: "token-only",
       config: NewAPIConfig(serverURL: "https://a.example.com", accessToken: "tok"))
-    // 账号二：Key 与令牌都填了。
+    // 账号二：同一台实例上的另一个账号（Key 与令牌都填了）——显示口径因此只需查一次。
     let full = NewAPIAccount(
       label: "full",
       config: NewAPIConfig(
-        serverURL: "https://b.example.com", apiKey: "sk-b", accessToken: "tok-b"))
+        serverURL: "https://a.example.com", apiKey: "sk-b", accessToken: "tok-b"))
     AppSettings.setNewAPIAccounts([tokenOnly, full], defaults: defaults)
 
     let model = NewAPIBalanceViewModel(
@@ -506,11 +580,30 @@ struct NewAPIBalanceTests {
     #expect(model.snapshot[full.id].account.lastValue?.available == 987655)
     #expect(model.snapshot[full.id].key.lastValue?.granted == 1_000_000)
 
-    // 端点各打各的：账户端点两个账号各一次；Key 端点只有填了 Key 的那个账号打。
+    // 端点各打各的：账户端点两个账号各一次；Key 端点只有填了 Key 的那个账号打；
+    // 显示口径是实例级的，同一台服务器只查一次（公开端点，不带凭据也算一次网络往返）。
     let paths = BalanceStubProtocol.requestedPaths
     #expect(paths.filter { $0 == "/api/user/self" }.count == 2)
     #expect(paths.filter { $0 == "/api/usage/token/" }.count == 1)
+    #expect(paths.filter { $0 == "/api/status" }.count == 1)
     #expect(model.snapshot.refreshedAt != nil)
+
+    // 显示口径已落到读数上：界面因此写 $1.98 而不是 987,655。
+    #expect(model.snapshot[tokenOnly.id].siteCurrency.displayInCurrency)
+    #expect(model.snapshot[tokenOnly.id].siteCurrency.quotaPerUnit == 500_000)
+    // （987655 / 500000 = 1.97531 ⇒ 平台口径是两位小数）
+    #expect(
+      NewAPIBalanceFormat.display(
+        987_655, currency: model.snapshot[tokenOnly.id].siteCurrency,
+        locale: Locale(identifier: "en_US")) == "$1.98")
+
+    // 第二圈：实例的显示口径查不到（比如 /api/status 被网关拦了）时，余额照旧刷新，
+    // 口径沿用上一次已知的——不能因为这一路失败就闪回内部单位。
+    BalanceStubProtocol.responses["/api/status"] = nil
+    model.refresh()
+    await waitUntilRefreshed(model)
+    #expect(model.snapshot[tokenOnly.id].account.lastValue?.available == 987_655)
+    #expect(model.snapshot[tokenOnly.id].siteCurrency.displayInCurrency)
   }
 
   /// 等一次刷新跑完（`refresh()` 内部是 Task，测试要从外部等它落地）。

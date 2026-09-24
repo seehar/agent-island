@@ -155,7 +155,7 @@ Already monitoring these agents? The next launch rewrites their extension to the
 |**Agents**|Enable/disable and integration state for each agent; per-agent config root; tool-call guard scope and offline behavior. The agent list scrolls within its card.|
 |**Notifications**|Notification sound (clicking a sound plays it), volume, quiet hours, sound scope (ready only / ready and approvals), completion badge. The list also carries your own sounds from `~/Library/Sounds`. Quiet hours silences the sound only — the notch still shows everything.|
 |**Statistics**|Token, session and tool-call totals, trends, per-agent/model breakdown, date range and full rescan. Reached from the chart button in the panel header.|
-|**Quota**|Account balance and current key balance from your own New API instances — as many accounts as you like, each with a server URL, API key, and the optional access token / user ID. Reached from the card button in the panel header (it takes no tab slot); it fetches only while the page is open.|
+|**Quota**|Account balance and current key balance from your own New API instances — as many accounts as you like, each with a server URL, API key, and the optional access token / user ID. Amounts are shown in the instance's own currency setting (e.g. `$350.27`, from its `quota_per_unit`), not in raw quota units. Reached from the card button in the panel header (it takes no tab slot); it fetches only while the page is open.|
 |**About**|Version, check for updates, automatic update checks, star on GitHub, quit.|
 
 Single-clicking a session row follows the *click action* above; double-click always opens its chat.
@@ -187,7 +187,7 @@ Every state change goes through a single entry point (`SessionStore.process(_:)`
 
 - Agents talk to the app over a local Unix socket; the app opens no ports of its own.
 - There is no analytics and no telemetry: the only counters the app keeps are the local usage aggregates described above, computed on your machine.
-- Two network calls exist, both read-only: the Sparkle update check against this repository's appcast on GitHub Pages, and — after you fill in a server under **Settings → Quota** — two GETs per configured account to *your own* New API instance while that page is open (`/api/usage/token/` and `/api/user/self`; a slot without its credential is never called). Nothing else is sent anywhere, and nothing is polled in the background.
+- Two network calls exist, both read-only: the Sparkle update check against this repository's appcast on GitHub Pages, and — after you fill in a server under **Settings → Quota** — two GETs per configured account to *your own* New API instance while that page is open (`/api/usage/token/` and `/api/user/self`; a slot without its credential is never called), plus one credential-free GET of `/api/status` per distinct server to learn the instance's quota unit. Nothing else is sent anywhere, and nothing is polled in the background.
 - The app reads the session records your agents already write; it never modifies them.
 - Usage stats are aggregate counters kept in the app's own store; session records are only read, never rewritten.
 

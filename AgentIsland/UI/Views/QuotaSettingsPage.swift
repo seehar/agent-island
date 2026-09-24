@@ -84,19 +84,21 @@ struct QuotaSettingsPage: View {
             SettingsGroup(
                 title: l10n.t("Balance"),
                 footnote: l10n.t(
-                    "Quota is New API's internal unit; credentials are kept in this app's preferences."
+                    "Amounts follow the instance's own currency setting; credentials are kept in this app's preferences."
                 )
             ) {
                 BalanceValueRow(
                     badge: SettingsBadge(
                         source: .symbol(name: "creditcard", tint: AppPalette.accent)),
                     title: l10n.t("Account Balance"),
-                    reading: viewModel.selectedReading.account
+                    reading: viewModel.selectedReading.account,
+                    currency: viewModel.selectedReading.siteCurrency
                 )
                 BalanceValueRow(
                     badge: SettingsBadge(source: .symbol(name: "key", tint: AppPalette.accent)),
                     title: l10n.t("Key Balance"),
                     reading: viewModel.selectedReading.key,
+                    currency: viewModel.selectedReading.siteCurrency,
                     showsSeparator: false
                 )
             }
@@ -127,6 +129,8 @@ struct BalanceValueRow: View {
     let badge: SettingsBadge
     let title: String
     let reading: NewAPIBalanceReading
+    /// 站点自己的额度显示口径（实例级属性，因此由调用方给，不挂在槽位读数上）。
+    var currency: NewAPICurrency = .rawQuota
     var showsSeparator: Bool = true
 
     @ObservedObject private var l10n = LocalizationManager.shared
@@ -157,7 +161,8 @@ struct BalanceValueRow: View {
     private var valueText: String {
         guard let value = reading.lastValue else { return "—" }
         if value.unlimited { return l10n.t("Unlimited") }
-        return NewAPIBalanceFormat.quota(value.available, locale: locale)
+        // 按站点自己的额度口径写：货币（`$350.27`）或内部单位，与平台页面同一个数字。
+        return NewAPIBalanceFormat.display(value.available, currency: currency, locale: locale)
     }
 
     private var subtitle: String {
@@ -185,10 +190,11 @@ struct BalanceValueRow: View {
 
     /// 用量说明：Key 端点给总额（`total_granted`），账户端点只有已用。
     private func usageSubtitle(_ value: NewAPIBalanceValue) -> String {
-        let used = NewAPIBalanceFormat.quota(value.used, locale: locale)
+        let used = NewAPIBalanceFormat.display(value.used, currency: currency, locale: locale)
         guard let granted = value.granted else { return l10n.t("Used %@", used) }
         return l10n.t(
-            "Used %@ of %@", used, NewAPIBalanceFormat.quota(granted, locale: locale))
+            "Used %@ of %@", used,
+            NewAPIBalanceFormat.display(granted, currency: currency, locale: locale))
     }
 }
 

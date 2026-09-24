@@ -78,6 +78,42 @@ nonisolated struct NewAPIConfig: Codable, Equatable, Sendable {
     }
 }
 
+/// 实例把额度显示成什么（`/api/status` 的公开设置，不需要凭据）。
+///
+/// 额度是 New API 的**内部单位**，站点自己决定显示口径：美元 / 人民币 / 自定义货币 /
+/// 直接显示 token 数。应用照抄站点自己的换算（`quota ÷ quotaPerUnit × 汇率`）——这组值
+/// 就是服务端给的，平台页面用的是同一套规则（实例前端 bundle 里的 `renderQuota`），
+/// 因此两边数字一致，也不需要应用自己反推汇率。
+nonisolated struct NewAPICurrency: Equatable, Sendable {
+    /// 站点当前的显示类型。
+    var displayType: NewAPICurrencyDisplayType = .usd
+    /// 站点是否把额度显示成货币；关掉时页面直接写内部单位。
+    var displayInCurrency: Bool = false
+    /// 一个货币单位等于多少额度（站点设置，常见 500000）。
+    var quotaPerUnit: Double = 500_000
+    /// 美元对本币的汇率（`CNY` 用它）。
+    var usdExchangeRate: Double = 1
+    /// 自定义货币符号（`CUSTOM` 用它）。
+    var customSymbol: String = ""
+    /// 自定义货币的汇率（`CUSTOM` 用它）。
+    var customExchangeRate: Double = 1
+
+    /// 还不知道站点口径时的默认值：按内部单位显示（与改造前完全一致）。
+    static let rawQuota = NewAPICurrency()
+}
+
+/// `/api/status` 里的 `quota_display_type`。不认识的类型按美元兜底（实例前端也这么兜底）。
+nonisolated enum NewAPICurrencyDisplayType: String, Sendable {
+    case usd = "USD"
+    case cny = "CNY"
+    case custom = "CUSTOM"
+    case tokens = "TOKENS"
+
+    init(siteValue: String?) {
+        self = NewAPICurrencyDisplayType(rawValue: siteValue ?? "") ?? .usd
+    }
+}
+
 /// 一个账号的两个槽位。两个端点各要各的凭据，因此「缺什么」必须按槽位算。
 nonisolated enum NewAPISlot: Sendable {
     /// 账户余额（`/api/user/self`，要访问令牌）。
@@ -188,6 +224,8 @@ nonisolated struct NewAPIAccountReading: Equatable, Sendable {
     var account: NewAPIBalanceReading = .notConfigured
     /// 当前 Key 额度槽（`/api/usage/token/`）。
     var key: NewAPIBalanceReading = .notConfigured
+    /// 这台实例的额度显示口径（`/api/status`）；还没查到 / 查不到时是「按内部单位」。
+    var siteCurrency: NewAPICurrency = .rawQuota
 
     /// 有没有任何一个槽位拿到过数值。
     var hasValue: Bool {

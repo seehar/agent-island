@@ -22,6 +22,8 @@ nonisolated struct NewAPIBalanceClient: Sendable {
     static let keyUsagePath = "/api/usage/token/"
     /// 查账户余额。
     static let accountUsagePath = "/api/user/self"
+    /// 查实例的额度显示口径（**公开端点**，不带凭据）。
+    static let statusPath = "/api/status"
 
     // MARK: - 会话
 
@@ -93,12 +95,24 @@ nonisolated struct NewAPIBalanceClient: Sendable {
         return try await fetch(request, decode: Self.decodeAccountUsage)
     }
 
+    /// 查实例的额度显示口径（公开设置）。
+    ///
+    /// **不带** `Authorization`：这是公开端点，没必要把凭据发过去。取不到时调用方保留上一次
+    /// 已知的口径（或退回「按内部单位显示」），因此这一路失败不该影响余额本身。
+    func siteCurrency(_ config: NewAPIConfig) async throws -> NewAPICurrency {
+        var request = URLRequest(url: try Self.endpoint(Self.statusPath, config: config))
+        request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        return try await fetch(request, decode: Self.decodeSiteCurrency)
+    }
+
     /// 发一次请求并把响应折成读数：连不上 → `.transport`；非 2xx → 优先透出服务器的 message；
     /// 2xx → 交给解码（解码内部再判信封标志）。
-    private func fetch(
+    private func fetch<T>(
         _ request: URLRequest,
-        decode: (Data) throws -> NewAPIBalanceValue
-    ) async throws -> NewAPIBalanceValue {
+        decode: (Data) throws -> T
+    ) async throws -> T {
         let data: Data
         let response: URLResponse
         do {
@@ -143,6 +157,24 @@ nonisolated struct NewAPIBalanceClient: Sendable {
             used: body.usedQuota,
             granted: nil,
             unlimited: false)
+    }
+
+    /// 解 `/api/status` 的 `data`：只取显示口径相关的几项。
+    ///
+    /// 缺项按站点默认兜底（`display_in_currency` 缺省为 **false** ⇒ 按内部单位显示：
+    /// 在不知道换算参数时宁可显示原始数字，也不要凭空算出一个错的金额）。
+    static func decodeSiteCurrency(_ data: Data) throws -> NewAPICurrency {
+        let envelope = try Self.envelope(StatusBody.self, from: data)
+        guard envelope.isOK, let body = envelope.data else {
+            throw NewAPIBalanceError.server(envelope.message ?? "")
+        }
+        return NewAPICurrency(
+            displayType: NewAPICurrencyDisplayType(siteValue: body.displayType),
+            displayInCurrency: body.displayInCurrency ?? false,
+            quotaPerUnit: body.quotaPerUnit ?? 500_000,
+            usdExchangeRate: body.usdExchangeRate ?? 1,
+            customSymbol: body.customSymbol ?? "",
+            customExchangeRate: body.customExchangeRate ?? 1)
     }
 
     private static func envelope<T: Decodable>(
@@ -197,6 +229,25 @@ nonisolated struct NewAPIBalanceClient: Sendable {
             case totalUsed = "total_used"
             case totalAvailable = "total_available"
             case unlimitedQuota = "unlimited_quota"
+        }
+    }
+
+    /// `/api/status` 的 `data`：整份响应很大（导航、侧栏等配置都在这），只声明用到的几项。
+    private struct StatusBody: Decodable {
+        let displayInCurrency: Bool?
+        let displayType: String?
+        let quotaPerUnit: Double?
+        let usdExchangeRate: Double?
+        let customSymbol: String?
+        let customExchangeRate: Double?
+
+        enum CodingKeys: String, CodingKey {
+            case displayInCurrency = "display_in_currency"
+            case displayType = "quota_display_type"
+            case quotaPerUnit = "quota_per_unit"
+            case usdExchangeRate = "usd_exchange_rate"
+            case customSymbol = "custom_currency_symbol"
+            case customExchangeRate = "custom_currency_exchange_rate"
         }
     }
 
