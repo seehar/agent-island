@@ -56,6 +56,39 @@ struct ShortcutBindingsTests {
                 == ShortcutAction.openChat.defaultChord)
     }
 
+    @Test("清空全局动作：组合消失且不再参与冲突判定")
+    func clearingGlobalActionSuppressesChordAndConflict() {
+        let defaults = makeDefaults()
+        let bindings = ShortcutBindings(defaults: defaults)
+
+        // 先把它挪到一个与「打开对话」冲突的组合上，确认冲突确实存在
+        bindings.set(ShortcutAction.openChat.defaultChord, for: .summon)
+        #expect(
+            bindings.conflict(for: ShortcutAction.openChat.defaultChord, excluding: .openChat)
+                == .summon)
+
+        bindings.clear(.summon)
+        #expect(bindings.chord(for: .summon) == nil)
+        // 未绑定 = 彻底不生效：冲突判定里也不该再出现它
+        #expect(
+            bindings.conflict(for: ShortcutAction.openChat.defaultChord, excluding: .openChat)
+                == nil)
+        // 也不会回落到默认组合
+        #expect(ShortcutBindings(defaults: defaults).chord(for: .summon) == nil)
+    }
+
+    @Test("清空后重新录制：能再次拿到组合")
+    func rebindingAfterClearWorks() {
+        let defaults = makeDefaults()
+        let bindings = ShortcutBindings(defaults: defaults)
+        bindings.clear(.dismiss)
+        #expect(bindings.chord(for: .dismiss) == nil)
+
+        let chord = KeyChord(keyCode: 8, modifiers: [.option, .command])
+        bindings.set(chord, for: .dismiss)
+        #expect(ShortcutBindings(defaults: defaults).chord(for: .dismiss) == chord)
+    }
+
     @Test("写坏的值与未知键回落到默认组合")
     func corruptValueFallsBackToDefault() {
         let defaults = makeDefaults()

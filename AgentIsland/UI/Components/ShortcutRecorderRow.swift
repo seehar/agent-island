@@ -38,21 +38,51 @@ struct ShortcutRecorderRow: View {
     @ObservedObject private var bindings = ShortcutBindings.shared
     @ObservedObject private var controller = ShortcutController.shared
     @ObservedObject private var l10n = LocalizationManager.shared
+    @State private var isHovered = false
+
+    private var isRecording: Bool { controller.recording == action }
+    private var isBound: Bool { bindings.chord(for: action) != nil }
 
     var body: some View {
-        SettingsButtonRow(
-            badge: SettingsBadge(source: .symbol(name: action.symbolName, tint: AppPalette.accent)),
-            title: ShortcutText.title(action, l10n),
-            showsSeparator: showsSeparator,
-            trailing: { chordLabel },
-            action: { controller.beginRecording(action) }
-        )
+        HStack(spacing: 0) {
+            // 左侧按钮专门负责录制；清空按钮是它的兄弟节点，不嵌套按钮。
+            Button(action: { controller.beginRecording(action) }) {
+                SettingsRowLabel(
+                    badge: SettingsBadge(
+                        source: .symbol(name: action.symbolName, tint: AppPalette.accent)),
+                    title: ShortcutText.title(action, l10n)
+                ) {
+                    chordLabel
+                }
+                .background(isHovered ? AppPalette.rowHover : Color.clear)
+            }
+            .buttonStyle(SettingsRowButtonStyle())
+            .contentShape(Rectangle())
+            .onHover { isHovered = $0 }
+
+            if isBound && !isRecording {
+                Button {
+                    bindings.clear(action)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppPalette.tertiaryText)
+                        .frame(width: 28, height: NotchMenuMetrics.rowHeight)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(SettingsCompactButtonStyle())
+                .help(l10n.t("Clear shortcut"))
+                .accessibilityLabel(Text(l10n.t("Clear shortcut")))
+            }
+        }
+        .frame(height: NotchMenuMetrics.rowHeight)
+        .settingsRowSeparator(showsSeparator)
     }
 
     /// 三种状态：正在录这一行、已绑定、未绑定。录制的按键块用强调色，与选中的选项同一口径。
     @ViewBuilder
     private var chordLabel: some View {
-        if controller.recording == action {
+        if isRecording {
             Text(l10n.t("Press a key…"))
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(AppPalette.accent)

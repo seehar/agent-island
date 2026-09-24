@@ -115,9 +115,21 @@ struct ShortcutResolverTests {
         var bindings = defaultBindings()
         bindings[.openChat] = .unbound
 
+        // 它自己的生效页面上也不命中，别的页面同样不命中（清空 = 彻底不生效）
+        for page in [
+            ShortcutAction.Page.instances, .chat, .settings, .statistics,
+        ] {
+            #expect(
+                ShortcutResolver.action(
+                    for: ShortcutAction.openChat.defaultChord, bindings: bindings,
+                    context: ShortcutContext(page: page)) == nil)
+        }
+
+        // 清空是按动作生效的：另一个动作也清空后，它的组合同样不再命中
+        bindings[.dismiss] = .unbound
         #expect(
             ShortcutResolver.action(
-                for: ShortcutAction.openChat.defaultChord, bindings: bindings,
+                for: ShortcutAction.dismiss.defaultChord, bindings: bindings,
                 context: ShortcutContext(page: .instances)) == nil)
     }
 

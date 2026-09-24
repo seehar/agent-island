@@ -274,6 +274,22 @@
         }
       }
     },
+    "Clear shortcut" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear shortcut"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清空快捷键"
+          }
+        }
+      }
+    },
     "Restore Defaults" : {
       "localizations" : {
         "en" : {
