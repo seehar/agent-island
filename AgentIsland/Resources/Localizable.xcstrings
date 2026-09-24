@@ -7128,18 +7128,18 @@
       }
     },
     "Generate one in Profile → Security → Access Token" : {
-      "comment" : "凭据行在没填访问令牌时的引导：去哪儿生成",
+      "comment" : "额度页凭据行在没填访问令牌时的引导：去哪儿生成（长度要能挤进单行副标题，太长的会在中间被截断）",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Generate one in Profile → Security → Access Token"
+            "value" : "Profile → Security → Access Token"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在 个人设置 → 安全设置 里生成访问令牌"
+            "value" : "个人设置 → 安全设置 → 访问令牌"
           }
         }
       }
