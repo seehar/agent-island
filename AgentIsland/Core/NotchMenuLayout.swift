@@ -157,6 +157,31 @@ nonisolated enum NotchMenuMetrics {
     /// （746）—— 与改造前登记的 `agents@76` 同一档，夹取组合没有增加。
     static let visibleAgentRows = 5
 
+    /// 额度页：账号列表不滚动就能看到的账号数。
+    ///
+    /// 与 `visibleAgentRows` 同一套做法——渲染全部账号，只把卡片窗口高度封顶，超出的在
+    /// 卡内滚动；行数是**运行时**才知道的（用户增删账号），因此这里只登记上限，真实增量
+    /// 由 `NewAPIAccountPageState.runtimeHeight` 算出来。
+    ///
+    /// 取值与高度预算绑定：额度页静态内容 348（页内固定 92 + 账号卡的头/动作条 20+40 +
+    /// 组间距 12 + 详情卡的头/三行/脚注 20+144+20）、该页最高的运行时增量
+    /// `max(5 行账号 240, 编辑态 144)` = 240 ⇒ 最大 chrome 76 下 664 ≤ 728（余量 64，见
+    /// `NotchMenuMetricsTests`）。取 6 会变成 712、余量 16：仍然装得下，但窗口再高就没有
+    /// 意义了（一次看 5 个账号已经超出常见用法）。
+    static let visibleAccountRows = 5
+
+    /// 详情卡的行数（身份 / 密钥额度 / 凭据，都是两行高）。
+    static let quotaDetailRows = 3
+
+    /// 详情卡的高度：编辑凭据时它被凭据表单替换，两者之差就是编辑态的增量。
+    static var quotaDetailHeight: CGFloat { CGFloat(quotaDetailRows) * twoLineRowHeight }
+
+    /// 凭据表单的高度：行数取字段表本身（`NewAPIAccountField.allCases.count`），
+    /// 加一个字段就自动长高——版面漂移由 `UsageStatsLayoutTests` 的真实排版用例兜住。
+    static var credentialFormHeight: CGFloat {
+        CGFloat(NewAPIAccountField.allCases.count) * twoLineRowHeight
+    }
+
     /// 面板高度上限：分组内容超出时由页内滚动接管，面板不再继续变长。
     ///
     /// 判据可核算：**每页都要满足「内容高 + 该页最高的单个展开 + chrome ≤ 728」**。
@@ -164,7 +189,7 @@ nonisolated enum NotchMenuMetrics {
     /// （菜单栏 24/25）→ 36/37；内置刘海 32 → 44；`notch` 档在没有内置刘海的屏上 38 → 50；
     /// 胶囊高度自定义 16…64 → 28…76。因此「装得下」是按页给阈值的——允许的最大 chrome
     /// （= 728 − 内容高 − 该页最高单个展开）：通用 **76**、行为 **110**、通知 **194**、
-    /// 智能体 **58**、统计 76、**额度 82**、关于 343、快捷键 104。
+    /// 智能体 **58**、统计 76、**额度 140**、关于 343、快捷键 104。
     /// 通用页加过「接管键盘焦点」（单行开关 42）之后，它在 chrome 76 那一档**刚好**落到
     /// 728：此时余量为 0，再加任何一行都会让 `general@76` 变成被夹取的组合——那种情况下
     /// 需要显式登记进 `NotchMenuMetricsTests.clampedPairs`，并接受该档下页内滚动。
@@ -298,12 +323,19 @@ nonisolated enum NotchMenuMetrics {
             return [Block(hasHeader: false, fixedHeight: UsageStatsMetrics.sectionHeight)]
         case .quota:
             return [
-                // New API：账号行（选择当前账号 / 增删账号，展开的是账号列表）+ 五行凭据
-                // （账号名 / 服务器地址 / API 密钥 / 访问令牌 / 用户 ID，每行两行高：标题 + 说明）。
-                // 账号**数量**不占版面：列表在选项块里滚动（见 `NewAPIAccountSelector`）。
-                Block(rows: [rowHeight] + Array(repeating: twoLineRowHeight, count: 5)),
-                // 余额：账户 / 密钥（两行高：标题 + 用量说明）+ 脚注
-                Block(rows: Array(repeating: twoLineRowHeight, count: 2), hasFootnote: true),
+                // 账号：动作条（添加账号 / 编辑凭据）+ 每账号一行读数。账号**个数**不进
+                // 静态版面表——行数 = min(账号数, `visibleAccountRows`)，由
+                // `NewAPIAccountPageState` 作为运行时增量交出去；超出的账号在卡内滚动
+                // （渲染全部、只封顶窗口高度，与智能体卡同一条不变量）。
+                Block(rows: [rowHeight]),
+                // 详情（选中账号）：身份 / 密钥额度 / 凭据（三行两行高，`quotaDetailRows`）
+                // + 脚注。编辑凭据时这三行被凭据表单替换（`credentialFormHeight`），
+                // 增量同样算在 `NewAPIAccountPageState.runtimeHeight` 里，因此这里仍是
+                // 静态三行。
+                Block(
+                    rows: Array(repeating: twoLineRowHeight, count: quotaDetailRows),
+                    hasFootnote: true
+                ),
             ]
         case .about:
             return [

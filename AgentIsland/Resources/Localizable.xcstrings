@@ -6477,23 +6477,6 @@
         }
       }
     },
-    "New API" : {
-      "comment" : "额度页第一张卡的标题（服务器与凭据）。",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "New API"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "New API"
-          }
-        }
-      }
-    },
     "Server URL" : {
       "localizations" : {
         "en" : {
@@ -6554,39 +6537,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "用户 ID"
-          }
-        }
-      }
-    },
-    "Balance" : {
-      "comment" : "额度页第二张卡的标题（两个余额读数）。",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Balance"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "余额"
-          }
-        }
-      }
-    },
-    "Account Balance" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Account Balance"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "账户余额"
           }
         }
       }
@@ -7105,6 +7055,126 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "金额按实例自己的货币设置换算；凭据保存在本应用的偏好设置里。"
+          }
+        }
+      }
+    },
+    "Credentials" : {
+      "comment" : "额度页详情卡第三行的标题（实例地址 / 版本 / 已填凭据的尾号）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Credentials"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "凭据"
+          }
+        }
+      }
+    },
+    "Edit Credentials" : {
+      "comment" : "额度页动作条右侧按钮：进入凭据表单",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Credentials"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编辑凭据"
+          }
+        }
+      }
+    },
+    "Done" : {
+      "comment" : "额度页凭据表单里的「完成」（退出编辑态）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Done"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完成"
+          }
+        }
+      }
+    },
+    "Token %@" : {
+      "comment" : "密钥额度行副标题里的令牌名（/api/token/ 里匹配到的那个 Key）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "令牌 %@"
+          }
+        }
+      }
+    },
+    "Generate one in Profile → Security → Access Token" : {
+      "comment" : "凭据行在没填访问令牌时的引导：去哪儿生成",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Generate one in Profile → Security → Access Token"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 个人设置 → 安全设置 里生成访问令牌"
+          }
+        }
+      }
+    },
+    "%lld requests" : {
+      "comment" : "计数键：复数形式由 String Catalog 的复数变化提供（英文 one/other，中文只用 other），不要拆成多条键或改回手写分支。",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld request"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld requests"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld 次请求"
+                }
+              }
+            }
           }
         }
       }

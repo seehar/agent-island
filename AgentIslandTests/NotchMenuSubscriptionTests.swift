@@ -52,32 +52,33 @@ struct NotchMenuSubscriptionTests {
 
         // 与 `NotchViewModel.expandedPickerHeight(for:)` 的分项一一对应：
         // 新增一个可展开行时，这里也要补一行（漏了就会被这条用例挡下来）。
-        let pickers: [(name: String, section: NotchMenuSection, picker: any PickerExpansionControlling)] = [
-            ("语言", .general, LanguageSelector.shared),
-            ("屏幕", .general, ScreenSelector.shared),
-            ("胶囊高度", .general, NotchHeightSelector.shared),
-            ("胶囊宽度", .general, NotchWidthSelector.shared),
-            ("内容字号", .general, TextSizeSelector.shared),
-            ("面板尺寸", .general, PanelSizeSelector.shared),
+        let pickers:
+            [(name: String, section: NotchMenuSection, picker: any PickerExpansionControlling)] = [
+                ("语言", .general, LanguageSelector.shared),
+                ("屏幕", .general, ScreenSelector.shared),
+                ("胶囊高度", .general, NotchHeightSelector.shared),
+                ("胶囊宽度", .general, NotchWidthSelector.shared),
+                ("内容字号", .general, TextSizeSelector.shared),
+                ("面板尺寸", .general, PanelSizeSelector.shared),
 
-            ("悬停展开", .behavior, HoverExpandSelector.shared),
-            ("空闲胶囊", .behavior, IdleNotchVisibilitySelector.shared),
-            ("已结束会话", .behavior, SessionRetentionSelector.shared),
-            ("行信息密度", .behavior, SessionRowDensitySelector.shared),
-            ("单击动作", .behavior, SessionRowClickActionSelector.shared),
-            ("刷新频率", .behavior, RefreshCadenceSelector.shared),
+                ("悬停展开", .behavior, HoverExpandSelector.shared),
+                ("空闲胶囊", .behavior, IdleNotchVisibilitySelector.shared),
+                ("已结束会话", .behavior, SessionRetentionSelector.shared),
+                ("行信息密度", .behavior, SessionRowDensitySelector.shared),
+                ("单击动作", .behavior, SessionRowClickActionSelector.shared),
+                ("刷新频率", .behavior, RefreshCadenceSelector.shared),
 
-            ("通知音效", .notifications, SoundSelector.shared),
-            ("安静时段", .notifications, QuietHoursSelector.shared),
-            ("提示音范围", .notifications, NotificationScopeSelector.shared),
-            ("完成提示", .notifications, CompletionBadgeSelector.shared),
+                ("通知音效", .notifications, SoundSelector.shared),
+                ("安静时段", .notifications, QuietHoursSelector.shared),
+                ("提示音范围", .notifications, NotificationScopeSelector.shared),
+                ("完成提示", .notifications, CompletionBadgeSelector.shared),
 
-            ("运行前询问什么", .agents, ApprovalAskScopeSelector.shared),
-            ("应用未运行时", .agents, ApprovalDegradationSelector.shared),
-            ("待批自动展开", .agents, ApprovalAutoExpandSelector.shared),
+                ("运行前询问什么", .agents, ApprovalAskScopeSelector.shared),
+                ("应用未运行时", .agents, ApprovalDegradationSelector.shared),
+                ("待批自动展开", .agents, ApprovalAutoExpandSelector.shared),
 
-            ("账号", .quota, NewAPIAccountSelector.shared),
-        ]
+                ("凭据编辑", .quota, NewAPIAccountPageState.shared),
+            ]
 
         for (name, section, picker) in pickers {
             // 从收起态起测：展开互斥（`PickerExpansion`）只在行内点按时生效，
@@ -89,7 +90,8 @@ struct NotchMenuSubscriptionTests {
 
             #expect(
                 count > 0,
-                "「\(name)」在 \(section.rawValue) 页展开时 NotchViewModel 没有重发布：`observeSelectors()` 里漏了它的订阅（界面症状：只有这一行展开时面板不长高、最后一个档位被下边缘裁掉）")
+                "「\(name)」在 \(section.rawValue) 页展开时 NotchViewModel 没有重发布：`observeSelectors()` 里漏了它的订阅（界面症状：只有这一行展开时面板不长高、最后一个档位被下边缘裁掉）"
+            )
 
             // 顺带交叉检查它确实算进了那一页的高度：chrome = max(24, 胶囊高度) + 12
             // （与 `NotchViewModel.panelChromeHeight` 同式，这里按测试模型的参数算）。

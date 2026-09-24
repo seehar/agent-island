@@ -208,9 +208,10 @@ class NotchViewModel: ObservableObject {
             // 是插在分段条与滚动区之间的固定块，挤占页内滚动视口而不撑高面板，因此增量是 0。
             return 0
         case .quota:
-            // 额度页可展开的是「账号」选择行：账号列表在选项块里滚动（可见行数封顶），
-            // 因此增量与账号个数无关；刷新控件在页眉行里（同统计页）。
-            return NewAPIAccountSelector.shared.expandedPickerHeight
+            // 额度页的运行时增量有两段：账号列表窗口（行数 = min(账号数, 上限)）与
+            // 「编辑凭据」态（列表折叠成一行、详情卡换成凭据表单）；两者互不叠加，
+            // 由 `NewAPIAccountPageState` 算成一个数。刷新控件在页眉行里（同统计页）。
+            return NewAPIAccountPageState.shared.runtimeHeight
         case .about:
             return 0
         }
@@ -254,8 +255,8 @@ class NotchViewModel: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
-        // 额度页的账号选择行：展开态与可见行数都算进面板高度，因此订阅它的任何变化。
-        NewAPIAccountSelector.shared.objectWillChange
+        // 额度页：账号增删（窗口行数）与「编辑凭据」态都算进面板高度，因此订阅它的任何变化。
+        NewAPIAccountPageState.shared.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 

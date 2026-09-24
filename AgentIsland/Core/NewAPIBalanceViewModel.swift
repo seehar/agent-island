@@ -8,8 +8,16 @@
 //
 //  刷新策略：**不轮询**——只有打开「额度」页时才联网（进页 30 秒节流一次 + 手动刷新）。
 //  页眉的「更新于 HH:MM」就是快照里的 `refreshedAt`，用户因此知道读数有多新。
-//  取数是**所有账号一起**（每账号两个 GET）：账号列表里要给每个账号显示余额，
+//  取数是**所有账号一起**（每账号最多四个 GET）：账号列表里要给每个账号显示余额，
 //  只刷新选中的那个会让列表里的其它数字一直停在旧值。
+//
+//  请求矩阵（都只在页面打开时、30 秒节流一次）：
+//  * 每账号：`/api/user/self`（账户余额 + 身份，要访问令牌）、`/api/usage/token/`（Key 额度，
+//    要 `sk-`）、`/api/token/`（令牌列表，要访问令牌）、`/api/user/self/groups`（分组倍率，
+//    要访问令牌）。
+//  * `/api/status`（额度口径 + 实例版本）按 serverURL**去重**：实例级属性，同一台只查一次。
+//  * 没填令牌的账号一个请求都不会发（逐槽位门禁，见 `NewAPIConfig`）。
+//  * 后三路（令牌、分组、口径）都是**补足信息**：失败一律 fail-soft，保留上一轮的值。
 //
 
 import Combine
@@ -20,7 +28,10 @@ import os
 ///
 /// 视图只按字段名取绑定（`field(_:)` / `setField(_:to:)`），不自己找数组下标——
 /// 增删账号时下标会变，而字段名不会。
-nonisolated enum NewAPIAccountField: Sendable {
+///
+/// `CaseIterable` 且**顺序即凭据表单的行顺序**：视图按 `allCases.count` 推导表单高度，
+/// 加字段时版面预算自动跟着长（不必再手工同步一处行数）。
+nonisolated enum NewAPIAccountField: Sendable, CaseIterable {
     /// 备注名（显示在账号列表与选择行上）。
     case label
     case serverURL
@@ -129,19 +140,20 @@ final class NewAPIBalanceViewModel: ObservableObject {
         let client = client
 
         refreshTask = Task { [weak self] in
-            // 先取实例的额度显示口径（`/api/status`，公开端点，按服务器去重、每台一次）：
-            // 余额本身与它无关，因此取不到就保留这个账号上一次已知的口径，不当作失败。
+            // 先取实例级的公开设置（`/api/status`：额度显示口径 + 版本）。这是**实例级**
+            // 属性，按服务器去重、每台只查一次；余额本身与它无关，因此取不到就保留这个账号
+            // 上一次已知的值，不当作失败。
             var configByServer: [String: NewAPIConfig] = [:]
             for account in accounts where account.config.isConfigured {
-                configByServer[account.config.trimmedServerURL] = account.config
+                configByServer[Self.serverKey(account.config)] = account.config
             }
-            var currencies: [String: NewAPICurrency] = [:]
-            await withTaskGroup(of: (String, NewAPICurrency?).self) { group in
+            var statuses: [String: NewAPISiteStatus] = [:]
+            await withTaskGroup(of: (String, NewAPISiteStatus?).self) { group in
                 for (server, config) in configByServer {
-                    group.addTask { (server, try? await client.siteCurrency(config)) }
+                    group.addTask { (server, try? await client.siteStatus(config)) }
                 }
-                for await (server, currency) in group {
-                    if let currency { currencies[server] = currency }
+                for await (server, status) in group {
+                    if let status { statuses[server] = status }
                 }
             }
 
@@ -153,8 +165,9 @@ final class NewAPIBalanceViewModel: ObservableObject {
                     group.addTask {
                         var reading = await Self.read(
                             config: config, previous: carried, client: client)
-                        reading.siteCurrency =
-                            currencies[config.trimmedServerURL] ?? carried.siteCurrency
+                        let status = statuses[Self.serverKey(config)]
+                        reading.siteCurrency = status?.currency ?? carried.siteCurrency
+                        reading.siteVersion = status?.version ?? carried.siteVersion
                         return (account.id, reading)
                     }
                 }
@@ -272,6 +285,17 @@ final class NewAPIBalanceViewModel: ObservableObject {
         accounts.firstIndex { $0.id == selectedAccountID } ?? 0
     }
 
+    /// 实例级属性的去重键：与客户端拼端点时同一套归一（去空白 + 去尾斜杠）。
+    ///
+    /// 不归一的话，`https://h` 与 `https://h/` 会被当成两台实例 ⇒ `/api/status` 多打一次，
+    /// 而它们其实是同一台（客户端拼端点时也把尾斜杠去掉）。**构建与查表必须用同一个键**，
+    /// 否则归一过的那批账号反而查不到刚取回来的口径。
+    private nonisolated static func serverKey(_ config: NewAPIConfig) -> String {
+        var server = config.trimmedServerURL
+        while server.hasSuffix("/") { server.removeLast() }
+        return server
+    }
+
     /// 把账号列表与选中账号写回偏好域。
     private func persist() {
         AppSettings.setNewAPIAccounts(accounts, defaults: defaults)
@@ -305,41 +329,81 @@ final class NewAPIBalanceViewModel: ObservableObject {
         return NewAPIBalanceSnapshot(readings: readings, refreshedAt: nil)
     }
 
-    /// 拉一个账号的两个槽位。两个端点互不影响：一个失败（或缺凭据）不该影响另一个的读数。
+    /// 拉一个账号的取数：两个槽位，加上由账户身份派生的「分组倍率」与「令牌」两路。
+    ///
+    /// 四路互不影响：一个失败（或缺凭据）不该影响别的读数。两个槽位之外的都只是**补足
+    /// 信息**（详情卡用），失败一律 fail-soft：保留上一轮的值，绝不把余额标成失败。
     private nonisolated static func read(
         config: NewAPIConfig,
         previous: NewAPIAccountReading,
         client: NewAPIBalanceClient
     ) async -> NewAPIAccountReading {
         async let account = reading(
-            previous: previous.account, missing: NewAPISlot.account.missing(in: config)
+            previous: previous.account,
+            missing: NewAPISlot.account.missing(in: config),
+            value: { payload in payload.value }
         ) {
             try await client.accountUsage(config)
         }
         async let key = reading(
-            previous: previous.key, missing: NewAPISlot.key.missing(in: config)
+            previous: previous.key,
+            missing: NewAPISlot.key.missing(in: config),
+            value: { value in value }
         ) {
             try await client.keyUsage(config)
         }
-        return await NewAPIAccountReading(account: account, key: key)
+        let (accountSlot, keySlot) = await (account, key)
+
+        var reading = NewAPIAccountReading(account: accountSlot.reading, key: keySlot.reading)
+        // 身份也 fail-soft：本轮没拿到（网络失败）时保留上一轮已知的。
+        reading.identity = accountSlot.fetched?.identity ?? previous.identity
+
+        // 分组与令牌都要访问令牌（两路都从账户端点的身份来），因此只在**本轮真的拿到身份**
+        // 时才发；两路并发，且都允许失败（老实例根本没有这两个端点，404 是常态）。
+        if let identity = accountSlot.fetched?.identity {
+            async let groups = try? await client.userGroups(config)
+            async let tokens = try? await client.tokenItems(config)
+            let (fetchedGroups, fetchedTokens) = await (groups, tokens)
+            // 取不到（404 / 网络失败）→ 保留上一轮的值；取到了但表里没有对应项
+            // （分组表里没这个分组、列表里没这条 `sk-`）→ 如实置空，别把旧值当现值。
+            if let fetchedGroups {
+                reading.groupRatio = fetchedGroups[identity.group]
+            } else {
+                reading.groupRatio = previous.groupRatio
+            }
+            if let fetchedTokens {
+                reading.token = fetchedTokens.first { $0.matches(apiKey: config.trimmedAPIKey) }
+            } else {
+                reading.token = previous.token
+            }
+        }
+        return reading
     }
 
-    /// 把一个可能抛错的取数操作折成一个槽位的读数；失败时保留上一次成功的数值。
+    /// 把一个可能抛错的取数操作折成「槽位读数 + 取到的原值」；失败时保留上一次成功的数值。
+    ///
+    /// `value` 把取到的原值摊成槽位数值（账户端点的原值里还带着身份，见 `read`）；
+    /// 返回的 `fetched` 只在成功时有值，缺凭据 / 失败都是 nil。
     ///
     /// `missing` 非空表示这个槽连请求都不该发（缺服务器地址或缺该端点的凭据）——
     /// 那不是失败，页面上要写清缺哪一样。
-    private nonisolated static func reading(
+    private nonisolated static func reading<T: Sendable>(
         previous: NewAPIBalanceReading,
         missing: NewAPIBalanceReading?,
-        operation: @Sendable () async throws -> NewAPIBalanceValue
-    ) async -> NewAPIBalanceReading {
-        if let missing { return missing }
+        value: @Sendable (T) -> NewAPIBalanceValue,
+        operation: @Sendable () async throws -> T
+    ) async -> (reading: NewAPIBalanceReading, fetched: T?) {
+        if let missing { return (missing, nil) }
         do {
-            return .value(try await operation())
+            let fetched = try await operation()
+            return (.value(value(fetched)), fetched)
         } catch let error as NewAPIBalanceError {
-            return .failed(reason: error.reason, value: previous.lastValue)
+            return (.failed(reason: error.reason, value: previous.lastValue), nil)
         } catch {
-            return .failed(reason: NewAPIBalanceError.transport.reason, value: previous.lastValue)
+            return (
+                .failed(reason: NewAPIBalanceError.transport.reason, value: previous.lastValue),
+                nil
+            )
         }
     }
 }

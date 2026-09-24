@@ -11,6 +11,9 @@
 //  （见 `NewAPIBalanceSnapshot.readings`）。界面上一次只看一个账号的详细读数，
 //  但每个账号的余额都在账号列表里各占一行。
 //
+//  **实例级**属性（额度显示口径、实例版本）也按账号各存一份，由视图模型按服务器地址去重
+//  后分发；**账号级**属性（身份、分组倍率、匹配上的令牌）各账号各一份。
+//
 
 import Foundation
 
@@ -114,6 +117,16 @@ nonisolated enum NewAPICurrencyDisplayType: String, Sendable {
     }
 }
 
+/// `/api/status` 的结果：额度显示口径 + 实例版本。
+///
+/// 两者都是**实例级**属性（同一台服务器的多个账号共用一份），因此调用方按 serverURL
+/// 去重后再分发到各账号的读数上（见 `NewAPIBalanceViewModel.refresh`）。
+nonisolated struct NewAPISiteStatus: Equatable, Sendable {
+    var currency: NewAPICurrency
+    /// 实例版本（如 `v1.0.0-rc.37`）；老实例没这个键 ⇒ nil。
+    var version: String?
+}
+
 /// 一个账号的两个槽位。两个端点各要各的凭据，因此「缺什么」必须按槽位算。
 nonisolated enum NewAPISlot: Sendable {
     /// 账户余额（`/api/user/self`，要访问令牌）。
@@ -178,6 +191,65 @@ nonisolated struct NewAPIAccount: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+/// `/api/user/self` 里的身份字段（实测：`display_name` 李兴华 / `id` 59 / `group` default /
+/// `request_count` 358486）。
+///
+/// 只用于详情卡展示；老实例可能少一两个键，解码时各给安全默认（空串 / 0）。
+nonisolated struct NewAPIIdentity: Equatable, Sendable {
+    var displayName: String = ""
+    var userID: Int = 0
+    /// 账号所属分组名：`/api/user/self/groups` 的键，用它取分组倍率。
+    var group: String = ""
+    var requestCount: Int = 0
+}
+
+/// `/api/token/` 列表里的一项（只留页面用得到的字段）。
+nonisolated struct NewAPITokenItem: Equatable, Sendable {
+    /// 服务端给的掩码（如 `s7xl**********n1T6`）——上游从不明文返回令牌。
+    var maskedKey: String
+    /// 令牌名（如 `ai-workspace`）。
+    var name: String
+    /// 已用额度（`used_quota`）。
+    var used: Double
+    /// 不限额度（`unlimited_quota`）：数值仍会返回，但语义上不该报数。
+    var unlimited: Bool
+    /// 过期时间（`expired_time`）：`-1` 表示永不过期 ⇒ nil。
+    var expiresAt: Date?
+    /// 最近一次使用时间（`accessed_time`，unix 秒）：`0` / 缺失 ⇒ nil。
+    var accessedAt: Date?
+
+    /// 这条令牌是不是配置里那个 `sk-…`。
+    ///
+    /// 服务端只回掩码，因此匹配只能「按同一套规则反算掩码再比对」：配置里的 key 先剥掉
+    /// 前导 `sk-`（服务端的掩码基于**裸** key），再用上游 `MaskTokenKey` 的规则算一遍
+    /// （见 `mask(_:)`）。掩码只暴露首尾各 4 位，所以**同首尾 4 位的另一个令牌也会判为
+    /// 匹配**——这是掩码本身的精度上限，不在这里补救。
+    func matches(apiKey: String) -> Bool {
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !maskedKey.isEmpty else { return false }
+        return Self.mask(Self.bareKey(trimmed)) == maskedKey
+    }
+
+    /// 配置里存的是 `sk-…`，服务端的掩码基于裸 key：只在**有**这个前缀时剥掉它
+    /// （大小写敏感——`sk-` 是 New API 生成 key 时带上的字面前缀，不是可随意变形的修饰）。
+    private static func bareKey(_ key: String) -> String {
+        guard key.hasPrefix("sk-") else { return key }
+        return String(key.dropFirst("sk-".count))
+    }
+
+    /// 上游 `MaskTokenKey` 的规则（服务端就是这么算出来再回给我们的）：
+    /// 空 → 空串；≤4 字符 → 整条 `*`；≤8 字符 → 前 2 + `****` + 后 2；
+    /// 否则 → 前 4 + `**********` + 后 4。真实令牌远长于 8 个字符，实际走最后一支。
+    private static func mask(_ bareKey: String) -> String {
+        if bareKey.isEmpty { return "" }
+        if bareKey.count <= 4 { return String(repeating: "*", count: bareKey.count) }
+        if bareKey.count <= 8 {
+            return String(bareKey.prefix(2)) + "****" + String(bareKey.suffix(2))
+        }
+        return String(bareKey.prefix(4)) + "**********" + String(bareKey.suffix(4))
+    }
+}
+
 /// 一个槽位的读数数值。
 ///
 /// `available` 的口径两个端点不同名但同义（都是**剩余**）：Key 端点给 `total_available`，
@@ -191,6 +263,14 @@ nonisolated struct NewAPIBalanceValue: Equatable, Sendable {
     var granted: Double?
     /// 不限额度（Key 的 `unlimited_quota`）：数值仍会返回，但语义上不该报数。
     var unlimited: Bool
+}
+
+/// 账户端点（`/api/user/self`）一次取数的结果：数值 + 身份。
+///
+/// 身份与数值来自同一个响应，因此一起返回——分两次请求既没必要，也可能让两者对不上。
+nonisolated struct NewAPIAccountPayload: Equatable, Sendable {
+    var value: NewAPIBalanceValue
+    var identity: NewAPIIdentity
 }
 
 /// 一个槽位（账户 / Key）的读数状态。
@@ -226,6 +306,14 @@ nonisolated struct NewAPIAccountReading: Equatable, Sendable {
     var key: NewAPIBalanceReading = .notConfigured
     /// 这台实例的额度显示口径（`/api/status`）；还没查到 / 查不到时是「按内部单位」。
     var siteCurrency: NewAPICurrency = .rawQuota
+    /// 这台实例的版本（`/api/status` 的 `version`）；还没查到 / 老实例没有时是 nil。
+    var siteVersion: String? = nil
+    /// 账户身份（`/api/user/self`）：本轮没拿到时保留上一轮已知的。
+    var identity: NewAPIIdentity? = nil
+    /// 本账号所属分组（`identity.group`）在实例分组表里的倍率；没有 / 取不到时是 nil。
+    var groupRatio: Double? = nil
+    /// 与配置里 `sk-…` 匹配上的那条令牌（`/api/token/`）；没匹配上 / 取不到时是 nil。
+    var token: NewAPITokenItem? = nil
 
     /// 有没有任何一个槽位拿到过数值。
     var hasValue: Bool {

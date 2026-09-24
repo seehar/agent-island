@@ -2,16 +2,22 @@
 //  NewAPIBalanceClient.swift
 //  AgentIsland
 //
-//  New API 两个只读接口的客户端：查当前 Key 的额度（`/api/usage/token/`）与账户余额
-//  （`/api/user/self`）。只发 GET，不写任何东西；两个端点各自独立，一个失败不影响另一个。
+//  New API 的只读接口客户端：当前 Key 的额度（`/api/usage/token/`）、账户余额与身份
+//  （`/api/user/self`）、账号所属分组及倍率（`/api/user/self/groups`）、名下令牌列表
+//  （`/api/token/`），以及实例的公开设置（`/api/status`：额度口径 + 版本）。
+//  只发 GET，不写任何东西；各路互相独立，一个失败不牵连另一个。
 //
 //  接口事实（对上游源码核过，改这块之前先复核）：
 //  * 成功信封两种：`/api/usage/token/` 用 `{"code":true,"message":"ok","data":{…}}`，
-//    `/api/user/self` 用 `{"success":true,"message":"","data":{…}}`——判定时「哪个在就用哪个」。
+//    其余用 `{"success":true,"message":"","data":{…}}`——判定时「哪个在就用哪个」。
 //  * 业务错误是 **HTTP 200** + `{"success":false,"message":…}`；缺鉴权头 / 令牌查不到是 401，
 //    且 401 体里的 `code` 可能是**字符串**（`AUTH_…`），所以取 message 的那条路径不解析 code。
 //  * Key 额度：`data.total_available` 是剩余；账户余额：`data.quota` 是剩余（不是总额，
-//    更不是 `quota - used_quota`）。
+//    更不是 `quota - used_quota`）。账户端点另带身份（`display_name` / `id` / `group` /
+//    `request_count`），实测**不需要** `New-Api-User` 头。
+//  * `/api/user/self/groups` 与 `/api/token/` 是后加的端点：老实例没有它们（404）⇒ 调用方按
+//    fail-soft 处理，这两路失败**不许**把余额标成失败（见 `NewAPIBalanceViewModel.read`）。
+//  * `/api/token/` 只回掩码（上游 `MaskTokenKey`），匹配规则见 `NewAPITokenItem.matches`。
 //
 
 import Foundation
@@ -22,8 +28,12 @@ nonisolated struct NewAPIBalanceClient: Sendable {
     static let keyUsagePath = "/api/usage/token/"
     /// 查账户余额。
     static let accountUsagePath = "/api/user/self"
-    /// 查实例的额度显示口径（**公开端点**，不带凭据）。
+    /// 查实例的额度显示口径与版本（**公开端点**，不带凭据）。
     static let statusPath = "/api/status"
+    /// 查账号所属分组及其倍率（要访问令牌）。
+    static let groupsPath = "/api/user/self/groups"
+    /// 查名下令牌列表（要访问令牌）。带分页参数：只取第一页，`page_size` 取上游上限 100。
+    static let tokenListPath = "/api/token/?p=1&page_size=100"
 
     // MARK: - 会话
 
@@ -82,7 +92,7 @@ nonisolated struct NewAPIBalanceClient: Sendable {
     ///
     /// 旧版实例还认 `New-Api-User` 头（用它校验令牌归属），新版完全不读——因此只在用户填了
     /// 用户 ID 时带上：对旧版有用，对 New 版无副作用。
-    func accountUsage(_ config: NewAPIConfig) async throws -> NewAPIBalanceValue {
+    func accountUsage(_ config: NewAPIConfig) async throws -> NewAPIAccountPayload {
         var request = URLRequest(url: try Self.endpoint(Self.accountUsagePath, config: config))
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
@@ -92,19 +102,43 @@ nonisolated struct NewAPIBalanceClient: Sendable {
         if !userID.isEmpty {
             request.setValue(userID, forHTTPHeaderField: "New-Api-User")
         }
-        return try await fetch(request, decode: Self.decodeAccountUsage)
+        return try await fetch(request, decode: Self.decodeAccountPayload)
     }
 
-    /// 查实例的额度显示口径（公开设置）。
+    /// 查实例的额度显示口径与版本（公开设置）。
     ///
     /// **不带** `Authorization`：这是公开端点，没必要把凭据发过去。取不到时调用方保留上一次
-    /// 已知的口径（或退回「按内部单位显示」），因此这一路失败不该影响余额本身。
-    func siteCurrency(_ config: NewAPIConfig) async throws -> NewAPICurrency {
+    /// 已知的值（或退回「按内部单位显示」），因此这一路失败不该影响余额本身。
+    func siteStatus(_ config: NewAPIConfig) async throws -> NewAPISiteStatus {
         var request = URLRequest(url: try Self.endpoint(Self.statusPath, config: config))
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        return try await fetch(request, decode: Self.decodeSiteCurrency)
+        return try await fetch(request, decode: Self.decodeSiteStatus)
+    }
+
+    /// 查账号所属分组及其倍率（要访问令牌）。
+    ///
+    /// 老实例**没有**这个端点（404）；调用方按 fail-soft 处理：取不到就保留上一次的倍率。
+    func userGroups(_ config: NewAPIConfig) async throws -> [String: Double] {
+        var request = URLRequest(url: try Self.endpoint(Self.groupsPath, config: config))
+        request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(config.trimmedAccessToken)", forHTTPHeaderField: "Authorization")
+        return try await fetch(request, decode: Self.decodeUserGroups)
+    }
+
+    /// 查名下的令牌列表（要访问令牌）。
+    ///
+    /// 同样只读、同样对老实例 fail-soft（没有这个端点不影响余额）。
+    func tokenItems(_ config: NewAPIConfig) async throws -> [NewAPITokenItem] {
+        var request = URLRequest(url: try Self.endpoint(Self.tokenListPath, config: config))
+        request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(config.trimmedAccessToken)", forHTTPHeaderField: "Authorization")
+        return try await fetch(request, decode: Self.decodeTokenItems)
     }
 
     /// 发一次请求并把响应折成读数：连不上 → `.transport`；非 2xx → 优先透出服务器的 message；
@@ -147,34 +181,88 @@ nonisolated struct NewAPIBalanceClient: Sendable {
     }
 
     /// 解 `/api/user/self` 的响应体。`quota` 就是**剩余**额度（见文件头）。
-    static func decodeAccountUsage(_ data: Data) throws -> NewAPIBalanceValue {
+    ///
+    /// 身份四项只用于详情卡展示：老实例少一两个键时给安全默认（空串 / 0），
+    /// 不能让「缺个 `request_count`」把整条余额读数判成失败。
+    static func decodeAccountPayload(_ data: Data) throws -> NewAPIAccountPayload {
         let envelope = try Self.envelope(AccountBody.self, from: data)
         guard envelope.isOK, let body = envelope.data else {
             throw NewAPIBalanceError.server(envelope.message ?? "")
         }
-        return NewAPIBalanceValue(
-            available: body.quota,
-            used: body.usedQuota,
-            granted: nil,
-            unlimited: false)
+        return NewAPIAccountPayload(
+            value: NewAPIBalanceValue(
+                available: body.quota,
+                used: body.usedQuota,
+                granted: nil,
+                unlimited: false),
+            identity: NewAPIIdentity(
+                displayName: body.displayName ?? "",
+                userID: body.id ?? 0,
+                group: body.group ?? "",
+                requestCount: body.requestCount ?? 0))
     }
 
-    /// 解 `/api/status` 的 `data`：只取显示口径相关的几项。
+    /// 解 `/api/status` 的 `data`：显示口径 + 实例版本。
     ///
     /// 缺项按站点默认兜底（`display_in_currency` 缺省为 **false** ⇒ 按内部单位显示：
-    /// 在不知道换算参数时宁可显示原始数字，也不要凭空算出一个错的金额）。
-    static func decodeSiteCurrency(_ data: Data) throws -> NewAPICurrency {
+    /// 在不知道换算参数时宁可显示原始数字，也不要凭空算出一个错的金额）。`version` 只是
+    /// 详情卡上的一行展示，缺了就是 nil。
+    static func decodeSiteStatus(_ data: Data) throws -> NewAPISiteStatus {
         let envelope = try Self.envelope(StatusBody.self, from: data)
         guard envelope.isOK, let body = envelope.data else {
             throw NewAPIBalanceError.server(envelope.message ?? "")
         }
-        return NewAPICurrency(
-            displayType: NewAPICurrencyDisplayType(siteValue: body.displayType),
-            displayInCurrency: body.displayInCurrency ?? false,
-            quotaPerUnit: body.quotaPerUnit ?? 500_000,
-            usdExchangeRate: body.usdExchangeRate ?? 1,
-            customSymbol: body.customSymbol ?? "",
-            customExchangeRate: body.customExchangeRate ?? 1)
+        return NewAPISiteStatus(
+            currency: NewAPICurrency(
+                displayType: NewAPICurrencyDisplayType(siteValue: body.displayType),
+                displayInCurrency: body.displayInCurrency ?? false,
+                quotaPerUnit: body.quotaPerUnit ?? 500_000,
+                usdExchangeRate: body.usdExchangeRate ?? 1,
+                customSymbol: body.customSymbol ?? "",
+                customExchangeRate: body.customExchangeRate ?? 1),
+            version: body.version)
+    }
+
+    /// 解 `/api/user/self/groups` 的 `data`：分组名 → 倍率。
+    ///
+    /// 只带 `desc`、没带 `ratio` 的分组不进表：这时的倍率是「不知道」，不是 0
+    /// （调用方取不到就保留上一轮的值）。
+    static func decodeUserGroups(_ data: Data) throws -> [String: Double] {
+        let envelope = try Self.envelope(GroupsBody.self, from: data)
+        guard envelope.isOK, let body = envelope.data else {
+            throw NewAPIBalanceError.server(envelope.message ?? "")
+        }
+        var ratios: [String: Double] = [:]
+        for (name, group) in body {
+            if let ratio = group.ratio { ratios[name] = ratio }
+        }
+        return ratios
+    }
+
+    /// 解 `/api/token/` 的 `data.items`：只留页面用得到的字段。
+    ///
+    /// 缺字段（老版本少一两个键）按空值兜底，不判失败——掩码/名字都缺时页面上少显示一行，
+    /// 但「列不出令牌」不该让整个额度读数变形。
+    static func decodeTokenItems(_ data: Data) throws -> [NewAPITokenItem] {
+        let envelope = try Self.envelope(TokenListBody.self, from: data)
+        guard envelope.isOK, let body = envelope.data else {
+            throw NewAPIBalanceError.server(envelope.message ?? "")
+        }
+        return (body.items ?? []).map { item in
+            NewAPITokenItem(
+                maskedKey: item.key ?? "",
+                name: item.name ?? "",
+                used: item.usedQuota ?? 0,
+                unlimited: item.unlimitedQuota ?? false,
+                expiresAt: Self.date(fromUnixSeconds: item.expiredTime),
+                accessedAt: Self.date(fromUnixSeconds: item.accessedTime))
+        }
+    }
+
+    /// unix 秒 → 日期。`-1`（永不过期）、`0`（没记录过）与缺失都算「没有这个时间」。
+    private static func date(fromUnixSeconds seconds: Double?) -> Date? {
+        guard let seconds, seconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: seconds)
     }
 
     private static func envelope<T: Decodable>(
@@ -234,6 +322,7 @@ nonisolated struct NewAPIBalanceClient: Sendable {
 
     /// `/api/status` 的 `data`：整份响应很大（导航、侧栏等配置都在这），只声明用到的几项。
     private struct StatusBody: Decodable {
+        let version: String?
         let displayInCurrency: Bool?
         let displayType: String?
         let quotaPerUnit: Double?
@@ -242,6 +331,7 @@ nonisolated struct NewAPIBalanceClient: Sendable {
         let customExchangeRate: Double?
 
         enum CodingKeys: String, CodingKey {
+            case version
             case displayInCurrency = "display_in_currency"
             case displayType = "quota_display_type"
             case quotaPerUnit = "quota_per_unit"
@@ -251,14 +341,54 @@ nonisolated struct NewAPIBalanceClient: Sendable {
         }
     }
 
-    /// `/api/user/self` 的 `data`：只取要用到的两个字段。
+    /// `/api/user/self` 的 `data`：额度两项 + 身份四项（身份缺项按安全默认兜底）。
     private struct AccountBody: Decodable {
         let quota: Double
         let usedQuota: Double
+        let displayName: String?
+        let id: Int?
+        let group: String?
+        let requestCount: Int?
 
         enum CodingKeys: String, CodingKey {
             case quota
             case usedQuota = "used_quota"
+            case displayName = "display_name"
+            case id
+            case group
+            case requestCount = "request_count"
+        }
+    }
+
+    /// `/api/user/self/groups` 的 `data`：分组名 → `{desc, ratio}`。
+    private typealias GroupsBody = [String: GroupBody]
+
+    private struct GroupBody: Decodable {
+        let desc: String?
+        let ratio: Double?
+    }
+
+    /// `/api/token/` 的 `data`：`items` 是令牌数组（分页信息用不到）。
+    private struct TokenListBody: Decodable {
+        let items: [TokenItemBody]?
+    }
+
+    /// `/api/token/` 里的一项：`key` 是**掩码**，`expired_time = -1` 表示永不过期。
+    private struct TokenItemBody: Decodable {
+        let key: String?
+        let name: String?
+        let usedQuota: Double?
+        let unlimitedQuota: Bool?
+        let expiredTime: Double?
+        let accessedTime: Double?
+
+        enum CodingKeys: String, CodingKey {
+            case key
+            case name
+            case usedQuota = "used_quota"
+            case unlimitedQuota = "unlimited_quota"
+            case expiredTime = "expired_time"
+            case accessedTime = "accessed_time"
         }
     }
 }

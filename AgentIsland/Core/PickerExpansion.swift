@@ -68,8 +68,15 @@ extension SoundSelector: PickerExpansionControlling {}
 extension TextSizeSelector: PickerExpansionControlling {}
 extension NotchHeightSelector: PickerExpansionControlling {}
 extension NotchWidthSelector: PickerExpansionControlling {}
-/// 额度页的账号选择行：账号是运行时才知道有几个的，因此它自带 `isPickerExpanded`。
-extension NewAPIAccountSelector: PickerExpansionControlling {}
+/// 额度页的「编辑凭据」：它当然不是选择器，但同样会撑高面板（账号列表折叠成一行 +
+/// 三行读数换成凭据表单），因此接到同一套形状上——订阅守卫用例（`NotchMenuSubscriptionTests`）
+/// 与展开互斥都按这个属性工作。
+extension NewAPIAccountPageState: PickerExpansionControlling {
+    var isPickerExpanded: Bool {
+        get { isEditingCredentials }
+        set { isEditingCredentials = newValue }
+    }
+}
 
 /// 逐 Agent 的目录编辑器用 `expandedKind`（它天然只开一行），这里接到同一套互斥上：
 /// 读 = 「有没有展开的」；写只发生在收起方向——展开哪一行由卡片的 `toggle(_:)` 给出，

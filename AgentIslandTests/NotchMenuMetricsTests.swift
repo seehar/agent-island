@@ -52,8 +52,10 @@ struct NotchMenuMetricsTests {
     func statisticsSectionFitsPanelCap() {
         // 固定开销含胶囊高度（自定义最高 64 → 开销 76）。统计分组是整页内容，
         // 越上限就只能靠页内滚动，这里钉住「默认与最高开销都在上限内」。
-        let low = NotchMenuMetrics.panelHeight(for: .statistics, expandedPickerHeight: 0, chromeHeight: 42)
-        let high = NotchMenuMetrics.panelHeight(for: .statistics, expandedPickerHeight: 0, chromeHeight: 76)
+        let low = NotchMenuMetrics.panelHeight(
+            for: .statistics, expandedPickerHeight: 0, chromeHeight: 42)
+        let high = NotchMenuMetrics.panelHeight(
+            for: .statistics, expandedPickerHeight: 0, chromeHeight: 76)
         #expect(low < NotchMenuMetrics.maxPanelHeight)
         #expect(high <= NotchMenuMetrics.maxPanelHeight)
     }
@@ -79,7 +81,7 @@ struct NotchMenuMetricsTests {
         #expect(
             blocks[0].rows
                 == [NotchMenuMetrics.rowHeight]
-                    + Array(repeating: NotchMenuMetrics.twoLineRowHeight, count: expectedAgentRows))
+                + Array(repeating: NotchMenuMetrics.twoLineRowHeight, count: expectedAgentRows))
         #expect(blocks[0].hasFootnote == true)
 
         // 审批闸门：问什么 / 应用未运行时 / 待批时自动展开（三个全局档位）
@@ -93,14 +95,17 @@ struct NotchMenuMetricsTests {
         // 渲染数必须等于全部 Agent：截断渲染会让第 N+1 个之后的行在面板里永远够不着。
         #expect(layout.renderedRows == total)
         // 窗口封顶，且真的比内容矮 ⇒ 卡内是可滚动的（这正是「够得着」的前提）。
-        #expect(layout.windowHeight == CGFloat(NotchMenuMetrics.visibleAgentRows) * NotchMenuMetrics.twoLineRowHeight)
+        #expect(
+            layout.windowHeight == CGFloat(NotchMenuMetrics.visibleAgentRows)
+                * NotchMenuMetrics.twoLineRowHeight)
         #expect(layout.windowHeight < CGFloat(total) * NotchMenuMetrics.twoLineRowHeight)
         // 少到装得下时不封顶（窗口就是内容高）。
         let few = NotchMenuMetrics.agentCardLayout(total: 2)
         #expect(few.renderedRows == 2)
         #expect(few.windowHeight == 2 * NotchMenuMetrics.twoLineRowHeight)
         // 行内展开的目录编辑器长在窗口里，必须加进窗口高度，否则会被裁掉一半。
-        let editor = NotchMenuMetrics.pickerOptionsHeight(visibleOptions: AgentDirSelector.visibleOptions)
+        let editor = NotchMenuMetrics.pickerOptionsHeight(
+            visibleOptions: AgentDirSelector.visibleOptions)
         let expanded = NotchMenuMetrics.agentCardLayout(total: total, directoryEditorHeight: editor)
         #expect(expanded.windowHeight == layout.windowHeight + editor)
         #expect(expanded.renderedRows == total)
@@ -117,7 +122,7 @@ struct NotchMenuMetricsTests {
         #expect(
             rows.reduce(0, +)
                 == NotchMenuMetrics.rowHeight
-                    + CGFloat(NotchMenuMetrics.visibleAgentRows) * NotchMenuMetrics.twoLineRowHeight)
+                + CGFloat(NotchMenuMetrics.visibleAgentRows) * NotchMenuMetrics.twoLineRowHeight)
     }
 
     @Test("行为分组：刘海 2 行、会话 4 行 + 2 个开关；通知另成一页 5 行")
@@ -131,7 +136,7 @@ struct NotchMenuMetricsTests {
         #expect(
             behavior[1].rows
                 == Array(repeating: NotchMenuMetrics.rowHeight, count: 4)
-                    + Array(repeating: NotchMenuMetrics.twoLineRowHeight, count: 2),
+                + Array(repeating: NotchMenuMetrics.twoLineRowHeight, count: 2),
             "会话组：四个选择行 + 子代理明细 / 隐藏闲置两个两行开关")
 
         let notifications = NotchMenuMetrics.blocks(for: .notifications)
@@ -146,7 +151,8 @@ struct NotchMenuMetricsTests {
             + NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 3)
         #expect(
             NotchMenuMetrics.panelHeight(
-                for: .general, expandedPickerHeight: NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 3),
+                for: .general,
+                expandedPickerHeight: NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 3),
                 chromeHeight: 44) == expected)
     }
 
@@ -155,8 +161,12 @@ struct NotchMenuMetricsTests {
         let cap = NotchMenuMetrics.maxPanelHeight
         let content = NotchMenuMetrics.contentHeight(for: .general)
 
-        #expect(NotchMenuMetrics.panelHeight(for: .general, expandedPickerHeight: cap, chromeHeight: 400) == cap)
-        #expect(NotchMenuMetrics.panelHeight(for: .general, expandedPickerHeight: 1000, chromeHeight: 400) == cap)
+        #expect(
+            NotchMenuMetrics.panelHeight(
+                for: .general, expandedPickerHeight: cap, chromeHeight: 400) == cap)
+        #expect(
+            NotchMenuMetrics.panelHeight(
+                for: .general, expandedPickerHeight: 1000, chromeHeight: 400) == cap)
         // 恰好等于上限：仍是这个值（没有被多减）
         #expect(
             NotchMenuMetrics.panelHeight(
@@ -172,38 +182,47 @@ struct NotchMenuMetricsTests {
     /// 否则测试失败——那正是「又加了一行/一档，最后一个档位落到可视区外」的信号。
     private static let clampedPairs: Set<String> = ["agents@76"]
 
-    @Test("额度分组：账号行 + 五行凭据，账号个数不进版面")
-    func quotaSectionHasAccountRowAndCredentialRows() {
+    @Test("额度分组：动作条 + 详情三行，账号个数不进版面")
+    func quotaSectionHasActionRowAndDetailRows() {
         let blocks = NotchMenuMetrics.blocks(for: .quota)
         #expect(blocks.count == 2)
 
-        // 第一张卡片：账号行（选择当前账号 / 增删账号）+ 五行凭据（账号名 / 服务器地址 /
-        // API 密钥 / 访问令牌 / 用户 ID，每行两行高）。账号**个数**不出现在这里：
-        // 列表在选项块里滚动（见 `NewAPIAccountSelector`），面板高度因此与用户存了几个
-        // 账号无关——否则加一个账号就会把这一页撑长。
-        #expect(
-            blocks[0].rows
-                == [NotchMenuMetrics.rowHeight]
-                    + Array(repeating: NotchMenuMetrics.twoLineRowHeight, count: 5))
+        // 第一张卡片：动作条（添加账号 / 编辑凭据）。账号**个数**不出现在这里：行数 =
+        // min(账号数, `visibleAccountRows`)，由 `NewAPIAccountPageState` 作为运行时增量
+        // 交给 `NotchViewModel`（见 `expandedPickerHeight(for: .quota)`）。账号列表因此
+        // 可以在卡内滚动，加一个账号不会把这一页撑长。
+        #expect(blocks[0].rows == [NotchMenuMetrics.rowHeight])
 
-        // 第二张卡片：账户余额 + 密钥额度两行读数（都是选中账号的），带脚注。
-        #expect(blocks[1].rows == Array(repeating: NotchMenuMetrics.twoLineRowHeight, count: 2))
+        // 第二张卡片：身份 / 密钥额度 / 凭据（三行两行高）+ 脚注。「编辑凭据」态下这三行
+        // 被凭据表单替换（增量同样在 `NewAPIAccountPageState` 里），因此这里仍是静态三行。
+        #expect(
+            blocks[1].rows
+                == Array(
+                    repeating: NotchMenuMetrics.twoLineRowHeight,
+                    count: NotchMenuMetrics.quotaDetailRows))
         #expect(blocks[1].hasFootnote == true)
+        #expect(
+            NotchMenuMetrics.quotaDetailHeight
+                == CGFloat(NotchMenuMetrics.quotaDetailRows) * NotchMenuMetrics.twoLineRowHeight)
     }
 
-    @Test("额度页在最高固定开销下也装得下展开的账号列表")
-    func quotaAccountPickerFitsPanelCap() {
-        let expanded = NotchMenuMetrics.pickerOptionsHeight(
-            visibleOptions: NewAPIAccountSelector.visibleOptions)
-        #expect(
-            expanded
-                == CGFloat(NewAPIAccountSelector.visibleOptions) * NotchMenuMetrics.optionRowHeight
-                    + NotchMenuMetrics.optionListPadding)
+    @Test("额度页在最高固定开销下也装得下满窗口的账号列表与凭据表单")
+    func quotaRuntimeHeightsFitPanelCap() {
+        // 两个运行时项都从真实来源推导（不许写死数字）：
+        let listWindow = NewAPIAccountPageState.accountListHeight(
+            rows: NotchMenuMetrics.visibleAccountRows)
+        let editing = NewAPIAccountPageState.editingRuntimeHeight
+        let tallest = NewAPIAccountPageState.worstRuntimeHeight
+        #expect(tallest == max(listWindow, editing), "最坏运行时增量应取两段里较大的那一段")
+
+        // 编辑态必须真的比满窗口矮：编辑时账号列表折叠成一行，两段因此不会叠加
+        // （否则「满窗口 + 凭据表单」会把面板顶过上限、表单被页内滚动裁掉）。
+        #expect(editing < listWindow, "编辑态应当比满窗口的账号列表矮（它折叠了列表）")
 
         // chrome 76 是可达的最大固定开销（胶囊高度自定义到 64）。
         let height = NotchMenuMetrics.panelHeight(
-            for: .quota, expandedPickerHeight: expanded, chromeHeight: 76)
-        #expect(height == 76 + NotchMenuMetrics.contentHeight(for: .quota) + expanded)
+            for: .quota, expandedPickerHeight: tallest, chromeHeight: 76)
+        #expect(height == 76 + NotchMenuMetrics.contentHeight(for: .quota) + tallest)
         #expect(height <= NotchMenuMetrics.maxPanelHeight)
     }
 
@@ -244,9 +263,9 @@ struct NotchMenuMetricsTests {
                     ApprovalAskScope.allCases.count,
                     ApprovalDegradation.allCases.count,
                     ApprovalAutoExpand.allCases.count)),
-            // 额度页可展开的是「账号」选择行：账号个数是运行时才知道的，可见行数（≤3）才是常量。
-            .quota: NotchMenuMetrics.pickerOptionsHeight(
-                visibleOptions: NewAPIAccountSelector.visibleOptions),
+            // 额度页的运行时增量有两段（账号列表窗口 / 「编辑凭据」态），生产代码里互斥
+            // （编辑态折叠列表），因此「最高的单个展开」取两段里较大的那一段。
+            .quota: NewAPIAccountPageState.worstRuntimeHeight,
             // 统计页与关于页都没有「撑高面板的展开项」：统计页的范围选择器是页眉控件，
             // 展开块占的是页内滚动视口（见 UsageStatsLayoutTests.rangePickerLeavesUsableViewport）。
             .statistics: 0,
@@ -290,10 +309,13 @@ struct NotchMenuMetricsTests {
 
     @Test("选项块高度随选项数线性增长，空列表只留内边距")
     func pickerOptionsHeightScalesLinearly() {
-        #expect(NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 0) == NotchMenuMetrics.optionListPadding)
+        #expect(
+            NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 0)
+                == NotchMenuMetrics.optionListPadding)
         #expect(
             NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 2)
-                - NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 1) == NotchMenuMetrics.optionRowHeight)
+                - NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 1)
+                == NotchMenuMetrics.optionRowHeight)
         #expect(
             NotchMenuMetrics.optionListTopPadding + NotchMenuMetrics.optionListBottomPadding
                 == NotchMenuMetrics.optionListPadding)
@@ -304,7 +326,7 @@ struct NotchMenuMetricsTests {
         #expect(
             NotchMenuMetrics.separatorInset
                 == NotchMenuMetrics.rowHorizontalPadding + NotchMenuMetrics.badgeSize
-                    + NotchMenuMetrics.badgeGap)
+                + NotchMenuMetrics.badgeGap)
         #expect(
             NotchMenuMetrics.optionIndent
                 == NotchMenuMetrics.separatorInset - NotchMenuMetrics.optionHorizontalPadding)

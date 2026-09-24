@@ -471,12 +471,13 @@ struct UsageStatsLayoutTests {
     #expect(other.menuSection == .agents)
   }
 
-  @Test("额度页的真实排版高度等于解析式")
+  @Test("额度页读数态：真实排版高度 = 解析式 + 账号列表窗口")
   @MainActor
   func quotaPageHeightMatchesMetrics() throws {
-    // 账号列表的展开态会改变页面高度（选项块），先归零；偏好域也换成独立的：这一页读
-    // 账号列表，用真实偏好域会让测量结果取决于用户本机存了几个账号。
-    NewAPIAccountSelector.shared.isPickerExpanded = false
+    // 运行时状态是共享单例（面板高度按它算），测量前显式归位；偏好域也换成独立的：
+    // 这一页读账号列表，用真实偏好域会让测量结果取决于用户本机存了几个账号。
+    NewAPIAccountPageState.shared.setAccountCount(1)
+    NewAPIAccountPageState.shared.isEditingCredentials = false
     let defaults = try #require(UserDefaults(suiteName: "quota-layout-\(UUID().uuidString)"))
 
     let contentWidth = NotchMenuMetrics.panelWidthMax - NotchMenuMetrics.listPaddingHeight
@@ -489,29 +490,29 @@ struct UsageStatsLayoutTests {
       NotchMenuMetrics.listPaddingHeight + NotchMenuMetrics.pageHeaderHeight
       + NotchMenuMetrics.rowSpacing + NotchMenuMetrics.tabBarHeight
       + NotchMenuMetrics.rowSpacing + NotchMenuMetrics.contentTopGap
-    let expected = NotchMenuMetrics.contentHeight(for: .quota) - pageChrome
+    // 账号行是**运行时**行：解析式里没有它们，高度按 `NewAPIAccountPageState` 的增量加回来。
+    let expected =
+      NotchMenuMetrics.contentHeight(for: .quota) - pageChrome
+      + NewAPIAccountPageState.shared.runtimeHeight
 
     #expect(measured == expected, "额度页实际排版 \(measured) ≠ 解析式 \(expected)")
   }
 
-  @Test("额度页展开账号列表后：真实排版高度 = 解析式 + 选择器自己算的展开增量")
+  @Test("额度页编辑凭据态：真实排版高度 = 解析式 + 折叠后的运行时增量")
   @MainActor
-  func quotaPageExpandedHeightMatchesMetrics() throws {
-    // 这一条钉的是「选项块真实高度」与「选择器写回的那份可见行数」同源：两者一旦漂移，
-    // 展开时面板会裁掉最后一行账号或留出空白（且只有展开态能暴露）。
-    let defaults = try #require(UserDefaults(suiteName: "quota-expanded-\(UUID().uuidString)"))
+  func quotaPageEditingHeightMatchesMetrics() throws {
+    // 这一条钉的是「编辑态的真实排版」：账号列表折叠成一行、详情卡的三行读数换成五行凭据
+    // 表单。表单行数与 `credentialFormHeight` 一旦漂移（加字段忘了改预算、行高被改），
+    // 这里就红——而读数态是看不出来的。
+    let defaults = try #require(UserDefaults(suiteName: "quota-editing-\(UUID().uuidString)"))
     AppSettings.setNewAPIAccounts(
-      [
-        NewAPIAccount(label: "a", config: NewAPIConfig(serverURL: "https://a", apiKey: "sk-a")),
-        NewAPIAccount(label: "b", config: NewAPIConfig(serverURL: "https://b", apiKey: "sk-b")),
-        NewAPIAccount(label: "c", config: NewAPIConfig(serverURL: "https://c", apiKey: "sk-c")),
-      ], defaults: defaults)
+      [NewAPIAccount(label: "a"), NewAPIAccount(label: "b")], defaults: defaults)
     let model = NewAPIBalanceViewModel(defaults: defaults)
-    NewAPIAccountSelector.shared.setAccountCount(model.accounts.count)
-    NewAPIAccountSelector.shared.isPickerExpanded = true
+    NewAPIAccountPageState.shared.setAccountCount(model.accounts.count)
+    NewAPIAccountPageState.shared.isEditingCredentials = true
     defer {
-      NewAPIAccountSelector.shared.isPickerExpanded = false
-      NewAPIAccountSelector.shared.setAccountCount(1)
+      NewAPIAccountPageState.shared.isEditingCredentials = false
+      NewAPIAccountPageState.shared.setAccountCount(1)
     }
 
     let contentWidth = NotchMenuMetrics.panelWidthMax - NotchMenuMetrics.listPaddingHeight
@@ -524,10 +525,11 @@ struct UsageStatsLayoutTests {
       + NotchMenuMetrics.rowSpacing + NotchMenuMetrics.contentTopGap
     let expected =
       NotchMenuMetrics.contentHeight(for: .quota) - pageChrome
-      + NewAPIAccountSelector.shared.expandedPickerHeight
+      + NewAPIAccountPageState.shared.runtimeHeight
 
+    // 编辑态比满窗口矮：编辑时列表折叠成一行，两个运行时项因此不会叠加。
     #expect(
-      measured == expected,
-      "展开账号列表后实际排版 \(measured) ≠ 解析式 \(expected)（可见行数 \(NewAPIAccountSelector.shared.visibleOptionCount)）")
+      NewAPIAccountPageState.shared.runtimeHeight == NewAPIAccountPageState.editingRuntimeHeight)
+    #expect(measured == expected, "编辑凭据态实际排版 \(measured) ≠ 解析式 \(expected)")
   }
 }
