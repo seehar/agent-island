@@ -131,7 +131,8 @@ class NotchViewModel: ObservableObject {
             // 只按当前分组算高度：固定开销 + 该分组的设置行 + 该分组里展开的
             // 选择器增量（见 NotchMenuMetrics）。分组越短，面板越矮。
             return CGSize(
-                width: scaledPanelWidth(min(screenRect.width * 0.4, NotchMenuMetrics.panelWidthMax)),
+                width: scaledPanelWidth(
+                    min(screenRect.width * 0.4, NotchMenuMetrics.panelWidthMax)),
                 height: NotchMenuMetrics.panelHeight(
                     for: menuSection,
                     expandedPickerHeight: expandedPickerHeight(for: menuSection),
@@ -140,7 +141,8 @@ class NotchViewModel: ObservableObject {
             )
         case .instances:
             return CGSize(
-                width: scaledPanelWidth(min(screenRect.width * 0.4, NotchMenuMetrics.panelWidthMax)),
+                width: scaledPanelWidth(
+                    min(screenRect.width * 0.4, NotchMenuMetrics.panelWidthMax)),
                 height: scaledPanelHeight(320)
             )
         }
@@ -227,7 +229,8 @@ class NotchViewModel: ObservableObject {
 
     // MARK: - Initialization
 
-    init(deviceNotchRect: CGRect, screenRect: CGRect, windowHeight: CGFloat, hasPhysicalNotch: Bool) {
+    init(deviceNotchRect: CGRect, screenRect: CGRect, windowHeight: CGFloat, hasPhysicalNotch: Bool)
+    {
         self.deviceNotchRect = deviceNotchRect
         self.screenRect = screenRect
         self.windowHeight = windowHeight
@@ -267,7 +270,7 @@ class NotchViewModel: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
-        // 行为类偏好：展开态影响面板高度，取值影响面板尺寸等派生值，
+        // 行为/通知页的枚举偏好：展开态影响面板高度，取值影响面板尺寸等派生值，
         // 因此统一按「任一变化即重发布」订阅。
         // 「有待处理请求时自动展开」与「问什么」也跟着「智能体」页的高度走：它们在那一页展开时
         // 同样要撑高面板。
@@ -275,6 +278,7 @@ class NotchViewModel: ObservableObject {
         observe(HoverExpandSelector.shared)
         observe(IdleNotchVisibilitySelector.shared)
         observe(CompletionBadgeSelector.shared)
+        // 通知页的安静时段：漏掉它就只有这一行展开时面板不长高、选项被下边缘裁掉。
         observe(QuietHoursSelector.shared)
         observe(SessionRetentionSelector.shared)
         observe(SessionRowDensitySelector.shared)
@@ -320,7 +324,8 @@ class NotchViewModel: ObservableObject {
 
     private func handleMouseMove(_ location: CGPoint) {
         let inNotch = geometry.isPointInNotch(location)
-        let inOpened = status == .opened && geometry.isPointInOpenedPanel(location, size: openedSize)
+        let inOpened =
+            status == .opened && geometry.isPointInOpenedPanel(location, size: openedSize)
 
         let newHovering = inNotch || inOpened
 

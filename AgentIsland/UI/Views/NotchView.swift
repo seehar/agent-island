@@ -329,7 +329,8 @@ struct NotchView: View {
   for session in sessionMonitor.instances {
    guard let rank = attentionRank(session) else { continue }
    if let current = best,
-    current.rank < rank || (current.rank == rank && current.session.lastActivity >= session.lastActivity)
+    current.rank < rank
+     || (current.rank == rank && current.session.lastActivity >= session.lastActivity)
    {
     continue
    }
@@ -380,7 +381,8 @@ struct NotchView: View {
      }
     }
     .frame(
-     width: viewModel.status == .opened ? nil : countEarWidth + (hasPendingPermission ? 18 : 0))
+     width: viewModel.status == .opened ? nil : countEarWidth + (hasPendingPermission ? 18 : 0)
+    )
     .padding(.leading, viewModel.status == .opened ? 8 : 0)
    }
 
