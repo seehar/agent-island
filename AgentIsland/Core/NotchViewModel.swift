@@ -186,7 +186,7 @@ class NotchViewModel: ObservableObject {
                 RefreshCadenceSelector.shared.expandedPickerHeight,
             ].reduce(0, +)
         case .notifications:
-            // 通知：音效列表（加独立试听行）/ 安静时段 / 提示范围 / 完成提示。
+            // 通知：音效列表（点选即听）/ 安静时段 / 提示范围 / 完成提示。
             return SoundSelector.shared.expandedPickerHeight
                 + QuietHoursSelector.shared.expandedPickerHeight
                 + NotificationScopeSelector.shared.expandedPickerHeight
