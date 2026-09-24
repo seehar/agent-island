@@ -27,12 +27,21 @@ nonisolated struct NewAPIBalanceClient: Sendable {
 
     /// 专用会话：`ephemeral`（不把余额落进磁盘缓存）+ 10 秒请求超时（这条链路上任何一端
     /// 卡住都不该让「刷新」按钮一直转）。
-    private static let session: URLSession = {
+    ///
+    /// 会话**可注入**：单测用带 `URLProtocol` 桩的会话钉住「哪些端点被打了」——只填了访问
+    /// 令牌时也必须打 `/api/user/self`（这正是「访问令牌没用」的回归面）。生产用默认会话。
+    static let defaultSession: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 10
         configuration.waitsForConnectivity = false
         return URLSession(configuration: configuration)
     }()
+
+    private let session: URLSession
+
+    init(session: URLSession = NewAPIBalanceClient.defaultSession) {
+        self.session = session
+    }
 
     // MARK: - 端点
 
@@ -93,7 +102,7 @@ nonisolated struct NewAPIBalanceClient: Sendable {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await Self.session.data(for: request)
+            (data, response) = try await session.data(for: request)
         } catch {
             throw NewAPIBalanceError.transport
         }

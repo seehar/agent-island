@@ -75,6 +75,8 @@ struct NotchMenuSubscriptionTests {
             ("运行前询问什么", .agents, ApprovalAskScopeSelector.shared),
             ("应用未运行时", .agents, ApprovalDegradationSelector.shared),
             ("待批自动展开", .agents, ApprovalAutoExpandSelector.shared),
+
+            ("账号", .quota, NewAPIAccountSelector.shared),
         ]
 
         for (name, section, picker) in pickers {

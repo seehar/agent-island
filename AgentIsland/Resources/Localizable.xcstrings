@@ -6989,6 +6989,125 @@
           }
         }
       }
+    },
+    "Account" : {
+      "comment" : "额度页账号行标题",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "账号"
+          }
+        }
+      }
+    },
+    "Account %lld" : {
+      "comment" : "账号既没备注名也没填地址时的兜底显示名",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account %lld"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "账号 %lld"
+          }
+        }
+      }
+    },
+    "Account Name" : {
+      "comment" : "额度页账号备注名行的标题",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account Name"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "账号名"
+          }
+        }
+      }
+    },
+    "Shown in the account list" : {
+      "comment" : "账号名行的说明",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shown in the account list"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示在账号列表里"
+          }
+        }
+      }
+    },
+    "Add Account" : {
+      "comment" : "额度页账号行的新增按钮（悬停提示）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Account"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新增账号"
+          }
+        }
+      }
+    },
+    "Remove Account" : {
+      "comment" : "额度页账号行的删除按钮（悬停提示）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Account"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除账号"
+          }
+        }
+      }
+    },
+    "Needs an API Key" : {
+      "comment" : "Key 额度行：这个槽缺 API Key",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Needs an API Key"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需要 API 密钥"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

@@ -172,6 +172,41 @@ struct NotchMenuMetricsTests {
     /// 否则测试失败——那正是「又加了一行/一档，最后一个档位落到可视区外」的信号。
     private static let clampedPairs: Set<String> = ["agents@76"]
 
+    @Test("额度分组：账号行 + 五行凭据，账号个数不进版面")
+    func quotaSectionHasAccountRowAndCredentialRows() {
+        let blocks = NotchMenuMetrics.blocks(for: .quota)
+        #expect(blocks.count == 2)
+
+        // 第一张卡片：账号行（选择当前账号 / 增删账号）+ 五行凭据（账号名 / 服务器地址 /
+        // API 密钥 / 访问令牌 / 用户 ID，每行两行高）。账号**个数**不出现在这里：
+        // 列表在选项块里滚动（见 `NewAPIAccountSelector`），面板高度因此与用户存了几个
+        // 账号无关——否则加一个账号就会把这一页撑长。
+        #expect(
+            blocks[0].rows
+                == [NotchMenuMetrics.rowHeight]
+                    + Array(repeating: NotchMenuMetrics.twoLineRowHeight, count: 5))
+
+        // 第二张卡片：账户余额 + 密钥额度两行读数（都是选中账号的），带脚注。
+        #expect(blocks[1].rows == Array(repeating: NotchMenuMetrics.twoLineRowHeight, count: 2))
+        #expect(blocks[1].hasFootnote == true)
+    }
+
+    @Test("额度页在最高固定开销下也装得下展开的账号列表")
+    func quotaAccountPickerFitsPanelCap() {
+        let expanded = NotchMenuMetrics.pickerOptionsHeight(
+            visibleOptions: NewAPIAccountSelector.visibleOptions)
+        #expect(
+            expanded
+                == CGFloat(NewAPIAccountSelector.visibleOptions) * NotchMenuMetrics.optionRowHeight
+                    + NotchMenuMetrics.optionListPadding)
+
+        // chrome 76 是可达的最大固定开销（胶囊高度自定义到 64）。
+        let height = NotchMenuMetrics.panelHeight(
+            for: .quota, expandedPickerHeight: expanded, chromeHeight: 76)
+        #expect(height == 76 + NotchMenuMetrics.contentHeight(for: .quota) + expanded)
+        #expect(height <= NotchMenuMetrics.maxPanelHeight)
+    }
+
     @MainActor
     @Test("每页「内容 + 该页最高的单个展开 + 固定开销」都不越过夹取上限")
     func everySectionFitsCapWithTallestSingleExpansion() {
@@ -209,6 +244,9 @@ struct NotchMenuMetricsTests {
                     ApprovalAskScope.allCases.count,
                     ApprovalDegradation.allCases.count,
                     ApprovalAutoExpand.allCases.count)),
+            // 额度页可展开的是「账号」选择行：账号个数是运行时才知道的，可见行数（≤3）才是常量。
+            .quota: NotchMenuMetrics.pickerOptionsHeight(
+                visibleOptions: NewAPIAccountSelector.visibleOptions),
             // 统计页与关于页都没有「撑高面板的展开项」：统计页的范围选择器是页眉控件，
             // 展开块占的是页内滚动视口（见 UsageStatsLayoutTests.rangePickerLeavesUsableViewport）。
             .statistics: 0,

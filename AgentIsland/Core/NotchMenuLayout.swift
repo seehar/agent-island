@@ -164,7 +164,7 @@ nonisolated enum NotchMenuMetrics {
     /// （菜单栏 24/25）→ 36/37；内置刘海 32 → 44；`notch` 档在没有内置刘海的屏上 38 → 50；
     /// 胶囊高度自定义 16…64 → 28…76。因此「装得下」是按页给阈值的——允许的最大 chrome
     /// （= 728 − 内容高 − 该页最高单个展开）：通用 **76**、行为 **110**、通知 **194**、
-    /// 智能体 **58**、统计 76、关于 343、**快捷键** 104。
+    /// 智能体 **58**、统计 76、**额度 82**、关于 343、快捷键 104。
     /// 通用页加过「接管键盘焦点」（单行开关 42）之后，它在 chrome 76 那一档**刚好**落到
     /// 728：此时余量为 0，再加任何一行都会让 `general@76` 变成被夹取的组合——那种情况下
     /// 需要显式登记进 `NotchMenuMetricsTests.clampedPairs`，并接受该档下页内滚动。
@@ -298,8 +298,10 @@ nonisolated enum NotchMenuMetrics {
             return [Block(hasHeader: false, fixedHeight: UsageStatsMetrics.sectionHeight)]
         case .quota:
             return [
-                // New API：服务器地址 / API 密钥 / 访问令牌 / 用户 ID（每行两行高：标题 + 说明）
-                Block(rows: Array(repeating: twoLineRowHeight, count: 4)),
+                // New API：账号行（选择当前账号 / 增删账号，展开的是账号列表）+ 五行凭据
+                // （账号名 / 服务器地址 / API 密钥 / 访问令牌 / 用户 ID，每行两行高：标题 + 说明）。
+                // 账号**数量**不占版面：列表在选项块里滚动（见 `NewAPIAccountSelector`）。
+                Block(rows: [rowHeight] + Array(repeating: twoLineRowHeight, count: 5)),
                 // 余额：账户 / 密钥（两行高：标题 + 用量说明）+ 脚注
                 Block(rows: Array(repeating: twoLineRowHeight, count: 2), hasFootnote: true),
             ]
@@ -308,7 +310,9 @@ nonisolated enum NotchMenuMetrics {
                 // 标识块（图标 + 名称 + 版本）：不画卡片也没有标题
                 Block(hasHeader: false, rows: [appIdentityHeight]),
                 // 检查更新 / 自动检查更新（开关行）/ GitHub / 键盘快捷键
-                Block(hasHeader: false, rows: [twoLineRowHeight, toggleRowHeight, rowHeight, rowHeight]),
+                Block(
+                    hasHeader: false,
+                    rows: [twoLineRowHeight, toggleRowHeight, rowHeight, rowHeight]),
                 // 退出（破坏性操作单独一张卡片）
                 Block(hasHeader: false, rows: [rowHeight]),
             ]

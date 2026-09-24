@@ -56,6 +56,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // 旧口径的 Claude 目录（`claudeDirectoryName`）搬进通用覆盖表：不然界面显示
     // 「自动检测」而实际解析到别处。
     AppSettings.migrateClaudeDirectoryOverrideIfNeeded()
+    // 旧口径的单账号四键（服务器地址 / Key / 访问令牌 / 用户 ID）搬进账号列表。
+    AppSettings.migrateNewAPIAccountsIfNeeded()
 
     // 改名遗留的旧 socket 文件：老客户端会继续往一个无人监听的地址发状态，清一次。
     LegacyArtifacts.removeLegacySockets()

@@ -208,8 +208,9 @@ class NotchViewModel: ObservableObject {
             // 是插在分段条与滚动区之间的固定块，挤占页内滚动视口而不撑高面板，因此增量是 0。
             return 0
         case .quota:
-            // 额度页没有可展开的选择器：四行输入框 + 两行读数，刷新控件在页眉行里（同统计页）。
-            return 0
+            // 额度页可展开的是「账号」选择行：账号列表在选项块里滚动（可见行数封顶），
+            // 因此增量与账号个数无关；刷新控件在页眉行里（同统计页）。
+            return NewAPIAccountSelector.shared.expandedPickerHeight
         case .about:
             return 0
         }
@@ -250,6 +251,11 @@ class NotchViewModel: ObservableObject {
 
         // 智能体页的目录编辑器：展开态同样算进面板高度。
         AgentDirSelector.shared.$expandedKind
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        // 额度页的账号选择行：展开态与可见行数都算进面板高度，因此订阅它的任何变化。
+        NewAPIAccountSelector.shared.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 

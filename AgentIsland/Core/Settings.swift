@@ -93,13 +93,16 @@ nonisolated enum AppSettings {
     static let ompGateConfigBackupPath = "ompGateConfigBackupPath"
     static let ompGateConfigOriginalTimeout = "ompGateConfigOriginalTimeout"
     static let ompGateConfigAppliedAt = "ompGateConfigAppliedAt"
-    /// New API 服务器地址（形如 `https://api.example.com`）。
+    /// New API 账号列表（`[NewAPIAccount]` 的 JSON）。
+    static let newAPIAccounts = "newAPIAccounts"
+    /// 额度页当前选中的账号 id。
+    static let newAPISelectedAccountID = "newAPISelectedAccountID"
+    /// 「单账号四键 → 账号列表」迁移只做一次的标记。
+    static let newAPIAccountListMigrationMarker = "didMigrateNewAPIAccounts"
+    /// 旧口径的单账号四键：**只用于一次性迁移**，不再写、不再读。
     static let newAPIServerURL = "newAPIServerURL"
-    /// New API 的 API Key（`sk-…`）。
     static let newAPIKey = "newAPIKey"
-    /// New API 的用户访问令牌。
     static let newAPIAccessToken = "newAPIAccessToken"
-    /// New API 的用户 ID（旧版实例查账户余额要它）。
     static let newAPIUserID = "newAPIUserID"
   }
 
@@ -348,34 +351,63 @@ nonisolated enum AppSettings {
 
   // MARK: - New API 额度
 
-  /// 「额度」页要用的四项配置（服务器地址 / API Key / 访问令牌 / 用户 ID）。
+  /// 「额度」页的账号列表（可多个实例 / 多个账号）。
   ///
   /// 凭据按用户的选择存在偏好域里（**不是**钥匙串）：本应用是 ad-hoc 签名，每次重装都会换
   /// 代码签名，而钥匙串条目绑在签名上——那会变成「每装一次都要重新授权一次」。这条取舍
   /// 在「额度」页的脚注里如实写给了用户。
   ///
-  /// 空串就是「没配」：`NewAPIConfig.isConfigured` 据此决定要不要发请求。
-  static var newAPIServerURL: String {
-    get { defaults.string(forKey: Keys.newAPIServerURL) ?? "" }
-    set { defaults.set(newValue, forKey: Keys.newAPIServerURL) }
+  /// 空列表 = 还没迁移过（见 `migrateNewAPIAccountsIfNeeded()`）；解码失败同样回空列表，
+  /// 界面按「一个空账号」兜底，而不是崩在启动路径上。
+  static func newAPIAccounts(defaults: UserDefaults = .standard) -> [NewAPIAccount] {
+    guard let data = defaults.data(forKey: Keys.newAPIAccounts) else { return [] }
+    return (try? JSONDecoder().decode([NewAPIAccount].self, from: data)) ?? []
   }
 
-  /// New API 的 API Key（`sk-…`）：查当前 Key 的额度用它。
-  static var newAPIKey: String {
-    get { defaults.string(forKey: Keys.newAPIKey) ?? "" }
-    set { defaults.set(newValue, forKey: Keys.newAPIKey) }
+  static func setNewAPIAccounts(
+    _ accounts: [NewAPIAccount], defaults: UserDefaults = .standard
+  ) {
+    guard let data = try? JSONEncoder().encode(accounts) else { return }
+    defaults.set(data, forKey: Keys.newAPIAccounts)
   }
 
-  /// New API 的用户访问令牌：查账户余额用它（该端点不接受 `sk-`）。
-  static var newAPIAccessToken: String {
-    get { defaults.string(forKey: Keys.newAPIAccessToken) ?? "" }
-    set { defaults.set(newValue, forKey: Keys.newAPIAccessToken) }
+  /// 额度页当前选中的账号；没存过或存的 id 已经不在列表里时给 nil（界面回落第一个）。
+  static func newAPISelectedAccountID(defaults: UserDefaults = .standard) -> UUID? {
+    guard let raw = defaults.string(forKey: Keys.newAPISelectedAccountID) else { return nil }
+    return UUID(uuidString: raw)
   }
 
-  /// New API 的用户 ID：旧版实例要求 `New-Api-User` 头，新版忽略它。
-  static var newAPIUserID: String {
-    get { defaults.string(forKey: Keys.newAPIUserID) ?? "" }
-    set { defaults.set(newValue, forKey: Keys.newAPIUserID) }
+  static func setNewAPISelectedAccountID(
+    _ id: UUID, defaults: UserDefaults = .standard
+  ) {
+    defaults.set(id.uuidString, forKey: Keys.newAPISelectedAccountID)
+  }
+
+  /// 旧口径的单账号四键搬进账号列表，只做一次。
+  ///
+  /// 「只做一次」是**取舍**：升级 → 降级回旧版本改配置（旧版本只写旧四键）→ 再升级时，
+  /// 标记已在、列表还是第一次迁移的快照，用户会看到降级前的配置。这里不做「列表 vs 旧键」
+  /// 的重比：那份比较分不出「用户在新版里改过列表」与「用户在旧版里改过旧键」，
+  /// 猜错就会把新版里的多个账号覆盖掉——代价比这条窄路径更大。
+  ///
+  /// 升级用户此前只有一个账号，那四项就是他填的全部；不搬的话，升级后额度页会变成
+  /// 一张空表，看起来像「配置丢了」。旧键本身**不删**：降级回旧版本时它们还在。
+  static func migrateNewAPIAccountsIfNeeded(defaults: UserDefaults = .standard) {
+    // 已经写过列表就直接打标记退出：这样「迁移跑过、用户又清空了账号」不会在下一次
+    // 启动时被旧键复活。
+    guard defaults.object(forKey: Keys.newAPIAccountListMigrationMarker) == nil else { return }
+
+    if defaults.data(forKey: Keys.newAPIAccounts) == nil {
+      let legacy = NewAPIConfig(
+        serverURL: defaults.string(forKey: Keys.newAPIServerURL) ?? "",
+        apiKey: defaults.string(forKey: Keys.newAPIKey) ?? "",
+        accessToken: defaults.string(forKey: Keys.newAPIAccessToken) ?? "",
+        userID: defaults.string(forKey: Keys.newAPIUserID) ?? ""
+      )
+      setNewAPIAccounts([NewAPIAccount(config: legacy)], defaults: defaults)
+    }
+    // 标记最后写：中途崩掉时宁可下次重新换算，也不要留下「标记已写、列表为空」。
+    defaults.set(true, forKey: Keys.newAPIAccountListMigrationMarker)
   }
 
   // MARK: - 审批闸门策略

@@ -2,10 +2,15 @@
 //  QuotaSettingsPage.swift
 //  AgentIsland
 //
-//  「额度」页：New API 的取数配置（服务器地址 / API 密钥 / 访问令牌 / 用户 ID）与两个余额
-//  读数（账户余额、当前 Key 额度）。与统计页同构——它是设置面板的一个分组（
-//  `NotchMenuSection.quota`），因此**不套自己的滚动**（滚动由设置页接管），页眉右端是
-//  「更新于 HH:MM + 刷新」（见 `QuotaRefreshControl`）。
+//  「额度」页：New API 的**账号列表**（服务器地址 / API Key / 访问令牌 / 用户 ID）与当前
+//  选中账号的两个余额读数（账户余额、当前 Key 额度）。与统计页同构——它是设置面板的一个
+//  分组（`NotchMenuSection.quota`），因此**不套自己的滚动**（滚动由设置页接管），页眉右端
+//  是「更新于 HH:MM + 刷新」（见 `QuotaRefreshControl`）。
+//
+//  版面与高度：第一张卡片 = 账号行（展开的是账号列表，可见行数封顶在
+//  `NewAPIAccountSelector.visibleOptions`）+ 五行凭据；第二张卡片 = 两行读数 + 脚注。
+//  账号**数量**不参与面板高度（列表在选项块里滚动），因此 `blocks(for: .quota)` 可以
+//  静态描述这一页（见 `NotchMenuMetricsTests`）。
 //
 //  应用不轮询：进页触一次（30 秒节流）+ 手动刷新，页眉的时间戳就是读数的新鲜度。
 //
@@ -15,45 +20,61 @@ import SwiftUI
 /// 「额度」页。
 struct QuotaSettingsPage: View {
     @ObservedObject var viewModel: NewAPIBalanceViewModel
+    @ObservedObject private var accountSelector = NewAPIAccountSelector.shared
     @ObservedObject private var l10n = LocalizationManager.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: NotchMenuMetrics.groupSpacing) {
             SettingsGroup(title: l10n.t("New API")) {
+                NewAPIAccountPickerRow(viewModel: viewModel, selector: accountSelector)
+
+                BalanceConfigRow(
+                    badge: SettingsBadge(source: .symbol(name: "tag", tint: AppPalette.accent)),
+                    title: l10n.t("Account Name"),
+                    subtitle: l10n.t("Shown in the account list"),
+                    text: binding(.label),
+                    placeholder: l10n.t("Optional"),
+                    // 账号名是这一页最长的一条值（主机名或用户写的备注），文本框给它宽一档。
+                    fieldWidth: 246,
+                    onSubmit: viewModel.commitConfig
+                )
+
                 BalanceConfigRow(
                     badge: SettingsBadge(source: .symbol(name: "link", tint: AppPalette.accent)),
                     title: l10n.t("Server URL"),
                     subtitle: l10n.t("Only https:// is supported"),
-                    text: $viewModel.serverURL,
+                    text: binding(.serverURL),
                     placeholder: l10n.t("https://api.example.com"),
-                    // 地址是这一页最长的一条值，文本框给它宽一档（其余行 150 够用）。
                     fieldWidth: 246,
                     onSubmit: viewModel.commitConfig
                 )
+
                 BalanceConfigRow(
                     badge: SettingsBadge(source: .symbol(name: "key", tint: AppPalette.accent)),
                     title: l10n.t("API Key"),
                     subtitle: l10n.t("Used for the key balance"),
-                    text: $viewModel.apiKey,
+                    text: binding(.apiKey),
                     isSecret: true,
                     placeholder: l10n.t("sk-…"),
                     onSubmit: viewModel.commitConfig
                 )
+
                 BalanceConfigRow(
                     badge: SettingsBadge(
                         source: .symbol(name: "person.crop.circle", tint: AppPalette.accent)),
                     title: l10n.t("Access Token"),
                     subtitle: l10n.t("Needed for the account balance"),
-                    text: $viewModel.accessToken,
+                    text: binding(.accessToken),
                     isSecret: true,
                     placeholder: l10n.t("Optional"),
                     onSubmit: viewModel.commitConfig
                 )
+
                 BalanceConfigRow(
                     badge: SettingsBadge(source: .symbol(name: "number", tint: AppPalette.accent)),
                     title: l10n.t("User ID"),
                     subtitle: l10n.t("Needed by older New API versions"),
-                    text: $viewModel.userID,
+                    text: binding(.userID),
                     placeholder: l10n.t("Optional"),
                     showsSeparator: false,
                     onSubmit: viewModel.commitConfig
@@ -70,18 +91,29 @@ struct QuotaSettingsPage: View {
                     badge: SettingsBadge(
                         source: .symbol(name: "creditcard", tint: AppPalette.accent)),
                     title: l10n.t("Account Balance"),
-                    reading: viewModel.snapshot.account
+                    reading: viewModel.selectedReading.account
                 )
                 BalanceValueRow(
                     badge: SettingsBadge(source: .symbol(name: "key", tint: AppPalette.accent)),
                     title: l10n.t("Key Balance"),
-                    reading: viewModel.snapshot.key,
+                    reading: viewModel.selectedReading.key,
                     showsSeparator: false
                 )
             }
         }
-        // 进页触一次拉取（30 秒节流；没配或跑在测试宿主里直接返回）。
+        // 进页触一次拉取（30 秒节流；一个能查的账号都没有、或跑在测试宿主里直接返回）。
         .onAppear { viewModel.onAppear() }
+    }
+
+    // MARK: - 输入框绑定
+
+    /// 输入框绑定：走视图模型的字段读写入口。选中账号在视图模型里，视图不自己找下标——
+    /// 增删账号时下标会变，字段名不会。
+    private func binding(_ field: NewAPIAccountField) -> Binding<String> {
+        Binding(
+            get: { viewModel.field(field) },
+            set: { viewModel.setField(field, to: $0) }
+        )
     }
 }
 
@@ -138,6 +170,8 @@ struct BalanceValueRow: View {
             return l10n.t("Loading…")
         case .needsAccessToken:
             return l10n.t("Needs an Access Token")
+        case .needsAPIKey:
+            return l10n.t("Needs an API Key")
         case .notConfigured:
             return l10n.t("Not configured")
         }
