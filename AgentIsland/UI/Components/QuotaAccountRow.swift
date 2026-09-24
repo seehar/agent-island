@@ -198,15 +198,31 @@ struct QuotaAccountRowText {
         let slot = QuotaReadingSelection.primarySlot(reading)
         primary = QuotaReadingSelection.primaryValue(
             reading, locale: locale, l10n: l10n)
-        // 副行 = 主机名 + 另一槽的状态：两个槽都能读时写它的用量，只有一边能读时写它缺
-        // 什么——用户因此知道「另一个数字为什么不在这儿」。
+        // 副行 = 主机名 +（另一槽**有内容**时才写它的用量或失败原因）。
+        // 缺凭据 / 未配置是预期内的空——「拿不到数据的就不要展示」，不再写「需要 X」
+        // （见 `QuotaReadingSelection.isVisible`）。
         let other = slot == .key ? reading.account : reading.key
-        let status = QuotaReadingSelection.statusText(
-            other, currency: reading.siteCurrency, locale: locale, l10n: l10n)
-        // 空账号没有主机名，就只写状态（否则副行会以分隔符开头）。
+        // 有内容时才写：用量走**紧凑写法**（副行单行会中部截断），失败只写原因。
+        let otherText: String
+        switch other {
+        case .value(let value):
+            otherText = QuotaReadingSelection.compactUsage(
+                value, currency: reading.siteCurrency, locale: locale, l10n: l10n)
+        case .failed(let reason, _):
+            otherText = reason
+        case .loading, .notConfigured, .needsAccessToken, .needsAPIKey:
+            otherText = ""
+        }
         let host = NewAPIAccount.host(from: account.config.trimmedServerURL)
-        subtitle = host.isEmpty ? status : host + " · " + status
-        if case .failed = other { isFailure = true } else { isFailure = false }
+        let parts = [host, otherText].filter { !$0.isEmpty }
+        // 两者都空（空账号，或只填了凭据没填地址）：写一句「未配置」当唯一指引，
+        // 否则这一行只剩一个名字。
+        subtitle = parts.isEmpty ? l10n.t("Not configured") : parts.joined(separator: " · ")
+        if case .failed = other, QuotaReadingSelection.isVisible(other) {
+            isFailure = true
+        } else {
+            isFailure = false
+        }
     }
 }
 
@@ -229,6 +245,37 @@ enum QuotaReadingSelection {
         if reading.account.lastValue != nil { return .account }
         if reading.key.lastValue != nil { return .key }
         return .none
+    }
+
+    /// 这一槽的内容**该不该出现在界面上**：拿到数据、或取数出错（要给原因）才画。
+    ///
+    /// 「拿不到数据的就不要展示」——缺凭据（`needsAPIKey` / `needsAccessToken`）与未配置是
+    /// 预期内的空：平台只给 `sk-` 时没有账号数据、只给访问令牌时没有密钥额度，对应那一行/
+    /// 那句话整块不画，而不是画一行「需要 X」。正在拉取也不画：先占位再消失比「数据到了才
+    /// 出现」更跳。
+    nonisolated static func isVisible(_ reading: NewAPIBalanceReading) -> Bool {
+        switch reading {
+        case .value, .failed: return true
+        case .loading, .notConfigured, .needsAccessToken, .needsAPIKey: return false
+        }
+    }
+
+    /// 详情卡里「账号」那一段要不要画（它看账户槽：只有令牌的账号才有）。
+    nonisolated static func showsAccountSection(_ reading: NewAPIAccountReading) -> Bool {
+        isVisible(reading.account)
+    }
+
+    /// 详情卡里「密钥额度」那一段要不要画（它看 Key 槽：只有 `sk-` 的账号才有）。
+    nonisolated static func showsKeySection(_ reading: NewAPIAccountReading) -> Bool {
+        isVisible(reading.key)
+    }
+
+    /// 详情卡可选行的行数（0…2），写回 `NewAPIAccountPageState` 供面板高度解析式使用。
+    ///
+    /// 页面渲染与写回走**同一个**函数，因此「画了几行」与「算了几行」不会漂移；真实排版与
+    /// 解析式的一致性由 `UsageStatsLayoutTests` 的 fittingSize 用例兜住。
+    nonisolated static func optionalDetailRowCount(_ reading: NewAPIAccountReading) -> Int {
+        (showsAccountSection(reading) ? 1 : 0) + (showsKeySection(reading) ? 1 : 0)
     }
 
     /// 主读数的值（`—` 表示还没有数）。
@@ -281,15 +328,30 @@ enum QuotaReadingSelection {
     }
 
     /// 用量说明：Key 端点给总额（`total_granted`），账户端点只有已用。
+    ///
+    /// **不限额度**时不写总额：那个分母对「无限」没有意义，会写出「已用 $16,222 / 总额
+    /// $15,934」这种看起来矛盾的一行（真机实测）。
     static func usage(
         _ value: NewAPIBalanceValue, currency: NewAPICurrency, locale: Locale,
         l10n: LocalizationManager
     ) -> String {
         let used = NewAPIBalanceFormat.display(value.used, currency: currency, locale: locale)
-        guard let granted = value.granted else { return l10n.t("Used %@", used) }
+        guard let granted = value.granted, !value.unlimited else { return l10n.t("Used %@", used) }
         return l10n.t(
             "Used %@ of %@", used,
             NewAPIBalanceFormat.display(granted, currency: currency, locale: locale))
+    }
+
+    /// 账号行副行里的用量：只写「已用」，不写总额。
+    ///
+    /// 副行是单行 + **中部截断**，写全「已用 X / 总额 Y」会被截掉尾巴（真机实测：
+    /// `calciumion.nbops.com · …$16,222.23 / 总额 $15,934.81`）。完整口径留在详情卡里。
+    static func compactUsage(
+        _ value: NewAPIBalanceValue, currency: NewAPICurrency, locale: Locale,
+        l10n: LocalizationManager
+    ) -> String {
+        let used = NewAPIBalanceFormat.display(value.used, currency: currency, locale: locale)
+        return l10n.t("Used %@", used)
     }
 }
 

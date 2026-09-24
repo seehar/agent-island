@@ -182,7 +182,7 @@ struct NotchMenuMetricsTests {
     /// 否则测试失败——那正是「又加了一行/一档，最后一个档位落到可视区外」的信号。
     private static let clampedPairs: Set<String> = ["agents@76"]
 
-    @Test("额度分组：动作条 + 详情三行，账号个数不进版面")
+    @Test("额度分组：动作条 + 详情基准一行，账号个数与可选行不进静态表")
     func quotaSectionHasActionRowAndDetailRows() {
         let blocks = NotchMenuMetrics.blocks(for: .quota)
         #expect(blocks.count == 2)
@@ -193,8 +193,10 @@ struct NotchMenuMetricsTests {
         // 可以在卡内滚动，加一个账号不会把这一页撑长。
         #expect(blocks[0].rows == [NotchMenuMetrics.rowHeight])
 
-        // 第二张卡片：身份 / 密钥额度 / 凭据（三行两行高）+ 脚注。「编辑凭据」态下这三行
-        // 被凭据表单替换（增量同样在 `NewAPIAccountPageState` 里），因此这里仍是静态三行。
+        // 第二张卡片：静态只有「凭据」一行（配置摘要与编辑入口，任何账号都画）+ 脚注。
+        // 身份行与密钥额度行是**可选**的运行时行——「拿不到数据的就不展示」，行数随选中
+        // 账号的读数变化，增量同样在 `NewAPIAccountPageState` 里。
+        #expect(NotchMenuMetrics.quotaDetailRows == 1)
         #expect(
             blocks[1].rows
                 == Array(
@@ -204,20 +206,26 @@ struct NotchMenuMetricsTests {
         #expect(
             NotchMenuMetrics.quotaDetailHeight
                 == CGFloat(NotchMenuMetrics.quotaDetailRows) * NotchMenuMetrics.twoLineRowHeight)
+        #expect(NotchMenuMetrics.quotaDetailOptionalRowsMax == 2)
     }
 
-    @Test("额度页在最高固定开销下也装得下满窗口的账号列表与凭据表单")
+    @Test("额度页在最高固定开销下也装得下满窗口的账号列表 + 全部可选行")
     func quotaRuntimeHeightsFitPanelCap() {
         // 两个运行时项都从真实来源推导（不许写死数字）：
         let listWindow = NewAPIAccountPageState.accountListHeight(
             rows: NotchMenuMetrics.visibleAccountRows)
+        let optionalRows = NewAPIAccountPageState.detailOptionalHeight(
+            rows: NotchMenuMetrics.quotaDetailOptionalRowsMax)
         let editing = NewAPIAccountPageState.editingRuntimeHeight
         let tallest = NewAPIAccountPageState.worstRuntimeHeight
-        #expect(tallest == max(listWindow, editing), "最坏运行时增量应取两段里较大的那一段")
+        #expect(
+            tallest == max(listWindow + optionalRows, editing),
+            "最坏运行时增量应取两段里较大的那一段")
 
-        // 编辑态必须真的比满窗口矮：编辑时账号列表折叠成一行，两段因此不会叠加
-        // （否则「满窗口 + 凭据表单」会把面板顶过上限、表单被页内滚动裁掉）。
-        #expect(editing < listWindow, "编辑态应当比满窗口的账号列表矮（它折叠了列表）")
+        // 读数态（满窗口 + 两行可选行）比编辑态高：编辑时列表折叠成一行、也没有可选行，
+        // 因此两段不会叠加（否则会把面板顶过上限、凭据表单被页内滚动裁掉）。
+        #expect(tallest == listWindow + optionalRows)
+        #expect(editing < listWindow + optionalRows, "编辑态应当比读数态的最坏组合矮")
 
         // chrome 76 是可达的最大固定开销（胶囊高度自定义到 64）。
         let height = NotchMenuMetrics.panelHeight(

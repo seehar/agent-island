@@ -37,11 +37,26 @@ struct QuotaSettingsPage: View {
         .onAppear {
             if pageState.isPickerExpanded { pageState.toggleExpansion() }
             pageState.setAccountCount(viewModel.accounts.count)
+            updateOptionalDetailRowCount()
             viewModel.onAppear()
         }
         .onChange(of: viewModel.accounts.count) { _, count in
             pageState.setAccountCount(count)
         }
+        // 详情卡的可选行（身份 / 密钥额度）随读数与选中账号变化，面板高度按它的行数算。
+        .onChange(of: viewModel.snapshot) { _, _ in updateOptionalDetailRowCount() }
+        .onChange(of: viewModel.selectedAccountID) { _, _ in updateOptionalDetailRowCount() }
+        .onChange(of: pageState.isEditingCredentials) { _, _ in updateOptionalDetailRowCount() }
+    }
+
+    /// 把详情卡可选行数写回运行时状态（`NewAPIAccountPageState.runtimeHeight` 按它算）。
+    ///
+    /// 编辑态画的是凭据表单（高度固定、不含可选行），因此那时不写回——退出编辑态时这个
+    /// 回调会再跑一次补上。
+    private func updateOptionalDetailRowCount() {
+        guard !pageState.isEditingCredentials else { return }
+        pageState.setOptionalDetailRowCount(
+            QuotaReadingSelection.optionalDetailRowCount(reading))
     }
 
     // MARK: - 账号卡
@@ -115,8 +130,11 @@ struct QuotaSettingsPage: View {
             if pageState.isEditingCredentials {
                 credentialsForm
             } else {
-                identityRow
-                keyBalanceRow
+                // 拿不到数据的行整行不画：平台只给 `sk-` 时没有账号数据（身份行不出现），
+                // 只给访问令牌时没有密钥额度（密钥行不出现）。判定与写回面板高度的行数走
+                // 同一个函数（见 `QuotaReadingSelection.optionalDetailRowCount`）。
+                if QuotaReadingSelection.showsAccountSection(reading) { identityRow }
+                if QuotaReadingSelection.showsKeySection(reading) { keyBalanceRow }
                 credentialsRow
             }
         }
@@ -156,16 +174,19 @@ struct QuotaSettingsPage: View {
         return identity.displayName
     }
 
-    /// `#59 · default · 0.8x`；没有身份（缺令牌 / 取不到）时写账户槽的状态，
-    /// 说的就是「为什么这里没有名字」。
+    /// `#59 · default · 0.8x`；老实例少了这些键（解出来是默认值）时退回账户槽的状态，
+    /// 不留一行空副标题。
     private var identitySubtitle: String {
         guard let identity = reading.identity else {
             return QuotaReadingSelection.statusText(
                 reading.account, currency: reading.siteCurrency, locale: locale, l10n: l10n)
         }
-        var parts = ["#\(identity.userID)"]
-        if !identity.group.isEmpty {
-            parts.append(groupRatioLabel(for: identity.group))
+        var parts: [String] = []
+        if identity.userID > 0 { parts.append("#\(identity.userID)") }
+        if !identity.group.isEmpty { parts.append(groupRatioLabel(for: identity.group)) }
+        guard !parts.isEmpty else {
+            return QuotaReadingSelection.statusText(
+                reading.account, currency: reading.siteCurrency, locale: locale, l10n: l10n)
         }
         return parts.joined(separator: " · ")
     }

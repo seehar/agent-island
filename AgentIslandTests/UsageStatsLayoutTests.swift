@@ -15,7 +15,9 @@ import Testing
 
 @testable import AgentIsland
 
-@Suite("统计页版面")
+/// 串行：额度页的版面用例会改共享的 `NewAPIAccountPageState.shared`（面板高度按它算），
+/// 并行跑会互相踩状态。
+@Suite("统计页版面", .serialized)
 struct UsageStatsLayoutTests {
   /// 宿主窗口高度（与 `NotchWindowController` 一致）。
   private let windowHeight: CGFloat = 750
@@ -471,13 +473,21 @@ struct UsageStatsLayoutTests {
     #expect(other.menuSection == .agents)
   }
 
-  @Test("额度页读数态：真实排版高度 = 解析式 + 账号列表窗口")
+  /// 额度页之外，设置页给的那一段固定开销（上下内边距 + 页眉 + 分段条 + 顶部间距）。
+  private var quotaPageChrome: CGFloat {
+    NotchMenuMetrics.listPaddingHeight + NotchMenuMetrics.pageHeaderHeight
+      + NotchMenuMetrics.rowSpacing + NotchMenuMetrics.tabBarHeight
+      + NotchMenuMetrics.rowSpacing + NotchMenuMetrics.contentTopGap
+  }
+
+  @Test("额度页读数态：真实排版高度 = 解析式 + 账号列表窗口 + 详情卡可选行")
   @MainActor
   func quotaPageHeightMatchesMetrics() throws {
     // 运行时状态是共享单例（面板高度按它算），测量前显式归位；偏好域也换成独立的：
     // 这一页读账号列表，用真实偏好域会让测量结果取决于用户本机存了几个账号。
-    NewAPIAccountPageState.shared.setAccountCount(1)
     NewAPIAccountPageState.shared.isEditingCredentials = false
+    NewAPIAccountPageState.shared.setAccountCount(1)
+    NewAPIAccountPageState.shared.setOptionalDetailRowCount(0)
     let defaults = try #require(UserDefaults(suiteName: "quota-layout-\(UUID().uuidString)"))
 
     let contentWidth = NotchMenuMetrics.panelWidthMax - NotchMenuMetrics.listPaddingHeight
@@ -485,14 +495,9 @@ struct UsageStatsLayoutTests {
       .frame(width: contentWidth)
     let measured = NSHostingView(rootView: view).fittingSize.height
 
-    // 页面自己只画分组：页眉、分段条与顶部间距由设置页给（见 `NotchMenuView`）。
-    let pageChrome =
-      NotchMenuMetrics.listPaddingHeight + NotchMenuMetrics.pageHeaderHeight
-      + NotchMenuMetrics.rowSpacing + NotchMenuMetrics.tabBarHeight
-      + NotchMenuMetrics.rowSpacing + NotchMenuMetrics.contentTopGap
-    // 账号行是**运行时**行：解析式里没有它们，高度按 `NewAPIAccountPageState` 的增量加回来。
+    // 账号行与详情卡的可选行都是**运行时**行：解析式里没有它们，按状态对象的增量加回来。
     let expected =
-      NotchMenuMetrics.contentHeight(for: .quota) - pageChrome
+      NotchMenuMetrics.contentHeight(for: .quota) - quotaPageChrome
       + NewAPIAccountPageState.shared.runtimeHeight
 
     #expect(measured == expected, "额度页实际排版 \(measured) ≠ 解析式 \(expected)")
@@ -501,17 +506,19 @@ struct UsageStatsLayoutTests {
   @Test("额度页编辑凭据态：真实排版高度 = 解析式 + 折叠后的运行时增量")
   @MainActor
   func quotaPageEditingHeightMatchesMetrics() throws {
-    // 这一条钉的是「编辑态的真实排版」：账号列表折叠成一行、详情卡的三行读数换成五行凭据
-    // 表单。表单行数与 `credentialFormHeight` 一旦漂移（加字段忘了改预算、行高被改），
-    // 这里就红——而读数态是看不出来的。
+    // 这一条钉的是「编辑态的真实排版」：账号列表折叠成一行、详情卡的基准行换成五行凭据
+    // 表单（可选行完全不画）。表单行数与 `credentialFormHeight` 一旦漂移（加字段忘了改
+    // 预算、行高被改），这里就红——而读数态是看不出来的。
     let defaults = try #require(UserDefaults(suiteName: "quota-editing-\(UUID().uuidString)"))
     AppSettings.setNewAPIAccounts(
       [NewAPIAccount(label: "a"), NewAPIAccount(label: "b")], defaults: defaults)
     let model = NewAPIBalanceViewModel(defaults: defaults)
     NewAPIAccountPageState.shared.setAccountCount(model.accounts.count)
+    NewAPIAccountPageState.shared.setOptionalDetailRowCount(2)
     NewAPIAccountPageState.shared.isEditingCredentials = true
     defer {
       NewAPIAccountPageState.shared.isEditingCredentials = false
+      NewAPIAccountPageState.shared.setOptionalDetailRowCount(0)
       NewAPIAccountPageState.shared.setAccountCount(1)
     }
 
@@ -519,17 +526,166 @@ struct UsageStatsLayoutTests {
     let view = QuotaSettingsPage(viewModel: model).frame(width: contentWidth)
     let measured = NSHostingView(rootView: view).fittingSize.height
 
-    let pageChrome =
-      NotchMenuMetrics.listPaddingHeight + NotchMenuMetrics.pageHeaderHeight
-      + NotchMenuMetrics.rowSpacing + NotchMenuMetrics.tabBarHeight
-      + NotchMenuMetrics.rowSpacing + NotchMenuMetrics.contentTopGap
     let expected =
-      NotchMenuMetrics.contentHeight(for: .quota) - pageChrome
+      NotchMenuMetrics.contentHeight(for: .quota) - quotaPageChrome
       + NewAPIAccountPageState.shared.runtimeHeight
 
-    // 编辑态比满窗口矮：编辑时列表折叠成一行，两个运行时项因此不会叠加。
+    // 编辑态比读数态的最坏组合矮：编辑时列表折叠成一行、也不画可选行，两个运行时项
+    // 因此不会叠加（上面故意把可选行写成 2，编辑态也不该把它算进高度）。
     #expect(
       NewAPIAccountPageState.shared.runtimeHeight == NewAPIAccountPageState.editingRuntimeHeight)
     #expect(measured == expected, "编辑凭据态实际排版 \(measured) ≠ 解析式 \(expected)")
   }
+
+  // MARK: - 额度页：详情卡按「有没有数据」增减行
+
+  /// 详情卡的可选行（身份 / 密钥额度）随「这一槽取不取得到数据」增减：平台只给 `sk-` 时
+  /// 不画账号段、只给访问令牌时不画密钥段、两个都没配就只剩「凭据」那一行。
+  ///
+  /// 这一条既钉**规则**（可选行数），又钉**版面**（真实排版 == 解析式）——页面渲染与写回
+  /// 走同一个函数，因此两者不会各自漂移。
+  @Test("额度页详情卡：拿不到数据的行不画，真实排版 = 解析式")
+  @MainActor
+  func quotaPageDetailRowsFollowData() async throws {
+    let contentWidth = NotchMenuMetrics.panelWidthMax - NotchMenuMetrics.listPaddingHeight
+
+    struct Scenario {
+      let name: String
+      let config: NewAPIConfig
+      let served: [String: (status: Int, body: String)]
+      let expectedOptionalRows: Int
+    }
+
+    let scenarios: [Scenario] = [
+      Scenario(
+        name: "空账号（什么都没填）",
+        config: NewAPIConfig(),
+        served: [:],
+        expectedOptionalRows: 0),
+      Scenario(
+        name: "只有访问令牌",
+        config: NewAPIConfig(serverURL: "https://h.example.com", accessToken: "t"),
+        served: [
+          "/api/user/self": (200, Self.accountBody),
+          "/api/status": (200, Self.statusBody),
+        ],
+        expectedOptionalRows: 1),
+      Scenario(
+        name: "只有 API 密钥",
+        config: NewAPIConfig(serverURL: "https://h.example.com", apiKey: "sk-x"),
+        served: [
+          "/api/usage/token/": (200, Self.keyBody),
+          "/api/status": (200, Self.statusBody),
+        ],
+        expectedOptionalRows: 1),
+      Scenario(
+        name: "两者都有",
+        config: NewAPIConfig(serverURL: "https://h.example.com", apiKey: "sk-x", accessToken: "t"),
+        served: [
+          "/api/user/self": (200, Self.accountBody),
+          "/api/usage/token/": (200, Self.keyBody),
+          "/api/status": (200, Self.statusBody),
+        ],
+        expectedOptionalRows: 2),
+    ]
+
+    defer {
+      NewAPIAccountPageState.shared.isEditingCredentials = false
+      NewAPIAccountPageState.shared.setOptionalDetailRowCount(0)
+      NewAPIAccountPageState.shared.setAccountCount(1)
+    }
+
+    for scenario in scenarios {
+      QuotaLayoutStub.reset(scenario.served)
+      let defaults = try #require(UserDefaults(suiteName: "quota-rows-\(UUID().uuidString)"))
+      AppSettings.setNewAPIAccounts(
+        [NewAPIAccount(label: "case", config: scenario.config)], defaults: defaults)
+      let model = NewAPIBalanceViewModel(
+        client: NewAPIBalanceClient(session: QuotaLayoutStub.session()), defaults: defaults)
+      model.refresh()
+      for _ in 0..<300 where model.isRefreshing {
+        try? await Task.sleep(for: .milliseconds(20))
+      }
+
+      // 页面在 onAppear / 读数变化时就是这么写回的（同一个函数），这里手工走一遍。
+      NewAPIAccountPageState.shared.setAccountCount(model.accounts.count)
+      NewAPIAccountPageState.shared.setOptionalDetailRowCount(
+        QuotaReadingSelection.optionalDetailRowCount(model.selectedReading))
+      #expect(
+        NewAPIAccountPageState.shared.optionalDetailRowCount == scenario.expectedOptionalRows,
+        "\(scenario.name)：详情卡可选行数应为 \(scenario.expectedOptionalRows)")
+
+      let view = QuotaSettingsPage(viewModel: model).frame(width: contentWidth)
+      let measured = NSHostingView(rootView: view).fittingSize.height
+      let expected =
+        NotchMenuMetrics.contentHeight(for: .quota) - quotaPageChrome
+        + NewAPIAccountPageState.shared.runtimeHeight
+      #expect(
+        measured == expected,
+        "\(scenario.name)：实际排版 \(measured) ≠ 解析式 \(expected)（可选行 \(NewAPIAccountPageState.shared.optionalDetailRowCount)）"
+      )
+    }
+  }
+
+  // MARK: - 夹具
+
+  /// 响应体与 `NewAPIBalanceTests` 的夹具同形（那边是纯解码用例，这边要真跑一次取数）。
+  private static let accountBody = """
+    {"data":{"quota":175134432,"used_quota":8274865568,"display_name":"tester","id":7,
+    "group":"default","request_count":9},"message":"","success":true}
+    """
+  private static let keyBody = """
+    {"data":{"total_granted":1000,"total_available":600,"total_used":400,
+    "unlimited_quota":false},"message":"","success":true}
+    """
+  private static let statusBody = """
+    {"data":{"version":"v9.9.9","display_in_currency":true,"quota_display_type":"USD",
+    "quota_per_unit":500000,"usd_exchange_rate":1},"message":"","success":true}
+    """
+}
+
+// MARK: - 额度页版面用例的私有桩
+
+/// 最小 `URLProtocol` 桩：只为额度页的版面用例提供「这一槽能读 / 那一槽缺凭据」的读数。
+///
+/// **不复用** `NewAPIBalanceTests.BalanceStubProtocol`——它是那个套件私有的共享状态，而
+/// 套件之间是并行跑的，跨套件共用会互相清表（那边注释里记了这次事故）。
+nonisolated final class QuotaLayoutStub: URLProtocol {
+  nonisolated(unsafe) private static var responses: [String: (status: Int, body: String)] = [:]
+  private static let lock = NSLock()
+
+  static func reset(_ table: [String: (status: Int, body: String)]) {
+    lock.lock()
+    responses = table
+    lock.unlock()
+  }
+
+  static func session() -> URLSession {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [QuotaLayoutStub.self]
+    return URLSession(configuration: configuration)
+  }
+
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+  override func startLoading() {
+    // `URL.path` 会吃掉尾斜杠（`/api/usage/token/` → `/api/usage/token`），两种写法都要认。
+    let path = request.url?.path ?? ""
+    Self.lock.lock()
+    let hit = Self.responses[path] ?? Self.responses[path + "/"]
+    Self.lock.unlock()
+
+    guard let hit, let url = request.url else {
+      client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+      return
+    }
+    let response = HTTPURLResponse(
+      url: url, statusCode: hit.status, httpVersion: "HTTP/1.1", headerFields: nil)!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(hit.body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+
+  override func stopLoading() {}
 }

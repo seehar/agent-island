@@ -163,17 +163,24 @@ nonisolated enum NotchMenuMetrics {
     /// 卡内滚动；行数是**运行时**才知道的（用户增删账号），因此这里只登记上限，真实增量
     /// 由 `NewAPIAccountPageState.runtimeHeight` 算出来。
     ///
-    /// 取值与高度预算绑定：额度页静态内容 348（页内固定 92 + 账号卡的头/动作条 20+40 +
-    /// 组间距 12 + 详情卡的头/三行/脚注 20+144+20）、该页最高的运行时增量
-    /// `max(5 行账号 240, 编辑态 144)` = 240 ⇒ 最大 chrome 76 下 664 ≤ 728（余量 64，见
-    /// `NotchMenuMetricsTests`）。取 6 会变成 712、余量 16：仍然装得下，但窗口再高就没有
-    /// 意义了（一次看 5 个账号已经超出常见用法）。
+    /// 取值与高度预算绑定：额度页静态内容 252（页内固定 92 + 账号卡的头/动作条 20+40 +
+    /// 组间距 12 + 详情卡的头/**一行**/脚注 20+48+20）、该页最高的运行时增量
+    /// `max(账号窗口 5 行 240 + 可选行 2 行 96, 编辑态 240)` = 336 ⇒ 最大 chrome 76 下
+    /// 664 ≤ 728（余量 64，见 `NotchMenuMetricsTests`）。取 6 会变成 712、余量 16：
+    /// 仍然装得下，但窗口再高就没有意义了（一次看 5 个账号已经超出常见用法）。
     static let visibleAccountRows = 5
 
-    /// 详情卡的行数（身份 / 密钥额度 / 凭据，都是两行高）。
-    static let quotaDetailRows = 3
+    /// 详情卡里的**静态基准行数**：只有「凭据」一行——它是配置摘要与编辑入口，任何账号都画。
+    ///
+    /// 身份行与密钥额度行是**可选的运行时行**：拿不到数据的就不展示（平台只给 `sk-` 时没有
+    /// 账号数据、只给访问令牌时没有密钥额度），行数因此随选中账号的读数变化，由
+    /// `NewAPIAccountPageState.optionalDetailRowCount` 交出去（见那里的注释）。
+    static let quotaDetailRows = 1
 
-    /// 详情卡的高度：编辑凭据时它被凭据表单替换，两者之差就是编辑态的增量。
+    /// 详情卡里可选行的上限（身份 / 密钥额度）。
+    static let quotaDetailOptionalRowsMax = 2
+
+    /// 详情卡的静态基准高度：编辑凭据时它被凭据表单替换，两者之差就是编辑态的一部分增量。
     static var quotaDetailHeight: CGFloat { CGFloat(quotaDetailRows) * twoLineRowHeight }
 
     /// 凭据表单的高度：行数取字段表本身（`NewAPIAccountField.allCases.count`），
@@ -328,10 +335,10 @@ nonisolated enum NotchMenuMetrics {
                 // `NewAPIAccountPageState` 作为运行时增量交出去；超出的账号在卡内滚动
                 // （渲染全部、只封顶窗口高度，与智能体卡同一条不变量）。
                 Block(rows: [rowHeight]),
-                // 详情（选中账号）：身份 / 密钥额度 / 凭据（三行两行高，`quotaDetailRows`）
-                // + 脚注。编辑凭据时这三行被凭据表单替换（`credentialFormHeight`），
-                // 增量同样算在 `NewAPIAccountPageState.runtimeHeight` 里，因此这里仍是
-                // 静态三行。
+                // 详情（选中账号）：静态只有「凭据」一行 + 脚注；身份行与密钥额度行是
+                // **可选**的运行时行（拿不到数据的就不展示，见 `quotaDetailRows` 的注释），
+                // 它们的增量同样算在 `NewAPIAccountPageState.runtimeHeight` 里。
+                // 「编辑凭据」态下这一行被凭据表单替换（`credentialFormHeight`）。
                 Block(
                     rows: Array(repeating: twoLineRowHeight, count: quotaDetailRows),
                     hasFootnote: true
