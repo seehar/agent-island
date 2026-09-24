@@ -370,51 +370,18 @@ class NotchViewModel: ObservableObject {
     /// 而「点胶囊收起」这个手势会连头部条带上的按钮一起吃掉——用户把胶囊调宽到 300pt
     /// 后，统计按钮（命中区 [1089, 1111]）整个落进带里（带右边缘 1110），点击被抢走，
     /// 灵动岛收起而不是切页；再宽一点设置按钮与设置页的返回箭头也会中招。
+    ///
+    /// 这里**不转投**点击：这一下有没有被面板窗口吞掉只有窗口自己知道，转投统一由
+    /// `NotchPanel.sendEvent` 做。这里再投一次的话，屏幕下半部（不在窗口覆盖范围内、
+    /// 系统本来就已经把点击交给了下层应用）会变成双击。
     func handleMouseDown(at location: CGPoint) {
         switch status {
         case .opened:
             guard geometry.isPointOutsidePanel(location, size: openedSize) else { return }
             notchClose()
-            // Re-post the click so it reaches the window/app behind us
-            repostClickAt(location)
         case .closed, .popping:
             if geometry.isPointInNotch(location) {
                 notchOpen(reason: .click)
-            }
-        }
-    }
-
-    /// Re-posts a mouse click at the given screen location so it reaches windows behind us
-    private func repostClickAt(_ location: CGPoint) {
-        // 测试宿主里不派发合成点击：单测会在没有真实点击的情况下走这条路径，
-        // 否则会真的点到用户当前的屏幕上。
-        guard !AppEnvironment.isRunningTests else { return }
-
-        // Small delay to let the window's ignoresMouseEvents update
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            // Convert to CGEvent coordinate system (screen coordinates with Y from top-left)
-            guard let screen = NSScreen.main else { return }
-            let screenHeight = screen.frame.height
-            let cgPoint = CGPoint(x: location.x, y: screenHeight - location.y)
-
-            // Create and post mouse down event
-            if let mouseDown = CGEvent(
-                mouseEventSource: nil,
-                mouseType: .leftMouseDown,
-                mouseCursorPosition: cgPoint,
-                mouseButton: .left
-            ) {
-                mouseDown.post(tap: .cghidEventTap)
-            }
-
-            // Create and post mouse up event
-            if let mouseUp = CGEvent(
-                mouseEventSource: nil,
-                mouseType: .leftMouseUp,
-                mouseCursorPosition: cgPoint,
-                mouseButton: .left
-            ) {
-                mouseUp.post(tap: .cghidEventTap)
             }
         }
     }

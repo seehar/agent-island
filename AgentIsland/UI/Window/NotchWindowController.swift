@@ -49,6 +49,12 @@ class NotchWindowController: NSWindowController {
 
         super.init(window: notchWindow)
 
+        // 点击转投按「面板是否展开」恢复鼠标事件接收（见 `ClickForwarding`）：
+        // 面板还开着就继续接事件，收起后保持透明，点击直接落到下层应用。
+        notchWindow.forwarding = .live(shouldAcceptMouseEvents: { [weak self] in
+            self?.viewModel.status == .opened
+        })
+
         // Create the SwiftUI view with pass-through hosting
         let hostingController = NotchViewController(viewModel: viewModel, sessionMonitor: sessionMonitor)
         notchWindow.contentViewController = hostingController
