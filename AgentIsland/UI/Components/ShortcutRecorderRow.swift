@@ -35,10 +35,17 @@ struct ShortcutRecorderRow: View {
     let action: ShortcutAction
     let showsSeparator: Bool
 
-    @ObservedObject private var bindings = ShortcutBindings.shared
+    @ObservedObject private var bindings: ShortcutBindings
     @ObservedObject private var controller = ShortcutController.shared
     @ObservedObject private var l10n = LocalizationManager.shared
     @State private var isHovered = false
+
+    /// 绑定表可注入：设置页传共享实例，渲染用例传独立偏好域（避免动用户真实设置）。
+    init(action: ShortcutAction, showsSeparator: Bool, bindings: ShortcutBindings) {
+        self.action = action
+        self.showsSeparator = showsSeparator
+        self._bindings = ObservedObject(wrappedValue: bindings)
+    }
 
     private var isRecording: Bool { controller.recording == action }
     private var isBound: Bool { bindings.chord(for: action) != nil }

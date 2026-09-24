@@ -22,7 +22,8 @@ struct ShortcutsSettingsPage: View {
                 footnote: globalFootnote,
                 footnoteColor: AppPalette.tertiaryText
             ) {
-                ShortcutRecorderRow(action: .summon, showsSeparator: false)
+                ShortcutRecorderRow(
+                    action: .summon, showsSeparator: false, bindings: ShortcutBindings.shared)
             }
 
             SettingsGroup(
@@ -31,7 +32,10 @@ struct ShortcutsSettingsPage: View {
                 footnoteColor: panelFootnoteColor
             ) {
                 ForEach(panelActions) { action in
-                    ShortcutRecorderRow(action: action, showsSeparator: action != panelActions.last)
+                    ShortcutRecorderRow(
+                        action: action,
+                        showsSeparator: action != panelActions.last,
+                        bindings: ShortcutBindings.shared)
                 }
             }
         }
