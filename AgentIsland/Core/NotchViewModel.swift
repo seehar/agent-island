@@ -388,13 +388,19 @@ class NotchViewModel: ObservableObject {
 
     // MARK: - 面板点击转投的接口
 
-    /// 屏幕坐标点是否落在展开面板的卡片里（面板窗口的转投判据）。
+    /// 屏幕坐标点是否落在**此刻展开的**面板卡片里（面板窗口的转投判据）。
     ///
     /// 与 `handleMouseDown(at:)` 的收起判据是同一个矩形：`NotchGeometry` 里
     /// `isPointInOpenedPanel` 与 `isPointOutsidePanel` 互为补集，两处都按当前的
     /// `geometry` + `openedSize` 现算、不缓存，因此不会出现「窗口判卡片外、这里判面板内」。
+    ///
+    /// 还要合取 `status == .opened`：收起之后 `openedSize` 仍是上一次的展开尺寸，只看矩形
+    /// 会把屏顶中央那一片都算成「卡片内」。窗口在关闭态本不该接收事件，但状态机里存在把它
+    /// 留在接收态的短态（`AgentSettingsSection` 的 `withNotchPanelYielded` 结束时写回陈旧
+    /// 快照），那时按矩形判会让用户点在其他应用内容上的点击被静默吞掉。
     func isScreenPointInPanel(_ point: CGPoint) -> Bool {
-        geometry.isPointInOpenedPanel(point, size: openedSize)
+        guard status == .opened else { return false }
+        return geometry.isPointInOpenedPanel(point, size: openedSize)
     }
 
     /// 面板把一次「卡片外、被窗口吞掉」的点击转投给下层应用之后收起自己（幂等）。

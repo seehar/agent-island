@@ -54,7 +54,7 @@ class NotchWindowController: NSWindowController {
         // 自己保证（鼠标监听只掩码左键，右键转投不会经过它）。
         notchWindow.forwarding = .live(
             isPointOnPanel: { [weak self] screenPoint in
-                // 取不到视图模型时按「在卡片上」处理：宁可不转投，也不留成环或幽灵面板的可能。
+                // 同上：`isScreenPointInPanel` 自己已合取开合状态。
                 guard let self else { return true }
                 return self.viewModel.isScreenPointInPanel(screenPoint)
             },

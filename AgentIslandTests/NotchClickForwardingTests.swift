@@ -26,6 +26,7 @@ struct NotchClickForwardingTests {
     nonisolated final class Recorder: @unchecked Sendable {
         private(set) var clicks: [NotchForwardedClick] = []
         func record(_ click: NotchForwardedClick) { clicks.append(click) }
+        func reset() { clicks.removeAll() }
     }
 
     /// 用例侧的接缝：判据按给定矩形、统计收起、记录转投，调度立即执行
@@ -36,8 +37,7 @@ struct NotchClickForwardingTests {
         static let card = CGRect(x: 300, y: 100, width: 200, height: 200)
 
         let recorder = Recorder()
-        private(set) var collapses = 0
-
+        var collapses = 0
         func seam(card: @escaping @MainActor (CGPoint) -> Bool) -> ClickForwarding {
             ClickForwarding(
                 isPointOnPanel: card,
@@ -203,32 +203,74 @@ struct NotchClickForwardingTests {
         ]
 
         // 两个内容面（`openedSize` 不同）：判据必须跟着面现算，不能缓存。
+        var faceHeights: [CGFloat] = []
         for face in [0, 1] {
-            if face == 1 { model.toggleStatistics() }
-            panel.forwarding = probe.seam(card: { model.isScreenPointInPanel($0) })
-
             for point in samples {
-                let clicksBefore = probe.recorder.clicks.count
-                let collapsesBefore = probe.collapses
+                // 每个采样点都从「面板开着、且是这一面」的干净状态开始——否则前一个采样点
+                // 触发收起时会把内容面拉回会话列表，后面的点就在别的面上求值了。
+                model.notchOpen(reason: .click)
+                if model.isShowingStatistics != (face == 1) { model.toggleStatistics() }
+                panel.ignoresMouseEvents = false
+                let size = model.openedSize
+                if point == samples[0] { faceHeights.append(size.height) }
+                // 装配与生产同一表达式（判据/开合/收起都取视图模型），因此这条用例同时
+                // 钉住 `NotchWindowController` 的接线、`isScreenPointInPanel` 与收起钩子。
+                panel.forwarding = ClickForwarding(
+                    isPointOnPanel: { model.isScreenPointInPanel($0) },
+                    collapse: { model.collapseForForwardedClick() },
+                    deliver: { probe.recorder.record($0) },
+                    schedule: { $0() })
+
                 panel.sendEvent(mouseEvent(.leftMouseDown, at: point, clickCount: 1, in: panel))
 
-                let forwarded = probe.recorder.clicks.count == clicksBefore + 1
-                let collapsedByPanel = probe.collapses == collapsesBefore + 1
-                let outsidePanel = model.geometry.isPointOutsidePanel(
-                    point, size: model.openedSize)
+                let forwarded = probe.recorder.clicks.count == 1
+                let outsidePanel = model.geometry.isPointOutsidePanel(point, size: size)
 
                 #expect(forwarded == outsidePanel, "\(point) 的转投判据必须与卡片矩形一致")
-                #expect(
-                    forwarded == collapsedByPanel, "\(point) 转投必须同时收起（否则窗口一直透明）")
-
-                // 同源：被转投的点也必须被「点面板外收起」判为收起。
-                model.notchOpen(reason: .click)
-                model.handleMouseDown(at: point)
+                // 判据同源 + 收起挂在同一条路径上：转投的点击一定伴随「模型收起」。
                 #expect(
                     (model.status == .closed) == forwarded,
-                    "\(point) 的面板外收起判据必须与转投判据一致")
+                    "\(point) 转投必须同时收起，且收起判据与转投判据一致")
+
+                probe.recorder.reset()
             }
         }
+
+        // 两个面必须真的不同，否则「跟着面现算」这条断言没有判别力。
+        #expect(faceHeights.count == 2)
+        #expect(faceHeights[0] != faceHeights[1], "两个内容面的展开尺寸必须不同")
+    }
+
+    @Test("面板已收起时：窗口即便仍在接收事件，也不能按残留的卡片矩形把点击吞掉")
+    @MainActor
+    func closedPanelDoesNotSwallowPress() {
+        // 状态机里存在「面板已收起、窗口却还在接收事件」的短态：面板页的模态
+        // （`AgentSettingsSection.withNotchPanelYielded`）结束时会把陈旧快照写回窗口。
+        // 此时展开面板并不存在，判据必须跟着 status 走——否则用户点在其他应用内容上会
+        // 被静默吞掉（既不投递也不收起，还不自愈）。
+        let model = NotchViewModel(
+            deviceNotchRect: CGRect(x: 0, y: 0, width: 200, height: 32),
+            screenRect: CGRect(x: 0, y: 0, width: 1920, height: 1080),
+            windowHeight: 750,
+            hasPhysicalNotch: false)
+        #expect(model.status == .closed)
+
+        let (panel, probe) = makePanel(content: BlankContentView(frame: Self.blankFrame))
+        panel.forwarding = ClickForwarding(
+            isPointOnPanel: { model.isScreenPointInPanel($0) },
+            collapse: { model.collapseForForwardedClick() },
+            deliver: { probe.recorder.record($0) },
+            schedule: { $0() })
+        panel.ignoresMouseEvents = false
+
+        // 屏顶中央：残留的展开尺寸矩形确实盖住这个点（收起态才该被排掉）。
+        let point = CGPoint(x: 960, y: 1000)
+        #expect(model.geometry.isPointInOpenedPanel(point, size: model.openedSize))
+
+        panel.sendEvent(mouseEvent(.leftMouseDown, at: point, clickCount: 1, in: panel))
+
+        #expect(probe.recorder.clicks.count == 1)
+        #expect(model.status == .closed)
     }
 
     @Test("转投出去的事件：来源是 HID、clickState 带原始击数、按键与坐标一致")

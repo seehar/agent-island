@@ -28,10 +28,12 @@ nonisolated struct NotchForwardedClick: Equatable {
 /// 判据（`isPointOnPanel`）与收起（`collapse`）也放这里：它们是同一次转投的三个面，
 /// 拆开注入会出现「装了投递、没装收起」的半装配面板。
 nonisolated struct ClickForwarding {
-    /// 屏幕坐标点是否落在面板卡片上。**卡片外**才转投：卡片内的点击哪怕这一刻没有控件
-    /// 认领（展开动画途中卡片还没长到终值，或 SwiftUI 的透明区）也该由面板自己吞下——
-    /// 投出去只会让下层应用收到一次「隔着卡片」的点击，而且窗口一旦因此让开，注进来的
-    /// 那一下还会被本窗口重新接住，每 50ms 一环。
+    /// 屏幕坐标点是否落在**此刻展开的**面板卡片上（实现自己合取面板开合状态，
+    /// 见 `NotchViewModel.isScreenPointInPanel`）。
+    /// **卡片外**才转投：卡片内的点击哪怕这一刻没有控件认领（展开动画途中卡片还没长到
+    /// 终值，或 SwiftUI 的透明区）也该由面板自己吞下——投出去只会让下层应用收到一次
+    /// 「隔着卡片」的点击，而且窗口一旦因此让开，注进来的那一下还会被本窗口重新接住，
+    /// 每 50ms 一环。
     var isPointOnPanel: @MainActor (CGPoint) -> Bool
     /// 转投之后收起面板（幂等）。它是「转投出去的点击 ⟹ 面板一定收起」的**结构性**来源：
     /// 只靠鼠标监听的话，右键转投不会触发 `handleMouseDown`，窗口就会一直透明——面板
@@ -53,7 +55,7 @@ nonisolated struct ClickForwarding {
     /// 生产实现。
     ///
     /// - Parameters:
-    ///   - isPointOnPanel: 由窗口控制器接上视图模型的几何。
+    ///   - isPointOnPanel: 由窗口控制器接上视图模型的状态感知几何。
     ///   - collapse: 由窗口控制器接上视图模型的收起（幂等）。
     static func live(
         isPointOnPanel: @escaping @MainActor (CGPoint) -> Bool,
