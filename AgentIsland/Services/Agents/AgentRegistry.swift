@@ -25,6 +25,7 @@ nonisolated enum AgentRegistry {
         .kimi: KimiAgentProvider(),
         .cline: ClineAgentProvider(),
         .grok: GrokAgentProvider(),
+        .hermes: HermesAgentProvider(),
         .trae: PlainConfigOnlyAgentProvider(kind: .trae),
         .traeCli: PlainConfigOnlyAgentProvider(kind: .traeCli),
         .deepSeekHarness: PlainConfigOnlyAgentProvider(kind: .deepSeekHarness),

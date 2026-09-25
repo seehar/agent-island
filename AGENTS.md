@@ -1,6 +1,6 @@
 # AgentIsland（macOS 刘海 Agent 会话面板）
 
-> 一款 macOS 菜单栏应用（`LSUIElement`，无 Dock 图标）：把 17 个编码 Agent CLI —— Claude Code、Oh My Pi（`omp`）、Pi、OpenCode、Codex、Gemini CLI、Cursor、Copilot、Qoder、Factory（`droid`）、CodeBuddy、Kimi Code CLI、Cline、Grok CLI、Trae、Trae CLI、DeepSeek Harness（`dsh`）—— 的会话状态搬到 MacBook 刘海处的浮层里：实时状态、对话历史、用量统计，以及支持阻塞审批的工具在刘海上批准 / 拒绝 / 作答。
+> 一款 macOS 菜单栏应用（`LSUIElement`，无 Dock 图标）：把 18 个编码 Agent CLI —— Claude Code、Oh My Pi（`omp`）、Pi、OpenCode、Codex、Gemini CLI、Cursor、Copilot、Qoder、Factory（`droid`）、CodeBuddy、Kimi Code CLI、Cline、Grok CLI、Trae、Trae CLI、DeepSeek Harness（`dsh`）、Hermes（`hermes`）—— 的会话状态搬到 MacBook 刘海处的浮层里：实时状态、对话历史、用量统计，以及支持阻塞审批的工具在刘海上批准 / 拒绝 / 作答。
 > 派生自 `engels74/claude-island`，已全量改名 AgentIsland（目录、target、scheme、bundle id、socket、集成文件名、偏好域）。
 
 - 语言/框架：Swift（工程 `SWIFT_VERSION = 5.0`，但已打开 Swift 6 并发语义：`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`、`SWIFT_APPROACHABLE_CONCURRENCY = YES`、`SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES`）
@@ -90,7 +90,7 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 1. `Models/AgentKind.swift` 加 case。`rawValue` **就是集成侧的 `--source`、也是 CodeIsland 的 source id**（两侧必须同一个字符串，否则事件会被算到别的 Agent 名下；且不能含冒号——`SessionKey` 按第一个冒号切分）。补 displayName / shortName / binaryName / approval / subagentToolNames / interactiveToolNames；`isClaudeFamily` 决定它是否复用 Claude 的 hook 契约与记录格式。
 2. `Services/Agents/AgentHooks.swift` 的 `hookSpec` 补一行：写入格式、配置路径（可带 `CODEX_HOME` / `GROK_HOME` 这类根目录环境变量）、事件表、决定回写协议。**没有配置文件型 hook 的工具填 nil**（Claude 走 hook 脚本、omp/pi 走扩展、opencode 走插件、DSH 由外部插件直接写 socket）。
 3. `Services/Agents/` 实现 `AgentProvider`（`paths()`、`transcriptFile`、`isTranscriptFile`、`sessionId(fromTranscriptFile:)`、`cwd(fromTranscriptFile:)`、`subagentTranscriptFiles`、`integrationStatus()`），**带可注入的 `home`**（用例要能指向临时目录），并在 `AgentRegistry.all` 注册（**home 必须过 `AgentProviderRoot.canonical`**，理由见已知坑）；同时补 `AgentProcessScanner.matches` 与 `AgentSessionScanner` 的发现源。
-4. `Services/Session/` 加记录解析实现：Claude 系 fork 直接复用 `ClaudeFamilyTranscriptSchema`；其它格式自己实现 `AgentTranscriptSchema`（追加式 JSONL 继承 `JSONLTranscriptSchema`，整文档 JSON 则用「文件指纹 + 已消费条数」做增量），并在 `AgentTranscriptSchemaRegistry` 注册；有 token 字段的再接 `TranscriptUsageScanner`。
+4. `Services/Session/` 加记录解析实现：Claude 系 fork 直接复用 `ClaudeFamilyTranscriptSchema`；其它格式自己实现 `AgentTranscriptSchema`（追加式 JSONL 继承 `JSONLTranscriptSchema`，整文档 JSON 则用「文件指纹 + 已消费条数」做增量），并在 `AgentTranscriptSchemaRegistry` 注册；有 token 字段的再接 `TranscriptUsageScanner`。**记录不在文件树而在 SQLite 的（OpenCode、Hermes）**另走只读库通道：打开方式共用 `SQLiteReadOnlyConnection`（读写打开 + `PRAGMA query_only`，理由见其文件头），再各写一个 `…SessionStore`，JSONL 那套增量不适用。
 5. `Resources/agent-island-state.py` 的事件归一表补该工具的原生事件名（与 CodeIsland `EventNormalizer` 对齐；`scripts/verify-agent-hooks.sh` 是它的验证矩阵）。
 6. `UI/`：`AgentPalette` 补品牌色、`AgentMarks.swift` 补标记形状（`AgentLogo` 的 `Glyph` 是穷举 switch，编译器会提醒）；本地化补产品名与短名的 en/zh-Hans 键。
 7. 跑 `./scripts/gate.sh --with-tests`：`AgentIslandTests/AgentKindTests.swift` 是表完整性用例——漏填某一列、rawValue 重名、阻塞事件却不让回传决定，都会在那里红。
@@ -127,6 +127,7 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 | Grok CLI | `$GROK_HOME/hooks/agent-island.json` |
 | Trae | `~/.trae/hooks.json` |
 | Trae CLI | `~/.trae/traecli.yaml` 里的托管 YAML 块 |
+| Hermes | `~/.hermes/config.yaml` 的 `hooks:` 映射（共用 `~/.agent-island/hooks/agent-island-state.py`） |
 | DeepSeek Harness | **不写**：事件由外部 dsh 插件直接写 socket |
 
 除 Claude 之外的工具都引用**同一份**脚本（`~/.agent-island/hooks/agent-island-state.py`）：一份实现、一处升级。单个 Agent 卸载只摘自己的条目，脚本本身保留（别的工具还在用）。
@@ -150,15 +151,15 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 
 ### 各 Agent 接入的事实来源与证据等级
 
-新接入的 13 个 Agent 里，本机装着的只有 Codex（`codex`）与 Qoder（`qodercli`），其余
-（Gemini / Cursor / Copilot / Factory / CodeBuddy / Kimi / Cline / Grok / Trae / Trae CLI /
-DSH）**没有本机样本**。所以这一块的证据分三档，动这些地方之前先认清自己手里是哪一档：
+新接入的 14 个 Agent 里，本机装着的有 Codex（`codex`）、Qoder（`qodercli`）与 Hermes
+（`hermes`，本机 v0.19.0），其余（Gemini / Cursor / Copilot / Factory / CodeBuddy / Kimi /
+Cline / Grok / Trae / Trae CLI / DSH）**没有本机样本**。所以这一块的证据分三档，动这些地方之前先认清自己手里是哪一档：
 
 | 档位 | 含义 | 涉及 |
 |---|---|---|
-| 本机实测 | 用真机记录与配置逐字核对过字段 | Codex（`~/.codex/sessions/**` 真记录 + `hooks.json` + `config.toml` 的 `[features] hooks`）、Qoder（真记录，Claude 格式，项目目录编码与 Claude 一致）、CodeBuddy（真记录，外壳不同且编码少一个前导短横线） |
+| 本机实测 | 用真机记录与配置逐字核对过字段 | Codex（`~/.codex/sessions/**` 真记录 + `hooks.json` + `config.toml` 的 `[features] hooks`）、Qoder（真记录，Claude 格式，项目目录编码与 Claude 一致）、CodeBuddy（真记录，外壳不同且编码少一个前导短横线）、Hermes（`~/.hermes/config.yaml` 的现状、真记录 `~/.hermes/state.db` 的 `sessions`/`messages`/`session_model_usage`、上游 `agent/shell_hooks.py` 的授权与 stdin/stdout 契约） |
 | 上游源码 | 逐条照 CodeIsland 的实现与其行号，但本机无法复跑 | 各工具的配置路径/格式/事件表、Cursor 与 Copilot 的记录字段、Kimi 两代索引、Cline 的 VSCode 存储、Grok 的 `$GROK_HOME` 布局、Trae/Trae CLI 的布局 |
-| 合成载荷 | 只有矩阵脚本造的信封能证明 | 事件名归一与按工具回写的形状（`scripts/verify-agent-hooks.sh`，25 个 case / 283 条断言） |
+| 合成载荷 | 只有矩阵脚本造的信封能证明 | 事件名归一与按工具回写的形状（`scripts/verify-agent-hooks.sh`，31 个 case / 337 条断言） |
 
 **未验证清单**（装上真机后应优先复核，改这块前先看这里）：
 
@@ -167,6 +168,8 @@ DSH）**没有本机样本**。所以这一块的证据分三档，动这些地�
 3. Trae CLI 的 `permission_request` 回写形状（按 Claude 信封写，与上游一致但未真机验证）；Trae / Trae CLI 没有可解析记录，只有实时事件。
 4. Copilot 的两代记录布局（`jb/<id>/partition-*.jsonl` 当前 + `session-state/<id>/events.jsonl` 旧版）：本机只见到前者。
 5. DSH：记录是 zstd 压缩（系统无 zstd API，不解析），事件依赖外部 dsh 插件直接写 socket——本应用不装它的集成。
+6. Hermes 的 shell hook 需要用户先在 `~/.hermes/shell-hooks-allowlist.json` 里授权才会真正执行（未授权时 `hermes hooks list` 显示 not allowlisted，事件**静默不跑**——表现就是「装了但一条事件都没有」，与 Codex 没跑 `/hooks` 同类）。授权判定与 `agent/shell_hooks.py` 的 `_is_allowlisted` / `_prompt_and_record` 逐字核对过，但「授权一次后是否永久生效、升级后是否失效」没在真机走完整流程。
+7. Hermes 的 `pre_llm_call` 与 `on_session_reset` 不在 CodeIsland 的 v1 事件表里（那一版只注册 6 个），但**上游有据**：两者都在 Hermes 自己的 hook 白名单 `VALID_HOOKS` 里（`hermes_cli/plugins.py:135`，`pre_llm_call` 见 `:144`、`on_session_reset` 见 `:163`，shell hook 与插件 hook 共用这张表，`_make_callback` 是通用的），因此注册它们不是猜测。真机核对时只需确认这两个事件在 CLI/gateway 两条路径上都确实被触发过。
 
 **首次启动的足迹**：Agent 默认关闭，因此**不会**有任何写入，直到用户在「智能体」页启用（单行或「全部启用并安装」）——那一刻才会为已启用的、且配置目录存在的工具写 hook 条目，每个被改写的文件旁留 `<文件名>.agent-island-backup`，写入动作是 notice 级日志。关掉某个 Agent 只摘它的条目，共用脚本保留。升级用户如果原本在监控 claude/omp/pi/opencode，迁移会保留它们（见上一节），那一次启动会照旧维护它们的集成。
 

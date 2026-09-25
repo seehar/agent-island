@@ -75,7 +75,7 @@ struct AgentKindTests {
     func hookSpecCoversConfigFileAgentsOnly() {
         let expected: Set<AgentKind> = [
             .codex, .gemini, .cursor, .copilot, .qoder, .factory, .codeBuddy, .kimi, .cline,
-            .grok, .trae, .traeCli,
+            .grok, .trae, .traeCli, .hermes,
         ]
         let actual = Set(AgentKind.allCases.filter { $0.hookSpec != nil })
         #expect(actual == expected)
@@ -121,7 +121,7 @@ struct AgentKindTests {
         for kind in [AgentKind.codex, .qoder, .traeCli] {
             #expect(kind.hookSpec?.verdict == .claudeEnvelope, "\(kind.rawValue) 不回写 allow/deny")
         }
-        for kind in [AgentKind.cursor, .copilot, .kimi, .cline, .trae, .factory, .codeBuddy] {
+        for kind in [AgentKind.cursor, .copilot, .kimi, .cline, .trae, .factory, .codeBuddy, .hermes] {
             // 显式写出类型：`.none` 在可选比较里会被推断成 `Optional.none`（编译器会警告）。
             #expect(
                 kind.hookSpec?.verdict == AgentVerdictProtocol.none,
@@ -130,9 +130,12 @@ struct AgentKindTests {
         // 只有 Codex 需要额外打开 config.toml 的 [features] hooks 开关。
         let withPrerequisites = AgentKind.allCases.filter { !($0.hookSpec?.prerequisites.isEmpty ?? true) }
         #expect(withPrerequisites == [.codex])
-        // 只有这两个工具用环境变量覆盖配置根目录。
+        // 只有这三个工具用环境变量覆盖配置根目录（Codex 的 `CODEX_HOME`、Grok 的
+        // `GROK_HOME`、Hermes 的 `HERMES_HOME`——后者是它 config.yaml / state.db /
+        // shell-hooks-allowlist 的单一事实源，默认 `~/.hermes`，恰好等于本表
+        // `rootEnvVar` 缺省推导出来的 `~/.<rawValue>`）。
         let withRootEnv = AgentKind.allCases.filter { $0.hookSpec?.rootEnvVar != nil }
-        #expect(Set(withRootEnv) == [.codex, .grok])
+        #expect(Set(withRootEnv) == [.codex, .grok, .hermes])
     }
 
     @Test("Claude 系（含 fork）的派生工具名与交互工具名一致，且各 Agent 之间不互相污染")
@@ -163,7 +166,8 @@ struct AgentKindTests {
 
     @Test("派生工具名并集覆盖全部 Agent，且不含空串")
     func subagentToolNameUnionIsClean() {
-        #expect(AgentKind.allSubagentToolNames == ["Agent", "Task", "task"])
+        // Hermes 的派生工具是 `delegate_task`（tools/delegate_tool.py 的注册名）。
+        #expect(AgentKind.allSubagentToolNames == ["Agent", "Task", "task", "delegate_task"])
         #expect(!AgentKind.allSubagentToolNames.contains(""))
     }
 }

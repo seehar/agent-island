@@ -613,6 +613,294 @@ struct AgentConfigInstallerTests {
         #expect(!AgentConfigInstaller.isInstalled(.traeCli, home: home))
     }
 
+    // MARK: - hermes（YAML 行手术）
+
+    /// Hermes 的配置落点：`$HERMES_HOME/config.yaml`，未设环境变量时是 `~/.hermes/config.yaml`。
+    /// 存在性闸门的判据就是这个根目录本身，所以先把它造出来（返回配置文件 URL）。
+    private func makeHermesHome(_ home: URL) throws -> URL {
+        try makeDirectory(home.appendingPathComponent(".hermes"))
+        return home.appendingPathComponent(".hermes/config.yaml")
+    }
+
+    /// Hermes 注册的事件名（与 `AgentHooks.swift` 的 `.hermes` 事件表逐字一致）。
+    private let hermesEvents = [
+        "pre_tool_call", "post_tool_call", "pre_llm_call", "post_llm_call",
+        "on_session_start", "on_session_end", "on_session_reset", "subagent_stop",
+    ]
+
+    @Test("hermes：空文件装出 `hooks:` 映射（每事件一行内联条目），卸载后只剩孤立的 hooks:")
+    func hermesWritesInlineEntriesIntoEmptyFile() throws {
+        let home = try makeHome()
+        let file = try makeHermesHome(home)
+        try write("", to: file)
+
+        #expect(AgentConfigInstaller.install(.hermes, home: home))
+        let installed = try text(file)
+        #expect(installed.hasPrefix("hooks:\n"))
+        // 每事件一行：命令带 --source hermes 与自己的事件名，超时按事件表写（Hermes 的单位是秒）
+        for event in hermesEvents {
+            #expect(installed.contains("\n  \(event): [{command: '"))
+            #expect(installed.contains("--source hermes --event \(event)', timeout: 5}]"))
+        }
+        // 只写行内序列（块序列在行手术下删不干净），也不注册审批事件
+        #expect(!installed.contains("- command: "))
+        #expect(!installed.contains("pre_approval_request"))
+        #expect(installed.components(separatedBy: "\n").filter { !$0.isEmpty }.count == 9)
+        #expect(AgentConfigInstaller.isInstalled(.hermes, home: home))
+
+        // 重复安装字节相同（幂等）
+        let beforeSecond = try Data(contentsOf: file)
+        #expect(AgentConfigInstaller.install(.hermes, home: home))
+        #expect(try Data(contentsOf: file) == beforeSecond)
+
+        AgentConfigInstaller.uninstall(.hermes, home: home)
+        // 这个文件原本就存在（是用户的）：只摘我们的条目，孤立的 `hooks:` 留着
+        #expect(try text(file) == "hooks:\n")
+        #expect(!AgentConfigInstaller.isInstalled(.hermes, home: home))
+    }
+
+    @Test("hermes：没有配置文件时创建它；卸载后（无备份 = 我们造的）整份删除")
+    func hermesCreatesConfigFileAndRemovesItOnUninstall() throws {
+        let home = try makeHome()
+        let file = try makeHermesHome(home)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+
+        #expect(AgentConfigInstaller.install(.hermes, home: home))
+        #expect((try text(file)).hasPrefix("hooks:\n"))
+        #expect(AgentConfigInstaller.isInstalled(.hermes, home: home))
+        // 我们创建的文件不落备份：「没有备份」正是「这个文件是我们造的」的判据
+        #expect(!FileManager.default.fileExists(
+            atPath: file.appendingPathExtension("agent-island-backup").path))
+        #expect(AgentConfigInstaller.installedFiles(.hermes, home: home)
+            .map { $0.resolvingSymlinksInPath() } == [file.resolvingSymlinksInPath()])
+
+        AgentConfigInstaller.uninstall(.hermes, home: home)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        #expect(!AgentConfigInstaller.isInstalled(.hermes, home: home))
+    }
+
+    @Test("hermes：行手术保住用户的注释、别的键与别人在 hooks 下的条目；卸载后逐字节还原")
+    func hermesKeepsForeignContentAndRestoresBytes() throws {
+        let home = try makeHome()
+        let file = try makeHermesHome(home)
+        // 用户文件：顶层别的键（含与 `hooks` 同前缀的 `hooks_auto_accept`）、hooks 下自己的键、
+        // 注释与尾部空行 —— 安装只该在映射末尾插我们的键
+        let original = """
+        # Hermes 配置（用户自己写的注释）
+        model: claude-sonnet-4
+        hooks_auto_accept: false
+        hooks:
+          # 用户自己的条目：我们要与它共存
+          pre_approval_request: [{command: '/usr/local/bin/user-hook.sh', timeout: 30}]
+
+        # 结尾注释
+
+        """
+        try write(original, to: file)
+
+        #expect(AgentConfigInstaller.install(.hermes, home: home))
+        let installed = try text(file)
+        #expect(installed.hasPrefix("""
+        # Hermes 配置（用户自己写的注释）
+        model: claude-sonnet-4
+        hooks_auto_accept: false
+        hooks:
+          # 用户自己的条目：我们要与它共存
+          pre_approval_request: [{command: '/usr/local/bin/user-hook.sh', timeout: 30}]
+          pre_tool_call: [{command: '
+        """))
+        #expect(installed.hasSuffix("\n\n# 结尾注释\n"))
+        // 我们的键沿用映射已有的缩进（同一个映射里混缩进会让整个文件解析失败）
+        #expect(installed.contains("\n  pre_tool_call: [{command: '"))
+        #expect(AgentConfigInstaller.isInstalled(.hermes, home: home))
+
+        let beforeSecond = try Data(contentsOf: file)
+        #expect(AgentConfigInstaller.install(.hermes, home: home))
+        #expect(try Data(contentsOf: file) == beforeSecond)
+
+        AgentConfigInstaller.uninstall(.hermes, home: home)
+        #expect(try text(file) == original)
+        #expect(!AgentConfigInstaller.isInstalled(.hermes, home: home))
+    }
+
+    @Test("hermes：事件键已存在但行内为空（`[]` / `null` / `~` / 裸键）时就地换掉那一行")
+    func hermesReplacesEmptyEventValues() throws {
+        let home = try makeHome()
+        let file = try makeHermesHome(home)
+        try write(
+            "hooks:\n  pre_tool_call: []\n  post_tool_call: null\n  pre_llm_call:\n  post_llm_call: ~\n",
+            to: file)
+
+        #expect(AgentConfigInstaller.install(.hermes, home: home))
+        let installed = try text(file)
+        for event in ["pre_tool_call", "post_tool_call", "pre_llm_call", "post_llm_call"] {
+            #expect(installed.contains("\n  \(event): [{command: '"))
+        }
+        for empty in ["pre_tool_call: []", "post_tool_call: null", "post_llm_call: ~"] {
+            #expect(!installed.contains(empty))
+        }
+        // 其余事件补在映射末尾
+        #expect(installed.contains("\n  subagent_stop: [{command: '"))
+        #expect(AgentConfigInstaller.isInstalled(.hermes, home: home))
+
+        AgentConfigInstaller.uninstall(.hermes, home: home)
+        // 那四个键里原本没有别人的条目：摘完连键一起删（不留 `pre_tool_call:` 这样的空壳）
+        #expect(try text(file) == "hooks:\n")
+    }
+
+    @Test("hermes：同一个事件键下已有别人的条目时，我们的条目追加在同一行")
+    func hermesAppendsIntoExistingInlineList() throws {
+        let home = try makeHome()
+        let file = try makeHermesHome(home)
+        let original =
+            "hooks:\n  pre_tool_call: [{command: '/usr/local/bin/user.sh', timeout: 30}]  # 用户自己的\n"
+        try write(original, to: file)
+
+        #expect(AgentConfigInstaller.install(.hermes, home: home))
+        let installed = try text(file)
+        let line = installed.components(separatedBy: "\n").first { $0.contains("pre_tool_call:") }
+        #expect(line?.hasPrefix(
+            "  pre_tool_call: [{command: '/usr/local/bin/user.sh', timeout: 30}, {command: '") == true)
+        #expect(line?.hasSuffix("--event pre_tool_call', timeout: 5}]  # 用户自己的") == true)
+        #expect(line?.contains(AgentHookScript.shellPath(home: home)) == true)
+        // 只在那一行里追加一条我们的（别的 7 个事件补在映射末尾，没有重复的键）
+        #expect(line?.components(separatedBy: "agent-island-state.py").count == 2)
+        #expect(installed.components(separatedBy: "\n").filter { !$0.isEmpty }.count == 9)
+
+        AgentConfigInstaller.uninstall(.hermes, home: home)
+        // 别人的条目内容与行尾注释（含注释前的两个空格）逐字节还原
+        #expect(try text(file) == original)
+        #expect(!AgentConfigInstaller.isInstalled(.hermes, home: home))
+    }
+
+    @Test("hermes：hooks 下是块序列时拒绝写入（返回 false）且文件一个字节都不动")
+    func hermesRefusesBlockStructures() throws {
+        let home = try makeHome()
+        let file = try makeHermesHome(home)
+
+        // 事件键下挂着块序列（YAML 往返写入器那类形状）—— 行手术删一条会留下孤立的 `timeout:`
+        let nestedBlock = """
+        hooks:
+          pre_tool_call:
+          - command: 'python3 /usr/local/bin/other.py --source hermes'
+            timeout: 5
+
+        """
+        try write(nestedBlock, to: file)
+        #expect(AgentConfigInstaller.install(.hermes, home: home) == false)
+        #expect(try Data(contentsOf: file) == Data(nestedBlock.utf8))
+        #expect(!FileManager.default.fileExists(
+            atPath: file.appendingPathExtension("agent-island-backup").path))
+        #expect(!AgentConfigInstaller.isInstalled(.hermes, home: home))
+        #expect(AgentConfigInstaller.installedFiles(.hermes, home: home).isEmpty)
+
+        // `hooks:` 的值本身就是块序列（无缩进序列写法）同样是拒绝
+        let inlineSequence = "hooks:\n- command: 'x'\n"
+        try write(inlineSequence, to: file)
+        #expect(AgentConfigInstaller.install(.hermes, home: home) == false)
+        #expect(try text(file) == inlineSequence)
+
+        // 行内不是列表也不是空值（`hooks: something`）也拒绝
+        try write("hooks: something\n", to: file)
+        #expect(AgentConfigInstaller.install(.hermes, home: home) == false)
+        #expect(try text(file) == "hooks: something\n")
+    }
+
+    @Test("hermes：配置根走 $HERMES_HOME；没设时判据是 ~/.hermes（不凭空造目录）")
+    func hermesUsesHermesHome() throws {
+        let home = try makeHome()
+        // `~/.hermes` 不存在 ⇒ 用户没装 Hermes：跳过（返回 true），一个字节都不写
+        #expect(AgentConfigInstaller.install(.hermes, home: home))
+        #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent(".hermes").path))
+        #expect(!AgentConfigInstaller.isInstalled(.hermes, home: home))
+
+        let envRoot = home.appendingPathComponent("env-hermes")
+        try makeDirectory(envRoot)
+        withEnvironment("HERMES_HOME", envRoot.path) {
+            let file = envRoot.appendingPathComponent("config.yaml")
+            #expect(AgentConfigInstaller.install(.hermes, home: home))
+            #expect(AgentConfigInstaller.isInstalled(.hermes, home: home))
+            #expect((try? text(file))?.hasPrefix("hooks:\n") == true)
+            // 默认位置（~/.hermes）一个字节都不写
+            #expect(
+                !FileManager.default.fileExists(
+                    atPath: home.appendingPathComponent(".hermes").path))
+
+            AgentConfigInstaller.uninstall(.hermes, home: home)
+            #expect(!AgentConfigInstaller.isInstalled(.hermes, home: home))
+            #expect(!FileManager.default.fileExists(atPath: file.path))
+        }
+        // 环境变量撤掉之后又回到「~/.hermes 不存在 ⇒ 跳过」
+        #expect(!AgentConfigInstaller.isInstalled(.hermes, home: home))
+    }
+
+    @Test("hermes：卸载摘掉块形式里的我们的条目（连同续行），空掉的键也删掉")
+    func hermesRemovesBlockFormEntry() throws {
+        let home = try makeHome()
+        let file = try makeHermesHome(home)
+        let script = AgentHookScript.shellPath(home: home)
+        let original = """
+        # 用户文件
+        hooks:
+          pre_tool_call:
+          - command: 'python3 \(script) --source hermes --event pre_tool_call'
+            timeout: 5
+          post_tool_call: [{command: '/usr/local/bin/user.sh', timeout: 30}]
+
+        """
+        try write(original, to: file)
+        #expect(AgentConfigInstaller.isInstalled(.hermes, home: home))
+
+        AgentConfigInstaller.uninstall(.hermes, home: home)
+        // 我们的条目（含它的续行 `timeout:`）整项摘掉；摘空的键一起删；别人的键留着
+        #expect(try text(file) == """
+        # 用户文件
+        hooks:
+          post_tool_call: [{command: '/usr/local/bin/user.sh', timeout: 30}]
+
+        """)
+        #expect(!AgentConfigInstaller.isInstalled(.hermes, home: home))
+    }
+
+    @Test("hermes：映射键写了非默认缩进时沿用它的缩进（同一个映射里混缩进会解析失败）")
+    func hermesKeepsExistingMappingIndent() throws {
+        let home = try makeHome()
+        let file = try makeHermesHome(home)
+        try write("hooks:\n    pre_tool_call: []\n", to: file)
+
+        #expect(AgentConfigInstaller.install(.hermes, home: home))
+        let installed = try text(file)
+        #expect(installed.contains("\n    pre_tool_call: [{command: '"))
+        #expect(installed.contains("\n    subagent_stop: [{command: '"))
+        #expect(!installed.contains("\n  pre_tool_call:"))
+
+        AgentConfigInstaller.uninstall(.hermes, home: home)
+        #expect(try text(file) == "hooks:\n")
+    }
+
+    @Test("hermes：只按 command 标量认自己的条目（别的键里出现脚本名不算）")
+    func hermesOwnershipUsesCommandScalarOnly() throws {
+        let home = try makeHome()
+        let file = try makeHermesHome(home)
+        let script = AgentHookScript.shellPath(home: home)
+
+        // 用户自己条目的**别的键**里恰好写着我们的脚本路径：卸载一个字节都不该动它
+        let foreign = """
+        hooks:
+          pre_tool_call: [{command: '/usr/local/bin/user.sh', name: '\\(script)', timeout: 30}]
+
+        """
+        try write(foreign, to: file)
+        AgentConfigInstaller.uninstall(.hermes, home: home)
+        #expect(try text(file) == foreign)
+
+        // 裸字符串条目（Hermes 不接受的形状）同样不算我们的
+        let bareString = "hooks:\n  pre_tool_call: ['python3 \\(script) --source hermes']\n"
+        try write(bareString, to: file)
+        AgentConfigInstaller.uninstall(.hermes, home: home)
+        #expect(try text(file) == bareString)
+    }
+
     // MARK: - cline（每事件可执行文件）
 
     @Test("cline：每事件一个 0755 可执行文件、内容先回 cancel；卸载只删自己的文件")

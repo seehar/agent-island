@@ -8,8 +8,10 @@
 //  CodeIsland 的 cli-icons/*.png 取到同一批品牌资产），每条都注明出处与最近邻的
 //  ΔE2000，便于日后对照更新。
 //
-//  一个必须说清的事实：17 个品牌里有 5 个是蓝/紫、3 个是绿、4 个本身是黑白单色，
-//  因此**不可能两两都拉开到 ΔE ≥ 12**。本表的取舍是：品牌色优先（能取到品牌色的
+//  一个必须说清的事实：18 个品牌里有 7 个是蓝/紫（omp / pi / codex / gemini /
+//  codeBuddy / kimi / dsh）、2 个是绿（qoder / trae / traeCli）、5 个是黑白单色的
+//  中性灰（opencode / cursor / copilot / cline / grok）、3 个是橙/金（claude /
+//  factory / hermes），因此**不可能两两都拉开到 ΔE ≥ 12**。本表的取舍是：品牌色优先（能取到品牌色的
 //  就用品牌色），单色品牌取一组按明度展开的中性灰（它们本来没有彩色可言，明度是
 //  唯一可用的区分维度），最终最小 ΔE 约 7。标记之间主要靠形状与 shortName 区分，
 //  颜色只是辅助；改这里时请连带重算 ΔE，不要把两个相近色的 ΔE 压得更小。
@@ -84,6 +86,16 @@ extension AgentKind {
             // DeepSeek Harness 用 DeepSeek 的官方蓝 #4D6BFE（图标 cli-icons/dsh.png
             // 的渐变主色）。
             return Color(red: 0.302, green: 0.420, blue: 0.996)
+        case .hermes:
+            // Hermes（Nous Research）的品牌金 #FFD700 —— 出处是它自己站点的
+            // `website/src/css/custom.css` 的 `--ifm-color-primary`（深色主题那一档，
+            // 源码注释原文「Current gold #FFD700」）；它的 CLI 调色板
+            // （hermes_cli/colors.py 之外的界面色）与吉祥物图标的金色描边同源。
+            // 取舍：与「待审批」的琥珀色（TerminalColors.amber #FFB300）ΔE 12.4，
+            // 高于本表自设的 12 门槛（同一口径下 Pi 的黄色档只有 6.8，因而被弃用）；
+            // 本品牌更深的 goldenrod #DAA520 反而只有 ΔE 7.2，更糟，故不采用。
+            // （品牌色最近邻：Cline ΔE 30）
+            return Color(red: 1.0, green: 0.843, blue: 0.0)
         }
     }
 }

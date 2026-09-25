@@ -20,7 +20,8 @@
 //  传进来，别在 pass 里缓存——同一个 pass 被调用多次时缓存会陈旧。
 //
 //  OpenCode 那一半先看指纹（库 + `-wal` 的 size/mtime）再决定扫不扫：它的两条增量查询
-//  是全表扫描，冷缓存约 2 秒（采样实测），而库没被写过时注定查不出新数据。
+//  是全表扫描，冷缓存约 2 秒（采样实测），而库没被写过时注定查不出新数据。Hermes 的记录
+//  同样在 SQLite 里（`~/.hermes/state.db`，走 `HermesUsageReader`），它们共用这套指纹。
 //
 
 import Combine
@@ -31,6 +32,8 @@ import os.log
 nonisolated struct UsageScanRoots: Sendable {
   var jsonlRoots: [AgentKind: [URL]]
   var openCodeDatabase: URL?
+  /// Hermes 的历史也在 SQLite 里（`~/.hermes/state.db`）：它的记录不在文件树上。
+  var hermesDatabase: URL?
 
   /// 当前机器上实际启用的 Agent 的记录位置。
   static var live: UsageScanRoots {
@@ -45,8 +48,17 @@ nonisolated struct UsageScanRoots: Sendable {
     let database = AgentRegistry.provider(for: .opencode).paths()?.dataDir?
       .appendingPathComponent("opencode.db")
     let databaseExists = database.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+
+    // Hermes 的库就在它的配置根目录下（Provider 给的是配置根，不是 `dataDir`）。文件不存在
+    // 时给 nil：没装 Hermes（或还没跑过一次）的机器上，别去扫一个不存在的库。
+    let hermesDatabase = AgentRegistry.provider(for: .hermes).paths()?
+      .configDir.appendingPathComponent("state.db")
+    let hermesDatabaseExists =
+      hermesDatabase.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+
     return UsageScanRoots(
-      jsonlRoots: roots, openCodeDatabase: databaseExists ? database : nil)
+      jsonlRoots: roots, openCodeDatabase: databaseExists ? database : nil,
+      hermesDatabase: hermesDatabaseExists ? hermesDatabase : nil)
   }
 }
 
@@ -54,6 +66,14 @@ nonisolated struct UsageScanRoots: Sendable {
 nonisolated struct OpenCodeSweepOutcome: Equatable {
   /// 重放过的消息数。
   var messages = 0
+  /// 还有没读完的页（单轮页数有上限）：下一轮不能拿「库没变化」当借口跳过。
+  var morePagesRemain = false
+}
+
+/// 一轮 Hermes 扫描后的结果（与 `OpenCodeSweepOutcome` 同构）。
+nonisolated struct HermesSweepOutcome: Equatable {
+  /// 重放过的会话数（含子会话：它们的用量照常计入，见 `HermesUsageReader`）。
+  var sessions = 0
   /// 还有没读完的页（单轮页数有上限）：下一轮不能拿「库没变化」当借口跳过。
   var morePagesRemain = false
 }
@@ -74,14 +94,22 @@ nonisolated final class UsageStatsPass {
   private let store: UsageStatsStore
   private let calendar: Calendar
   private var openCodeReader: OpenCodeUsageReader?
+  private var hermesReader: HermesUsageReader?
 
   /// OpenCode 每页最多处理的消息数（首轮即是全量，之后每页只处理有更新的）。
   private let openCodeBatchLimit: Int
 
-  init(store: UsageStatsStore, calendar: Calendar = .current, openCodeBatchLimit: Int = 4_000) {
+  /// Hermes 每页最多处理的会话数（一条会话要跑三条按主键索引的查询，因此页比 OpenCode 小）。
+  private let hermesBatchLimit: Int
+
+  init(
+    store: UsageStatsStore, calendar: Calendar = .current, openCodeBatchLimit: Int = 4_000,
+    hermesBatchLimit: Int = 400
+  ) {
     self.store = store
     self.calendar = calendar
     self.openCodeBatchLimit = openCodeBatchLimit
+    self.hermesBatchLimit = hermesBatchLimit
   }
 
   /// 索引一批 JSONL 记录，返回失败的源数量。
@@ -227,6 +255,78 @@ nonisolated final class UsageStatsPass {
     return outcome
   }
 
+  /// 索引 Hermes 的历史（按会话增量）。
+  ///
+  /// 与 `ingestOpenCode` 完全同构：每轮最多读 `hermesBatchIterations` 页、整页一个事务、
+  /// 游标按页推进且只认已处理过的位置，因此中途退出也不会丢会话。
+  ///
+  /// - Parameter rebuilding: 手动「重新统计」：游标归零、全库重走一遍。每条会话在统计库
+  ///   里是独立数据源、按整源重放写库，因此重走是幂等的。
+  @discardableResult
+  func ingestHermes(databaseURL: URL, rebuilding: Bool = false) throws -> HermesSweepOutcome {
+    var outcome = HermesSweepOutcome()
+    let reader: HermesUsageReader
+    if let hermesReader {
+      reader = hermesReader
+    } else {
+      let created = try HermesUsageReader(url: databaseURL)
+      hermesReader = created
+      reader = created
+    }
+
+    let sweepId = Self.hermesSweepId
+    // 重算时丢掉游标（`parseCursor(nil)` 即全零）：从最早的会话重新走一遍。
+    let storedCursor = rebuilding ? nil : try store.state(ofSource: sweepId)?.state.cursor
+    var cursor = Self.parseCursor(storedCursor)
+    let subagentSessions = try reader.subagentSessionIds()
+    let now = Date().timeIntervalSince1970
+
+    if rebuilding {
+      // 归零的游标先落库：这一轮只跑了一半就退出时，下一轮仍从零继续，而不是从半途的
+      // 游标往后走——那样游标之前的会话就再也回不到重算路径上了。
+      try store.replace(
+        [], sourceId: sweepId, agent: .hermes,
+        state: UsageSourceState(cursor: Self.serializeCursor(cursor), updatedAt: now))
+    }
+
+    for _ in 0..<Self.hermesBatchIterations {
+      let page = try reader.dirtySessions(cursor: cursor, limit: hermesBatchLimit)
+      let advanced = page.cursor.isAfter(cursor)
+
+      var writes: [UsageSourceWrite] = []
+      for sessionId in page.sessionIds {
+        let deltas = try reader.contributions(
+          sessionId: sessionId, subagentSessions: subagentSessions, calendar: calendar)
+        // 没有 token 也没有工具调用的会话（空的 cron 会话）不入库。
+        guard !deltas.isEmpty else { continue }
+        writes.append(
+          UsageSourceWrite(
+            sourceId: Self.hermesSourcePrefix + sessionId, agent: .hermes, deltas: deltas,
+            state: UsageSourceState(updatedAt: now)))
+      }
+
+      cursor = page.cursor
+      guard advanced || !page.sessionIds.isEmpty else {
+        // 这一页什么都没读到：追平了。收紧「还没读完」，否则指纹门会白扫一轮。
+        outcome.morePagesRemain = false
+        break
+      }
+      // 整页一个事务：这一页的会话重放与游标推进同生共死（崩在页面中间也不会留下
+      // 「游标已过、会话没入库」的洞）。
+      writes.append(
+        UsageSourceWrite(
+          sourceId: sweepId, agent: .hermes, deltas: [],
+          state: UsageSourceState(cursor: Self.serializeCursor(cursor), updatedAt: now)))
+      try store.replaceBatch(writes)
+      outcome.sessions += writes.count - 1  // 去掉这一页末尾的游标行
+      // 页读满说明后面还有：记下来，别让下一轮的「库没变化」把它当成已经追平。
+      outcome.morePagesRemain = page.isPageFull
+
+      if !page.isPageFull { break }
+    }
+    return outcome
+  }
+
   private static let openCodeSweepId = "opencode:sweep"
   private static let openCodeSourcePrefix = "opencode:"
   /// 单轮扫描最多读多少页（首次回填因此分多轮完成）。
@@ -253,6 +353,28 @@ nonisolated final class UsageStatsPass {
       if pieces[0] == "p" { part = value }
     }
     return (message, part)
+  }
+
+  private static let hermesSweepId = "hermes:sweep"
+  private static let hermesSourcePrefix = "hermes:"
+  /// 单轮扫描最多读多少页（首次回填因此分多轮完成）。
+  private static let hermesBatchIterations = 20
+
+  /// 游标编码成 `<updatedAt>:<sessionId>`。`Double` 的文本形式可精确往返（Swift 打印的是
+  /// 能唯一还原该值的最短表示）。
+  private static func serializeCursor(_ cursor: HermesUsageCursor) -> String {
+    "\(cursor.updatedAt):\(cursor.sessionId)"
+  }
+
+  /// 反解游标：按**第一个**冒号切分（会话 id 里没有冒号，但这样写也能容忍它出现）。
+  /// 解析不出来当全零——宁可重扫，也不要卡在一个坏游标上不再前进。
+  private static func parseCursor(_ cursor: String?) -> HermesUsageCursor {
+    guard let cursor, let separator = cursor.firstIndex(of: ":") else { return .empty }
+    guard let updatedAt = Double(String(cursor[cursor.startIndex..<separator])) else {
+      return .empty
+    }
+    return HermesUsageCursor(
+      updatedAt: updatedAt, sessionId: String(cursor[cursor.index(after: separator)...]))
   }
 }
 
@@ -285,6 +407,10 @@ actor UsageStatsIndexer {
   private var openCodeFingerprint: OpenCodeDatabaseFingerprint?
   /// 还没追平：首次扫描、上一轮没读完一页、或上次扫描失败时都要照常扫，不看指纹。
   private var openCodeCatchUpPending = true
+  /// Hermes 库上次扫描后的指纹（与 OpenCode 同一套「库 + `-wal`」判定）。
+  private var hermesFingerprint: OpenCodeDatabaseFingerprint?
+  /// Hermes 的「还没追平」标记，语义与 `openCodeCatchUpPending` 相同。
+  private var hermesCatchUpPending = true
   private var lastPassFinishedAt: Date?
   private(set) var isIndexing = false
 
@@ -389,6 +515,8 @@ actor UsageStatsIndexer {
     // 跨轮状态在 actor 上，后台任务只能读快照、只能通过方法回写（见 finishOpenCodeSweep）。
     let openCodeFingerprintAtStart = openCodeFingerprint
     let openCodeCatchUpPendingAtStart = openCodeCatchUpPending
+    let hermesFingerprintAtStart = hermesFingerprint
+    let hermesCatchUpPendingAtStart = hermesCatchUpPending
 
     passTask = Task.detached(priority: .utility) { [weak self] in
       let startedAt = Date()
@@ -485,24 +613,56 @@ actor UsageStatsIndexer {
           }
         }
 
+        // Hermes 同理：库与它的 -wal 都没被写过、且上一轮已经追平时跳过整轮扫描。它的增量
+        // 查询按会话过滤（单页 400 条约 15 ms、冷缓存约 0.3 s），因此这一门省的是空轮的固定
+        // 开销，顺手也免掉「没变化」那几轮的白扫。
+        var hermesNote = "Hermes 未启用"
+        if let database = roots.hermesDatabase {
+          let fingerprint = OpenCodeDatabaseFingerprint.read(databaseURL: database)
+          let canSkip =
+            fingerprint != nil && fingerprint == hermesFingerprintAtStart
+            && !hermesCatchUpPendingAtStart && !rebuilding
+          if canSkip {
+            hermesNote = "Hermes 跳过（库没有变化）"
+            Self.logger.debug("用量统计：Hermes 库没有变化，跳过这一轮扫描")
+          } else {
+            do {
+              let sweep = try pass.ingestHermes(databaseURL: database, rebuilding: rebuilding)
+              changed += sweep.sessions
+              hermesNote = "Hermes 扫 \(sweep.sessions) 条"
+              await self?.finishHermesSweep(
+                fingerprint: OpenCodeDatabaseFingerprint.read(databaseURL: database),
+                morePagesRemain: sweep.morePagesRemain)
+            } catch {
+              // 失败后不靠指纹跳过：下一轮必须重试（库可能正被写、或权限/热点问题）。
+              await self?.noteHermesSweepFailed()
+              hermesNote = "Hermes 失败"
+              failures += 1
+              Self.logger.error(
+                "Hermes 用量索引失败：\(String(describing: error), privacy: .public)")
+            }
+          }
+        }
+
         // 索引到底多贵，留一条可查的事实。两档：真干活/失败/重算时进持久日志（`info`），
         // 空轮只进内存日志（`debug`，`log show --debug` 可见）——空轮每分钟一条，别把
         // 持久日志灌满，但排查性能时又得量得到。
         mark("OpenCode")
+        mark("Hermes")
         let elapsed = Date().timeIntervalSince(startedAt)
         let phase = rebuilding ? "（全量重算）" : ""
-        let breakdown = ["开库", "枚举", "读进度", "扫记录", "清理", "OpenCode"]
+        let breakdown = ["开库", "枚举", "读进度", "扫记录", "清理", "OpenCode", "Hermes"]
           .map { "\($0) \(Int((phaseSeconds[$0] ?? 0) * 1000))" }
           .joined(separator: " / ")
         // 两档共用同一句文案，但 `Logger` 只吃字面插值（没法先把摘要拼成 String），所以
         // 这里只能各写一遍。
         if changed > 0 || failures > 0 || rebuilding || elapsed >= 2 {
           Self.logger.info(
-            "用量统计本轮：源 \(scanned, privacy: .public)，写 \(changed, privacy: .public)，跳过 \(failures, privacy: .public)，用时 \(Int(elapsed * 1000), privacy: .public) ms\(phase, privacy: .public)，\(openCodeNote, privacy: .public)｜\(breakdown, privacy: .public)"
+            "用量统计本轮：源 \(scanned, privacy: .public)，写 \(changed, privacy: .public)，跳过 \(failures, privacy: .public)，用时 \(Int(elapsed * 1000), privacy: .public) ms\(phase, privacy: .public)，\(openCodeNote, privacy: .public)，\(hermesNote, privacy: .public)｜\(breakdown, privacy: .public)"
           )
         } else {
           Self.logger.debug(
-            "用量统计本轮：源 \(scanned, privacy: .public)，写 \(changed, privacy: .public)，跳过 \(failures, privacy: .public)，用时 \(Int(elapsed * 1000), privacy: .public) ms\(phase, privacy: .public)，\(openCodeNote, privacy: .public)｜\(breakdown, privacy: .public)"
+            "用量统计本轮：源 \(scanned, privacy: .public)，写 \(changed, privacy: .public)，跳过 \(failures, privacy: .public)，用时 \(Int(elapsed * 1000), privacy: .public) ms\(phase, privacy: .public)，\(openCodeNote, privacy: .public)，\(hermesNote, privacy: .public)｜\(breakdown, privacy: .public)"
           )
         }
 
@@ -521,8 +681,11 @@ actor UsageStatsIndexer {
     progress: [String: UsageSourceRecord], sources: [UsageSourceFile]
   ) -> Set<String> {
     let discovered = Set(sources.map { $0.path })
-    // OpenCode 的数据源是「消息 id」而不是文件路径，不参与文件消失清理。
-    return Set(progress.keys.filter { !$0.hasPrefix("opencode:") }).subtracting(discovered)
+    // OpenCode / Hermes 的数据源是「消息 id / 会话 id」而不是文件路径，不参与文件消失清理
+    // （连游标行一起删掉的话，下一轮就从零重扫，等于每轮都全量回填一遍）。
+    return Set(
+      progress.keys.filter { !$0.hasPrefix("opencode:") && !$0.hasPrefix("hermes:") }
+    ).subtracting(discovered)
   }
 
   /// 通知 UI「索引有更新」：页面收到后重新取快照（回填期间数字会长出来）。
@@ -551,6 +714,19 @@ actor UsageStatsIndexer {
   /// 一轮 OpenCode 扫描失败：下一轮照常重试，不看指纹。
   fileprivate func noteOpenCodeSweepFailed() {
     openCodeCatchUpPending = true
+  }
+
+  /// 一轮 Hermes 扫描收尾：记下指纹与「是否追平」，下一轮据此决定跳不跳。
+  fileprivate func finishHermesSweep(
+    fingerprint: OpenCodeDatabaseFingerprint?, morePagesRemain: Bool
+  ) {
+    hermesFingerprint = fingerprint
+    hermesCatchUpPending = morePagesRemain
+  }
+
+  /// 一轮 Hermes 扫描失败：下一轮照常重试，不看指纹。
+  fileprivate func noteHermesSweepFailed() {
+    hermesCatchUpPending = true
   }
 
   fileprivate func finishPass() {

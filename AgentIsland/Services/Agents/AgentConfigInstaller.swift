@@ -24,8 +24,8 @@
 //  两种写入口径（别混）：
 //    - JSON 事件表（claude / nested / flat / traeIDE / copilot）是**整体重写**：
 //      落盘用 `.prettyPrinted + .sortedKeys`，因此键序与空白会变（内容不变）；
-//    - kimi / traecli / cline 是**行手术**：注释、键序、行尾风格与尾部空白都原样保留，
-//      因此「卸载后逐字节还原」对这三种成立。
+//    - kimi / traecli / hermes / cline 是**行手术**：注释、键序、行尾风格与尾部空白都原样
+//      保留，因此「卸载后逐字节还原」对后几种成立。
 //
 //  存在性闸门：`requiresExistingRoot` 为真时，该工具自己的目录不存在就**跳过**（返回 true）
 //  —— 用户没装这个工具，凭空替他造一个 `~/.gemini/` 是越界。
@@ -82,6 +82,9 @@ nonisolated enum AgentConfigInstaller {
         case .traecli:
             installed = writeTraecliTable(
                 kind: kind, spec: spec, location: location, home: home, interpreter: interpreter)
+        case .hermes:
+            installed = writeHermesTable(
+                kind: kind, spec: spec, location: location, home: home, interpreter: interpreter)
         case .cline:
             installed = writeClineFiles(
                 kind: kind, spec: spec, location: location, home: home, interpreter: interpreter)
@@ -115,6 +118,10 @@ nonisolated enum AgentConfigInstaller {
             removeTextHooks(at: location.configFile) {
                 AgentConfigMerger.removingTraecliHooks(from: $0)
             }
+        case .hermes:
+            removeTextHooks(at: location.configFile) {
+                AgentConfigMerger.removingHermesHooks(from: $0)
+            }
         case .cline:
             removeClineFiles(spec: spec, location: location)
         case .claude, .nested, .flat, .traeIDE, .copilot:
@@ -147,6 +154,9 @@ nonisolated enum AgentConfigInstaller {
         case .traecli:
             guard case let .text(contents) = readText(at: location.configFile) else { return false }
             return AgentConfigMerger.containsTraecliHook(in: contents)
+        case .hermes:
+            guard case let .text(contents) = readText(at: location.configFile) else { return false }
+            return AgentConfigMerger.containsHermesHook(in: contents)
         case .claude, .nested, .flat, .traeIDE, .copilot:
             guard case let .dictionary(root) = loadEventTable(at: location.configFile) else {
                 return false
@@ -191,6 +201,11 @@ nonisolated enum AgentConfigInstaller {
         case .traecli:
             if case let .text(contents) = readText(at: location.configFile),
                AgentConfigMerger.containsTraecliHook(in: contents) {
+                files.append(location.configFile)
+            }
+        case .hermes:
+            if case let .text(contents) = readText(at: location.configFile),
+               AgentConfigMerger.containsHermesHook(in: contents) {
                 files.append(location.configFile)
             }
         case .claude, .nested, .flat, .traeIDE, .copilot:
@@ -336,6 +351,42 @@ nonisolated enum AgentConfigInstaller {
         case .refused(let reason):
             // 行手术保不住这份文件：宁可这次不装，也不写出解析不了的 YAML
             logger.error("traecli.yaml 无法安全行手术（\(reason, privacy: .public)），本次跳过：\(location.configFile.path, privacy: .public)")
+            return false
+        }
+    }
+
+    /// Hermes：`config.yaml` 顶层 `hooks:` 映射里的行内条目（YAML 行手术，注释与键序都留着）。
+    ///
+    /// 命令由写入口补上本事件的事件名（`--event <原生事件名>`）：Hermes 的 hook 载荷自带
+    /// `hook_event_name`，`--event` 只是脚本的第二顺位兜底，但每条事件行写自己的事件名让配置
+    /// 「一行一读就懂」（形状见 `AgentHooks.swift` 的 `.hermes` 与 `mergingHermesHooks`）。
+    ///
+    /// 运维事实（本机实测）：Hermes 的 shell hook 要用户先在
+    /// `~/.hermes/shell-hooks-allowlist.json` 里按 `(event, command)` **精确字符串**授权后才会
+    /// 执行；未授权时非 TTY 路径静默跳过，表现为「装好了却收不到事件」。换脚本（命令字符串变了）
+    /// 之后需要重新授权一次。
+    private static func writeHermesTable(
+        kind: AgentKind,
+        spec: AgentHookSpec,
+        location: Location,
+        home: URL,
+        interpreter: String
+    ) -> Bool {
+        guard let existing = existingText(at: location.configFile, kind: kind) else { return false }
+
+        let outcome = AgentConfigMerger.mergingHermesHooks(
+            into: existing,
+            command: command(
+                kind: kind, format: spec.format, event: nil, home: home, interpreter: interpreter),
+            timeout: spec.events.map(\.timeout).max() ?? 5,
+            events: spec.events.map { (name: $0.name, timeout: $0.timeout) }
+        )
+        switch outcome {
+        case .merged(let text):
+            return write(Data(text.utf8), to: location.configFile)
+        case .refused(let reason):
+            // 行手术保不住这份文件：宁可这次不装，也不写出 Hermes 读不了的 YAML
+            logger.error("Hermes 的 config.yaml 无法安全行手术（\(reason, privacy: .public)），本次跳过：\(location.configFile.path, privacy: .public)")
             return false
         }
     }

@@ -160,6 +160,20 @@ final class AgentProcessScanner: @unchecked Sendable {
       // 这几个 CLI 以真实可执行文件运行，`ps` 的 `comm` 就是它的启动路径：
       // 名字完整时上面的快路径已命中，这里再认「路径里含 /<二进制名>」。
       return command.contains("/\(agent.binaryName)")
+    case .hermes:
+      // **不能**套上面那条通用判据（`command.contains("/hermes")`）：Hermes 的
+      // `hermes` 是 bash 启动器（`~/.local/bin/hermes`，内容只有 `exec
+      // <hermesHome>/hermes-agent/venv/bin/hermes "$@"`），真正长命的进程是它 exec 到的
+      // **Python 控制台脚本**；而它的常驻 gateway
+      // （`…/venv/bin/python -m hermes_cli.main gateway run --replace`）与
+      // `tools/mcp_stdio_watchdog.py` 子进程的路径里同样含 `/hermes` —— 本机实测同一
+      // 时刻有 4 个这样的常驻进程命中。多命中会让发现器的「该 Agent 只有一个进程」条件
+      // 恒不成立（会话拿不到 pid，永不因进程退出回收），更糟的是可能把常驻 pid 当成会话
+      // pid。因此只认「argv 的第二个 token 是 `…/bin/hermes` 控制台脚本」这一形态：
+      // 实测真实进程为 `…/venv/bin/python3 …/venv/bin/hermes --version`（tokens[1] 即脚本
+      // 路径），而 gateway 的 tokens[1] 是 `-m`、看门狗的 tokens[1] 是 `.py` 路径。
+      let tokens = command.split(separator: " ")
+      return tokens.count >= 2 && tokens[1].hasSuffix("/bin/hermes")
     }
   }
 }

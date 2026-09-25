@@ -118,6 +118,8 @@ struct Glyph: View {
             AgentMarkView(geometry: .traeCli, color: color, size: size)
         case .deepSeekHarness:
             AgentMarkView(geometry: .deepSeekHarness, color: color, size: size)
+        case .hermes:
+            AgentMarkView(geometry: .hermes, color: color, size: size)
         }
     }
 }

@@ -6119,6 +6119,23 @@
       },
       "shouldTranslate" : false
     },
+    "Hermes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hermes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hermes"
+          }
+        }
+      },
+      "shouldTranslate" : false
+    },
     "Grok" : {
       "localizations" : {
         "en" : {

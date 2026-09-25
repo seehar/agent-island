@@ -141,8 +141,9 @@ nonisolated enum TranscriptUsageScanner {
         path: url.path, agent: agent, sessionId: sessionId,
         isSubagentFile: components.contains("subagents"))
 
-    case .trae, .traeCli, .deepSeekHarness:
-      // 没有可解析的记录（不落盘 / zstd 压缩），不会出现在扫描源里；
+    case .trae, .traeCli, .deepSeekHarness, .hermes:
+      // 没有可解析的记录（不落盘 / zstd 压缩），不会出现在扫描源里；Hermes 的记录在 SQLite
+      // 里（`~/.hermes/state.db`），它的用量走 `HermesUsageReader` 这条独立路径。
       // 这里只保证 switch 穷举，行为与「按文件名当会话 id」一致。
       return UsageSourceFile(
         path: url.path, agent: agent, sessionId: url.deletingPathExtension().lastPathComponent)
@@ -339,9 +340,9 @@ nonisolated enum TranscriptUsageScanner {
       // 本机 9 个事件文件里没有任何 token 字段（`data` 的键见 CopilotTranscriptSchema），
       // 只统计工具调用。
       return [Array("\"tool.execution_start\"".utf8)]
-    case .opencode, .gemini, .kimi, .cline, .grok, .trae, .traeCli, .deepSeekHarness:
-      // 不产出用量：OpenCode 的历史走 SQLite 的另一条路径；gemini 的 token 字段
-      // 本机无法核对（既不知道字段名，也不知道它是单次增量还是累计值，猜错会把
+    case .opencode, .gemini, .kimi, .cline, .grok, .trae, .traeCli, .deepSeekHarness, .hermes:
+      // 不产出用量：OpenCode 与 Hermes 的历史都走 SQLite 的另一条路径；gemini 的 token
+      // 字段本机无法核对（既不知道字段名，也不知道它是单次增量还是累计值，猜错会把
       // 统计放大若干倍）；kimi / cline / grok 的记录里没有观察到 token 字段。
       return []
     }
@@ -582,9 +583,9 @@ nonisolated enum TranscriptUsageScanner {
       record.tools = [name]
       return record
 
-    case .opencode, .gemini, .kimi, .cline, .grok, .trae, .traeCli, .deepSeekHarness:
-      // 不产出用量，理由见 `markers(for:)`：OpenCode 走 SQLite 路径，gemini 的 token
-      // 字段本机无法核对（字段名与语义都未知），kimi / cline / grok 的记录里没有
+    case .opencode, .gemini, .kimi, .cline, .grok, .trae, .traeCli, .deepSeekHarness, .hermes:
+      // 不产出用量，理由见 `markers(for:)`：OpenCode 与 Hermes 走 SQLite 路径，gemini 的
+      // token 字段本机无法核对（字段名与语义都未知），kimi / cline / grok 的记录里没有
       // token 字段，Trae / Trae CLI / DSH 没有可解析的记录。
       return nil
     }

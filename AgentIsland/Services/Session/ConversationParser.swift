@@ -68,6 +68,7 @@ nonisolated enum AgentTranscriptSchemaRegistry {
         .kimi: KimiTranscriptSchema(),
         .cline: ClineTranscriptSchema(),
         .grok: GrokTranscriptSchema(),
+        .hermes: HermesTranscriptSchema(),
     ]
 
     /// 没有可解析记录的 Agent：Trae 与 Trae CLI 不落盘对话记录，DSH 的记录是

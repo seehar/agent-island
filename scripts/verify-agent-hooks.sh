@@ -2,7 +2,7 @@
 #
 # 隔离环境验证矩阵：`AgentIsland/Resources/agent-island-state.py` 的多来源归一与决定回写。
 #
-# 覆盖 11 个来源，每个来源喂一条**该来源真实形状**的代表性载荷，断言三件事：
+# 覆盖 12 个来源，每个来源喂一条**该来源真实形状**的代表性载荷，断言三件事：
 #   ① 信封关键字段：`agent` / `event` / `status` / `session_id`（外加各来源特有的
 #      cwd / tool / tool_input / session_file）
 #   ② 阻塞事件（PermissionRequest）的 stdout 形状按来源翻译
@@ -805,8 +805,14 @@ FAKE_PID=""
 
 spawn_fake_chain() {
   local fake="$1" source="$2" payload="$3" repeats="$4" out="$5" err="$6"
-  mkdir -p "$FAKE_DIR/bin"
-  ln -sf /bin/sh "$FAKE_DIR/bin/$fake"
+  # 第 7 参：假 CLI 的可执行路径（缺省 `<FAKE_DIR>/bin/<名字>`）。Hermes 要的是
+  # 「安装目录里带 /hermes」的控制台脚本形态（`…/hermes-agent/venv/bin/hermes`），
+  # 用来证明祖先判定走的是**控制台脚本的 basename**，而不是路径子串。
+  local binary="${7:-$FAKE_DIR/bin/$fake}"
+  # 两个目录都要建：假 CLI 可能在别的目录（Hermes 的 `…/venv/bin/`），而 spawn 脚本固定
+  # 在 `$FAKE_DIR` 下。
+  mkdir -p "$(dirname "$binary")" "$(dirname "$FAKE_SPAWN")"
+  ln -sf /bin/sh "$binary"
   {
     printf '#!/bin/sh\n'
     local index
@@ -823,11 +829,11 @@ spawn_fake_chain() {
   env HOME="$HOME_SANDBOX" GROK_HOME="$GROK_HOME" AGENT_ISLAND_SOCKET="$SOCK" \
     AGENT_ISLAND_APPROVAL_TIMEOUT_SECONDS="$APPROVAL_BUDGET" \
     AGENT_ISLAND_ASK_TIMEOUT_SECONDS="$ASK_BUDGET" \
-    "$FAKE_DIR/bin/$fake" "$FAKE_SPAWN" > "$out" 2> "$err" &
+    "$binary" "$FAKE_SPAWN" > "$out" 2> "$err" &
   FAKE_PID=$!
   # 自检：后台 pid 必须真的是那个假 CLI（argv 里带假 CLI 路径），否则断言的前提不成立。
-  if ! ps -o command= -p "$FAKE_PID" 2>/dev/null | grep -qF "$FAKE_DIR/bin/$fake"; then
-    fail "假祖先没起来（pid=${FAKE_PID} 的 argv 里没有 $FAKE_DIR/bin/$fake）"
+  if ! ps -o command= -p "$FAKE_PID" 2>/dev/null | grep -qF "$binary"; then
+    fail "假祖先没起来（pid=${FAKE_PID} 的 argv 里没有 $binary）"
   fi
 }
 
@@ -969,6 +975,108 @@ PY
 }
 
 # ---------------------------------------------------------------------------
+# Hermes：祖先解析的两种进程形态（控制台脚本 vs 常驻 gateway）
+# ---------------------------------------------------------------------------
+
+# Hermes 是本批里唯一「同一个名字同时出现在会话进程与常驻进程路径里」的 CLI：
+#   · 会话进程：bash 启动器 `~/.local/bin/hermes` → `exec <安装目录>/venv/bin/hermes`
+#     （Python 控制台脚本），`ps` 看到的就是 `…/venv/bin/hermes`。
+#   · 常驻 gateway：`<安装目录>/venv/bin/python -m hermes_cli.main gateway run`
+#     （外加 `tools/mcp_stdio_watchdog.py` 子进程），路径里同样含 `/hermes`。
+# 因此 `SOURCE_BINARIES["hermes"]` 只能认「控制台脚本的 basename」，不能按路径子串判：
+# 认成 gateway 的话，会话 pid 会关联到一个永不退出的进程，会话永远不被回收。下面用
+# 两个假进程把这条判据钉住——① 控制台脚本形态**必须**解析出 pid；② gateway 形态**必须不**。
+HERMES_DIR="$ROOT/cases/hermes-ancestry"
+GATEWAY_PID=""
+
+# 假 gateway：`exec -a` 把 argv[0] 换成网关的 python 路径（含 `/hermes-agent`），后面接的
+# 真实参数与线上逐字同形（`-m hermes_cli.main gateway run`）。
+spawn_fake_gateway() {
+  local payload="$1" out="$2" err="$3"
+  mkdir -p "$HERMES_DIR/hermes-agent/venv/bin"
+  {
+    printf '#!/bin/sh\n'
+    printf "sh -c 'python3 \"%s\" --source hermes < \"%s\"; :'\n" "$SCRIPT" "$payload"
+    printf 'sleep 5\n:\n'
+  } > "$HERMES_DIR/gateway-spawn.sh"
+  env HOME="$HOME_SANDBOX" AGENT_ISLAND_SOCKET="$SOCK" \
+    AGENT_ISLAND_APPROVAL_TIMEOUT_SECONDS="$APPROVAL_BUDGET" \
+    AGENT_ISLAND_ASK_TIMEOUT_SECONDS="$ASK_BUDGET" \
+    /bin/sh -c 'exec -a "$0" /bin/sh "$1" -m hermes_cli.main gateway run' \
+    "$HERMES_DIR/hermes-agent/venv/bin/python" "$HERMES_DIR/gateway-spawn.sh" > "$out" 2> "$err" &
+  GATEWAY_PID=$!
+  # 自检：argv 必须真的长成网关的样子，否则这条负控没有前提。
+  if ! ps -o command= -p "$GATEWAY_PID" 2>/dev/null | grep -qF -- "-m hermes_cli.main gateway run"; then
+    fail "假 gateway 没起来（pid=${GATEWAY_PID} 的 argv 里没有 '-m hermes_cli.main gateway run'）"
+  fi
+}
+
+stop_fake_gateway() {
+  if [ -n "$GATEWAY_PID" ]; then kill "$GATEWAY_PID" 2>/dev/null; fi
+  GATEWAY_PID=""
+}
+
+run_hermes_ancestry_case() {
+  mkdir -p "$ROOT/cases"
+  printf '%s\n' 'silence' > "$MODE_FILE"
+  log "=== case=hermes-ancestry（控制台脚本形态 → 解析出 pid；gateway 形态 → 不解析）"
+
+  # ① 控制台脚本形态。载荷**不带 session_id**：兜底 id 里的 pid 就是祖先解析的结果，
+  #    一条断言同时钉住「报的 pid」与「兜底 id 用的 pid」。
+  local dir="$HERMES_DIR/console-script"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  printf '%s' '{"hook_event_name":"post_tool_call","cwd":"/tmp/hermes","tool_name":"bash","tool_input":{"command":"ls"}}' \
+    > "$dir/payload.json"
+  local before
+  before="$(count_log)"
+  spawn_fake_chain hermes hermes "$dir/payload.json" 1 "$dir/out.txt" "$dir/err.txt" \
+    "$HERMES_DIR/hermes-agent/venv/bin/hermes"
+  local fake_hermes_pid="$FAKE_PID"
+  wait_for_envelopes "$before" 1
+  sed -n "$((before + 1)),\$p" "$LOG" > "$dir/envelopes.jsonl" 2>/dev/null || true
+
+  log "    ---- 信封（假 Hermes 控制台脚本 pid=${fake_hermes_pid}）----"
+  sed 's/^/    /' "$dir/envelopes.jsonl"
+  assert_contains "$dir/envelopes.jsonl" '"agent": "hermes"' "hermes-ancestry(console-script) 事件上报"
+  assert_pid "$dir/envelopes.jsonl" hermes "equals:${fake_hermes_pid}" "hermes-ancestry(console-script)"
+  assert_contains "$dir/envelopes.jsonl" "\"session_id\": \"hermes-ppid-${fake_hermes_pid}\"" \
+    "hermes-ancestry(console-script) 兜底 session_id 用解析出的 pid"
+  stop_fake_chain
+  if [ -s "$dir/err.txt" ]; then
+    fail "hermes-ancestry(console-script)：stderr 有输出「$(head -c 200 "$dir/err.txt")」"
+  else
+    pass "hermes-ancestry(console-script)：stderr 为空"
+  fi
+
+  # ② gateway 形态：链上有网关（路径含 `/hermes-agent`），但它**不是**会话进程。
+  dir="$HERMES_DIR/gateway"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  printf '%s' '{"hook_event_name":"post_tool_call","cwd":"/tmp/hermes","tool_name":"bash","tool_input":{"command":"ls"}}' \
+    > "$dir/payload.json"
+  before="$(count_log)"
+  spawn_fake_gateway "$dir/payload.json" "$dir/gateway.out" "$dir/gateway.err"
+  local gateway_pid="$GATEWAY_PID"
+  wait_for_envelopes "$before" 1
+  sed -n "$((before + 1)),\$p" "$LOG" > "$dir/envelopes.jsonl" 2>/dev/null || true
+
+  log "    ---- 信封（假 Hermes gateway pid=${gateway_pid}）----"
+  sed 's/^/    /' "$dir/envelopes.jsonl"
+  assert_contains "$dir/envelopes.jsonl" '"agent": "hermes"' "hermes-ancestry(gateway) 事件仍上报"
+  assert_pid "$dir/envelopes.jsonl" hermes absent "hermes-ancestry(gateway)"
+  assert_absent "$dir/envelopes.jsonl" "\"pid\": ${gateway_pid}" "hermes-ancestry(gateway) 不把常驻 gateway 当会话进程"
+  assert_contains "$dir/envelopes.jsonl" '"session_id": "hermes-ppid-' "hermes-ancestry(gateway) 兜底 id 形状不变"
+  stop_fake_gateway
+  if [ -s "$dir/gateway.err" ]; then
+    fail "hermes-ancestry(gateway)：gateway 的 stderr 有输出「$(head -c 200 "$dir/gateway.err")」"
+  else
+    pass "hermes-ancestry(gateway)：gateway 的 stderr 为空"
+  fi
+  log ""
+}
+
+# ---------------------------------------------------------------------------
 # Grok 运行时的重复投递去重（Grok 会导入 claude / cursor 的 hooks）
 # ---------------------------------------------------------------------------
 
@@ -1099,6 +1207,59 @@ run_socket_absent_case() {
     fail "socket-absent：脚本不该创建 socket 文件"
   else
     pass "socket-absent：脚本没有创建 socket 文件"
+  fi
+  log ""
+}
+
+# Hermes 的降级面：畸形 stdin 与连不上应用都不得写 stdout、不得非 0 退出（工具侧会把非 0
+# 记成 hook 失败，而 Hermes 的 hook 是 shell hook，失败会让工具自己打印告警）。
+run_hermes_degraded_case() {
+  local dir="$ROOT/cases/hermes-degraded"
+  local missing="$ROOT/absent-hermes.sock"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  rm -f "$missing"
+  printf '%s\n' 'silence' > "$MODE_FILE"
+  log "=== case=hermes-degraded（畸形 stdin + socket 不可达，来源 hermes）"
+
+  # ① 畸形 stdin：契约仍是「按 `<source>-ppid-<pid>` 兜底会话 id 照常上报」。
+  local before after
+  before="$(count_log)"
+  printf '%s' '{not json' | hook_env python3 "$SCRIPT" --source hermes \
+    > "$dir/malformed.out" 2> "$dir/malformed.err"
+  local code=$?
+  after="$(count_log)"
+  sed -n "$((before + 1)),$((after))p" "$LOG" > "$dir/malformed.jsonl" 2>/dev/null || true
+  assert_exit_zero "$code" "hermes-degraded(malformed) 退出码"
+  assert_empty "$dir/malformed.out" "hermes-degraded(malformed) 不写 stdout"
+  assert_contains "$dir/malformed.jsonl" '"agent": "hermes"' "hermes-degraded(malformed) 归属仍是 hermes"
+  assert_contains "$dir/malformed.jsonl" '"session_id": "hermes-ppid-' "hermes-degraded(malformed) 兜底会话 id"
+  if [ -s "$dir/malformed.err" ]; then
+    fail "hermes-degraded(malformed)：stderr 有输出「$(head -c 200 "$dir/malformed.err")」"
+  else
+    pass "hermes-degraded(malformed)：stderr 为空"
+  fi
+
+  # ② socket 不可达：不写 stdout、不卡住、不创建 socket 文件（与其它来源同一条路径）。
+  local start end
+  start="$(python3 -c 'import time; print(time.time())')"
+  printf '%s' '{"hook_event_name":"post_tool_call","session_id":"hermes-absent","cwd":"/tmp/hermes","tool_name":"bash","tool_input":{"command":"ls"}}' \
+    | env AGENT_ISLAND_SOCKET="$missing" python3 "$SCRIPT" --source hermes \
+      > "$dir/absent.out" 2> "$dir/absent.err"
+  code=$?
+  end="$(python3 -c 'import time; print(time.time())')"
+  assert_exit_zero "$code" "hermes-degraded(socket-absent) 退出码"
+  assert_empty "$dir/absent.out" "hermes-degraded(socket-absent) 不写 stdout"
+  assert_faster_than "$(python3 -c "print($end - $start)")" "$FAST_LIMIT" "hermes-degraded(socket-absent) 不卡住"
+  if [ -e "$missing" ]; then
+    fail "hermes-degraded(socket-absent)：脚本不该创建 socket 文件"
+  else
+    pass "hermes-degraded(socket-absent)：脚本没有创建 socket 文件"
+  fi
+  if [ -s "$dir/absent.err" ]; then
+    fail "hermes-degraded(socket-absent)：stderr 有输出「$(head -c 200 "$dir/absent.err")」"
+  else
+    pass "hermes-degraded(socket-absent)：stderr 为空"
   fi
   log ""
 }
@@ -1244,6 +1405,34 @@ run_cases_one() {
         '"session_id": "traecli-2"'
       ;;
 
+    # Hermes（Nous Research）：snake_case 事件名，stdin 自带 hook_event_name；只上报状态
+    # （其 pre_tool_call 只有否决通道，本应用不做假审批，因此没有阻塞事件）。
+    hermes-post-tool)
+      run_case hermes-post-tool hermes - silence empty \
+        '{"hook_event_name":"post_tool_call","session_id":"hermes-1","cwd":"/tmp/hermes","tool_name":"bash","tool_input":{"command":"ls -la"}}' \
+        '"agent": "hermes"' '"event": "PostToolUse"' '"status": "processing"' \
+        '"session_id": "hermes-1"' '"tool": "bash"' '"tool_input": {"command": "ls -la"}'
+      assert_absent "$ROOT/cases/hermes-post-tool/envelopes.jsonl" '"expects_response"' 'hermes 非阻塞事件不等决定'
+      ;;
+
+    # 会话起止：on_session_start → SessionStart（on_session_end / on_session_reset 一律折
+    # 到 SessionEnd）。后三个事件名取自本仓归一表——CodeIsland 的 v1 事件表只注册 6 个。
+    hermes-session-start)
+      run_case hermes-session-start hermes - silence empty \
+        '{"hook_event_name":"on_session_start","session_id":"hermes-2","cwd":"/tmp/hermes"}' \
+        '"agent": "hermes"' '"event": "SessionStart"' '"status": "waiting_for_input"' \
+        '"session_id": "hermes-2"'
+      ;;
+
+    # pre_llm_call → UserPromptSubmit（上游 CodeIsland 把它折到 AgentTurnSettled，本应用
+    # 的词汇表里没有这个名字，按语义折到最接近的「一轮开始」事件）。
+    hermes-pre-llm-call)
+      run_case hermes-pre-llm-call hermes - silence empty \
+        '{"hook_event_name":"pre_llm_call","session_id":"hermes-3","cwd":"/tmp/hermes"}' \
+        '"agent": "hermes"' '"event": "UserPromptSubmit"' '"status": "processing"' \
+        '"session_id": "hermes-3"'
+      ;;
+
     # 应用回 passthrough（例如该 Agent 已被用户关闭）：脚本不输出任何东西，回落原生审批
     claude-passthrough)
       run_case claude-passthrough claude - passthrough empty \
@@ -1275,6 +1464,7 @@ ALL_CASES=(claude-default claude-permission-allow claude-permission-deny qoder-p
   cline-pretool cline-suppressed fake-ancestor no-ancestor grok-runtime-dedup grok-stop-failure
   grok-workspace-env trae-shell
   traecli-permission traecli-permission-event-flag
+  hermes-post-tool hermes-session-start hermes-pre-llm-call hermes-ancestry hermes-degraded
   claude-ask-answer claude-passthrough
   legacy-equivalence socket-absent malformed-stdin timeout-negative)
 
@@ -1309,6 +1499,8 @@ for name in "${selected[@]}"; do
     grok-runtime-dedup) run_grok_dedup_case ;;
     fake-ancestor)      run_fake_ancestor_case ;;
     no-ancestor)        run_no_ancestor_case ;;
+    hermes-ancestry)    run_hermes_ancestry_case ;;
+    hermes-degraded)    run_hermes_degraded_case ;;
     *)                  run_cases_one "$name" ;;
   esac
   ran=$((ran + 1))

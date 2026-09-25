@@ -9,7 +9,7 @@ AgentIsland Hook（多来源）
 对象。`--source` 缺省 `claude`：已安装的老 hook 配置是 `python3 <path>`（不带任何参数），
 那条路径必须与改造前逐字一致。来源取值与 `AgentKind.rawValue` 相同（claude / omp / pi /
 opencode / codex / gemini / cursor / copilot / qoder / droid / codebuddy / kimi / cline /
-grok / trae / traecli）；本脚本只服务「配置文件型」来源，omp/pi/opencode 走各自的扩展与插件。
+grok / trae / traecli / hermes）；本脚本只服务「配置文件型」来源，omp/pi/opencode 走各自的扩展与插件。
 
 归一表（原生事件名 → 应用侧事件名）拷贝自 CodeIsland 的
 `Sources/CodeIslandCore/EventNormalizer.swift`，字段别名拷贝自它的
@@ -227,6 +227,15 @@ SOURCE_BINARIES = {
     "trae": ("coco",),
     "traecli": ("traecli",),
     "dsh": ("dsh",),
+    # Hermes：CLI 是 bash 启动器 `~/.local/bin/hermes` → `exec <安装目录>/venv/bin/hermes`
+    # （Python 控制台脚本），真名只在 argv 里。**只认控制台脚本这一个名字**：它的常驻
+    # gateway（`…/venv/bin/python -m hermes_cli.main gateway run`）与
+    # `tools/mcp_stdio_watchdog.py` 子进程的路径里同样含 `/hermes`（安装目录叫
+    # hermes-agent），按路径子串判定会把它们当成会话进程——会话 pid 关联到常驻进程就
+    # 永远不会因进程退出而回收。两种形态在 argv 上天然可分：控制台脚本形态的 argv 里有
+    # 一个 `…/venv/bin/hermes`；网关形态是 `-m hermes_cli.main`（`-m` 被跳过、
+    # `hermes_cli.main` 是裸词且不是 argv[0]，两条都不命中）。
+    "hermes": ("hermes",),
 }
 # 祖先链向上最多走几层。
 ANCESTRY_LIMIT = 8

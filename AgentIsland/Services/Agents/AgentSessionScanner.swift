@@ -314,6 +314,8 @@ enum AgentDiscoverySources {
       return ClineAgentProvider()
     case .grok:
       return GrokAgentProvider()
+    case .hermes:
+      return HermesSessionDiscovery()
     case .trae, .traeCli, .deepSeekHarness:
       // 没有可解析的磁盘记录：会话只能由实时事件建立（进程扫描仍然生效）。
       return nil

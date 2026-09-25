@@ -57,6 +57,9 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
     case traeCli = "traecli"
     /// DeepSeek Harness（`dsh`；插件运行时，事件由外部 dsh 插件直接写 socket）。
     case deepSeekHarness = "dsh"
+    /// Hermes Agent（Nous Research，`hermes`）：hook 写在 `~/.hermes/config.yaml`
+    /// 的 `hooks:` 映射里；会话记录不在文件树而在 SQLite（`~/.hermes/state.db`）。
+    case hermes = "hermes"
 
     var id: String { rawValue }
 
@@ -82,6 +85,7 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
         case .trae: return LocalizationManager.t("Trae")
         case .traeCli: return LocalizationManager.t("Trae CLI")
         case .deepSeekHarness: return LocalizationManager.t("DeepSeek Harness")
+        case .hermes: return LocalizationManager.t("Hermes")
         }
     }
 
@@ -105,6 +109,7 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
         case .trae: return LocalizationManager.t("Trae")
         case .traeCli: return LocalizationManager.t("Trae CLI")
         case .deepSeekHarness: return LocalizationManager.t("DSH")
+        case .hermes: return LocalizationManager.t("Hermes")
         }
     }
 
@@ -128,6 +133,7 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
         case .trae: return "coco"
         case .traeCli: return "traecli"
         case .deepSeekHarness: return "dsh"
+        case .hermes: return "hermes"
         }
     }
 
@@ -139,7 +145,13 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
     /// omp/pi 的闸门扩展、opencode 的插件、Gemini 的 `BeforeTool`、Codex 的
     /// `PermissionRequest`、TraeCli 的 `permission_request`。其余工具的事件表里
     /// 没有可回写决定的审批事件（Cursor / Copilot / Trae / Cline / Kimi / Factory /
-    /// CodeBuddy / Grok / DSH），刘海只显示状态。
+    /// CodeBuddy / Grok / DSH / Hermes），刘海只显示状态。
+    ///
+    /// Hermes 的 `pre_tool_call` 只有**否决**通道（回 `{"decision":"block"}` 即拒绝，
+    /// 放行等于什么都不输出，见其 `agent/shell_hooks.py`），没有「批准并代为执行」的
+    /// 契约；它的原生审批走 `pre_approval_request`（只是可观测事件，无回写语义），
+    /// 且 shell hook 还要用户先在 `~/.hermes/shell-hooks-allowlist.json` 授权。
+    /// 因此 v1 只上报状态（与 CodeIsland 的同期口径一致），不做假审批。
     var approval: ApprovalCapability {
         switch self {
         case .claudeCode, .qoder, .gemini, .codex, .traeCli:
@@ -150,7 +162,7 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
             return .init(
                 canDecideRemotely: true, waitsForDecision: true, requestEvent: "ToolApproval")
         case .factory, .codeBuddy, .cursor, .copilot, .kimi, .cline, .grok, .trae,
-            .deepSeekHarness:
+            .deepSeekHarness, .hermes:
             return .init(
                 canDecideRemotely: false, waitsForDecision: false, requestEvent: "")
         }
@@ -186,6 +198,9 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
         if isClaudeFamily { return ["Agent", "Task"] }
         switch self {
         case .ohMyPi, .pi, .opencode: return ["task"]
+        // Hermes 的派生工具是 `delegate_task`（`tools/delegate_tool.py` 的注册名，
+        // 上游注释亦称其子会话为「delegate_task subagent」）；名称与其它 Agent 不冲突。
+        case .hermes: return ["delegate_task"]
         default: return []
         }
     }

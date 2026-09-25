@@ -31,6 +31,11 @@ nonisolated enum AgentHookFormat: String, Sendable {
     case kimi
     /// Cline：`~/Documents/Cline/Hooks/<EventName>` 一个事件一个可执行文件。
     case cline
+    /// Hermes（Nous Research）：`config.yaml`（`$HERMES_HOME`，缺省 `~/.hermes`）的顶层
+    /// `hooks:` 是一个**映射**（snake_case 事件名 → 条目列表），每个条目 `{command, timeout}`，
+    /// `timeout` 的单位是**秒**（Hermes 缺省 60、上限 300）。**不是** Claude fork：
+    /// 事件名与 hook 载荷都自成一系（归一表见 `Resources/agent-island-state.py` 的 Hermes 段）。
+    case hermes
 }
 
 /// 回写决定的协议：应用只回 `{"decision":"allow"|"deny"}`，各工具的 stdout 形状由
@@ -275,6 +280,41 @@ nonisolated extension AgentKind {
                 ],
                 verdict: .claudeEnvelope
             )
+        case .hermes:
+            // Hermes（Nous Research）：`config.yaml` 的顶层 `hooks:` 是**映射**（事件名 →
+            // 条目列表），条目 `{command, timeout}` 里 timeout 的单位是秒。配置根走
+            // `HERMES_HOME`（未设时 `~/.hermes`），与读会话记录那一侧同一个根 —— 写在这、
+            // 读在那会让「装了集成却看不见会话」。
+            //
+            // 事件表取自 CodeIsland 的 `defaultEvents(for: .hermes)`
+            // （ConfigInstaller.swift:729-746），并补上本仓归一表已支持的 `pre_llm_call`
+            // （提示词提交）与 `on_session_reset`（等价会话结束，见 EVENT_ALIASES 的 Hermes
+            // 段）；**不注册** `pre_approval_request` —— 它是可观测事件，没有回写决定的契约
+            // （Hermes 的否决只能经由 `pre_tool_call` 回 `{"decision":"block"}`），
+            // 因此对 Hermes 只上报状态（`verdict: .none`），不做假审批。
+            //
+            // 运维事实（本机实测）：Hermes 的 shell hook 要用户先在
+            // `~/.hermes/shell-hooks-allowlist.json` 里按 `(event, command)` **精确字符串**
+            // 授权后才会执行；未授权时非 TTY 路径静默跳过，表现为「配置里装好了、却收不到
+            // 任何事件」——本机现有授权全是 CodeIsland bridge 的命令，换成我们的脚本后要
+            // 重新授权一次。
+            return AgentHookSpec(
+                format: .hermes,
+                configPath: "config.yaml",
+                rootEnvVar: "HERMES_HOME",
+                configKey: "hooks",
+                events: [
+                    AgentHookEvent("pre_tool_call", 5),
+                    AgentHookEvent("post_tool_call", 5),
+                    AgentHookEvent("pre_llm_call", 5),
+                    AgentHookEvent("post_llm_call", 5),
+                    AgentHookEvent("on_session_start", 5),
+                    AgentHookEvent("on_session_end", 5),
+                    AgentHookEvent("on_session_reset", 5),
+                    AgentHookEvent("subagent_stop", 5),
+                ],
+                verdict: .none
+            )
         }
     }
 
@@ -366,7 +406,7 @@ nonisolated extension AgentKind {
 /// 上报脚本在机器上的唯一落点。
 ///
 /// 所有「配置文件型」Agent（Claude 系、Codex、Gemini、Cursor、Copilot、Kimi、
-/// Cline、Grok、Trae、TraeCli）都引用**同一个**脚本文件：一份实现、一处升级，
+/// Cline、Grok、Trae、TraeCli、Hermes）都引用**同一个**脚本文件：一份实现、一处升级，
 /// 不会出现两份副本各自漂移。Claude 原先装在 `~/.claude/hooks/`，那条路径已废弃
 /// （`HookInstaller` 会在安装时清理旧副本）。
 nonisolated enum AgentHookScript {

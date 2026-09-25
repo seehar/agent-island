@@ -1060,6 +1060,33 @@ struct AgentProcessMatchTests {
     }
   }
 
+  @Test("Hermes 只认 venv 里的控制台脚本，不认常驻 gateway / 看门狗")
+  func hermesMatchesOnlyConsoleScript() {
+    // 真实形态（本机实测）：启动器 `~/.local/bin/hermes` 只做 exec，活着的是解释器 +
+    // `<hermesHome>/hermes-agent/venv/bin/hermes` 控制台脚本。
+    let hits = [
+      "/Users/tester/.hermes/hermes-agent/venv/bin/python3 /Users/tester/.hermes/hermes-agent/venv/bin/hermes --version",
+      "/Users/tester/.hermes/hermes-agent/venv/bin/python3 /Users/tester/.hermes/hermes-agent/venv/bin/hermes chat",
+      "/Users/tester/.local/bin/hermes",  // 直接执行控制台脚本时 comm 就是它（快路径）
+    ]
+    for command in hits {
+      #expect(hit(.hermes, command), "\(command) 应命中 Hermes")
+    }
+
+    // 常驻进程一条都不许认：多一个命中就让「唯一进程」恒不成立，会话再也拿不到 pid。
+    let misses = [
+      // gateway 常驻守护（路径里含 /hermes-agent/，tokens[1] 是 `-m`）
+      "/Users/tester/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main gateway run --replace",
+      // MCP 看门狗子进程（tokens[1] 是 tools 下的 .py）
+      "/Users/tester/.hermes/hermes-agent/venv/bin/python /Users/tester/.hermes/hermes-agent/tools/mcp_stdio_watchdog.py --ppid 89694",
+      // 只是路径里恰好含 hermes 的其它进程
+      "/usr/bin/python3 /Users/tester/.hermes/hermes-agent/run_agent.py",
+    ]
+    for command in misses {
+      #expect(!hit(.hermes, command), "\(command) 不应命中 Hermes")
+    }
+  }
+
   @Test("Trae 不误命中别的 Agent 与辅助进程")
   func traeDoesNotOverreach() {
     let misses = [
