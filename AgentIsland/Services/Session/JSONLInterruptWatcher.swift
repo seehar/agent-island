@@ -47,8 +47,10 @@ class JSONLInterruptWatcher {
             .transcriptFile(sessionId: key.sessionId, cwd: cwd)?
             .path
         self.filePath = resolved ?? ""
-        if resolved == nil {
-            // 记录路径推不出来：监听建立不起来，中断只能靠 hook 上报兜底。
+        if self.filePath.isEmpty {
+            // 记录路径推不出来（provider 明说没有文件型记录，或调用方递了空串）：监听建立
+            // 不起来，中断只能靠 hook 上报兜底。Hermes / OpenCode 这类记录不在文件树的
+            // Agent 每次进入处理态都会走到这里，因此只留带会话键的 debug，不再刷 E 级日志。
             logger.debug(
                 "无法定位会话记录文件，中断监听未建立：\(key.rawValue, privacy: .public)")
         }
@@ -66,10 +68,14 @@ class JSONLInterruptWatcher {
         // 换了新句柄，读取失败可以再报一次。
         didReportReadFailure = false
 
+        // 记录不在文件树里的 Agent（Hermes / OpenCode）本来就没有可监听的路径：监听建立
+        // 不起来是设计使然，不是故障。`init` 已留下带会话键的 debug 说明，这里静默返回 ——
+        // 否则每个这类会话进入处理态都会误报一条 E 级日志（`Logger.warning` 落 error 级）。
+        guard !filePath.isEmpty else { return }
+
         guard FileManager.default.fileExists(atPath: filePath),
               let handle = FileHandle(forReadingAtPath: filePath) else {
-            let path = filePath.isEmpty ? "（未解析出记录路径）" : filePath
-            logger.warning("无法打开会话记录，中断监听未建立：\(path, privacy: .public)")
+            logger.warning("无法打开会话记录，中断监听未建立：\(self.filePath, privacy: .public)")
             return
         }
 
