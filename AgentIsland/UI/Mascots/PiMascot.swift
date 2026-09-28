@@ -2,8 +2,10 @@
 //  PiMascot.swift
 //  AgentIsland
 //
-//  Pi / Oh My Pi 的像素角色：一台深青绿的小终端，屏幕上是一枚像素 π（π 的左右两竖就是
-//  它的眼睛），头顶顶着一片青色的叶子。
+//  Pi / Oh My Pi 的像素角色：一台小终端，屏幕上是一枚像素 π（π 的左右两竖就是它的眼睛），
+//  头顶顶着一片青色的叶子。**Pi 与 Oh My Pi 共用这一份画法、配色是入参**（`Palette`）：
+//  Pi 是它自己的深青绿，Oh My Pi 是 omp.sh 图标渐变里的紫（与 `AgentPalette` 的
+//  `brandColor` 同色）。
 //    · 空闲：坐在地上打盹——两个互不整除的漂移周期把机身托起又放下，眼睛每 4 秒眯一下，
 //      头顶飘三个 Z；
 //    · 处理中：坐在键盘前打字——机身随按键起伏，键帽上有一格在亮，眼睛叠自然眨眼；
@@ -25,15 +27,47 @@ struct PiMascot: View {
     let t: CGFloat
     var size: CGFloat = 27
 
-    /// 深青绿外壳 + 亮青叶面：不像「常见的绿色 CLI」，但一眼认得出是 Pi。
-    private static let shellC = Color(red: 0.14, green: 0.49, blue: 0.53)
-    private static let shellDk = Color(red: 0.09, green: 0.30, blue: 0.34)
-    private static let leafC = Color(red: 0.44, green: 0.90, blue: 0.95)
-    private static let faceC = Color(red: 0.05, green: 0.12, blue: 0.13)
-    private static let alertC = Color(red: 1.0, green: 0.35, blue: 0.14)
-    private static let kbBase = Color(red: 0.08, green: 0.13, blue: 0.16)
-    private static let kbKey = Color(red: 0.13, green: 0.23, blue: 0.27)
-    private static let kbHi = Color(red: 0.72, green: 0.96, blue: 1.0)
+    /// 一台终端角色的配色：外壳 / 暗档 / 叶面 / 脸 / 键盘三档 / 警报色。
+    ///
+    /// Pi 与 Oh My Pi 共用同一份**画法**（上游 CodeIsland 也是一枚 `PiView`），但品牌色不同，
+    /// 所以配色做成入参——同一张画法抄两遍只会让两边慢慢漂移。
+    struct Palette {
+        let shell: Color
+        let shellDark: Color
+        let leaf: Color
+        let face: Color
+        let keyboardBase: Color
+        let keyboardKey: Color
+        let keyboardFlash: Color
+
+        /// 警报色：状态色（待审批的瞪眼与惊叹号），与品牌无关，两套配色共用。
+        static let alert = Color(red: 1.0, green: 0.35, blue: 0.14)
+
+        /// Pi：上游 `PiView.swift` 的配色逐值保留（深青绿外壳 + 亮青叶面）。
+        static let pi = Palette(
+            shell: Color(red: 0.14, green: 0.49, blue: 0.53),
+            shellDark: Color(red: 0.09, green: 0.30, blue: 0.34),
+            leaf: Color(red: 0.44, green: 0.90, blue: 0.95),
+            face: Color(red: 0.05, green: 0.12, blue: 0.13),
+            keyboardBase: Color(red: 0.08, green: 0.13, blue: 0.16),
+            keyboardKey: Color(red: 0.13, green: 0.23, blue: 0.27),
+            keyboardFlash: Color(red: 0.72, green: 0.96, blue: 1.0))
+
+        /// Oh My Pi：外壳取品牌主色 **#9B4DFF**（`AgentPalette` 的 omp 档，也是刘海计数徽标
+        /// 用的那个色），叶面取同一条渐变里的青端 **#5AD8E6**（omp.sh 图标是
+        /// #ED4ABF → #9B4DFF → #5AD8E6），暗档与键盘按外壳压暗——三档仍读得出是同一台机器。
+        static let ohMyPi = Palette(
+            shell: Color(mascotHex: 0x9B4DFF),
+            shellDark: Color(mascotHex: 0x5C2E9E),
+            leaf: Color(mascotHex: 0x5AD8E6),
+            face: Color(mascotHex: 0x140D24),
+            keyboardBase: Color(mascotHex: 0x1A1229),
+            keyboardKey: Color(mascotHex: 0x332652),
+            keyboardFlash: Color(mascotHex: 0xD1B8FF))
+    }
+
+    /// 这一枚用哪套配色：默认 Pi 的那一套，`AgentMascot` 给 omp 传 `.ohMyPi`。
+    var palette: Palette = .pi
 
     /// 起跳截顶的入参（`MascotMotion.alertRiseFactor`）：`drawAlert` 的 `rise` 与单测的
     /// 断言都从这里取，改这组数字会被 `AgentMascotRenderTests` 当场抓到。
@@ -70,19 +104,19 @@ struct PiMascot: View {
         let footDy = dy * 0.25
         context.fill(
             Path(sprite.r(5.5, 13.8, 1.2, 1.5, dy: footDy)),
-            with: .color(Self.shellDk.opacity(0.75)))
+            with: .color(palette.shellDark.opacity(0.75)))
         context.fill(
             Path(sprite.r(9.3, 13.8, 1.2, 1.5, dy: footDy)),
-            with: .color(Self.shellDk.opacity(0.75)))
+            with: .color(palette.shellDark.opacity(0.75)))
     }
 
     /// 头顶的两片叶子（先后插在机身上）+ 中间的叶柄。
     private func drawLeaf(_ context: inout GraphicsContext, _ sprite: MascotSprite, dy: CGFloat) {
         context.fill(
-            Path(ellipseIn: sprite.r(5.7, 2.2, 2.2, 1.3, dy: dy)), with: .color(Self.leafC))
+            Path(ellipseIn: sprite.r(5.7, 2.2, 2.2, 1.3, dy: dy)), with: .color(palette.leaf))
         context.fill(
-            Path(ellipseIn: sprite.r(8.0, 1.8, 2.6, 1.5, dy: dy)), with: .color(Self.leafC))
-        context.fill(Path(sprite.r(7.8, 2.8, 0.4, 1.0, dy: dy)), with: .color(Self.shellDk))
+            Path(ellipseIn: sprite.r(8.0, 1.8, 2.6, 1.5, dy: dy)), with: .color(palette.leaf))
+        context.fill(Path(sprite.r(7.8, 2.8, 0.4, 1.0, dy: dy)), with: .color(palette.shellDark))
     }
 
     /// 机身：一块圆角终端（`scale` 用于打盹时压得矮一点），顶上一道高光、底下一道暗边。
@@ -97,22 +131,23 @@ struct PiMascot: View {
         let bodyRect = sprite.r(cx - bw / 2, cy - bh / 2, bw, bh, dy: dy)
         context.fill(
             Path(roundedRect: bodyRect, cornerRadius: 1.6 * sprite.block),
-            with: .color(Self.shellC))
+            with: .color(palette.shell))
         context.fill(
             Path(sprite.r(cx - bw / 2 + 0.6, cy - bh / 2 + 0.6, bw - 1.2, 0.7, dy: dy)),
             with: .color(.white.opacity(0.18)))
         context.fill(
             Path(sprite.r(cx - bw / 2, cy + bh / 2 - 1.2, bw, 1.2, dy: dy)),
-            with: .color(Self.shellDk.opacity(0.8)))
+            with: .color(palette.shellDark.opacity(0.8)))
         drawLeaf(&context, sprite, dy: dy)
     }
 
     /// 像素 π 脸：左右两竖是眼睛（`eyeScale` 是睁眼程度），上面一横、下面两竖是 π 的字形。
     private func drawPiFace(
         _ context: inout GraphicsContext, _ sprite: MascotSprite, dy: CGFloat,
-        eyeScale: CGFloat = 1.0, color: Color = Self.faceC
+        eyeScale: CGFloat = 1.0, color: Color? = nil
     ) {
         let eyeH = max(0.2, 1.0 * eyeScale)
+        let color = color ?? palette.face
         context.fill(
             Path(sprite.r(5.4, 8.0 + (1 - eyeH) * 0.3, 1.3, eyeH, dy: dy)), with: .color(color))
         context.fill(
@@ -165,13 +200,13 @@ struct PiMascot: View {
         drawFeet(&context, sprite, dy: bounce)
 
         // 键盘 + 两行 × 六列键帽
-        context.fill(Path(sprite.r(0, 13, 15, 3)), with: .color(Self.kbBase))
+        context.fill(Path(sprite.r(0, 13, 15, 3)), with: .color(palette.keyboardBase))
         for row in 0..<2 {
             let keyY = 13.45 + CGFloat(row) * 1.15
             for column in 0..<6 {
                 context.fill(
                     Path(sprite.r(0.5 + CGFloat(column) * 2.4, keyY, 1.8, 0.68)),
-                    with: .color(Self.kbKey))
+                    with: .color(palette.keyboardKey))
             }
         }
         // 亮着的那一格：位置随 0.1 秒的节拍在 6 格里轮换（确定性）。
@@ -180,7 +215,7 @@ struct PiMascot: View {
                 sprite.r(
                     0.5 + CGFloat(keyPhase % 6) * 2.4, 13.45 + CGFloat(keyPhase / 3) * 1.15, 1.8,
                     0.68)),
-            with: .color(Self.kbHi.opacity(0.95)))
+            with: .color(palette.keyboardFlash.opacity(0.95)))
 
         drawBody(&context, sprite, dy: bounce)
         drawPiFace(&context, sprite, dy: bounce, eyeScale: blink)
@@ -194,8 +229,8 @@ struct PiMascot: View {
             // （20fps 下模糊的离屏渲染太贵），强度是 `t` 的纯函数。
             RadialGradient(
                 colors: [
-                    Self.alertC.opacity(0.05 + 0.07 * (0.5 + 0.5 * sin(t * 2 * .pi / 1.0))),
-                    Self.alertC.opacity(0),
+                    Palette.alert.opacity(0.05 + 0.07 * (0.5 + 0.5 * sin(t * 2 * .pi / 1.0))),
+                    Palette.alert.opacity(0),
                 ],
                 center: .center,
                 startRadius: 0,
@@ -236,7 +271,7 @@ struct PiMascot: View {
             ], at: pct)
 
         // 惊叹号亮着的时候 π 脸转成警报橙（在喊你，不是平常的样子）。
-        let faceColor = bangOpacity > 0.4 ? Self.alertC : Self.faceC
+        let faceColor = bangOpacity > 0.4 ? Palette.alert : palette.face
 
         // 影子：跳得越高越窄越淡，但**留在原地**。
         drawShadow(
@@ -254,10 +289,10 @@ struct PiMascot: View {
         if bangOpacity > 0.01 {
             context.fill(
                 Path(sprite.r(12.8, 4 + rise * 0.15, 1.8, 3.4)),
-                with: .color(Self.alertC.opacity(bangOpacity)))
+                with: .color(Palette.alert.opacity(bangOpacity)))
             context.fill(
                 Path(sprite.r(12.8, 8.1 + rise * 0.15, 1.8, 1.3)),
-                with: .color(Self.alertC.opacity(bangOpacity)))
+                with: .color(Palette.alert.opacity(bangOpacity)))
         }
     }
 }

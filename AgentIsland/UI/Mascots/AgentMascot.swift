@@ -135,7 +135,8 @@ private struct AgentMascotFrames: View {
         case .claudeCode:
             ClaudeMascot(status: status, t: t, size: size)
         case .ohMyPi:
-            PiMascot(status: status, t: t, size: size)
+            // 与 Pi 共用同一份画法，但配色是 omp 的品牌紫（`Palette.ohMyPi`）。
+            PiMascot(status: status, t: t, size: size, palette: .ohMyPi)
         case .pi:
             PiMascot(status: status, t: t, size: size)
         case .opencode:
