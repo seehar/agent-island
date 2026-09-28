@@ -105,6 +105,10 @@ struct NotchMenuView: View {
             } else if viewModel.menuSection == .quota {
                 // 额度页没有范围可挑，这一格只放「更新于 HH:MM + 刷新」（与统计页互斥的另一支）。
                 QuotaRefreshControl(viewModel: balanceViewModel)
+            } else if viewModel.menuSection == .agents {
+                // 标记动态页不占分段位（放不下第六段）：入口是「智能体」页页眉的这一格，
+                // 与快捷键页从「关于」页进入同构。
+                AgentAnimationsHeaderButton { viewModel.openAnimationsSettings() }
             }
         }
         .frame(height: NotchMenuMetrics.pageHeaderHeight)
@@ -126,6 +130,8 @@ struct NotchMenuView: View {
             AgentsSettingsPage()
         case .shortcuts:
             ShortcutsSettingsPage()
+        case .animations:
+            AgentAnimationsSettingsPage()
         case .statistics:
             UsageStatisticsSettingsPage(viewModel: statsViewModel)
         case .quota:
