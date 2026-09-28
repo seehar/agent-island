@@ -22,6 +22,9 @@ struct ClaudeMascot: View {
     /// 角色自己的时间轴（秒）。纯函数：同一 `t` 永远画出同一帧。
     let t: CGFloat
     var size: CGFloat = 27
+    /// 睡眠 Z 的颜色：**这只角色自己最有代表性的那一支**（蟹壳橙（与品牌橙同一支））。
+    /// `floatingZs` 会按黑舞台把它提亮一档再画。
+    private static let sleepZ = shell
 
     /// 配色取自 clawd-on-desk：蟹壳橙、挖空的黑眼睛、警报橙、键盘三档灰。
     private static let shell = Color(mascotHex: 0xDE886D)
@@ -57,7 +60,7 @@ struct ClaudeMascot: View {
             let sprite = MascotSprite(canvas, svgWidth: 17, svgHeight: 7, svgTop: 9)
             drawSleeping(&context, sprite, breathe: MascotMotion.breathe(t, period: 4.5))
             // 睡眠 Z 从四条腿的上方升起（趴姿的腿尖是全身最高处）。
-            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 8.5, t: t, size: size)
+            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 8.5, t: t, size: size, color: Self.sleepZ)
         }
     }
 

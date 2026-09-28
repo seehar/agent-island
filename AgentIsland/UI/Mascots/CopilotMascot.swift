@@ -25,6 +25,9 @@ struct CopilotMascot: View {
     /// 角色自己的时间轴（秒）。纯函数：同一 `t` 永远画出同一帧。
     let t: CGFloat
     var size: CGFloat = 27
+    /// 睡眠 Z 的颜色：**这只角色自己最有代表性的那一支**（机身玫红）。
+    /// `floatingZs` 会按黑舞台把它提亮一档再画。
+    private static let sleepZ = shell
 
     /// 配色取自 copilot-avatar.svg：耳环近黑、外壳玫红、眼睛金色、警报橙；
     /// 面屏与键盘是暗档，键帽压暗一档、按下去的那一格取纯白。
@@ -66,7 +69,7 @@ struct CopilotMascot: View {
             let sprite = MascotSprite(canvas, svgWidth: 15, svgHeight: 12, svgTop: 4)
             drawSleeping(&context, sprite)
             MascotDraw.floatingZs(
-                &context, sprite: sprite, bodyTop: Self.sleepBodyTop, t: t, size: size)
+                &context, sprite: sprite, bodyTop: Self.sleepBodyTop, t: t, size: size, color: Self.sleepZ)
         }
     }
 

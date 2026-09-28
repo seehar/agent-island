@@ -22,6 +22,9 @@ struct DeepSeekHarnessMascot: View {
     /// 角色自己的时间轴（秒）。纯函数：同一 `t` 永远画出同一帧。
     let t: CGFloat
     var size: CGFloat = 27
+    /// 睡眠 Z 的颜色：**这只角色自己最有代表性的那一支**（机身蓝（同品牌））。
+    /// `floatingZs` 会按黑舞台把它提亮一档再画。
+    private static let sleepZ = shell
 
     /// DeepSeek 的官方蓝做机身，压暗一档做底板与腿，亮档做顶盖 / 键帽 / 亮闪。
     /// 舞台底色是黑的，眼睛用深靛（与机身同色相、压到最暗），不引入第四种颜色。
@@ -65,7 +68,7 @@ struct DeepSeekHarnessMascot: View {
             let sprite = MascotSprite(canvas, svgWidth: 15, svgHeight: 12, svgTop: 4)
             drawSleeping(&context, sprite, breathe: MascotMotion.breathe(t, period: 4.5))
             // 睡眠 Z 从机身顶盖上方升起（趴姿的机身顶边随呼吸在 8.7…9.5 之间）。
-            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 8, t: t, size: size)
+            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 8, t: t, size: size, color: Self.sleepZ)
         }
     }
 

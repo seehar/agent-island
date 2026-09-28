@@ -23,6 +23,9 @@ struct GeminiMascot: View {
     /// 角色自己的时间轴（秒）。纯函数：同一 `t` 永远画出同一帧。
     let t: CGFloat
     var size: CGFloat = 27
+    /// 睡眠 Z 的颜色：**这只角色自己最有代表性的那一支**（四角星的紫端）。
+    /// `floatingZs` 会按黑舞台把它提亮一档再画。
+    private static let sleepZ = purpC
 
     /// 品牌渐变三档（左上蓝 → 中段紫 → 右下玫瑰）、白脸、警报橙、键盘三档灰。
     private static let blueC = Color(mascotHex: 0x4796E4)
@@ -60,7 +63,7 @@ struct GeminiMascot: View {
             let sprite = MascotSprite(canvas, svgWidth: 15, svgHeight: 12, svgTop: 4)
             drawSleeping(&context, sprite)
             // Z 从趴姿星尖上方升起（星尖 = cy − outerR = 10 − 4.5·0.9），不压到星面上。
-            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 5.95, t: t, size: size)
+            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 5.95, t: t, size: size, color: Self.sleepZ)
         }
     }
 

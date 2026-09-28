@@ -26,6 +26,9 @@ struct QoderMascot: View {
     /// 角色自己的时间轴（秒）。纯函数：同一 `t` 永远画出同一帧。
     let t: CGFloat
     var size: CGFloat = 27
+    /// 睡眠 Z 的颜色：**这只角色自己最有代表性的那一支**（机身绿）。
+    /// `floatingZs` 会按黑舞台把它提亮一档再画。
+    private static let sleepZ = bodyC
 
     /// 配色取自上游：品牌青柠绿、压暗一档的青柠绿（腿用）、挖空的黑脸（眼与笑弧）、
     /// 警报橙，以及键盘的底色、键帽与亮键（亮键与主体同色）。
@@ -66,7 +69,7 @@ struct QoderMascot: View {
             let sprite = MascotSprite(canvas, svgWidth: 15, svgHeight: 12, svgTop: 4)
             drawSleeping(&context, sprite, float: float)
             // Z 从气泡顶边（行表最上面一行 y=5）上方升起，不压到脸上。
-            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 5, t: t, size: size)
+            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 5, t: t, size: size, color: Self.sleepZ)
         }
     }
 

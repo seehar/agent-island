@@ -26,6 +26,9 @@ struct FactoryMascot: View {
     /// 角色自己的时间轴（秒）。纯函数：同一 `t` 永远画出同一帧。
     let t: CGFloat
     var size: CGFloat = 27
+    /// 睡眠 Z 的颜色：**这只角色自己最有代表性的那一支**（机身橙）。
+    /// `floatingZs` 会按黑舞台把它提亮一档再画。
+    private static let sleepZ = shell
 
     /// 配色：锈橙的头壳与身子、压深一档的胸甲、暖灰的金属件、金色的独眼与信号帽，键盘三档暖灰。
     private static let shell = Color(mascotHex: 0xD56A26)
@@ -167,7 +170,7 @@ struct FactoryMascot: View {
             // Z 锚在头壳顶边（6.5 = 身顶 9 − 头高 3 + 0.5），不取天线：细附件的尖端会把 Z
             // 顶出画布。呼吸只让机身上下 0.4 块，锚点用静息值就够。
             MascotDraw.floatingZs(
-                &context, sprite: sprite, bodyTop: 6.5, t: t, size: size)
+                &context, sprite: sprite, bodyTop: 6.5, t: t, size: size, color: Self.sleepZ)
         }
     }
 

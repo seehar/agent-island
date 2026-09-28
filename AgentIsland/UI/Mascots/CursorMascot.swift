@@ -26,6 +26,9 @@ struct CursorMascot: View {
     /// 角色自己的时间轴（秒）。纯函数：同一 `t` 永远画出同一帧。
     let t: CGFloat
     var size: CGFloat = 27
+    /// 睡眠 Z 的颜色：**这只角色自己最有代表性的那一支**（黑立方是中性档 → 品牌灰）。
+    /// `floatingZs` 会按黑舞台把它提亮一档再画。
+    private static let sleepZ = AgentKind.cursor.brandColor
 
     /// 配色取自上游：宝石三档暖暗色（左面、右面、底面）、亮面与描边用近白，
     /// 以及警报橙、键盘的两档底色与一格键帽。
@@ -67,7 +70,7 @@ struct CursorMascot: View {
             let sprite = MascotSprite(canvas, svgWidth: 15, svgHeight: 12, svgTop: 4)
             drawSleeping(&context, sprite, float: float)
             // Z 从宝石顶顶点（cy - ry = 5.5）上方升起，不压到身上。
-            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 5.5, t: t, size: size)
+            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 5.5, t: t, size: size, color: Self.sleepZ)
         }
     }
 

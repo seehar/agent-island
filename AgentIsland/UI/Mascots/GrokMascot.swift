@@ -28,6 +28,9 @@ struct GrokMascot: View {
     /// 角色自己的时间轴（秒）。纯函数：同一 `t` 永远画出同一帧。
     let t: CGFloat
     var size: CGFloat = 27
+    /// 睡眠 Z 的颜色：**这只角色自己最有代表性的那一支**（白环是中性档 → 品牌灰）。
+    /// `floatingZs` 会按黑舞台把它提亮一档再画。
+    private static let sleepZ = AgentKind.grok.brandColor
 
     /// 标记填白（上游取值）；琥珀是警报色，灰白两点是干活时脚下的装填点。
     private static let mark = Color.white
@@ -70,7 +73,7 @@ struct GrokMascot: View {
             drawSleeping(&context, sprite)
             // 飘 Z 从标记顶边（趴姿身体主体的顶边）上方升起。
             MascotDraw.floatingZs(
-                &context, sprite: sprite, bodyTop: Self.sleepBodyTop, t: t, size: size)
+                &context, sprite: sprite, bodyTop: Self.sleepBodyTop, t: t, size: size, color: Self.sleepZ)
         }
     }
 

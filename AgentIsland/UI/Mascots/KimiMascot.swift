@@ -23,6 +23,9 @@ struct KimiMascot: View {
     /// 角色自己的时间轴（秒）。纯函数：同一 `t` 永远画出同一帧。
     let t: CGFloat
     var size: CGFloat = 27
+    /// 睡眠 Z 的颜色：**这只角色自己最有代表性的那一支**（机身蓝）。
+    /// `floatingZs` 会按黑舞台把它提亮一档再画。
+    private static let sleepZ = body
 
     /// Kimi 品牌蓝：方块自上而下由亮到暗渐变（明亮档 / 主蓝 / 压暗档），眼睛取纯白，
     /// 警报橙用来喊人；键盘是深蓝灰的键座与键帽、按下去的那一格取纯白。
@@ -64,7 +67,7 @@ struct KimiMascot: View {
             let sprite = MascotSprite(canvas, svgWidth: 15, svgHeight: 12, svgTop: 4)
             drawSleeping(&context, sprite)
             MascotDraw.floatingZs(
-                &context, sprite: sprite, bodyTop: Self.sleepBodyTop, t: t, size: size)
+                &context, sprite: sprite, bodyTop: Self.sleepBodyTop, t: t, size: size, color: Self.sleepZ)
         }
     }
 

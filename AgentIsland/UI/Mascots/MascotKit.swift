@@ -16,6 +16,7 @@
 //  这里用像素块画（本仓禁止 `Text("…")` 字面量，且像素块与角色同一套笔触）。
 //
 
+import AppKit
 import SwiftUI
 
 /// 角色的绘制坐标系：把一套 SVG 单位的「场景视口」映射到画布，按 `min(宽比, 高比)` 等比缩放并居中。
@@ -105,6 +106,9 @@ enum MascotDraw {
     ///   - sprite: 该场景的坐标系（用来把 `bodyTop` 换算成画布纵坐标）
     ///   - bodyTop: 身体**主体**（不含天线 / 叶子 / 触须这类细附件）顶边的 SVG 纵坐标
     ///   - size: 舞台边长：字形大小、斜梯步距与上浮行程都按它换算
+    ///   - color: 该角色的**主题色**（路由传的是 `AgentKind.brandColor`）。Z 是黑舞台上的小字形，
+    ///     偏暗的品牌色（cursor / opencode / kimi 这类）会糊进背景，所以这里一律先提亮一档
+    ///     （`ZLadder.sleepZLift`）再画——角色、刘海上的计数徽标与睡眠 Z 因此仍是同一个主题色。
     static func floatingZs(
         _ context: inout GraphicsContext, sprite: MascotSprite, bodyTop: CGFloat,
         t: CGFloat, size: CGFloat, color: Color = .white
@@ -112,12 +116,13 @@ enum MascotDraw {
         guard let ladder = zLadder(bodyTopY: sprite.r(0, bodyTop, 0, 0).minY, size: size) else {
             return
         }
+        let zColor = color.liftedTowardWhite(ZLadder.sleepZLift)
         for slot in ladder.visibleSlots(t: t) {
             let envelope = ladder.envelope(slot: slot, t: t)
             zGlyph(
                 &context, center: ladder.center(slot: slot, float: envelope),
                 edge: ladder.ghosts[slot].edge,
-                color: color.opacity(ZLadder.peakOpacity * envelope))
+                color: zColor.opacity(ZLadder.peakOpacity * envelope))
         }
     }
 
@@ -161,8 +166,13 @@ enum MascotDraw {
         static let cycle: CGFloat = 3.6
         /// 一枚 Z 的可见窗口占周期的比例：一半。三枚错开三分之一，因此最多两枚同时在亮。
         static let visibleFraction: CGFloat = 0.5
-        /// 淡入淡出的峰值不透明度。
-        static let peakOpacity: CGFloat = 0.55
+        /// 淡入淡出的峰值不透明度。彩色的主题色比白色暗一截，峰值取 0.8 才看得出是哪一支
+        /// （白色 Z 时代是 0.55；降回 0.55 时提亮档只剩三成亮度，读不出颜色）。
+        static let peakOpacity: CGFloat = 0.80
+        /// 往白里提亮的比例：传进来的主题色按它混入白色（0 = 原色，1 = 纯白）。偏暗的品牌色
+        /// （cursor 的灰、kimi 的蓝）画在近黑舞台上会糊掉；提亮后既读得出「这是谁的主题色」，
+        /// 又不会淡成一块白——比例再大（如 0.42）色相会被白吃掉，读起来像浅灰而不是品牌色。
+        static let sleepZLift: Double = 0.30
 
         /// 一枚 Z 在某时刻的包络（0 = 不可见，1 = 最亮）。
         func envelope(slot: Int, t: CGFloat) -> CGFloat {
@@ -221,6 +231,21 @@ enum MascotDraw {
 }
 
 extension Color {
+    /// 往白里提一档（**保持色相**）：深色舞台上画小元素时用。`amount` 是混入白色的比例
+    /// （0 = 原色，1 = 纯白）。
+    func liftedTowardWhite(_ amount: Double) -> Color {
+        let mix = min(max(amount, 0), 1)
+        guard let srgb = NSColor(self).usingColorSpace(.sRGB) else { return self }
+        func lifted(_ component: CGFloat) -> Double {
+            Double(component) + (1 - Double(component)) * mix
+        }
+        return Color(
+            red: lifted(srgb.redComponent),
+            green: lifted(srgb.greenComponent),
+            blue: lifted(srgb.blueComponent),
+            opacity: Double(srgb.alphaComponent))
+    }
+
     /// 十六进制取色（`0xRRGGBB`）。角色配色表的条目多，写十六进制比写三个浮点好核对。
     /// 这只是**作者入口**：Agent 的品牌色仍以 `AgentPalette` 为准，角色配色里至少要有一处
     /// 与 `AgentKind.brandColor` 同色系，刘海上的角色才认得出是哪个 Agent。

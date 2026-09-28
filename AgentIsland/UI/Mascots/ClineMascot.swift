@@ -26,6 +26,9 @@ struct ClineMascot: View {
     /// 角色自己的时间轴（秒）。纯函数：同一 `t` 永远画出同一帧。
     let t: CGFloat
     var size: CGFloat = 27
+    /// 睡眠 Z 的颜色：**这只角色自己最有代表性的那一支**（机身绿——品牌色是白的，绿才是这只角色的样子）。
+    /// `floatingZs` 会按黑舞台把它提亮一档再画。
+    private static let sleepZ = bodyC
 
     /// 配色取自 Cline 的品牌绿：机身三段渐变、纯白眼睛、橙红警报、键盘是压暗的绿。
     private static let bodyC = Color(mascotHex: 0x00B37D)  // 品牌绿（机身中段）
@@ -142,7 +145,7 @@ struct ClineMascot: View {
             drawFace(&context, sprite, dy: float, blinkPhase: blink)
             // 飘 Z 从机身（scale 0.9 → 顶边 SVG y=5.85）上方升起；头顶细天线不算主体顶边。
             MascotDraw.floatingZs(
-                &context, sprite: sprite, bodyTop: 5.85, t: t, size: size, color: Self.bodyLt)
+                &context, sprite: sprite, bodyTop: 5.85, t: t, size: size, color: Self.sleepZ)
         }
     }
 

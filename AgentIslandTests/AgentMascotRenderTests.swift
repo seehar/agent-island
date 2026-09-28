@@ -245,6 +245,78 @@ struct AgentMascotRenderTests {
         }
     }
 
+    @Test("睡眠 Z 的提亮档：黑舞台上读得出来、不换色相、不被洗成灰")
+    func sleepZTintStaysReadableAndOnHue() {
+        // 输入是各角色 `sleepZ` 实际会传的那几支：18 个品牌色（中性档的几个角色直接用它），
+        // 外加三支与品牌色不同的角色机身色。判据是**值域**性质——具体谁配哪一支由接触表人工核对
+        // （像素角色是手绘方块，颜色搭配没法用断言证明「像不像那个角色」）。
+        let samples: [(name: String, color: Color)] =
+            AgentKind.allCases.map { ($0.rawValue, $0.brandColor) }
+            + [
+                ("cline 机身绿", Color(mascotHex: 0x00B37D)),
+                ("copilot 机身玫红", Color(mascotHex: 0xCC3366)),
+                ("pi 机身青绿", Color(red: 0.14, green: 0.49, blue: 0.53)),
+            ]
+
+        func hue(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat) -> CGFloat? {
+            let maxComponent = max(red, green, blue)
+            let minComponent = min(red, green, blue)
+            let chroma = maxComponent - minComponent
+            guard chroma > 0.02 else { return nil }
+            let normalized: CGFloat
+            switch maxComponent {
+            case red: normalized = ((green - blue) / chroma).truncatingRemainder(dividingBy: 6)
+            case green: normalized = (blue - red) / chroma + 2
+            default: normalized = (red - green) / chroma + 4
+            }
+            return (normalized / 6 + 1).truncatingRemainder(dividingBy: 1)
+        }
+
+        func luminance(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat) -> CGFloat {
+            0.2126 * red + 0.7152 * green + 0.0722 * blue
+        }
+
+        func components(_ color: Color) -> (red: CGFloat, green: CGFloat, blue: CGFloat)? {
+            guard let srgb = NSColor(color).usingColorSpace(.sRGB) else { return nil }
+            return (srgb.redComponent, srgb.greenComponent, srgb.blueComponent)
+        }
+
+        for (name, color) in samples {
+            guard let base = components(color) else {
+                Issue.record("\(name)：颜色换算失败")
+                continue
+            }
+            let lifted = color.liftedTowardWhite(MascotDraw.ZLadder.sleepZLift)
+            guard let lit = components(lifted) else {
+                Issue.record("\(name)：提亮档换算失败")
+                continue
+            }
+            let baseLuminance = luminance(base.red, base.green, base.blue)
+            let litLuminance = luminance(lit.red, lit.green, lit.blue)
+            // 人眼在峰值那一刻看到的是「提亮档 × 峰值不透明度」，可读性按它算。
+            let displayed = litLuminance * Double(MascotDraw.ZLadder.peakOpacity)
+            #expect(
+                displayed >= 0.30,
+                "\(name) 的睡眠 Z 在峰值只有 \(displayed) 的亮度——会在黑舞台上糊掉")
+            #expect(
+                litLuminance >= baseLuminance - 0.0001,
+                "\(name) 的睡眠 Z 比原色还暗——提亮方向反了")
+            guard
+                let baseHue = hue(base.red, base.green, base.blue),
+                let litHue = hue(lit.red, lit.green, lit.blue)
+            else { continue }  // 中性灰（cursor / opencode / grok / copilot / cline 的品牌档）没有色相
+            let delta = abs(baseHue - litHue) * 360
+            #expect(
+                min(delta, 360 - delta) < 3,
+                "\(name) 的睡眠 Z 色相偏了 \(min(delta, 360 - delta))°——不再是这支颜色")
+            // 提亮不能把彩色洗成灰（洗成灰的话上面那条色相检查会因 chroma 太小而静默跳过）。
+            let litChroma = max(lit.red, lit.green, lit.blue) - min(lit.red, lit.green, lit.blue)
+            #expect(
+                litChroma >= 0.10,
+                "\(name) 的睡眠 Z 被洗成了灰（chroma \(litChroma)）——读不出颜色")
+        }
+    }
+
     @Test("睡眠 Z：三枚排成斜梯（互不重叠、不出画布），且任一时刻不会三枚全亮")
     func sleepZLadderStaysReadable() {
         // 判据取几何（与 `zGlyph` 同源的 `zGlyphRect`）而不是渲染出的像素：Z 可能压在同色

@@ -25,6 +25,9 @@ struct CodeBuddyMascot: View {
     /// 角色自己的时间轴（秒）。纯函数：同一 `t` 永远画出同一帧。
     let t: CGFloat
     var size: CGFloat = 27
+    /// 睡眠 Z 的颜色：**这只角色自己最有代表性的那一支**（机身紫）。
+    /// `floatingZs` 会按黑舞台把它提亮一档再画。
+    private static let sleepZ = bodyC
 
     /// CodeBuddy 的品牌配色：紫猫身（`#6C4DFF`）、压暗一档的护目镜与爪子（`#583ED3`）、
     /// 青绿耳窝与眼睛（`#32E6B9`）、护目镜深处的白；键盘三档与警报红照抄上游数值。
@@ -167,7 +170,7 @@ struct CodeBuddyMascot: View {
         Canvas { context, canvas in
             let sprite = MascotSprite(canvas, svgWidth: 15, svgHeight: 13, svgTop: 3)
             drawSleeping(&context, sprite)
-            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 6, t: t, size: size)
+            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 6, t: t, size: size, color: Self.sleepZ)
         }
     }
 

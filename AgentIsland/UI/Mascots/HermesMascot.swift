@@ -23,6 +23,9 @@ struct HermesMascot: View {
     /// 角色自己的时间轴（秒）。纯函数：同一 `t` 永远画出同一帧。
     let t: CGFloat
     var size: CGFloat = 27
+    /// 睡眠 Z 的颜色：**这只角色自己最有代表性的那一支**（品牌金：紫袍上的一点金）。
+    /// `floatingZs` 会按黑舞台把它提亮一档再画。
+    private static let sleepZ = AgentKind.hermes.brandColor
 
     /// 配色：中紫机身、更暗的腿、兜帽、亮白眼、警报橙、键盘三档深色。
     private static let bodyC = Color(mascotHex: 0x7A58B0)
@@ -61,7 +64,7 @@ struct HermesMascot: View {
             drawSleeping(&context, sprite)
             // Z 从趴姿兜帽尖上方升起（兜帽尖 = cy − 6·0.9/2 − 3·0.9 = 10.5 − 2.7 − 2.7），
             // 不压到兜帽与机身上。
-            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 5.1, t: t, size: size)
+            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 5.1, t: t, size: size, color: Self.sleepZ)
         }
     }
 

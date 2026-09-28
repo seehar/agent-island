@@ -25,6 +25,9 @@ struct TraeMascot: View {
     /// 角色自己的时间轴（秒）。纯函数：同一 `t` 永远画出同一帧。
     let t: CGFloat
     var size: CGFloat = 27
+    /// 睡眠 Z 的颜色：**这只角色自己最有代表性的那一支**（机身绿）。
+    /// `floatingZs` 会按黑舞台把它提亮一档再画。
+    private static let sleepZ = shell
 
     /// 配色：终端绿的壳与眼睛、压深一档的腿、内嵌的暗屏，键盘三档暗绿。
     private static let shell = Color(mascotHex: 0x22C55E)
@@ -149,7 +152,7 @@ struct TraeMascot: View {
             drawFace(&context, sprite, dy: float, blinkPhase: blinkPhase)
             // Z 锚在圆角屏顶边：睡眠档 squashY 0.95 → 7 + (7 − 7 × 0.95) / 2 = 7.175。
             MascotDraw.floatingZs(
-                &context, sprite: sprite, bodyTop: 7.175, t: t, size: size, color: Self.shell)
+                &context, sprite: sprite, bodyTop: 7.175, t: t, size: size, color: Self.sleepZ)
         }
     }
 

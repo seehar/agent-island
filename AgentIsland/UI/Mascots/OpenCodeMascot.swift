@@ -25,6 +25,9 @@ struct OpenCodeMascot: View {
     /// 角色自己的时间轴（秒）。纯函数：同一 `t` 永远画出同一帧。
     let t: CGFloat
     var size: CGFloat = 27
+    /// 睡眠 Z 的颜色：**这只角色自己最有代表性的那一支**（机身浅灰描边（深灰机身本身是中性档））。
+    /// `floatingZs` 会按黑舞台把它提亮一档再画。
+    private static let sleepZ = frameC
 
     /// 配色取自 OpenCode 的单色体系：深灰机身、浅灰描边、近白脸、琥珀色警报。
     /// 上游机身那条注释写的是 `#383838`，但它的浮点值是 `(0.22, 0.22, 0.24)` = `#38383D`
@@ -170,7 +173,7 @@ struct OpenCodeMascot: View {
             drawBlock(&context, sprite, dy: float)
             drawFace(&context, sprite, dy: float, color: Self.faceC.opacity(0.4), eyeScale: 0.3)
             // 飘 Z 从趴姿机身顶边（SVG y=5）上方升起。
-            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 5, t: t, size: size)
+            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 5, t: t, size: size, color: Self.sleepZ)
         }
     }
 

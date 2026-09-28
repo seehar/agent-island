@@ -24,6 +24,9 @@ struct CodexMascot: View {
     /// 角色自己的时间轴（秒）。纯函数：同一 `t` 永远画出同一帧。
     let t: CGFloat
     var size: CGFloat = 27
+    /// 睡眠 Z 的颜色：**这只角色自己最有代表性的那一支**（白云本身没有彩色 → 用品牌蓝）。
+    /// `floatingZs` 会按黑舞台把它提亮一档再画。
+    private static let sleepZ = AgentKind.codex.brandColor
 
     /// 配色：白到发灰的云、更暗一档的腿、黑色提示符、琥珀警报色、键盘三档灰。
     private static let cloud = Color(red: 0.92, green: 0.92, blue: 0.93)
@@ -34,7 +37,6 @@ struct CodexMascot: View {
     private static let kbKey = Color(red: 0.40, green: 0.40, blue: 0.42)
     private static let kbHit = Color.white
     /// 睡眠 Z 的中灰：黑舞台上看得见，压在近白的云顶上也不会消失。
-    private static let sleepZ = Color(red: 0.55, green: 0.55, blue: 0.58)
 
     /// 起跳截顶的入参（`MascotMotion.alertRiseFactor`）：`drawAlert` 的 `rise` 与单测的
     /// 断言都从这里取，改这组数字会被 `AgentMascotRenderTests` 当场抓到。
