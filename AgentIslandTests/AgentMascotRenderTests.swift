@@ -245,6 +245,43 @@ struct AgentMascotRenderTests {
         }
     }
 
+    @Test("睡眠 Z：三枚排成斜梯（互不重叠、不出画布），且任一时刻不会三枚全亮")
+    func sleepZLadderStaysReadable() {
+        // 判据取几何（与 `zGlyph` 同源的 `zGlyphRect`）而不是渲染出的像素：Z 可能压在同色
+        // 身体上（Codex 的白云、Grok 的白环），按颜色阈值找脚印必漏。
+        var visibleCounts: [Int] = []
+        let sizes: [CGFloat] = [14, 26, 44, 64]
+        for size in sizes {
+            // 身体顶边之上的可用高度：实测是画布的 0.17…0.31（15×12 的趴姿视口），这里取
+            // 「画布里的任意高度」做全量性质检查——比逐枚角色取真实入参更能挡住越界。
+            let bands = stride(from: 1.5, through: size, by: 0.5).map { CGFloat($0) }
+            for band in bands {
+                guard let ladder = MascotDraw.zLadder(bodyTopY: band, size: size) else { continue }
+                // 上浮到最高（envelope = 1）时也不许出画布。
+                let rects = ladder.ghosts.indices.map { ladder.rect(slot: $0, float: 1) }
+                for (index, rect) in rects.enumerated() {
+                    #expect(
+                        rect.minX >= 0 && rect.minY >= 0 && rect.maxX <= size && rect.maxY <= size,
+                        "\(size)pt、头顶余量 \(band)：第 \(index) 枚 Z 出画布了（\(rect)）")
+                }
+                for i in rects.indices {
+                    for j in rects.indices where j > i {
+                        let overlap = rects[i].intersection(rects[j])
+                        #expect(
+                            overlap.isNull || overlap.isEmpty,
+                            "\(size)pt、头顶余量 \(band)：第 \(i) 与第 \(j) 枚 Z 叠在一起（\(overlap)）")
+                    }
+                }
+                for step in 0..<Int(MascotDraw.ZLadder.cycle / 0.05) {
+                    visibleCounts.append(ladder.visibleSlots(t: CGFloat(step) * 0.05).count)
+                }
+            }
+        }
+        #expect(visibleCounts.max() ?? 0 <= 2, "某一时刻三枚 Z 同时在亮——又会糊成一坨")
+        let mean = Double(visibleCounts.reduce(0, +)) / Double(max(1, visibleCounts.count))
+        #expect(mean > 0.8, "大部分时刻一枚 Z 都不亮（平均 \(mean) 枚）")
+    }
+
     // MARK: - 人工核对用的接触表
 
     /// 接触表落在固定目录，与 `AgentSettingsLayoutTests` 的 `/tmp/agents-page-probe`

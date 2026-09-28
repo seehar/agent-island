@@ -91,60 +91,130 @@ struct MascotSprite {
 
 /// 角色共用的绘制动作。
 enum MascotDraw {
-    /// 睡眠时往上飘的三个 Z：从 `bodyTop` 上方升起（**按身体顶边定位**，不是按画布中心——
-    /// 按中心定位时，身体占中间那几枚（Cursor 的宝石、Qoder 的气泡、Codex 的云）的 Z 会
-    /// 压在脸上/身上），错开周期与相位，越飘越淡（`t` 的纯函数，同一时刻画出同一帧）。
+    /// 睡眠时飘的三个 Z：排成一条**向右上的斜梯**（经典「💤」的排布），三枚的相位各错开
+    /// 三分之一、每枚只在自己的窗口里淡入淡出——任一时刻最多两枚亮着，所以不会糊成一坨
+    /// （旧版是三枚挤在同一条中轴线上一起淡出，在 26pt 的头部与 44pt 的「标记动态」画廊里
+    /// 都是一块白斑）。
+    ///
+    /// 字形大小先按画布定（`size` 的约 5.5%，即画布高的一成六），再按**身体顶边之上真正
+    /// 可用的高度**收窄：趴姿的视口是扁的（15×12），头顶往往只剩画布的两成高，按画布尺寸
+    /// 单独算的字形会被 `.clipped()` 削掉上缘。斜梯放不下时**压平**（`rise` 归零、变成横向
+    /// 一排）而不是缩小字形；连一枚都放不下的极小舞台（14pt 的头部）干脆不画。
     ///
     /// - Parameters:
     ///   - sprite: 该场景的坐标系（用来把 `bodyTop` 换算成画布纵坐标）
     ///   - bodyTop: 身体**主体**（不含天线 / 叶子 / 触须这类细附件）顶边的 SVG 纵坐标
-    ///   - size: 舞台边长：Z 的大小、横向偏移与上升行程都按它换算
+    ///   - size: 舞台边长：字形大小、斜梯步距与上浮行程都按它换算
     static func floatingZs(
         _ context: inout GraphicsContext, sprite: MascotSprite, bodyTop: CGFloat,
         t: CGFloat, size: CGFloat, color: Color = .white
     ) {
-        // 基准点取两者中更高的那个：身体顶边上方一点，或画布中心之上（身体本来就低时——
-        // 例如趴在地上的那几枚——就用后者，Z 才飘得开）。行程不超过「基准点到画布上缘」，
-        // 所以 Z 永远不会飘出画布。
-        let bodyTopY = sprite.r(0, bodyTop, 0, 0).minY
-        // 预留的是**字形真实半高**：`zGlyph` 的块边长是 `edge = max(1, (height / 3).rounded())`
-        // （`height` 最大 0.28×size），半高 1.5×edge 在小尺寸（14…26pt 的头部）里是 3pt，
-        // 比按比例算的 0.14×size 还大——按比例算的话字形上缘会被画到画布外。
-        let edge = max(1, (max(6, size * 0.28) / 3).rounded())
-        let half = 1.5 * edge
-        let base = max(half, min(size * 0.35, bodyTopY - size * 0.02))
-        let travel = max(0, min(size * 0.38, base - half))
-        for index in 0..<3 {
-            let step = CGFloat(index)
-            let cycle = 2.8 + step * 0.3
-            let delay = step * 0.9
-            let phase = max(0, (t - delay).truncatingRemainder(dividingBy: cycle) / cycle)
-            let height = max(6, size * (0.18 + phase * 0.10))
-            let baseOpacity = 0.7 - step * 0.1
-            let opacity = phase < 0.8 ? baseOpacity : (1 - phase) * 3.5 * baseOpacity
-            guard opacity > 0.01 else { continue }
-            let center = CGPoint(
-                x: size / 2 + size * (0.08 + step * 0.06 + sin(phase * .pi * 2) * 0.03),
-                y: base - travel * phase)
-            zGlyph(&context, center: center, height: height, color: color.opacity(opacity))
+        guard let ladder = zLadder(bodyTopY: sprite.r(0, bodyTop, 0, 0).minY, size: size) else {
+            return
         }
+        for slot in ladder.visibleSlots(t: t) {
+            let envelope = ladder.envelope(slot: slot, t: t)
+            zGlyph(
+                &context, center: ladder.center(slot: slot, float: envelope),
+                edge: ladder.ghosts[slot].edge,
+                color: color.opacity(ZLadder.peakOpacity * envelope))
+        }
+    }
+
+    /// 算一条睡眠 Z 斜梯；身体顶边之上连一枚 Z 都放不下时返回 `nil`（`floatingZs` 就不画）。
+    static func zLadder(bodyTopY: CGFloat, size: CGFloat) -> ZLadder? {
+        // 单块边长：先按画布定，再让「三块高的字形 + 一点空隙」在身体顶边之上放得下。
+        let ideal = max(1, (size * 0.055).rounded())
+        let edge = min(ideal, max(1, (bodyTopY / 3.2).rounded(.down)))
+        let glyph = edge * 3
+        let floatRise = edge * 0.4
+        // 每往右一枚抬多少：把算出来的余量对半分给两段抬升；余量为负就压平（rise = 0）。
+        let rise = min(edge * 0.6, max(0, (bodyTopY - glyph - 2 * floatRise) / 2))
+        // 最低那枚贴着身体顶边（留一点缝），整条斜梯若会顶出画布上缘就整体下移。`zGlyph` 会把
+        // 落点对齐到整点像素（最多往上蹭半像素），所以留 0.5pt 的余量。
+        let lowest = bodyTopY - glyph / 2 - edge * 0.3
+        let shift = max(0, 0.5 - (lowest - 2 * rise - glyph / 2 - floatRise))
+        // 要下移超过一个块边长，说明头顶本来就没有位置：这一档不画 Z（姿态本身就说明了在睡）。
+        guard shift <= edge else { return nil }
+        let stepX = glyph + edge
+        let ghosts: [(center: CGPoint, edge: CGFloat)] = (0..<3).map { slot in
+            (
+                center: CGPoint(
+                    x: size / 2 + (CGFloat(slot) - 1) * stepX,
+                    y: lowest + shift - CGFloat(slot) * rise),
+                edge: edge
+            )
+        }
+        return ZLadder(ghosts: ghosts, floatRise: floatRise)
+    }
+
+    /// 一条睡眠 Z 斜梯的布局与相位。抽成类型是为了让单测直接断言「三枚不重叠、都没出画布、
+    /// 任一时刻不会三枚全亮」——这几条在渲染出的像素里很难取证（Z 可能压在同色身体上，
+    /// 按颜色阈值找脚印会漏）。
+    struct ZLadder {
+        /// 三枚 Z 的落点（画布坐标，`slot` 越大越靠右上）与块边长。
+        let ghosts: [(center: CGPoint, edge: CGFloat)]
+        /// 淡出时的上浮行程（画布点）。
+        let floatRise: CGFloat
+
+        /// 三枚共用的周期（秒）。
+        static let cycle: CGFloat = 3.6
+        /// 一枚 Z 的可见窗口占周期的比例：一半。三枚错开三分之一，因此最多两枚同时在亮。
+        static let visibleFraction: CGFloat = 0.5
+        /// 淡入淡出的峰值不透明度。
+        static let peakOpacity: CGFloat = 0.55
+
+        /// 一枚 Z 在某时刻的包络（0 = 不可见，1 = 最亮）。
+        func envelope(slot: Int, t: CGFloat) -> CGFloat {
+            var phase = t / Self.cycle - CGFloat(slot) / CGFloat(ghosts.count)
+            phase -= phase.rounded(.down)
+            guard phase < Self.visibleFraction else { return 0 }
+            return sin(phase / Self.visibleFraction * .pi)
+        }
+
+        /// 某时刻该画的槽位。
+        func visibleSlots(t: CGFloat) -> [Int] {
+            ghosts.indices.filter { envelope(slot: $0, t: t) > 0.01 }
+        }
+
+        /// 一枚 Z 的落点；`float` 是 0…1 的上浮量（把 `envelope` 直接传进来即可）。
+        func center(slot: Int, float: CGFloat) -> CGPoint {
+            let point = ghosts[slot].center
+            return CGPoint(x: point.x, y: point.y - floatRise * min(max(float, 0), 1))
+        }
+
+        /// 一枚 Z 的外接矩形（`float` 同上）。
+        func rect(slot: Int, float: CGFloat) -> CGRect {
+            MascotDraw.zGlyphRect(center: center(slot: slot, float: float), edge: ghosts[slot].edge)
+        }
+    }
+
+    /// 一枚像素 Z 的外接矩形：`zGlyph` 与上面的布局单测共用，两者因此不会各算一套。
+    static func zGlyphRect(center: CGPoint, edge: CGFloat) -> CGRect {
+        CGRect(
+            x: (center.x - edge * 1.5).rounded(),
+            y: (center.y - edge * 1.5).rounded(),
+            width: edge * 3,
+            height: edge * 3)
     }
 
     /// 一枚像素 Z：三块宽的顶边、中间一块的对角、三块宽的底边。`center` 是它的中心。
     ///
-    /// 落点按整点像素对齐（`rounded()`）：块是方的，落在半像素上会被抗锯齿糊掉，
-    /// 看起来就不像像素画了。
+    /// 落点按整点像素对齐（`rounded()`，见 `zGlyphRect`）：块是方的，落在半像素上会被抗锯齿
+    /// 糊掉，看起来就不像像素画了。
     static func zGlyph(
-        _ context: inout GraphicsContext, center: CGPoint, height: CGFloat, color: Color
+        _ context: inout GraphicsContext, center: CGPoint, edge: CGFloat, color: Color
     ) {
-        let edge = max(1, (height / 3).rounded())
-        let left = (center.x - edge * 1.5).rounded()
-        let top = (center.y - edge * 1.5).rounded()
+        let block = max(1, edge)
+        let rect = zGlyphRect(center: center, edge: block)
         for row in 0..<3 {
             let width: CGFloat = row == 1 ? 1 : 3
-            let x = row == 1 ? left + edge : left
+            let x = row == 1 ? rect.minX + block : rect.minX
             context.fill(
-                Path(CGRect(x: x, y: top + CGFloat(row) * edge, width: width * edge, height: edge)),
+                Path(
+                    CGRect(
+                        x: x, y: rect.minY + CGFloat(row) * block,
+                        width: width * block, height: block)),
                 with: .color(color))
         }
     }
