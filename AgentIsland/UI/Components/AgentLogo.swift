@@ -66,7 +66,28 @@ private struct AgentLogoFrames: View {
     private func frame(at t: Double, activity: AgentLogoActivity) -> some View {
         let motion = AgentMotion.motion(for: agent, activity: activity, at: t, size: size)
         return Glyph(agent: agent, size: size, color: color, motion: motion)
+            .background(glow(for: motion))
+            .scaleEffect(x: motion.scaleX, y: motion.scaleY, anchor: .bottom)
+            .rotationEffect(.degrees(motion.rotation))
             .offset(y: motion.dy)
+    }
+
+    /// 待审批时的品牌色光晕：画在标记后面，与三连跳同拍明灭。
+    /// 用径向渐变而不是 `blur`——20fps × 18 枚时模糊的离屏渲染太贵。
+    @ViewBuilder
+    private func glow(for motion: AgentLogoMotion) -> some View {
+        if motion.glow > 0.01 {
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [color.opacity(0.45 * motion.glow), color.opacity(0)],
+                        center: .center,
+                        startRadius: size * 0.15,
+                        endRadius: size * 0.85
+                    )
+                )
+                .frame(width: size * 1.7, height: size * 1.7)
+        }
     }
 }
 
@@ -132,6 +153,10 @@ private struct ClaudeCrabGlyph: View {
     let color: Color
     /// 走路相位；nil 表示腿脚不动
     var walkPhase: Int?
+    /// 睁眼程度：1 = 睁满、0 = 闭合
+    var blink: Double = 1
+    /// 触须的反向摆动（点）：正值 = 左侧抬起、右侧落下
+    var sway: CGFloat = 0
 
     var body: some View {
         Canvas { context, canvasSize in
@@ -146,9 +171,12 @@ private struct ClaudeCrabGlyph: View {
                             x: xOffset / scale, y: 0))
             }
 
-            // 触须
-            context.fill(place(CGRect(x: 0, y: 13, width: 6, height: 13)), with: .color(color))
-            context.fill(place(CGRect(x: 60, y: 13, width: 6, height: 13)), with: .color(color))
+            // 触须：随走路轻轻反向摆（点 → 字形单位）
+            let swayUnits = sway / scale
+            context.fill(
+                place(CGRect(x: 0, y: 13 - swayUnits, width: 6, height: 13)), with: .color(color))
+            context.fill(
+                place(CGRect(x: 60, y: 13 + swayUnits, width: 6, height: 13)), with: .color(color))
 
             // 四条腿：高度随相位变化，但始终挂在身体底边（y=39）上
             let legHeightOffsets: [[CGFloat]] = [
@@ -169,9 +197,14 @@ private struct ClaudeCrabGlyph: View {
             // 身体
             context.fill(place(CGRect(x: 6, y: 0, width: 54, height: 39)), with: .color(color))
 
-            // 眼睛（挖空，露出底色）
-            context.fill(place(CGRect(x: 12, y: 13, width: 6, height: 6.5)), with: .color(.black))
-            context.fill(place(CGRect(x: 48, y: 13, width: 6, height: 6.5)), with: .color(.black))
+            // 眼睛（挖空，露出底色）：眨眼时高度收窄，并保持垂直居中
+            let eyeFullHeight: CGFloat = 6.5
+            let eyeHeight = max(0.6, eyeFullHeight * CGFloat(blink))
+            let eyeY = 13 + (eyeFullHeight - eyeHeight) / 2
+            context.fill(
+                place(CGRect(x: 12, y: eyeY, width: 6, height: eyeHeight)), with: .color(.black))
+            context.fill(
+                place(CGRect(x: 48, y: eyeY, width: 6, height: eyeHeight)), with: .color(.black))
         }
         .frame(width: size * (66.0 / 52.0), height: size)
     }
