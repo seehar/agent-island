@@ -59,6 +59,7 @@ AgentIsland/
     Update/     # Sparkle 更新 UI 做进刘海（NotchUserDriver）
   UI/
     Components/ # 角标/图标/设置行套件（SettingsKit）/形状/调色
+    Mascots/    # 运行时**像素角色**：一枚 Agent 一个文件 + 共享工具（MascotKit/MascotMotion）
     Views/      # NotchView（关闭态 + 展开态）、NotchMenuView/NotchMenuPages（设置面板）、ClaudeInstancesView（会话列表）、ChatView（对话）
     Window/     # NSPanel 宿主：NotchPanel、NotchWindowController、NotchViewController
   Resources/    # Localizable.xcstrings、三个 Agent 侧集成资源（.py/.js/.ts.txt）、entitlements
@@ -92,7 +93,7 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 3. `Services/Agents/` 实现 `AgentProvider`（`paths()`、`transcriptFile`、`isTranscriptFile`、`sessionId(fromTranscriptFile:)`、`cwd(fromTranscriptFile:)`、`subagentTranscriptFiles`、`integrationStatus()`），**带可注入的 `home`**（用例要能指向临时目录），并在 `AgentRegistry.all` 注册（**home 必须过 `AgentProviderRoot.canonical`**，理由见已知坑）；同时补 `AgentProcessScanner.matches` 与 `AgentSessionScanner` 的发现源。
 4. `Services/Session/` 加记录解析实现：Claude 系 fork 直接复用 `ClaudeFamilyTranscriptSchema`；其它格式自己实现 `AgentTranscriptSchema`（追加式 JSONL 继承 `JSONLTranscriptSchema`，整文档 JSON 则用「文件指纹 + 已消费条数」做增量），并在 `AgentTranscriptSchemaRegistry` 注册；有 token 字段的再接 `TranscriptUsageScanner`。**记录不在文件树而在 SQLite 的（OpenCode、Hermes）**另走只读库通道：打开方式共用 `SQLiteReadOnlyConnection`（读写打开 + `PRAGMA query_only`，理由见其文件头），再各写一个 `…SessionStore`，JSONL 那套增量不适用。
 5. `Resources/agent-island-state.py` 的事件归一表补该工具的原生事件名（与 CodeIsland `EventNormalizer` 对齐；`scripts/verify-agent-hooks.sh` 是它的验证矩阵）。
-6. `UI/`：`AgentPalette` 补品牌色、`AgentMarks.swift` 补标记形状（`AgentLogo` 的 `Glyph` 是穷举 switch，编译器会提醒）；本地化补产品名与短名的 en/zh-Hans 键。
+6. `UI/`：`AgentPalette` 补品牌色、`AgentMarks.swift` 补标记形状（`AgentLogo` 的 `Glyph` 是穷举 switch）、**`UI/Mascots/` 补一枚像素角色**（`AgentMascot` 的路由是穷举 switch，两处编译器都会提醒）；本地化补产品名与短名的 en/zh-Hans 键。
 7. 跑 `./scripts/gate.sh --with-tests`：`AgentIslandTests/AgentKindTests.swift` 是表完整性用例——漏填某一列、rawValue 重名、阻塞事件却不让回传决定，都会在那里红。
 
 ### 本地化（必须遵守的不变量）
@@ -107,8 +108,16 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 
 - `WindowManager` + `NotchWindowController` 把 `NSPanel`（`NotchPanel`）贴在当前屏幕顶部；`NotchGeometry` 是纯几何（命中矩形 + 展开尺寸），`NotchViewModel` 持有 closed/open 状态、打开原因、内容类型（会话列表 / 聊天 / 设置）与动画。
 - 有真实刘海的屏按 `deviceNotchRect` 定位；无刘海屏（外接显示器）改为与菜单栏等高，高度也可在设置里固定（`NotchHeightSelector`）。
-- 关闭态只画左侧标记 + 右侧计数；**计数颜色与标记同源**（`headerAgent?.brandColor`），状态由标记动效与琥珀色审批指示表达 —— 不要用颜色编码状态。
+- 关闭态只画左侧角色（`AgentMascot` 的像素角色）+ 右侧计数；**计数颜色与角色同源**（`headerAgent?.brandColor`），状态由角色的动作（呼吸 / 干活 / 跳起来）与琥珀色审批指示表达 —— 不要用颜色编码状态。
 - 悬停/点击靠 `EventMonitors` 的全局鼠标监听 + `NotchGeometry` 命中判定；`PassThroughHostingView` 保证非交互区域不吞事件。
+
+### 运行时像素角色（标记动态）
+
+- Agent 的「运行时标记」是**手绘的像素角色**（`UI/Mascots/`），不是品牌字形：18 个 Agent 各有一枚会呼吸、会干活、会瞪人的小人。品牌字形仍然在，但只当**静态身份标记**（`AgentLogo`：会话角标、设置行的 Agent 图标这类 10…12pt 的密集场合）。
+- 分工：`MascotMotion`（曲线语汇，全是时间的纯函数）+ `MascotKit`（16×12 网格坐标与绘制工具）+ `Mascots/<角色>.swift`（一枚角色的画法与三套场景）+ `AgentMascot`（状态、时钟、路由，以及待审批的**统一**跳跃/光晕）。**运动是时间的纯函数**：同一 `t` 永远画出同一帧，所以能离屏定帧逐帧比对（`AgentMascotRenderTests` 会把 18 枚 × 3 场景逐个渲染，并在 `/tmp/agent-mascot-probe/` 落一张接触表供人工核对）。
+- 三套场景由会话相位选（空闲 / 处理中 / 待审批）。待审批的跳跃与光晕**刻意不按角色分化**——它是应用级信号（「有事等你」），18 枚各不相同会把信号削弱；角色自己的姿态（瞪眼 / 举钳 / 张大）画在各自文件里。
+- `t == 0` 必须是各场景最有代表性的一帧（离屏定帧探针与单测取这一帧）；「静止」档位另取各场景的代表时刻（`AgentMascotStatus.stillInstant`），因为空闲与处理中的差别在动作序列里，取 0 会让两档看起来一样。
+- 「标记动态」页（`NotchMenuSection.animations`）把 18 枚角色一次铺开预览：状态选择 + 速度选择（静止 / 0.5× / 1× / 2×）+ 6×3 的画廊（整台画廊只跑一个时钟，每格按 `frozenTime:` 定帧）。这一页不占分段位（分段条放不下第六段），入口是「智能体」卡片的第一行（轮播角色缩略图 + 副标题 + chevron）。
 
 ### 集成安装面（AgentIsland 唯一会写入的 Agent 侧文件）
 

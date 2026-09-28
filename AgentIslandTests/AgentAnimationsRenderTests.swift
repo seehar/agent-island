@@ -40,8 +40,9 @@ struct AgentAnimationsRenderTests {
             abs(CGFloat(image.height) - expected) <= 2,
             "渲染高 \(image.height) 与版面 \(expected) 不一致（画廊会被裁或留白）")
 
-        // 画廊窗口 = `animationGalleryHeight`：页面高度减去状态行与脚注后应当就是它。
-        let gallery = CGFloat(image.height) - NotchMenuMetrics.rowHeight
+        // 画廊窗口 = `animationGalleryHeight`：页面高度减去两行预览控件与脚注后应当就是它。
+        let gallery =
+            CGFloat(image.height) - 2 * NotchMenuMetrics.rowHeight
             - NotchMenuMetrics.footnoteHeight
         #expect(
             abs(gallery - NotchMenuMetrics.animationGalleryHeight) <= 2,

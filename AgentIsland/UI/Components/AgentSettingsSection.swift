@@ -25,6 +25,10 @@ import Foundation
 import SwiftUI
 
 struct AgentSettingsSection: View {
+    /// 进「标记动态」页：卡片第一行的入口行用它。页面持有 `NotchViewModel` 的动作，
+    /// 逐层传到这里（卡片自身拿不到视图模型）。
+    let onOpenAnimations: () -> Void
+
     /// 启用 / 关闭动作之后的回调：闸门策略卡片的启用态由页面持有（兄弟视图不会因为这里
     /// 改了 `@State` 而重画），页面据此重算「有没有生效的闸门」。
     let onGateStateChanged: () -> Void
@@ -48,6 +52,11 @@ struct AgentSettingsSection: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // 卡片第一行：「标记动态」的入口（轮播角色缩略图 + 标题 + chevron）。
+            // 它曾经是页眉里那枚 11 号字的小按钮——实测用户找不到；换成一整行之后，
+            // 高度从 `visibleAgentRows` 里挪（5 → 4，见 `NotchMenuMetrics.blocks(for:)`）。
+            AgentAnimationsEntryRow(action: onOpenAnimations)
+
             AgentBulkActionsRow(
                 onEnableAll: enableAllAndInstall,
                 onDisableAll: disableAllAndUninstall

@@ -48,10 +48,11 @@ struct AgentSettingsLayoutTests {
 
   /// 卡片第一行（批量动作条）在页面里的 y 带。
   ///
-  /// 页面顶部是分组标题行 + 它与卡片之间的间距（`SettingsGroup` 的排版），卡片的
-  /// 第一行就是动作条，行高由版面表钉成 `rowHeight`。
+  /// 页面顶部是分组标题行 + 它与卡片之间的间距（`SettingsGroup` 的排版），卡片第一行是
+  /// 「标记动态」入口行，动作条在它下面，行高由版面表钉成 `rowHeight`。
   private var bulkActionsBand: ClosedRange<CGFloat> {
     let top = NotchMenuMetrics.sectionHeaderHeight + NotchMenuMetrics.sectionHeaderGap
+      + NotchMenuMetrics.twoLineRowHeight
     return top...(top + NotchMenuMetrics.rowHeight)
   }
 
@@ -231,7 +232,7 @@ struct AgentSettingsLayoutTests {
     report.append("  亮度约 (47,47,47)（合计 141 > 判据阈值 120），是这两条线的交点，不是内容越界。")
     report.append("- 墨迹下缘：页面最下方那张卡片（审批闸门）的最后一行。")
     report.append("- 滚动窗口按 visibleAgentRows = \(NotchMenuMetrics.visibleAgentRows) 行封顶："
-      + "收起态窗口里是 5 行（共 \(AgentKind.allCases.count) 行，其余在卡内滚动）。")
+      + "收起态窗口里是 \(NotchMenuMetrics.visibleAgentRows) 行（共 \(AgentKind.allCases.count) 行，其余在卡内滚动）。")
 
     print(
       "智能体页判据：左缘 标准 \(leftInk["standard"] ?? -1)pt / 紧凑 \(leftInk["compact"] ?? -1)pt"
@@ -267,7 +268,7 @@ struct AgentSettingsLayoutTests {
   /// 被渲染的页面：真实产品视图 + 黑色底（面板就是黑底，人工核对时看得清层级）。
   @MainActor
   private func agentsPage(width: CGFloat) -> some View {
-    AgentsSettingsPage()
+    AgentsSettingsPage(onOpenAnimations: {})
       .frame(width: width)
       .background(Color.black)
   }

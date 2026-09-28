@@ -23,7 +23,7 @@ Two agents in tmux already means tab-hunting to find the one that is waiting on 
 
 The notch is the one strip of the screen you never leave. AgentIsland makes it the status light for your agents:
 
-- **Closed** — a capsule that stays out of the way. Its left mark animates while an agent works, the right side reads `active[+subagents]/total`. The capsule widens just enough to keep that count clear of the camera housing, and only at extreme counts drops the least important number instead of truncating it.
+- **Closed** — a capsule that stays out of the way. Its left mark is that agent's own **pixel mascot** — breathing while idle, doing its signature move while it works, and jumping when it needs your approval, the right side reads `active[+subagents]/total`. The capsule widens just enough to keep that count clear of the camera housing, and only at extreme counts drops the least important number instead of truncating it.
 - **Hover** — it expands into one live list across every agent you run.
 - **Approval** — a tool call that needs permission opens the panel with Allow / Deny, and your answer travels back to the agent.
 
@@ -35,7 +35,7 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
     <td width="50%"><img src="docs/images/notch-approval.png" alt="A pending approval in the notch"></td>
   </tr>
   <tr>
-    <td align="center"><sub>Closed: brand mark + working sessions</sub></td>
+    <td align="center"><sub>Closed: pixel mascot + working sessions</sub></td>
     <td align="center"><sub>A pending tool call, decided in place</sub></td>
   </tr>
 </table>
@@ -156,7 +156,8 @@ Already monitoring these agents? The next launch rewrites their extension to the
 |---|---|
 |**General**|Language, screen, notch height/width, content text size, panel size · launch at login, accessibility status, and keyboard-focus behavior on open.|
 |**Behavior**|Hover expand, idle capsule · ended-session retention, row density, click action (Focus Terminal falls back to chat without tmux/yabai), both status-check and session-scan intervals · subagent details in chat, hide idle sessions.|
-|**Agents**|Enable/disable and integration state for each agent; per-agent config root; tool-call guard scope and offline behavior. The agent list scrolls within its card.|
+|**Agents**|Enable/disable and integration state for each agent; per-agent config root; tool-call guard scope and offline behavior. The first row is the entry to **Animations**. The agent list scrolls within its card.|
+|**Animations**|Every agent's pixel mascot side by side, with an activity picker (idle / working / needs approval) and a preview speed (still / 0.5× / 1× / 2×). Reached from the first row of the **Agents** card (it takes no tab slot).|
 |**Notifications**|Notification sound (clicking a sound plays it), volume, quiet hours, sound scope (ready only / ready and approvals), completion badge. The list also carries your own sounds from `~/Library/Sounds`. Quiet hours silences the sound only — the notch still shows everything.|
 |**Statistics**|Token, session and tool-call totals, trends, per-agent/model breakdown, date range and full rescan. Reached from the chart button in the panel header.|
 |**Quota**|A running balance per New API account — every account you add gets its own row; the server URL, API key, and optional access token / user ID are edited per account behind **Edit Credentials** in the action row (the list collapses to the account being edited). The card below the list shows the selected account's identity (whose token it is, its group), its key balance, and the instance address and version. Amounts follow the instance's own currency setting (e.g. `$350.27`, from its `quota_per_unit`), not raw quota units. Reached from the card button in the panel header (it takes no tab slot); it fetches only while the page is open.|

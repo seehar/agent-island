@@ -347,20 +347,27 @@ struct NotchView: View {
   return nil
  }
 
- /// 头部标记的动效：跟着当前最需要注意的会话走，聊天中则跟聊天会话。
- private var headerActivity: AgentLogoActivity {
+ /// 头部角色的状态：跟着当前最需要注意的会话走，聊天中则跟聊天会话。
+ private var headerActivity: AgentMascotStatus {
   if case .chat(let session) = viewModel.contentType {
-   return AgentLogoActivity(session.phase)
+   return AgentMascotStatus(session.phase)
   }
-  return attentionSession.map { AgentLogoActivity($0.phase) } ?? .idle
+  return attentionSession.map { AgentMascotStatus($0.phase) } ?? .idle
  }
 
- /// 头部左侧的 Agent 标记。`isSource` 交给 matchedGeometryEffect，
- /// 让标记在关闭态与展开态的头部之间平滑过渡。
+ /// 头部角色的舞台边长：跟着胶囊高度走，上下各留一点边距。
+ /// 上限 26——关闭态的耳宽只有约 30pt（`countEarWidth`），角色再大就会顶到
+ /// 右侧的计数徽标。
+ private var headerMascotSize: CGFloat {
+  min(26, max(14, closedNotchSize.height - 6))
+ }
+
+ /// 头部左侧的 Agent 角色。`isSource` 交给 matchedGeometryEffect，
+ /// 让角色在关闭态与展开态的头部之间平滑过渡。
  @ViewBuilder
  private func headerLogo(isSource: Bool) -> some View {
   if let agent = headerAgent {
-   AgentLogo(agent: agent, size: 14, activity: headerActivity)
+   AgentMascot(agent: agent, status: headerActivity, size: headerMascotSize)
     .matchedGeometryEffect(id: "agent-logo", in: activityNamespace, isSource: isSource)
   }
  }

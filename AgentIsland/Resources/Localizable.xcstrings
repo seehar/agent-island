@@ -7197,7 +7197,7 @@
       }
     },
     "Animations" : {
-      "comment" : "「标记动态」预览页的标题，也是「智能体」页页眉的入口按钮",
+      "comment" : "「标记动态」预览页的标题，也是「智能体」卡片第一行那个入口的标题",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7209,23 +7209,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "标记动画"
-          }
-        }
-      }
-    },
-    "Preview Agent Animations" : {
-      "comment" : "入口按钮的无障碍标签：说明点它会看到什么",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Preview Agent Animations"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "预览智能体标记动画"
           }
         }
       }
@@ -7264,19 +7247,121 @@
         }
       }
     },
-    "Pick an activity to preview how every mark animates." : {
-      "comment" : "预览页脚注：说明状态选择行与画廊的关系",
+    "Preview every agent's pixel mascot" : {
+      "comment" : "「标记动态」入口行的副标题",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pick an activity to preview how every mark animates."
+            "value" : "Preview every agent's pixel mascot"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "选一种状态，预览每枚标记怎么动。"
+            "value" : "预览每个智能体的像素角色"
+          }
+        }
+      }
+    },
+    "Every agent has its own pixel mascot: it breathes when idle, works when busy, and jumps when it needs you." : {
+      "comment" : "「标记动态」页脚注：说明每枚角色在三档状态下的表现",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every agent has its own pixel mascot: it breathes when idle, works when busy, and jumps when it needs you."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每个智能体都有自己的像素角色：空闲时呼吸，干活时有招牌动作，需要你时跳起来。"
+          }
+        }
+      }
+    },
+    "Speed" : {
+      "comment" : "「标记动态」页速度行的标题",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Speed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "速度"
+          }
+        }
+      }
+    },
+    "Still" : {
+      "comment" : "「标记动态」页速度档位：完全停住（定格在各场景的代表帧）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Still"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "静止"
+          }
+        }
+      }
+    },
+    "0.5×" : {
+      "comment" : "「标记动态」页速度档位：半速",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "0.5×"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "0.5×"
+          }
+        }
+      }
+    },
+    "1×" : {
+      "comment" : "「标记动态」页速度档位：正常速度",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1×"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1×"
+          }
+        }
+      }
+    },
+    "2×" : {
+      "comment" : "「标记动态」页速度档位：两倍速",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2×"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2×"
           }
         }
       }

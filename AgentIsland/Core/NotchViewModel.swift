@@ -523,7 +523,7 @@ class NotchViewModel: ObservableObject {
         menuSection = .shortcuts
     }
 
-    /// 直接跳到「标记动态」页。「智能体」页页眉那枚按钮用它（这一页也不占分段位）。
+    /// 直接跳到「标记动态」页。「监控的智能体」卡片第一行那个入口行用它（这一页也不占分段位）。
     func openAnimationsSettings() {
         contentType = .menu
         menuSection = .animations

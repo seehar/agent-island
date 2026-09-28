@@ -39,7 +39,7 @@ struct NotchMenuMetricsTests {
         return height
     }
 
-    @Test("标记动态分组是固定高的一整块（状态选择行 + 画廊），不按设置行算")
+    @Test("标记动态分组是固定高的一整块（状态行 + 速度行 + 画廊），不按设置行算")
     func animationsSectionIsFixedHeightBlock() {
         let blocks = NotchMenuMetrics.blocks(for: .animations)
         #expect(blocks.count == 1)
@@ -47,10 +47,10 @@ struct NotchMenuMetricsTests {
         #expect(blocks.first?.rows.isEmpty == true)
         #expect(blocks.first?.fixedHeight == NotchMenuMetrics.animationsSectionHeight)
         #expect(blocks.first?.hasFootnote == true)
-        // 固定块 = 状态选择行 + 画廊（画廊行数按 Agent 数量与列数推出、窗口封顶）。
+        // 固定块 = 状态行 + 速度行 + 画廊（画廊行数按 Agent 数量与列数推出、窗口封顶）。
         #expect(
             NotchMenuMetrics.animationsSectionHeight
-                == NotchMenuMetrics.rowHeight + NotchMenuMetrics.animationGalleryHeight)
+                == NotchMenuMetrics.rowHeight * 2 + NotchMenuMetrics.animationGalleryHeight)
         let total = AgentKind.allCases.count
         let columns = NotchMenuMetrics.animationGalleryColumns
         let rows = (total + columns - 1) / columns
@@ -58,7 +58,9 @@ struct NotchMenuMetricsTests {
         #expect(
             NotchMenuMetrics.animationGalleryHeight
                 == CGFloat(rows) * NotchMenuMetrics.animationGalleryTileHeight
-                + CGFloat(rows - 1) * NotchMenuMetrics.animationGalleryRowSpacing)
+                + CGFloat(rows - 1) * NotchMenuMetrics.animationGalleryRowSpacing
+                + NotchMenuMetrics.rowVerticalPadding,
+            "画廊窗口高还要算上网格下方那一条留白，否则 18 枚刚好装下时仍有一小段空内容可滚")
     }
 
     @Test("统计分组是固定高的一整块，不按设置行算")
@@ -91,18 +93,20 @@ struct NotchMenuMetricsTests {
         }
     }
 
-    @Test("智能体分组：动作条 + 每个 Agent 一行 + 脚注，闸门策略单独一张卡")
+    @Test("智能体分组：入口行 + 动作条 + 每个 Agent 一行 + 脚注，闸门策略单独一张卡")
     func agentsSectionHasActionRowAndAgentList() {
         let blocks = NotchMenuMetrics.blocks(for: .agents)
         #expect(blocks.count == 2)
 
-        // 监控的智能体：动作条（全部启用并安装 / 全部关闭并卸载）+ 每个受支持的 Agent
-        // 一行（标题 + 集成状态）+ 一行脚注；卡片高度按 `visibleAgentRows` 封顶——
+        // 监控的智能体：**「标记动态」入口行**（轮播角色缩略图 + 标题 + 副标题）
+        // + 动作条（全部启用并安装 / 全部关闭并卸载）+ 每个受支持的 Agent 一行
+        // （标题 + 集成状态）+ 一行脚注；卡片高度按 `visibleAgentRows` 封顶——
         // 受支持的 Agent 有十几个，让卡片随接入面无限长高会把这一页撑出面板上限。
+        // 入口行的 48pt 是从可见行数里挪的（5 → 4），见 `visibleAgentRows`。
         let expectedAgentRows = min(AgentKind.allCases.count, NotchMenuMetrics.visibleAgentRows)
         #expect(
             blocks[0].rows
-                == [NotchMenuMetrics.rowHeight]
+                == [NotchMenuMetrics.twoLineRowHeight, NotchMenuMetrics.rowHeight]
                 + Array(repeating: NotchMenuMetrics.twoLineRowHeight, count: expectedAgentRows))
         #expect(blocks[0].hasFootnote == true)
 
@@ -139,11 +143,11 @@ struct NotchMenuMetricsTests {
         // 超过 `visibleAgentRows`，行数就固定成 `visibleAgentRows`，多出来的在卡内滚动。
         #expect(AgentKind.allCases.count >= NotchMenuMetrics.visibleAgentRows)
         let rows = NotchMenuMetrics.blocks(for: .agents)[0].rows
-        // 动作条一行 + 封顶的 Agent 行。
-        #expect(rows.count == 1 + NotchMenuMetrics.visibleAgentRows)
+        // 入口行 + 动作条一行 + 封顶的 Agent 行。
+        #expect(rows.count == 2 + NotchMenuMetrics.visibleAgentRows)
         #expect(
             rows.reduce(0, +)
-                == NotchMenuMetrics.rowHeight
+                == NotchMenuMetrics.twoLineRowHeight + NotchMenuMetrics.rowHeight
                 + CGFloat(NotchMenuMetrics.visibleAgentRows) * NotchMenuMetrics.twoLineRowHeight)
     }
 

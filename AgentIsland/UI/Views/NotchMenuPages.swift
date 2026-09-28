@@ -143,6 +143,10 @@ struct GeneralSettingsPage: View {
 /// Claude Code 的配置目录也走同一套逐 Agent 编辑器，因此不再单独成卡；它一行同时负责
 /// 其 hook 集成的安装与卸载，设置里也不再单独提供 Hooks 开关。
 struct AgentsSettingsPage: View {
+    /// 进「标记动态」页：入口行在「监控的智能体」卡片的第一行。页面自身拿不到
+    /// `NotchViewModel`，动作由 `NotchMenuView` 传进来。
+    let onOpenAnimations: () -> Void
+
     @ObservedObject private var l10n = LocalizationManager.shared
     /// 有没有生效的闸门：保护卡片的两行据此启用/禁用。
     @State private var hasEnabledGate = AgentIntegrationInstaller.hasEnabledGate
@@ -160,6 +164,7 @@ struct AgentsSettingsPage: View {
                     : (agentNoticeIsError ? AppPalette.danger : AppPalette.secondaryText)
             ) {
                 AgentSettingsSection(
+                    onOpenAnimations: onOpenAnimations,
                     onGateStateChanged: {
                         hasEnabledGate = AgentIntegrationInstaller.hasEnabledGate
                     },

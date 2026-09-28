@@ -31,8 +31,8 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
     /// 键盘快捷键：全局一条 + 面板内数条，可逐条录制。**不占分段位**——分段条
     /// 放不下第六段（实测见 `NotchMenuTabBar`），入口在「关于」页。
     case shortcuts
-    /// 标记动态：把各 Agent 标记的运行时动效一次铺开预览（空闲 / 处理中 / 待审批）。
-    /// 同样是**不占分段位**的页，入口在「智能体」页的页眉里。
+    /// 标记动态：把各 Agent 的运行时**像素角色**一次铺开预览（空闲 / 处理中 / 待审批）。
+    /// 同样是**不占分段位**的页，入口是「监控的智能体」卡片的第一行。
     case animations
 
     var id: String { rawValue }
@@ -154,40 +154,49 @@ nonisolated enum NotchMenuMetrics {
     /// （与音效选择器的 `maxVisibleOptions` 同一套做法）。
     ///
     /// 取值与高度预算绑定：agent 页内容高 = 92（页眉/分段控件等固定开销）
-    /// + 20（卡标题）+ 40（动作条：全部启用/全部关闭）+ 行数×48 + 20（脚注）+ 12（组间距）
-    /// + 20 + 120（工具调用保护卡）+ 0（Claude 配置目录卡**已并入逐行编辑器**）。
-    /// 5 行时是 **564**（按常量重算：92+20+40+240+20+12+20+120）：加最大的单个展开 106 后
-    /// 在 chrome ≤ 50 时仍 ≤ 728（720），只有 chrome 76（胶囊高度自定义到最大）那一档被夹取
-    /// （746）—— 与改造前登记的 `agents@76` 同一档，夹取组合没有增加。
-    static let visibleAgentRows = 5
+    /// + 20（卡标题）+ **48（「标记动态」入口行）** + 40（动作条：全部启用/全部关闭）
+    /// + 行数×48 + 20（脚注）+ 12（组间距）+ 20 + 120（工具调用保护卡）。
+    /// 4 行时是 **564**（92+20+48+40+192+20+12+20+120）——与加入口行之前逐项同高：
+    /// 入口行的 48 正是从可见行数里挪出来的（5 → 4，卡片仍渲染全部行、只是要滚动）。
+    /// 加最大的单个展开 106 后在 chrome ≤ 50 时仍 ≤ 728（720），只有 chrome 76
+    /// （胶囊高度自定义到最大）那一档被夹取（746）—— 与改造前登记的 `agents@76`
+    /// 同一档，夹取组合没有增加。
+    static let visibleAgentRows = 4
 
-    /// 「标记动态」页：每行铺几个标记、一个格子多高、画廊窗口最多几行。
+    /// 「标记动态」页：每行铺几个角色、一格多高、画廊窗口最多几行。
     ///
     /// 与 `visibleAgentRows` 同一套做法——渲染全部 Agent，只把画廊窗口高度封顶，
-    /// 超出的在画廊里滚动；行数由 `AgentKind` 的数量与列数推出，因此新增 Agent
-    /// 不会把这一页撑出面板上限（ 18 个 ÷ 3 列 = 6 行，正好在窗口内）。
-    static let animationGalleryColumns = 4
-    /// 一个格子里黑色底块的高度（标记 32pt 画在里面）与名称行的高度。
-    static let animationGalleryMarkTileHeight: CGFloat = 46
+    /// 超出的在画廊里滚动。列数 × 窗口行数刚好装下当前的 18 个 Agent（6 × 3），
+    /// 因此默认一屏就能看全所有角色；新增 Agent 只会在画廊里多一行可滚动内容。
+    static let animationGalleryColumns = 6
+    /// 列间距。
+    static let animationGalleryColumnSpacing: CGFloat = 8
+    /// 一个格子里黑色舞台的高度与名称行的高度。
+    static let animationGalleryMarkTileHeight: CGFloat = 52
     static let animationGalleryTileTextHeight: CGFloat = 16
+    /// 舞台里角色的边长（角色的 16×12 网格铺在这个方形舞台里）。
+    static let animationGalleryMascotSize: CGFloat = 44
     static var animationGalleryTileHeight: CGFloat {
         animationGalleryMarkTileHeight + animationGalleryTileTextHeight
     }
     static let animationGalleryRowSpacing: CGFloat = 8
-    static let animationGalleryMaxVisibleRows = 6
+    static let animationGalleryMaxVisibleRows = 3
 
-    /// 画廊的内容高：行数超过窗口时只算窗口那几行（渲染全部、窗口封顶）。
+    /// 画廊窗口的内容高：行数超过窗口时只算窗口那几行（渲染全部、窗口封顶）。
+    ///
+    /// 网格下方还有一份 `rowVerticalPadding` 的留白，它也算内容——不算进去的话，
+    /// 即使 18 枚刚好装下，窗口里仍有一小段空内容可滚、滚动条会为它亮起来。
     static var animationGalleryHeight: CGFloat {
         let rows = min(
             (AgentKind.allCases.count + animationGalleryColumns - 1) / animationGalleryColumns,
             animationGalleryMaxVisibleRows)
         let gaps = CGFloat(max(0, rows - 1)) * animationGalleryRowSpacing
-        return CGFloat(rows) * animationGalleryTileHeight + gaps
+        return CGFloat(rows) * animationGalleryTileHeight + gaps + rowVerticalPadding
     }
 
-    /// 「标记动态」页的固定内容高（`fixedHeight` 块）：状态选择行 + 画廊。
+    /// 「标记动态」页的固定内容高（`fixedHeight` 块）：状态行 + 速度行 + 画廊。
     static var animationsSectionHeight: CGFloat {
-        rowHeight + animationGalleryHeight
+        rowHeight * 2 + animationGalleryHeight
     }
 
     /// 额度页：账号列表不滚动就能看到的账号数。
@@ -334,13 +343,14 @@ nonisolated enum NotchMenuMetrics {
             ]
         case .agents:
             return [
-                // 监控的智能体：动作条（全部启用并安装 / 全部关闭并卸载）+ 每个 Agent 一行
+                // 监控的智能体：**入口行**（标记动态：轮播角色缩略图 + 标题 + 副标题）
+                // + 动作条（全部启用并安装 / 全部关闭并卸载）+ 每个 Agent 一行
                 // （标题 + 集成状态；行内可展开该 Agent 的目录编辑器）+ 一行脚注。
                 // 受支持的 Agent 会随接入面扩大而增加（现在 18 个），整张卡片按
                 // `visibleAgentRows` 封顶、超出的在卡内滚动——否则这一页会把面板
                 // 撑到上限之外，用户得滚很久才能摸到下面的保护档位。
                 Block(
-                    rows: [rowHeight]
+                    rows: [twoLineRowHeight, rowHeight]
                         + Array(
                             repeating: twoLineRowHeight,
                             count: min(AgentKind.allCases.count, visibleAgentRows)

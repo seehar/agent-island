@@ -121,37 +121,52 @@ struct SettingsBadge: View {
         case symbol(name: String, tint: Color)
         /// Agent 品牌标记（底色取该 Agent 的品牌色）。
         case agent(AgentKind)
+        /// 轮播的运行时**像素角色**（自带黑底舞台）。给「标记动态」入口这类需要一眼
+        /// 看出「里面是活的」的行用：它每 2.5 秒换一位 Agent，因此不指向某一个品牌。
+        case mascot
     }
 
     let source: Source
 
-    /// 图标与底色的色调。
-    private var tint: Color {
-        switch source {
-        case .symbol(_, let tint): return tint
-        case .agent(let kind): return kind.brandColor
-        }
-    }
-
     var body: some View {
         glyph
             .frame(width: NotchMenuMetrics.badgeSize, height: NotchMenuMetrics.badgeSize)
-            .background(
-                RoundedRectangle(cornerRadius: NotchMenuMetrics.badgeRadius, style: .continuous)
-                    .fill(tint.opacity(0.18))
-            )
+            .background(background)
             .accessibilityHidden(true)
+    }
+
+    /// 图标块的底色。角色是像素画（有挖空与白色部件），底色换成纯黑舞台；
+    /// 其余两种源沿用「品牌色 18% 的浅底」。
+    @ViewBuilder
+    private var background: some View {
+        switch source {
+        case .symbol(_, let tint):
+            badgeBackground(tint)
+        case .agent(let kind):
+            badgeBackground(kind.brandColor)
+        case .mascot:
+            RoundedRectangle(cornerRadius: NotchMenuMetrics.badgeRadius, style: .continuous)
+                .fill(Color.black)
+        }
+    }
+
+    /// 图标块的圆角底色。
+    private func badgeBackground(_ tint: Color) -> some View {
+        RoundedRectangle(cornerRadius: NotchMenuMetrics.badgeRadius, style: .continuous)
+            .fill(tint.opacity(0.18))
     }
 
     @ViewBuilder
     private var glyph: some View {
         switch source {
-        case .symbol(let name, _):
+        case .symbol(let name, let iconTint):
             Image(systemName: name)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(tint)
+                .foregroundColor(iconTint)
         case .agent(let kind):
             AgentLogo(agent: kind, size: 12)
+        case .mascot:
+            AgentMascotShowcase(size: NotchMenuMetrics.badgeSize)
         }
     }
 }
