@@ -2,15 +2,20 @@
 //  OpenCodeMascot.swift
 //  AgentIsland
 //
-//  OpenCode 的像素终端屏。官方标记就是「外框 + 内孔色块」，这里把内孔做成它的脸：
-//  近白的外框里空出一块黑屏幕，屏幕上只有一只眼睛和一截终端光标条。
-//    · 空闲：屏幕整体 0…1 块呼吸（两只脚钉在地上、腿跟着伸缩）、眨眼，偶尔抖一下光标条 /
-//      整块轻晃 / 屏幕闪一下；
-//    · 处理中：屏幕按打字节拍刷新（代码在刷屏）、光标条在 1…4 块之间跳、两只脚交替抬一下；
-//    · 待审批：外框向外鼓一格撑大自己、眼睛横向瞪开、光标条一直拉到内孔右壁。
+//  OpenCode 的像素角色 OpBot：一块深灰的终端方块，正面用浅灰的 `{ }` 当眼睛、
+//  中间一颗光标点。整套配色是 OpenCode 的单色体系（深灰机身 + 浅灰描边 + 近白脸）。
+//    · 空闲：方块在地面上轻轻漂浮，两条短腿摊着，脸压暗、括弧眼睛眯成一条缝，
+//      头顶从机身顶边上方飘出三枚 Z；
+//    · 处理中：方块蹲在键盘后面打字，随按键上下起伏，键帽每 0.1 秒换一格亮起来，
+//      每约 11 秒停一拍（像在读输出，而不是一直敲）；
+//    · 待审批：3.5 秒一轮的三连跳（一跳比一跳矮），跳起来时瞪眼、左右抖一下，
+//      头顶惊叹号亮起。
 //
-//  网格占用（16×12）：外框第 2…13 列 × 第 2…9 行、两只脚在第 2 / 13 列（底边钉在第 11 行）；
-//  警戒姿态下外框鼓成第 1…14 列 × 第 1…10 行，脚收进框内。
+//  场景视口（SVG 单位）：漂浮 15×12（上边缘 y=4）、打字 16×14（上边缘 y=3）、
+//  起跳 16×14（上边缘 y=3）——视口不同只影响这一套场景里角色的位置与大小。
+//
+//  移植自 CodeIsland（MIT，Copyright (c) 2026 wxtsky）的
+//  `Sources/CodeIsland/OpenCodeView.swift`，坐标常量与配色逐值保留。
 //
 
 import SwiftUI
@@ -21,204 +26,285 @@ struct OpenCodeMascot: View {
     let t: CGFloat
     var size: CGFloat = 27
 
-    /// 外壳：OpenCode 的品牌色是中性灰（`AgentPalette` 的 brandColor `0x8E8B8B`），它在纯黑
-    /// 舞台上太暗、刘海里会糊成一团，所以主体取同一色相的亮档——明度抬起来，灰调不变。
-    private static let shell = Color(mascotHex: 0xD9D9DE)
-    /// 品牌灰本体：光标条与两只脚用它；屏幕点亮时也是外壳色压暗到它下面一档。
-    private static let brand = Color(mascotHex: 0x8E8B8B)
-    private static let seed = MascotMotion.stableSeed("opencode")
+    /// 配色取自 OpenCode 的单色体系：深灰机身、浅灰描边、近白脸、琥珀色警报。
+    /// 上游机身那条注释写的是 `#383838`，但它的浮点值是 `(0.22, 0.22, 0.24)` = `#38383D`
+    /// ——这里以浮点值为准（离屏逐像素比对与上游一致）。
+    private static let bodyC = Color(mascotHex: 0x38383D)  // 深灰机身
+    private static let frameC = Color(mascotHex: 0x8C8C91)  // 浅灰描边
+    private static let faceC = Color(mascotHex: 0xD9D9DE)  // 近白脸
+    private static let legC = Color(red: 0.35, green: 0.35, blue: 0.37)
+    private static let alertC = Color(red: 1.0, green: 0.55, blue: 0.0)  // 琥珀
+    private static let kbBase = Color(red: 0.12, green: 0.12, blue: 0.14)
+    private static let kbKey = Color(red: 0.30, green: 0.30, blue: 0.32)
+    private static let kbHi = Color.white
 
-    /// 外框（描边矩形）：第 2…13 列 × 第 2…9 行，四条边各 1 块宽。
-    private static let frameX: CGFloat = 2
-    private static let frameY: CGFloat = 2
-    private static let frameWidth: CGFloat = 12
-    private static let frameHeight: CGFloat = 8
-
-    /// 内孔（屏幕）：外框向内缩一格，即第 3…12 列 × 第 3…8 行。
-    private static let holeX: CGFloat = frameX + 1
-    private static let holeY: CGFloat = frameY + 1
-    private static let holeWidth: CGFloat = frameWidth - 2
-    private static let holeHeight: CGFloat = frameHeight - 2
-
-    /// 眼睛：2 块宽 × 2 块高，钉在屏幕的居中偏左（第 4…5 行、第 5…6 列），
-    /// 与右下方那截光标条左右错开。
-    private static let eyeCenterX: CGFloat = 6
-    private static let eyeCenterY: CGFloat = 5
-
-    /// 光标条：2 块宽，钉在第 8 列、第 6…7 行，向右伸缩。
-    private static let cursorColumn: CGFloat = 8
-    private static let cursorTop: CGFloat = 6
-    private static let cursorHeight: CGFloat = 2
-
-    /// 接地行：两只脚的底边钉在这一行。
-    private static let ground: CGFloat = 11
+    /// 起跳截顶的入参（`MascotMotion.alertRiseFactor`）：`drawAlert` 的 `rise` 与单测的
+    /// 断言都从这里取，改这组数字会被 `AgentMascotRenderTests` 当场抓到。
+    static let alertSpec = MascotAlertSpec(maxRise: 8, bodyTop: 5, svgTop: 3)
 
     var body: some View {
-        Canvas { context, canvasSize in
-            let grid = MascotGrid(canvasSize)
+        ZStack {
             switch status {
-            case .idle: drawIdle(&context, grid)
-            case .working: drawWorking(&context, grid)
-            case .alert: drawAlert(&context, grid)
+            case .idle:
+                sleepScene
+            case .working:
+                workScene
+            case .alert:
+                alertScene
+            }
+        }
+        .frame(width: size, height: size)
+        .clipped()
+    }
+
+    // MARK: - 机身
+
+    /// 机身：一块按行铺出来的深灰方块（首末行各内缩一格当圆角），正面套一圈浅灰方框。
+    /// `squashX` / `squashY` 是落地那一瞬的压扁——纵向压缩时基线钉在 y=10，方块从地面往上塌。
+    private func drawBlock(
+        _ context: inout GraphicsContext, _ sprite: MascotSprite, dy: CGFloat,
+        squashX: CGFloat = 1, squashY: CGFloat = 1
+    ) {
+        let cx: CGFloat = 7.5
+
+        func sx(_ x: CGFloat, w: CGFloat) -> (CGFloat, CGFloat) {
+            (cx + (x - cx) * squashX, w * squashX)
+        }
+
+        // 机身轮廓：每行「所在行 + 起始列 + 宽度」，首末行各内缩一格。
+        let bodyRows: [(y: CGFloat, x: CGFloat, w: CGFloat)] = [
+            (5, 3, 9),  // 顶边
+            (6, 2, 11),
+            (7, 2, 11),
+            (8, 2, 11),
+            (9, 2, 11),
+            (10, 2, 11),
+            (11, 2, 11),
+            (12, 2, 11),
+            (13, 3, 9),  // 底边
+        ]
+        for row in bodyRows {
+            let (adjX, adjW) = sx(row.x, w: row.w)
+            let adjH: CGFloat = 1 * squashY
+            context.fill(
+                Path(sprite.r(adjX, row.y * squashY + (1 - squashY) * 10, adjW, adjH, dy: dy)),
+                with: .color(Self.bodyC))
+        }
+
+        // 内框：上下两条边不透明些，左右两条竖边更淡——像终端的窗口描边。
+        let frameRows: [(y: CGFloat, x: CGFloat, w: CGFloat)] = [
+            (6, 3, 9),  // 上边
+            (12, 3, 9),  // 下边
+        ]
+        for row in frameRows {
+            let (adjX, adjW) = sx(row.x, w: row.w)
+            context.fill(
+                Path(sprite.r(adjX, row.y * squashY + (1 - squashY) * 10, adjW, 0.7 * squashY, dy: dy)),
+                with: .color(Self.frameC.opacity(0.6)))
+        }
+        for y: CGFloat in stride(from: 7, to: 12, by: 1) {
+            let (leftX, _) = sx(3, w: 0.7)
+            context.fill(
+                Path(sprite.r(leftX, y * squashY + (1 - squashY) * 10, 0.7 * squashX, 1 * squashY, dy: dy)),
+                with: .color(Self.frameC.opacity(0.4)))
+            let (rightX, _) = sx(11.3, w: 0.7)
+            context.fill(
+                Path(sprite.r(rightX, y * squashY + (1 - squashY) * 10, 0.7 * squashX, 1 * squashY, dy: dy)),
+                with: .color(Self.frameC.opacity(0.4)))
+        }
+    }
+
+    /// 脸：一对 `{ }`（各由一竖笔与一段外凸的短横拼成），中间一颗光标点。
+    /// `eyeScale` 小于 0.5 时收起光标——睡着的时候没有光标在闪。
+    private func drawFace(
+        _ context: inout GraphicsContext, _ sprite: MascotSprite, dy: CGFloat,
+        color: Color = Self.faceC, eyeScale: CGFloat = 1.0
+    ) {
+        let eyeH: CGFloat = 2.0 * eyeScale
+        let eyeY: CGFloat = 8.5 + (2.0 - eyeH) / 2
+
+        // 左括号 `{`
+        context.fill(Path(sprite.r(4.5, eyeY, 0.8, max(0.3, eyeH), dy: dy)), with: .color(color))
+        context.fill(
+            Path(sprite.r(4.0, eyeY + eyeH * 0.3, 0.7, max(0.3, eyeH * 0.4), dy: dy)),
+            with: .color(color))
+
+        // 右括号 `}`
+        context.fill(Path(sprite.r(9.7, eyeY, 0.8, max(0.3, eyeH), dy: dy)), with: .color(color))
+        context.fill(
+            Path(sprite.r(10.2, eyeY + eyeH * 0.3, 0.7, max(0.3, eyeH * 0.4), dy: dy)),
+            with: .color(color))
+
+        // 中间的光标点
+        if eyeScale > 0.5 {
+            context.fill(Path(sprite.r(7.1, 9.2, 0.8, 0.8, dy: dy)), with: .color(color.opacity(0.8)))
+        }
+    }
+
+    /// 影子：一条压在地面上的黑线，越飘越淡。
+    private func drawShadow(
+        _ context: inout GraphicsContext, _ sprite: MascotSprite, width: CGFloat = 9,
+        opacity: Double = 0.3
+    ) {
+        context.fill(
+            Path(sprite.r(7.5 - width / 2, 14.5, width, 1)),
+            with: .color(.black.opacity(opacity)))
+    }
+
+    /// 两条短腿（钉在地上，跳起来也不动）。
+    private func drawLegs(_ context: inout GraphicsContext, _ sprite: MascotSprite) {
+        context.fill(Path(sprite.r(4, 13.5, 1, 1.5)), with: .color(Self.legC))
+        context.fill(Path(sprite.r(10, 13.5, 1, 1.5)), with: .color(Self.legC))
+    }
+
+    // MARK: - 空闲：飘着睡
+
+    private var sleepScene: some View {
+        Canvas { context, canvas in
+            // 两个不可通约的周期叠出来的漂浮（3.85 / 7.24 秒）：浮沉不会精确重复，
+            // 同屏多枚角色也因此各有各的节拍，不会跳成一排。
+            let float = sin(t * 2 * .pi / 3.85) * 0.68 + sin(t * 2 * .pi / 7.24) * 0.36
+            let sprite = MascotSprite(canvas, svgWidth: 15, svgHeight: 12, svgTop: 4)
+            drawShadow(&context, sprite, width: 7 + abs(float) * 0.3, opacity: 0.2)
+            drawLegs(&context, sprite)
+            drawBlock(&context, sprite, dy: float)
+            drawFace(&context, sprite, dy: float, color: Self.faceC.opacity(0.4), eyeScale: 0.3)
+            // 飘 Z 从趴姿机身顶边（SVG y=5）上方升起。
+            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 5, t: t, size: size)
+        }
+    }
+
+    // MARK: - 处理中：趴在键盘上打字
+
+    private var workScene: some View {
+        Canvas { context, canvas in
+            // 每约 11 秒停一拍：起伏从「随按键的快抖」换成「缓慢的呼吸」——
+            // 像在读输出，而不是一直敲键盘。
+            let workPause = MascotMotion.quirk(t, cycle: 11.1, duration: 1.2, seed: 0xC88)
+            let bounce =
+                sin(t * 2 * .pi / 0.4) * 1.0 * (1 - workPause)
+                + sin(t * 2 * .pi / 2.9) * 0.3 * workPause
+            let blink = max(0.1, MascotMotion.blink(t, seed: 0xC89))
+            let keyPhase = Int(t / 0.1) % 6
+
+            let sprite = MascotSprite(canvas, svgWidth: 16, svgHeight: 14, svgTop: 3)
+
+            // 1. 影子（起伏越大越窄越淡）
+            let shadowWidth: CGFloat = 8 - abs(bounce) * 0.3
+            context.fill(
+                Path(sprite.r(4 + (8 - shadowWidth) / 2, 16, shadowWidth, 1)),
+                with: .color(.black.opacity(max(0.1, 0.35 - abs(bounce) * 0.03))))
+
+            // 2. 短腿
+            drawLegs(&context, sprite)
+
+            // 3. 键盘：2 行 × 6 列的键帽，每 0.1 秒换一格亮起来
+            context.fill(Path(sprite.r(0, 13, 15, 3)), with: .color(Self.kbBase))
+            for row in 0..<2 {
+                let keyY = 13.5 + CGFloat(row) * 1.2
+                for column in 0..<6 {
+                    let keyX = 0.5 + CGFloat(column) * 2.4
+                    context.fill(Path(sprite.r(keyX, keyY, 1.8, 0.7)), with: .color(Self.kbKey))
+                }
+            }
+            let flashColumn = keyPhase % 6
+            let flashRow = keyPhase / 3
+            context.fill(
+                Path(sprite.r(0.5 + CGFloat(flashColumn) * 2.4, 13.5 + CGFloat(flashRow) * 1.2, 1.8, 0.7)),
+                with: .color(Self.kbHi.opacity(0.9)))
+
+            // 4. 机身与脸（叠在键盘腿后面，只有上半身露出来）
+            drawBlock(&context, sprite, dy: bounce)
+            drawFace(&context, sprite, dy: bounce, eyeScale: blink)
+        }
+    }
+
+    // MARK: - 待审批：三连跳 + 瞪眼 + 惊叹号
+
+    private var alertScene: some View {
+        ZStack {
+            // 警报光晕：常亮一点余晖、随安静段慢慢呼吸。用径向渐变而不是 `blur`
+            // （20fps 下模糊的离屏渲染太贵），强度是 `t` 的纯函数。
+            RadialGradient(
+                colors: [
+                    Self.alertC.opacity(0.05 + 0.07 * (0.5 + 0.5 * sin(t * 2 * .pi / 1.0))),
+                    Self.alertC.opacity(0),
+                ],
+                center: .center,
+                startRadius: 0,
+                endRadius: size * 0.45
+            )
+            .frame(width: size * 0.9, height: size * 0.9)
+
+            Canvas { context, canvas in
+                drawAlert(&context, MascotSprite(canvas, svgWidth: 16, svgHeight: 14, svgTop: 3))
             }
         }
         .frame(width: size, height: size)
     }
 
-    // MARK: - 三套场景
+    /// 起跳：3.5 秒一轮，跳三次、一次比一次矮，然后安静到下一轮。
+    /// 影子留在地上（只有机身与脸跟着跳），惊叹号的位置按跳跃高度做阻尼。
+    private func drawAlert(_ context: inout GraphicsContext, _ sprite: MascotSprite) {
+        let pct = t.truncatingRemainder(dividingBy: 3.5) / 3.5
 
-    /// 空闲：屏幕整体呼吸 + 眨眼 + 偶发一次小动作。
-    private func drawIdle(_ context: inout GraphicsContext, _ grid: MascotGrid) {
-        let breath = MascotMotion.breathe(t)
+        let jumpY = MascotMotion.lerp(
+            [
+                (at: 0, value: 0), (at: 0.03, value: 0), (at: 0.10, value: -1), (at: 0.15, value: 1.5),
+                (at: 0.175, value: -8), (at: 0.20, value: -8), (at: 0.25, value: 1.5),
+                (at: 0.275, value: -6), (at: 0.30, value: -6), (at: 0.35, value: 1.0),
+                (at: 0.375, value: -4), (at: 0.40, value: -4), (at: 0.45, value: 0.8),
+                (at: 0.475, value: -2), (at: 0.50, value: -2), (at: 0.55, value: 0.3),
+                (at: 0.62, value: 0), (at: 1.0, value: 0),
+            ], at: pct)
 
-        var dx: CGFloat = 0
-        var glow: CGFloat = 0
-        var cursorWidth: CGFloat = 2
-        let quirk = MascotMotion.quirk(t, seed: Self.seed)
-        if quirk > 0 {
-            switch MascotMotion.quirkVariant(t, count: 3, seed: Self.seed) {
-            case 0:
-                // 抖一下光标条：一截光标在屏上戳了戳（宽度量化到 0.25 块，边缘不糊）
-                cursorWidth = 2 + (1.5 * quirk * 4).rounded() / 4
-            case 1:
-                // 整块轻晃：左右各挪一整块。取整块而不是亚像素——半块的位移会把外框的
-                // 竖边糊成两条半亮的列，方块就不成方块了。
-                dx = (MascotMotion.swing(t, period: 0.28) * quirk).rounded()
-            default:
-                // 屏幕闪一下
-                glow = quirk
-            }
-        }
+        // 上游的顶点（-8 个单位）比视口还高：实拍那一帧只剩腿与影子，机身整块被裁掉。
+        // 整条曲线等比缩到机身顶边不越出视口上边缘——跳得起来，也永远看得见。
+        let rise = jumpY * Self.alertSpec.riseFactor
 
-        MascotDraw.groundLine(&context, grid, row: Self.ground, width: 8)
-        drawChassis(&context, grid, dx: dx, dy: -breath, grow: 0, glow: glow)
-        drawFace(
-            &context, grid, dx: dx, dy: -breath,
-            eyeOpen: MascotMotion.blink(t, seed: Self.seed), eyeWide: 1, cursorWidth: cursorWidth)
-        drawLegs(&context, grid, dx: dx, dy: -breath, lifts: [0, 0])
-    }
+        // 落地瞬间压扁、离地时拉长（只有这两行用原始位移判定，其余一律用截顶后的 `rise`）。
+        let squashX: CGFloat = jumpY > 0.5 ? 1.0 + jumpY * 0.03 : 1.0
+        let squashY: CGFloat = jumpY > 0.5 ? 1.0 - jumpY * 0.02 : 1.0
+        let shakeX: CGFloat = (pct > 0.15 && pct < 0.55) ? sin(pct * 80) * 0.6 : 0
 
-    /// 处理中：屏幕按打字节拍刷新、光标条跟着跳、两只脚交替抬一下。
-    /// `t == 0` 落在「屏幕较暗的那半拍 + 光标 2.5 块 + 两脚落地」的中间态。
-    private func drawWorking(_ context: inout GraphicsContext, _ grid: MascotGrid) {
-        // 打字节拍：屏幕逐拍明暗交替（20fps 下每拍约 3.6 帧，读起来就是屏幕在快速刷屏），
-        // 光标条也跟着换宽——两者同一组拍号，像代码一行行刷过去。
-        let typing = MascotMotion.typingBeat(t, cadence: 0.18, seed: Self.seed)
-        // 第 0 拍取暗的那一档，所以 `t == 0` 落在闪烁的中间态；亮的那一档仍然明显暗于光标条。
-        let glow: CGFloat = typing.slot % 2 == 0 ? 0.5 : 1
-        // 光标条在 1…4 块之间跳：宽度与屏幕用同一组拍号取值、0.5 块一档；
-        // 第 0 档取 2.5 块，所以 `t == 0` 落在中间态而不是极端值。
-        let widths: [CGFloat] = [2.5, 1, 4, 1.5, 3, 4, 1, 2.5]
-        let cursorWidth = widths[typing.slot % widths.count]
-        // 两只脚按更慢的拍子交替离地：一拍抬左脚、下一拍抬右脚，其余时间都踩在地上。
-        let step = MascotMotion.beat(t, beat: 0.34) % 4
-        let lifts: [CGFloat] = step == 1 ? [1, 0] : (step == 3 ? [0, 1] : [0, 0])
+        // 惊叹号：起跳一开始亮起，安静下来淡出。
+        let bangOpacity = MascotMotion.lerp(
+            [
+                (at: 0, value: 0), (at: 0.03, value: 1), (at: 0.10, value: 1), (at: 0.55, value: 1),
+                (at: 0.62, value: 0), (at: 1.0, value: 0),
+            ], at: pct)
+        let bangScale = MascotMotion.lerp(
+            [
+                (at: 0, value: 0.3), (at: 0.03, value: 1.3), (at: 0.10, value: 1.0),
+                (at: 0.55, value: 1.0), (at: 0.62, value: 0.6), (at: 1.0, value: 0.6),
+            ], at: pct)
 
-        MascotDraw.groundLine(&context, grid, row: Self.ground, width: 8)
-        drawChassis(&context, grid, dx: 0, dy: 0, grow: 0, glow: glow)
-        drawFace(
-            &context, grid, dx: 0, dy: 0,
-            eyeOpen: MascotMotion.blink(t, seed: Self.seed), eyeWide: 1, cursorWidth: cursorWidth)
-        drawLegs(&context, grid, dx: 0, dy: 0, lifts: lifts)
-    }
+        // 影子：跳得越高越窄越淡，但**留在原地**。
+        let shadowWidth: CGFloat = 8 * (1.0 - abs(min(0, rise)) * 0.04)
+        context.fill(
+            Path(sprite.r(4 + (8 - shadowWidth) / 2, 16, shadowWidth, 1)),
+            with: .color(.black.opacity(max(0.08, 0.4 - abs(min(0, rise)) * 0.04))))
 
-    /// 待审批：外框向外鼓一格、眼睛瞪开、光标条拉满（跳跃与光晕由统一层施加）。
-    private func drawAlert(_ context: inout GraphicsContext, _ grid: MascotGrid) {
-        // 向外鼓一格：外框从第 2…13 列 × 第 2…9 行撑成第 1…14 列 × 第 1…10 行。
-        let grow: CGFloat = 1
-        // 光标条拉满：一直顶到内孔右壁。内壁跟着外框一起外移了一格，所以宽度按几何推出来。
-        let cursorWidth = Self.holeX + Self.holeWidth + grow - Self.cursorColumn
+        // 腿（钉在地上）
+        drawLegs(&context, sprite)
 
-        MascotDraw.groundLine(&context, grid, row: Self.ground, width: 10)
-        drawChassis(&context, grid, dx: 0, dy: 0, grow: grow, glow: 0)
-        drawFace(&context, grid, dx: 0, dy: 0, eyeOpen: 1, eyeWide: 1.75, cursorWidth: cursorWidth)
-    }
+        // 机身与脸：左右抖一下（抖的是横向位移，与截顶无关）
+        context.translateBy(x: shakeX * sprite.block, y: 0)
+        drawBlock(&context, sprite, dy: rise, squashX: squashX, squashY: squashY)
+        drawFace(&context, sprite, dy: rise, eyeScale: pct > 0.03 && pct < 0.15 ? 1.3 : 1.0)
+        context.translateBy(x: -shakeX * sprite.block, y: 0)
 
-    // MARK: - 画法
-
-    /// 外壳：内孔（黑屏幕）+ 外框四条边。
-    ///
-    /// - Parameters:
-    ///   - dx / dy: 屏幕整体的位移（像素块，负的 dy 是上浮）
-    ///   - grow: 外框向外鼓出的格数（0 = 常态，1 = 待审批的警戒姿态）
-    ///   - glow: 屏幕被点亮的程度（0…1），处理中的「代码刷屏」与空闲的「闪一下」共用
-    private func drawChassis(
-        _ context: inout GraphicsContext, _ grid: MascotGrid,
-        dx: CGFloat, dy: CGFloat, grow: CGFloat, glow: CGFloat
-    ) {
-        let screen = grid.rect(
-            Self.holeX - grow, Self.holeY - grow,
-            Self.holeWidth + 2 * grow, Self.holeHeight + 2 * grow, dx: dx, dy: dy)
-
-        // 内孔先铺一层黑：它既是 OpenCode 标记里的「内孔色块」，也把统一层的品牌色光晕挡在
-        // 屏幕外——待审批时光晕在外面闪，屏里始终是深色底，眼睛与光标条才立得住。
-        MascotDraw.block(&context, screen, .black)
-
-        // 屏幕点亮：最亮也压在外壳色的 38%（实测约 96/255），比光标条的品牌灰（140/255）明显
-        // 暗一档——刷屏闪得再快，屏上的眼睛与光标条也一直认得出（离屏定帧量过亮度）。
-        if glow > 0 {
-            MascotDraw.block(&context, screen, Self.shell.opacity(0.38 * glow))
-        }
-
-        // 外框：上 / 下 / 左 / 右四条边，各 1 块宽。
-        let outerX = Self.frameX - grow
-        let outerY = Self.frameY - grow
-        let outerWidth = Self.frameWidth + 2 * grow
-        let outerHeight = Self.frameHeight + 2 * grow
-        MascotDraw.block(
-            &context, grid.rect(outerX, outerY, outerWidth, 1, dx: dx, dy: dy), Self.shell)
-        MascotDraw.block(
-            &context, grid.rect(outerX, outerY + outerHeight - 1, outerWidth, 1, dx: dx, dy: dy),
-            Self.shell)
-        MascotDraw.block(
-            &context, grid.rect(outerX, outerY + 1, 1, outerHeight - 2, dx: dx, dy: dy), Self.shell)
-        MascotDraw.block(
-            &context,
-            grid.rect(outerX + outerWidth - 1, outerY + 1, 1, outerHeight - 2, dx: dx, dy: dy),
-            Self.shell)
-    }
-
-    /// 脸：一只眼睛（外壳色）+ 一截终端光标条（品牌灰）。
-    ///
-    /// - Parameters:
-    ///   - eyeOpen: 睁眼程度（1 = 睁满、0 = 闭合）。眨眼时纵向收窄，始终垂直居中
-    ///   - eyeWide: 眼睛的横向倍数（1 = 2 块宽）。待审批瞪眼只往宽里长，免得纵向压到光标条
-    ///   - cursorWidth: 光标条宽度（像素块），左端钉在第 8 列向右伸
-    private func drawFace(
-        _ context: inout GraphicsContext, _ grid: MascotGrid,
-        dx: CGFloat, dy: CGFloat, eyeOpen: CGFloat, eyeWide: CGFloat, cursorWidth: CGFloat
-    ) {
-        let eyeHeight = max(0.3, 2 * eyeOpen)
-        let eyeWidth = 2 * eyeWide
-        MascotDraw.block(
-            &context,
-            grid.rect(
-                Self.eyeCenterX - eyeWidth / 2, Self.eyeCenterY - eyeHeight / 2,
-                eyeWidth, eyeHeight, dx: dx, dy: dy),
-            Self.shell)
-
-        MascotDraw.block(
-            &context,
-            grid.rect(
-                Self.cursorColumn, Self.cursorTop, cursorWidth, Self.cursorHeight, dx: dx, dy: dy),
-            Self.brand)
-    }
-
-    /// 两只脚：从外框下沿（第 10 行）挂到地面（第 11 行），钉在外框底部的两个角上
-    /// （第 2 列与第 13 列，正对着外框左右两条边）。
-    ///
-    /// 呼吸时屏幕整体上浮、这段就被拉长——脚始终踩在地上。抬脚用「变短」表达而不是
-    /// 「整体上移」，上移会让脚离开地面、看起来像飘着。
-    ///
-    /// - Parameter lifts: 两只脚各自的抬脚量（像素块，0 = 落地）
-    private func drawLegs(
-        _ context: inout GraphicsContext, _ grid: MascotGrid,
-        dx: CGFloat, dy: CGFloat, lifts: [CGFloat]
-    ) {
-        let top = Self.frameY + Self.frameHeight + dy
-        for (index, column) in [Self.frameX, Self.frameX + Self.frameWidth - 1].enumerated() {
-            let height = max(0.3, Self.ground - top - lifts[index])
-            MascotDraw.block(&context, grid.rect(column, top, 1, height, dx: dx), Self.brand)
+        // 惊叹号：在头顶上方，位移只有跳跃的 15%（不会飞出画布）。
+        if bangOpacity > 0.01 {
+            let width: CGFloat = 2 * bangScale
+            let x: CGFloat = 13
+            let y: CGFloat = 4 + rise * 0.15
+            context.fill(
+                Path(sprite.r(x, y, width, 3.5 * bangScale)),
+                with: .color(Self.alertC.opacity(bangOpacity)))
+            context.fill(
+                Path(sprite.r(x, y + 4.0 * bangScale, width, 1.5 * bangScale)),
+                with: .color(Self.alertC.opacity(bangOpacity)))
         }
     }
 }

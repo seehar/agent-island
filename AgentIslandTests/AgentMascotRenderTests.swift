@@ -2,13 +2,14 @@
 //  AgentMascotRenderTests.swift
 //  AgentIslandTests
 //
-//  18 枚像素角色的渲染判据。角色是手绘的方块拼合，最容易出的事故是「某一枚在某个场景
-//  里什么都没画出来」（少写一块、坐标写到了网格外、场景分支写错），而这类事故**编译
-//  与本地化守卫都抓不到**——只有把每个 Agent 的每个场景都真的渲染一遍才看得见。
+//  18 枚像素角色的渲染判据。角色是 Canvas 上按 SVG 单位手绘的拼合图形，最容易出的事故是
+//  「某一枚在某个场景里什么都没画出来」（少写一块、坐标画到了视口外、场景分支写错），
+//  而这类事故**编译与本地化守卫都抓不到**——只有把每个 Agent 的每个场景都真的渲染一遍才看得见。
 //
-//  同时钉住两条用户可见的契约：
+//  同时钉住三条用户可见的契约：
 //    · 同一时刻永远画出同一帧（动效是纯函数，离屏定帧与探针才对得上）；
-//    · 三套场景必须互不相同——否则「静止」档位下三档看起来是同一张图。
+//    · 三套场景必须互不相同——否则「静止」档位下三档看起来是同一张图；
+//    · 待审批的起跳**不许把身体抛出画布**（顶点那一帧仍看得见身体）。
 //
 
 import AppKit
@@ -211,10 +212,8 @@ struct AgentMascotRenderTests {
     @Test("空闲与处理中在采样时刻里都动过（不是一张静止的图）")
     @MainActor
     func scenesActuallyMove() {
-        // 只判空闲与处理中：这两档的**统一层不施加任何位移/缩放/光晕**，画面变与不变完全由
-        // 角色自己决定，逐字节比才能证明「角色真的在动」。待审批那一档由统一层的三连跳驱动，
-        // 逐字节比必然不等（角色自己站着不动也会通过），而「角色自己在这一档动没动」不构成
-        // 契约（姿态可以是静止的，见 `AgentMascot` 头注释）。
+        // 只判空闲与处理中：这两档的画面变与不变完全由角色自己决定（起跳档自带三连跳，
+        // 逐字节比必然不等，证明不了「角色自己也在动」）。
         for agent in AgentKind.allCases {
             for scene in [AgentMascotStatus.idle, .working] {
                 guard
@@ -226,6 +225,23 @@ struct AgentMascotRenderTests {
                 }
                 #expect(moved, "\(agent.rawValue) 的 \(scene) 在所有采样时刻都一样，等于没动")
             }
+        }
+    }
+
+    @Test("待审批的顶点不把身体抛出画布：按各角色自己的截顶入参推导")
+    @MainActor
+    func alertApexKeepsTheBodyInFrame() {
+        // 判据用**算式**而不是渲染出的像素比例：离屏实测过，「顶点那一帧的实心像素数 ÷ 静止档
+        // 那一帧」对 16 枚里的 12 枚拦不住「把截顶系数去掉」这种回退——Pi / Hermes 的位移表在
+        // 静止档取样的那一刻（0.35s）已经接近它们自己的顶点，两帧同样被裁，比值天然接近 1。
+        // 算式读的是各角色自己暴露的 `alertSpec`（`drawAlert` 的 `rise` 与它同源），
+        // 而「身体顶边有没有越过视口上边缘」与渲染出来会不会被裁掉是同一件事。
+        for agent in AgentKind.allCases {
+            let spec = AgentMascot.alertSpec(for: agent)
+            #expect(
+                spec.apexBodyTop >= spec.svgTop - spec.overshoot - 0.0001,
+                "\(agent.rawValue) 的起跳顶点把身体顶边抬到 \(spec.apexBodyTop)（视口上边缘 \(spec.svgTop)）——身体会被裁出画布"
+            )
         }
     }
 

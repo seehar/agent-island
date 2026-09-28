@@ -5,19 +5,23 @@
 //  18 个 Agent 的运行时**像素角色**：刘海头部与「标记动态」页都从这里取。
 //
 //  分工（改这一层之前先读这一段）：
-//    · 本文件：活动状态、时钟、待审批的统一动作层、Agent → 角色的路由。
+//    · 本文件：活动状态、时钟、Agent → 角色的路由（以及单测要读的起跳截顶入参）。
 //    · `MascotMotion` / `MascotKit`：曲线与绘制工具（不含任何角色专属逻辑）。
 //    · `Mascots/<角色>.swift`：一枚角色的画法与三套场景。
 //
 //  三套场景的语义（每枚角色都必须做到）：
-//    · `idle`：像活物——呼吸 + 眨眼，偶发一次小动作（歪头 / 抖耳朵 / 换只脚站）；
-//    · `working`：按该角色自己的形态做**招牌动作**（腿走、齿轮转、等化器跳、点绕行…），
+//    · `idle`：睡觉——趴着打盹、呼吸起伏、头顶飘 Z，偶尔翻个身；
+//    · `working`：按该角色自己的形态做**招牌动作**（打字、齿轮转、等化器跳、绕行…），
 //      一眼看得出它在干活，而不是「所有角色一起上下弹」；
-//    · `alert`：换成「注意到你了」的姿态（瞪眼 / 举钳 / 张大）。**动作**由本文件的统一层
-//      施加：三连跳 + 品牌色光晕。统一层刻意不按角色分化——它是应用级信号（有事等你），
-//      18 枚各不相同会把这个信号削弱。角色这一档的姿态可以是静止的，也**可以仍在动**
-//      （如 Factory 的辐条转得更快）；但整体位移与缩放一律留给统一层：角色自己的位移
-//      只能来自它这一档的形态（如把「兜帽拉高」画成兜帽更高，而不是整只角色上移）。
+//    · `alert`：注意到你了——3.5 秒一轮的起跳（一跳比一跳矮）+ 瞪眼 + 头顶惊叹号。
+//
+//  `alert` 的起跳由**每一枚角色自己**画（姿态、影子、惊叹号都在同一个画布里，影子因此
+//  留在地上而不是跟着跳）。周期统一是 3.5 秒、语义统一是「三跳、一跳比一跳矮、惊叹号」，
+//  所以它仍是一个统一的**应用级**信号（「有事等你」）——只是不再由本文件的公共层施加位移，
+//  而且个别角色（Pi / Hermes）沿用上游自己那张略有出入的位移表。
+//
+//  场景移植自 CodeIsland（MIT，Copyright (c) 2026 wxtsky）：坐标常量、配色与关键帧逐值保留，
+//  但**时间一律显式传参**（`t` 由本文件的时钟给出），因此每一帧都是 `t` 的纯函数。
 //
 //  姿态约定：`t == 0` 必须是该场景最有代表性的一帧（不眨眼、不压扁、不位移）——
 //  离屏定帧探针与单测都取这一帧，因此这不是审美问题而是契约。「静止」档位另取
@@ -28,11 +32,11 @@ import SwiftUI
 
 /// 角色当前的活动状态，由会话阶段推导。
 enum AgentMascotStatus: Hashable {
-    /// 没在跑：呼吸 + 眨眼，像活物在喘气。
+    /// 没在跑：趴着打盹（呼吸 + 飘 Z），像活物在喘气。
     case idle
     /// 处理中：该角色自己的招牌动作。
     case working
-    /// 等待审批：停下来盯着你（配合统一的弹跳与光晕）。
+    /// 等待审批：起跳 + 瞪眼 + 惊叹号（姿态由每枚角色自己画）。
     case alert
 
     /// 由会话阶段推导。映射只写在这一处，避免各调用点各写一遍。
@@ -58,21 +62,23 @@ enum AgentMascotStatus: Hashable {
     ///
     ///  · **睁着眼**：`blink` 的相位由角色的 seed 决定，18 枚各不相同；t 若落在某一枚的
     ///    眨眼窗口里，它就会以「闭着眼」的样子出现在静止档（实测 t=1.5 正中 gemini 的眨眼）。
-    ///    各 seed 的首次眨眼都从 t ≥ 0.6 才开始，因此取 ≤ 0.3 的时刻对所有角色都睁着眼。
+    ///    各 seed 的首次眨眼都从 t ≥ 0.6 才开始，因此取 ≤ 0.55 的时刻对所有角色都睁着眼。
     ///  · **有代表性**：空闲取静息帧（呼吸到底、四平八稳），处理中取动作中段（走步已经迈出去，
-    ///    多数角色的招牌动作在这一刻都已离开静息位，静止档因此看得出与空闲的差别），
-    ///    待审批取姿态帧。空闲与处理中的差别主要落在**动作序列**上，静止档看得到的那部分
-    ///    来自各角色自己那条「状态驱动的常驻姿势差」（见各自的 `draw*`）。
+    ///    多数角色的招牌动作在这一刻都已离开静息位），待审批取**第一次起跳刚离地**那一帧
+    ///    ——静止档看到的必须是「有人在喊你」那一帧，而不是站着不动的平常样。
     ///
-    /// 待审批档是例外：多数角色在那里的姿态是静止的，但**允许**仍在动（`FactoryMascot`
-    /// 的辐条在待审批时转得更快），此时定帧取的是该场景的代表姿态。
+    /// 待审批档取 0.35s（周期 3.5s 的 pct 0.10）：落在各角色**自己的**惊觉窗口里——
+    /// 多数角色的瞪眼窗口是 pct 0.03…0.15（t 0.105…0.525，0.35 在窗内，而 0.55 已出窗），
+    /// 惊叹号在这一段满亮（bangOpacity = 1），身体刚离开地面。取 0.35 而不是更晚还因为
+    /// **首次眨眼的下限**：各角色的眨眼 seed 不同，最紧的一枚（Gemini，seed 0x40E）从
+    /// t = 0.65 起才可能闭眼，0.35 对全部角色都睁着眼。
     /// 这条口径由 `MascotMotionTests`（`blink(stillInstant, seed) == 1`）与
     /// `AgentMascotRenderTests`（三档在代表时刻的姿态指纹互不相同）一起钉住。
     var stillInstant: Double {
         switch self {
         case .idle: return 0
         case .working: return 0.45
-        case .alert: return 0
+        case .alert: return 0.35
         }
     }
 }
@@ -99,7 +105,7 @@ struct AgentMascot: View {
     }
 }
 
-// MARK: - 时钟 + 统一层 + 路由
+// MARK: - 时钟 + 路由
 
 private struct AgentMascotFrames: View {
     let agent: AgentKind
@@ -119,12 +125,7 @@ private struct AgentMascotFrames: View {
     }
 
     private func frame(at time: Double, status: AgentMascotStatus) -> some View {
-        let t = CGFloat(time)
-        let attention = status == .alert ? MascotMotion.attention(t, size: size) : .init()
-        return character(status: status, t: t)
-            .background(glow(intensity: attention.glow))
-            .scaleEffect(x: attention.scaleX, y: attention.scaleY, anchor: .bottom)
-            .offset(y: attention.dy)
+        character(status: status, t: CGFloat(time))
     }
 
     /// Agent → 角色。新增 Agent 时必须在这里补一支（穷举 switch，编译器会提醒）。
@@ -134,7 +135,7 @@ private struct AgentMascotFrames: View {
         case .claudeCode:
             ClaudeMascot(status: status, t: t, size: size)
         case .ohMyPi:
-            OhMyPiMascot(status: status, t: t, size: size)
+            PiMascot(status: status, t: t, size: size)
         case .pi:
             PiMascot(status: status, t: t, size: size)
         case .opencode:
@@ -169,25 +170,33 @@ private struct AgentMascotFrames: View {
             HermesMascot(status: status, t: t, size: size)
         }
     }
+}
 
-    /// 待审批的品牌色光晕：画在角色后面，**常亮一点余晖**（0.25）并与三连跳同拍增强。
-    /// 用径向渐变而不是 `blur`——20fps 下模糊的离屏渲染太贵。
-    @ViewBuilder
-    private func glow(intensity: CGFloat) -> some View {
-        if intensity > 0.01 {
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [
-                            agent.brandColor.opacity(0.45 * intensity),
-                            agent.brandColor.opacity(0),
-                        ],
-                        center: .center,
-                        startRadius: size * 0.15,
-                        endRadius: size * 0.85
-                    )
-                )
-                .frame(width: size * 1.7, height: size * 1.7)
+// MARK: - 起跳截顶入参（单测读）
+
+extension AgentMascot {
+    /// 该 Agent 的起跳截顶入参：`AgentMascotRenderTests` 用它断言「顶点不会把身体抛出视口」。
+    ///
+    /// 与 `AgentMascotFrames.character(...)` 同构，**新增 Agent 时两处一起补**（都是穷举 switch，
+    /// 编译器会提醒）。
+    static func alertSpec(for agent: AgentKind) -> MascotAlertSpec {
+        switch agent {
+        case .claudeCode: return ClaudeMascot.alertSpec
+        case .ohMyPi, .pi: return PiMascot.alertSpec
+        case .opencode: return OpenCodeMascot.alertSpec
+        case .codex: return CodexMascot.alertSpec
+        case .gemini: return GeminiMascot.alertSpec
+        case .cursor: return CursorMascot.alertSpec
+        case .copilot: return CopilotMascot.alertSpec
+        case .qoder: return QoderMascot.alertSpec
+        case .factory: return FactoryMascot.alertSpec
+        case .codeBuddy: return CodeBuddyMascot.alertSpec
+        case .kimi: return KimiMascot.alertSpec
+        case .cline: return ClineMascot.alertSpec
+        case .grok: return GrokMascot.alertSpec
+        case .trae, .traeCli: return TraeMascot.alertSpec
+        case .deepSeekHarness: return DeepSeekHarnessMascot.alertSpec
+        case .hermes: return HermesMascot.alertSpec
         }
     }
 }

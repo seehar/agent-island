@@ -23,7 +23,7 @@ Two agents in tmux already means tab-hunting to find the one that is waiting on 
 
 The notch is the one strip of the screen you never leave. AgentIsland makes it the status light for your agents:
 
-- **Closed** — a capsule that stays out of the way. Its left mark is that agent's own **pixel mascot** — breathing while idle, doing its signature move while it works, and jumping when it needs your approval, the right side reads `active[+subagents]/total`. The capsule widens just enough to keep that count clear of the camera housing, and only at extreme counts drops the least important number instead of truncating it.
+- **Closed** — a capsule that stays out of the way. Its left mark is that agent's own **pixel mascot** — dozing with a floating z while idle, doing its signature move while it works, and jumping with a `!` when it needs your approval, the right side reads `active[+subagents]/total`. The capsule widens just enough to keep that count clear of the camera housing, and only at extreme counts drops the least important number instead of truncating it.
 - **Hover** — it expands into one live list across every agent you run.
 - **Approval** — a tool call that needs permission opens the panel with Allow / Deny, and your answer travels back to the agent.
 

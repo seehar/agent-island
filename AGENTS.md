@@ -108,15 +108,18 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 
 - `WindowManager` + `NotchWindowController` 把 `NSPanel`（`NotchPanel`）贴在当前屏幕顶部；`NotchGeometry` 是纯几何（命中矩形 + 展开尺寸），`NotchViewModel` 持有 closed/open 状态、打开原因、内容类型（会话列表 / 聊天 / 设置）与动画。
 - 有真实刘海的屏按 `deviceNotchRect` 定位；无刘海屏（外接显示器）改为与菜单栏等高，高度也可在设置里固定（`NotchHeightSelector`）。
-- 关闭态只画左侧角色（`AgentMascot` 的像素角色）+ 右侧计数；**计数颜色与角色同源**（`headerAgent?.brandColor`），状态由角色的动作（呼吸 / 干活 / 跳起来）与琥珀色审批指示表达 —— 不要用颜色编码状态。
+- 关闭态只画左侧角色（`AgentMascot` 的像素角色）+ 右侧计数；**计数颜色与角色同源**（`headerAgent?.brandColor`），状态由角色的动作（打盹 / 干活 / 跳起来）与琥珀色审批指示表达 —— 不要用颜色编码状态。
 - 悬停/点击靠 `EventMonitors` 的全局鼠标监听 + `NotchGeometry` 命中判定；`PassThroughHostingView` 保证非交互区域不吞事件。
 
 ### 运行时像素角色（标记动态）
 
-- Agent 的「运行时标记」是**手绘的像素角色**（`UI/Mascots/`），不是品牌字形：18 个 Agent 各有一枚会呼吸、会干活、会瞪人的小人。品牌字形仍然在，但只当**静态身份标记**（`AgentLogo`：会话角标、设置行的 Agent 图标这类 10…12pt 的密集场合）。
-- 分工：`MascotMotion`（曲线语汇，全是时间的纯函数）+ `MascotKit`（16×12 网格坐标与绘制工具）+ `Mascots/<角色>.swift`（一枚角色的画法与三套场景）+ `AgentMascot`（状态、时钟、路由，以及待审批的**统一**跳跃/光晕）。**运动是时间的纯函数**：同一 `t` 永远画出同一帧，所以能离屏定帧逐帧比对（`AgentMascotRenderTests` 会把 18 枚 × 3 场景逐个渲染，并在 `/tmp/agent-mascot-probe/` 落一张接触表供人工核对）。
-- 三套场景由会话相位选（空闲 / 处理中 / 待审批）。待审批的跳跃与光晕**刻意不按角色分化**——它是应用级信号（「有事等你」），18 枚各不相同会把信号削弱；角色自己的姿态（瞪眼 / 举钳 / 张大）画在各自文件里。
-- `t == 0` 必须是各场景最有代表性的一帧（离屏定帧探针与单测取这一帧）；「静止」档位另取各场景的代表时刻（`AgentMascotStatus.stillInstant`），因为空闲与处理中的差别在动作序列里，取 0 会让两档看起来一样。
+- Agent 的「运行时标记」是**像素角色**（`UI/Mascots/`），不是品牌字形：18 个 Agent 各有一枚会打盹、会干活、会跳起来喊你的小人。品牌字形仍然在，但只当**静态身份标记**（`AgentLogo`：会话角标、设置行的 Agent 图标这类 10…12pt 的密集场合）。
+- 分工：`MascotMotion`（曲线语汇，全是时间的纯函数）+ `MascotKit`（`MascotSprite`：SVG 单位坐标映射；`MascotDraw.floatingZs`：睡眠 Z）+ `Mascots/<角色>.swift`（一枚角色的画法与三套场景）+ `AgentMascot`（状态、时钟、路由）。**运动是时间的纯函数**：同一 `t` 永远画出同一帧（定帧走 `frozenTime:` 显式传参，**不走环境变量**——环境值一旦没传到就会静默退回「按当前时刻现算」，那是随机画面的来源），所以能离屏定帧逐帧比对（`AgentMascotRenderTests` 会把 18 枚 × 3 场景逐个渲染，并在 `/tmp/agent-mascot-probe/` 落一张接触表供人工核对）。
+- **15 枚**角色的画法、配色与关键帧移植自 **CodeIsland**（MIT，见 `NOTICE.md`，源 `Sources/CodeIsland/*View.swift`）：坐标常量、场景视口（`svgWidth`/`svgHeight`/`svgTop`）与关键帧逐值保留。移植时改了四处：① 时间改为显式传参（`t`），删掉 `MascotTimeline` / `@State alive` / `.repeatForever`（非确定性动画会让定帧判据失效）；② 睡眠 Z 由 `Text("z")` 改为像素绘制（本仓禁止 `Text("…")` 字面量），锚点也从「画布中心」改成「身体顶边」（身体占画面中部的角色，旧锚点会把 Z 压在脸上）；③ 起跳幅度按视口截顶（见下条）；④ **运动曲线沿用本仓 `MascotMotion`，不是逐值移植**——`breathe` / `typingBeat` 的包络与上游同名函数只是语义相近，动效细节以本仓为准。
+- 另外两枚不属于上面这条：`GrokMascot` 只有**标记几何**来自上游（`GrokView` 是静态商标，上游明确要求不变形），三套场景与动效是本仓补的（只平移，不旋转/缩放）；`DeepSeekHarnessMascot` 整枚是本仓自绘（上游没有 dsh 的角色），沿用同一套口径。
+- 三套场景由会话相位选：**空闲 = 打盹**（趴下 / 摊平、呼吸、飘 Z）、**处理中 = 招牌动作**（打字 / 走 / 转）、**待审批 = 起跳 + 瞪眼 + 惊叹号**。周期统一为 3.5 秒、语义统一为「三跳、一跳比一跳矮、顶上惊叹号」——「有事等你」因此仍是统一的应用级信号（14 枚用同一张位移表，`Pi` / `Hermes` 沿用上游各自略有出入的表）；但**位移与影子画在各角色自己的画布里**（影子留在地上、不跟着身体跳），`AgentMascot` 不再施加公共位移或光晕。
+- **起跳幅度必须过截顶**：上游关键帧的顶点（Clawd 是 -10 个 SVG 单位）比它自己的视口还高——实拍顶点那一帧只剩腿、叹号与影子，身体整块被 `clipped()` 裁掉。每枚角色把入参写成 `static let alertSpec = MascotAlertSpec(maxRise:bodyTop:svgTop:overshoot:)`，`drawAlert` 用 `jumpY * alertSpec.riseFactor`（按「身体顶边到视口上边缘的距离 + 余量」**等比缩放整条曲线**，而不是逐个钳位——逐个钳位会把三跳压成一样高；视口在方形画布里没有纵向余量时 `overshoot` 必须取 0，如 `FactoryMascot`）。`AgentMascotRenderTests.alertApexKeepsTheBodyInFrame` 按 `alertSpec` 推导断言「顶点身体顶边不越出视口」（不用渲染比例：实测 12/16 枚在渲染比例判据下会漏）。
+- `t == 0` 必须是各场景最有代表性的一帧（离屏定帧探针与单测取这一帧）；「静止」档位另取各场景的代表时刻（`AgentMascotStatus.stillInstant`）：空闲 0、处理中 0.45、待审批 0.35（各角色自己的**惊觉**窗口：瞪眼 + 惊叹号满亮 + 刚离地——用户在「静止」档看到的必须是「有人在喊你」那一帧，而不是站着不动的平常样；取 0.35 而不是更晚，是因为多数角色的瞪眼窗口在 pct 0.15（t 0.525）就结束了）。三个时刻都必须早于各角色的首次眨眼（`blink` 的 start 落在 [0.6, 3.0)，由 `MascotMotionTests` 钉住）。
 - 「标记动态」页（`NotchMenuSection.animations`）把 18 枚角色一次铺开预览：状态选择 + 速度选择（静止 / 0.5× / 1× / 2×）+ 6×3 的画廊（整台画廊只跑一个时钟，每格按 `frozenTime:` 定帧）。这一页不占分段位（分段条放不下第六段），入口是「智能体」卡片的第一行（轮播角色缩略图 + 副标题 + chevron）。
 
 ### 集成安装面（AgentIsland 唯一会写入的 Agent 侧文件）

@@ -80,23 +80,22 @@ struct MascotMotionTests {
         #expect(MascotMotion.lerp(frames, at: 0.25) == 2)
     }
 
-    @Test("待审批的统一层：只向上跳、发光有界，安静时只剩余晖")
-    func attentionLayerIsBounded() {
-        let samples = Self.samples.prefix(200)
-        for t in samples {
-            let attention = MascotMotion.attention(t, size: 27)
-            #expect(attention.dy <= 0, "统一层把角色往屏幕下方推了")
-            #expect(attention.dy >= -4, "跳跃幅度过大，角色会跳出刘海")
-            #expect(attention.glow >= 0 && attention.glow <= 1)
-            #expect(attention.scaleX > 0.8 && attention.scaleX <= 1.001)
-            #expect(attention.scaleY >= 0.999 && attention.scaleY < 1.2)
-        }
-        // 三连跳之间的安静段：不再跳，但保留一点余晖——待审批期间**始终**亮着，
-        // 否则信号会在两跳之间闪断（与改造前的字形动效同一口径）。
-        let quiet = MascotMotion.attention(3.2, size: 27)
-        #expect(quiet.dy == 0)
-        #expect(quiet.glow == 0.25)
-        #expect(quiet.scaleX == 1 && quiet.scaleY == 1)
+    @Test("起跳截顶：按视口高度等比缩放，三跳「一跳比一跳矮」的比例不变")
+    func alertRiseFactorCapsTheJump() {
+        // 不越顶的幅度：系数 1，关键帧逐值保留。
+        #expect(MascotMotion.alertRiseFactor(maxRise: 3, bodyTop: 6, svgTop: 3) == 1)
+        // 越顶的幅度：截顶后身体顶边正好越过视口上边缘「余量」那么多（余量是允许的越顶）。
+        let factor = MascotMotion.alertRiseFactor(maxRise: 10, bodyTop: 6, svgTop: 4)
+        #expect(factor > 0 && factor < 1)
+        #expect(abs((6 + (-10 * factor)) - (4 - 0.6)) < 0.0001, "截顶后身体没落在视口上边缘的余量处")
+        // 等比缩放：一跳比一跳矮的顺序与比例都保留（逐个钳位会把三跳压成一样高）。
+        let hops: [CGFloat] = [-10, -8, -5]
+        let scaled = hops.map { $0 * factor }
+        #expect(scaled[0] < scaled[1] && scaled[1] < scaled[2])
+        #expect(abs(scaled[1] / scaled[0] - 0.8) < 0.0001)
+        // 视口太扁时下限兜底，且幅度非正时不炸。
+        #expect(MascotMotion.alertRiseFactor(maxRise: 10, bodyTop: 3, svgTop: 3) > 0)
+        #expect(MascotMotion.alertRiseFactor(maxRise: 0, bodyTop: 6, svgTop: 3) == 1)
     }
 
     @Test("确定性哈希与种子跨调用稳定")

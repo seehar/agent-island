@@ -9,7 +9,7 @@
 //  `AgentIsland/UI/Mascots/<角色>.swift` 里，只能通过这里（以及 `MascotKit`）取运动。
 //
 //  预算：空闲 8fps、忙碌 20fps（见 `AgentMascotStatus.frameInterval`），每条曲线只有几次
-//  乘加，角色是 16×12 的方块拼合，单帧成本与改造前的字形动效同一量级。
+//  乘加，角色是画布上的几十个矩形拼合，单帧成本与改造前的字形动效同一量级。
 //
 //  「随机」全部走确定性哈希（`hash01` / `stableSeed`）：每枚角色的眨眼与小动作相位跨进程、
 //  跨机器都一致，离屏定帧探针对得上；各角色的节拍也因此错开，不会同屏跳成一排。
@@ -59,20 +59,6 @@ enum MascotMotion {
         }
     }
 
-    /// 跳动：一个节拍里起跳再落回，其余时间停在地上。返回高度系数（0…约 1.1）。
-    static func hop(_ t: CGFloat, beat: CGFloat = 0.55) -> CGFloat {
-        let p = (t.truncatingRemainder(dividingBy: beat)) / beat
-        guard p < 0.4 else { return 0 }
-        return easeOutBack(p / 0.4)
-    }
-
-    /// 落地压扁量 0…1：起跳段为 0，落地瞬间涨到 1 再落回。与 `hop` 同一个节拍相位。
-    static func landingSquash(_ t: CGFloat, beat: CGFloat = 0.55) -> CGFloat {
-        let p = (t.truncatingRemainder(dividingBy: beat)) / beat
-        guard p >= 0.30, p < 0.5 else { return 0 }
-        return sin((p - 0.30) / 0.2 * .pi)
-    }
-
     /// 节拍序号：每 `beat` 秒进一拍。走步、踏步、打字这类「离散拍子」都用它当相位，
     /// 而不是各自计数——同一时刻取到的拍号永远一样，定帧可复现。
     static func beat(_ t: CGFloat, beat: CGFloat = 0.15) -> Int {
@@ -87,21 +73,6 @@ enum MascotMotion {
         case ..<0.55: return 1 - easeInOut((p - 0.12) / 0.43)
         default: return 0
         }
-    }
-
-    /// 闪烁：短促地涨到 1 再落回 0，读起来像在发光。
-    static func twinkle(_ t: CGFloat, period: CGFloat = 1.15) -> CGFloat {
-        let p = (t.truncatingRemainder(dividingBy: period)) / period
-        switch p {
-        case ..<0.18: return easeOutBack(p / 0.18)
-        case ..<0.5: return 1 - easeInOut((p - 0.18) / 0.32)
-        default: return 0
-        }
-    }
-
-    /// 摆动：-1…1 的正弦，`phase` 是相位偏移（度）。给「左右晃」这类往复运动当底。
-    static func swing(_ t: CGFloat, period: CGFloat, phase: CGFloat = 0) -> CGFloat {
-        sin((t / period + phase / 360) * 2 * .pi)
     }
 
     /// 自然的眨眼：1 = 睁满，0 = 闭合。间隔不规则（2.4–5.6s），约六分之一是连眨两下
@@ -192,46 +163,54 @@ enum MascotMotion {
         return 1 + (overshoot + 1) * c * c * c + overshoot * c * c
     }
 
-    // MARK: - 待审批的统一层
+    // MARK: - 待审批的起跳幅度
 
-    /// 待审批时施加在**每一枚角色**上的同一套动作与光晕。
+    /// 起跳关键帧的**截顶系数**：把上游那套「一跳比一跳矮」的位移等比缩到身体不会飞出视口。
     ///
-    /// 刻意不按角色分化：它是应用级信号（「有事等你」），18 枚各不相同会削弱这个信号；
-    /// 角色自己的姿态（瞪眼 / 举钳 / 张大）仍画在各自文件里，这一层只负责「跳起来」。
-    struct Attention {
-        /// 整体竖直位移，负值向上。
-        var dy: CGFloat = 0
-        /// 横向缩放：<1 拉长、>1 压扁。
-        var scaleX: CGFloat = 1
-        /// 纵向缩放。
-        var scaleY: CGFloat = 1
-        /// 品牌色光晕强度 0…1。
-        var glow: CGFloat = 0
+    /// 上游的顶点（Clawd 是 -10 个 SVG 单位）比它自己的视口还高——实拍顶点那一帧只剩腿、
+    /// 叹号和影子，身体整块被 `clipped()` 裁掉，看着像散了架。这里按「身体顶边到视口上边缘
+    /// 的距离 + 一点越顶余量」定上限，再按最大跳幅等比缩放整条曲线（等比而不是逐个钳位：
+    /// 逐个钳位会把三跳压成一样高，「一跳比一跳矮」就没了）。
+    ///
+    /// - Parameters:
+    ///   - maxRise: 该角色关键帧表里最大的跳幅（正值，例如 10）
+    ///   - bodyTop: 身体顶边的 SVG 纵坐标（静息时）
+    ///   - svgTop: 该场景视口的上边缘 SVG 纵坐标
+    ///   - overshoot: 允许越过视口上边缘多少（单位与上面两个相同；0.6 约是块顶被削掉一丝）
+    static func alertRiseFactor(
+        maxRise: CGFloat, bodyTop: CGFloat, svgTop: CGFloat, overshoot: CGFloat = 0.6
+    ) -> CGFloat {
+        guard maxRise > 0 else { return 1 }
+        let limit = max(0.8, bodyTop - svgTop + overshoot)
+        return min(1, limit / maxRise)
+    }
+}
+
+/// 一枚角色的起跳截顶入参：`drawAlert` 用它算 `rise`，单测用它断言「顶点不会把身体抛出视口」
+/// ——两处同一个来源，改一处就同时被钉住（`AgentMascot.alertSpec(for:)`）。
+struct MascotAlertSpec: Equatable {
+    /// 该角色关键帧表里最大的跳幅（正值，例如 10）。
+    let maxRise: CGFloat
+    /// 静息时身体主体顶边的 SVG 纵坐标。
+    let bodyTop: CGFloat
+    /// 起跳场景视口的上边缘 SVG 纵坐标。
+    let svgTop: CGFloat
+    /// 允许越过视口上边缘多少（0 = 顶点时身体顶边正好贴上边缘；视口没有纵向余量时必须取 0）。
+    let overshoot: CGFloat
+
+    init(maxRise: CGFloat, bodyTop: CGFloat, svgTop: CGFloat, overshoot: CGFloat = 0.6) {
+        self.maxRise = maxRise
+        self.bodyTop = bodyTop
+        self.svgTop = svgTop
+        self.overshoot = overshoot
     }
 
-    /// 三连跳（一跳比一跳矮）+ 起跳拉长、落地压扁 + 光晕（常亮余晖 + 与跳跃同拍增强）。
-    static func attention(_ t: CGFloat, size: CGFloat) -> Attention {
-        var attention = Attention()
-        let unit = max(0.6, size * 0.1)
-        let bounce = alertBounce(t)
-        attention.dy = -unit * 1.3 * bounce
-        attention.scaleX = 1 - 0.06 * bounce
-        attention.scaleY = 1 + 0.10 * bounce
-        // 跳跃的回弹会略微过冲，强度必须钳在 1 以内
-        attention.glow = min(1, 0.25 + 0.75 * bounce)
-        return attention
+    /// 截顶系数：`drawAlert` 里就是 `let rise = jumpY * spec.riseFactor`。
+    var riseFactor: CGFloat {
+        MascotMotion.alertRiseFactor(
+            maxRise: maxRise, bodyTop: bodyTop, svgTop: svgTop, overshoot: overshoot)
     }
 
-    /// 一次三连跳，一跳比一跳矮，然后安静到周期结束。返回高度系数（0…约 1.1）。
-    static func alertBounce(_ t: CGFloat, cycle: CGFloat = 3.5) -> CGFloat {
-        let p = t.truncatingRemainder(dividingBy: cycle)
-        let hops: [(start: CGFloat, weight: CGFloat)] = [(0, 1.0), (0.45, 0.6), (0.85, 0.3)]
-        for hop in hops {
-            let local = (p - hop.start) / 0.35
-            if local >= 0 && local < 1 {
-                return hop.weight * easeOutBack(local)
-            }
-        }
-        return 0
-    }
+    /// 顶点那一刻身体顶边的 SVG 纵坐标：**小于 `svgTop` 就是已经飞出视口被裁掉了**。
+    var apexBodyTop: CGFloat { bodyTop - maxRise * riseFactor }
 }

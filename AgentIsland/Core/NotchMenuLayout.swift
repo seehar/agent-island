@@ -174,7 +174,7 @@ nonisolated enum NotchMenuMetrics {
     /// 一个格子里黑色舞台的高度与名称行的高度。
     static let animationGalleryMarkTileHeight: CGFloat = 52
     static let animationGalleryTileTextHeight: CGFloat = 16
-    /// 舞台里角色的边长（角色的 16×12 网格铺在这个方形舞台里）。
+    /// 舞台里角色的边长（角色画在这个方形舞台里）。
     static let animationGalleryMascotSize: CGFloat = 44
     static var animationGalleryTileHeight: CGFloat {
         animationGalleryMarkTileHeight + animationGalleryTileTextHeight

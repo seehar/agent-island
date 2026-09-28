@@ -2,15 +2,21 @@
 //  FactoryMascot.swift
 //  AgentIsland
 //
-//  Factory（droid）的像素角色：一台机械头机器人。方胖的机械头壳（7×7 退台方块）正中挖一只
-//  独眼，头壳四周伸出八根辐条，围成一圈齿轮 / 螺旋桨的轮廓——Factory 官方标记「机械头 + 八
-//  个扇叶」的方块化写法。
-//    · 空闲：整台悬停呼吸（头与辐条一起上下 1 块）、眨眼，偶尔把辐条顺时针拧一格再拧回来；
-//    · 处理中：辐条像齿轮一样连续转（每 0.12 秒挪一格），头随转的节拍轻颠、眼睛随转速忽宽忽窄；
-//    · 待审批：辐条转速翻倍，独眼瞪大并点亮成品牌橙——「跳起来」由 `AgentMascot` 的统一层施加。
+//  Factory（droid）的像素角色 DroidBot：一台方胖的工业机器人——退台的头壳、正中一只发光的
+//  独眼、头上一根天线、胸口压深一档的铆钉胸甲、两侧伸出的机械臂，招牌配色是工锈橙
+//  （#D56A26）配暖金属灰。三套场景各自在做什么：
+//    · 空闲：蹲着打盹，整台机器随呼吸上下 0.4 块（机械的慢节奏，不是生物式的起伏），
+//      独眼像断电一样每 3 秒暗 0.5 秒，头顶飘三个 Z；
+//    · 处理中：在键盘后面砸键，整台机器随按键起落（每约 11 秒停一拍读输出），
+//      独眼随眨眼开合、按下的那颗键亮成锈橙；
+//    · 待审批：3.5 秒一轮的三连跳（一跳比一跳矮），跳起来时独眼闪红并放大、头顶惊叹号、
+//      横向随节拍抖一抖。
 //
-//  网格占用（16×12）：头壳 5…11 列 × 3…9 行，八根辐条各 2×1 块向外伸出，
-//  整体约 12 列宽 × 9 行高，接地线在第 11 行。
+//  场景视口（SVG 单位）：三套都是 16×16（上边缘 y=2）——视口只决定这一套场景里角色的位置
+//  与大小。
+//
+//  移植自 CodeIsland（MIT，Copyright (c) 2026 wxtsky）的 `Sources/CodeIsland/DroidView.swift`，
+//  坐标常量与配色逐值保留。
 //
 
 import SwiftUI
@@ -21,158 +27,286 @@ struct FactoryMascot: View {
     let t: CGFloat
     var size: CGFloat = 27
 
-    /// 品牌橙（Factory 的亮橙），头壳压暗一档、辐条提亮一档，三层橙撑出体积。
-    private static let body = Color(mascotHex: 0xFC7414)
-    /// 辐条的亮档：在黑底上最跳，齿轮轮廓才看得清。
-    private static let spoke = Color(mascotHex: 0xFFA85C)
-    /// 头壳主体：比品牌橙暗一档，和辐条拉开层次。
-    private static let shell = Color(mascotHex: 0xD95B0A)
-    private static let seed = MascotMotion.stableSeed("droid")
+    /// 配色：锈橙的头壳与身子、压深一档的胸甲、暖灰的金属件、金色的独眼与信号帽，键盘三档暖灰。
+    private static let shell = Color(mascotHex: 0xD56A26)
+    private static let shellDark = Color(red: 0.65, green: 0.32, blue: 0.12)
+    private static let metal = Color(red: 0.40, green: 0.37, blue: 0.34)
+    private static let eye = Color(mascotHex: 0xE3992A)
+    private static let alert = Color(red: 1.0, green: 0.24, blue: 0.0)
+    private static let kbBase = Color(red: 0.15, green: 0.13, blue: 0.12)
+    private static let kbKey = Color(red: 0.32, green: 0.28, blue: 0.25)
+    private static let kbFlash = Color(mascotHex: 0xD56A26)
 
-    /// 八个辐条的方位（正上方起顺时针）：每个方位的方块左上角（网格列、行）。
-    /// 依次是 上 / 右上 / 右 / 右下 / 下 / 左下 / 左 / 左上。
-    private static let spokeSlots: [(x: CGFloat, y: CGFloat)] = [
-        (7, 2),   // 上
-        (11, 2),  // 右上
-        (12, 6),  // 右
-        (11, 10), // 右下
-        (7, 10),  // 下
-        (3, 10),  // 左下
-        (2, 6),   // 左
-        (3, 2),   // 左上
-    ]
+    /// 起跳截顶的入参（`MascotMotion.alertRiseFactor`）：`drawAlert` 的 `rise` 与单测的
+    /// 断言都从这里取，改这组数字会被 `AgentMascotRenderTests` 当场抓到。
+    static let alertSpec = MascotAlertSpec(maxRise: 8, bodyTop: 4, svgTop: 2, overshoot: 0)
 
     var body: some View {
-        Canvas { context, canvasSize in
-            let grid = MascotGrid(canvasSize)
+        ZStack {
             switch status {
-            case .idle: drawIdle(&context, grid)
-            case .working: drawWorking(&context, grid)
-            case .alert: drawAlert(&context, grid)
+            case .idle:
+                sleepScene
+            case .working:
+                workScene
+            case .alert:
+                alertScene
+            }
+        }
+        .frame(width: size, height: size)
+        .clipped()
+    }
+
+    // MARK: - 部件
+
+    /// 机器人本体：方胖的身子 + 退台的头壳 + 天线 + 铆钉胸甲 + 两侧机械臂。
+    /// `dy` 是整块的纵向位移（呼吸、按键起伏、起跳都靠它），压扁 / 拉长只改宽高。
+    private func drawRobot(
+        _ context: inout GraphicsContext, _ sprite: MascotSprite, dy: CGFloat,
+        squashX: CGFloat = 1, squashY: CGFloat = 1
+    ) {
+        let centerX: CGFloat = 7.5
+
+        // 身子（方块）
+        let bodyWidth: CGFloat = 9 * squashX
+        let bodyHeight: CGFloat = 6 * squashY
+        let bodyLeft = centerX - bodyWidth / 2
+        let bodyTop: CGFloat = 9 + (6 - bodyHeight)
+        context.fill(
+            Path(sprite.r(bodyLeft, bodyTop, bodyWidth, bodyHeight, dy: dy)),
+            with: .color(Self.shell))
+
+        // 头壳（顶上小一号的方块）
+        let headWidth: CGFloat = 7 * squashX
+        let headHeight: CGFloat = 3 * squashY
+        let headLeft = centerX - headWidth / 2
+        let headTop = bodyTop - headHeight + 0.5
+        context.fill(
+            Path(sprite.r(headLeft, headTop, headWidth, headHeight, dy: dy)),
+            with: .color(Self.shell))
+
+        // 天线：一根金属杆，顶上一块金色信号帽
+        let antennaLeft = centerX - 0.5
+        context.fill(
+            Path(sprite.r(antennaLeft, headTop - 2, 1, 2, dy: dy)),
+            with: .color(Self.metal))
+        context.fill(
+            Path(sprite.r(antennaLeft - 0.5, headTop - 2.5, 2, 1, dy: dy)),
+            with: .color(Self.eye))
+
+        // 胸甲（压深一档的内嵌方块）+ 左右两颗铆钉
+        let plateWidth: CGFloat = 5 * squashX
+        let plateHeight: CGFloat = 3 * squashY
+        let plateLeft = centerX - plateWidth / 2
+        context.fill(
+            Path(sprite.r(plateLeft, bodyTop + 1, plateWidth, plateHeight, dy: dy)),
+            with: .color(Self.shellDark))
+        context.fill(
+            Path(sprite.r(plateLeft + 0.5, bodyTop + 1.5, 0.8, 0.8, dy: dy)),
+            with: .color(Self.metal))
+        context.fill(
+            Path(sprite.r(plateLeft + plateWidth - 1.3, bodyTop + 1.5, 0.8, 0.8, dy: dy)),
+            with: .color(Self.metal))
+
+        // 两侧机械臂
+        context.fill(
+            Path(sprite.r(bodyLeft - 1.5, bodyTop + 1, 1.5, 4 * squashY, dy: dy)),
+            with: .color(Self.metal))
+        context.fill(
+            Path(sprite.r(bodyLeft + bodyWidth, bodyTop + 1, 1.5, 4 * squashY, dy: dy)),
+            with: .color(Self.metal))
+    }
+
+    /// 独眼：两只发光方块（`scale` 是睁眼程度，警报时颜色换成红）。
+    private func drawEyes(
+        _ context: inout GraphicsContext, _ sprite: MascotSprite, dy: CGFloat,
+        color: Color = Self.eye, scale: CGFloat = 1.0
+    ) {
+        let eyeWidth: CGFloat = 1.5
+        let eyeHeight: CGFloat = 1.2 * scale
+        let eyeY: CGFloat = 8.0 + (1.2 - eyeHeight) / 2
+        context.fill(
+            Path(sprite.r(4.8, eyeY, eyeWidth, max(0.2, eyeHeight), dy: dy)),
+            with: .color(color))
+        context.fill(
+            Path(sprite.r(8.7, eyeY, eyeWidth, max(0.2, eyeHeight), dy: dy)),
+            with: .color(color))
+    }
+
+    private func drawShadow(
+        _ context: inout GraphicsContext, _ sprite: MascotSprite,
+        width: CGFloat = 9, opacity: Double = 0.3
+    ) {
+        context.fill(
+            Path(sprite.r(7.5 - width / 2, 16, width, 1)),
+            with: .color(.black.opacity(opacity)))
+    }
+
+    /// 两只方块脚。
+    private func drawLegs(_ context: inout GraphicsContext, _ sprite: MascotSprite) {
+        context.fill(Path(sprite.r(4.5, 14.5, 2, 1.5)), with: .color(Self.metal))
+        context.fill(Path(sprite.r(8.5, 14.5, 2, 1.5)), with: .color(Self.metal))
+    }
+
+    // MARK: - 空闲：蹲着打盹
+
+    private var sleepScene: some View {
+        Canvas { context, canvas in
+            let sprite = MascotSprite(canvas, svgWidth: 16, svgHeight: 16, svgTop: 2)
+
+            // 呼吸：5 秒一轮，幅度只有 ±0.4 块——机械的慢节奏。
+            let breathe = sin(t.truncatingRemainder(dividingBy: 5.0) / 5.0 * .pi * 2) * 0.4
+            // 独眼像断电一样：每 3 秒里亮 2.5 秒。
+            let eyeOn = t.truncatingRemainder(dividingBy: 3.0) < 2.5
+
+            drawShadow(&context, sprite, width: 8, opacity: 0.2)
+            drawLegs(&context, sprite)
+            drawRobot(&context, sprite, dy: breathe)
+            if eyeOn {
+                drawEyes(&context, sprite, dy: breathe, color: Self.eye.opacity(0.3), scale: 0.4)
+            }
+            // Z 锚在头壳顶边（6.5 = 身顶 9 − 头高 3 + 0.5），不取天线：细附件的尖端会把 Z
+            // 顶出画布。呼吸只让机身上下 0.4 块，锚点用静息值就够。
+            MascotDraw.floatingZs(
+                &context, sprite: sprite, bodyTop: 6.5, t: t, size: size)
+        }
+    }
+
+    // MARK: - 处理中：在键盘后面砸键
+
+    private var workScene: some View {
+        Canvas { context, canvas in
+            drawWorking(&context, MascotSprite(canvas, svgWidth: 16, svgHeight: 16, svgTop: 2))
+        }
+    }
+
+    /// 打字：整台机器随按键起落，按下的键闪一下；每约 11 秒停一拍——那一下在「读输出」，
+    /// 而不是一直砸键，节奏因此是一阵一阵的。
+    private func drawWorking(_ context: inout GraphicsContext, _ sprite: MascotSprite) {
+        let workPause = MascotMotion.quirk(t, cycle: 10.6, duration: 1.2, seed: 0x296)
+        let bounce =
+            sin(t * 2 * .pi / 0.5) * 0.8 * (1 - workPause)
+            + sin(t * 2 * .pi / 2.9) * 0.3 * workPause
+        let blink = max(0.1, MascotMotion.blink(t, seed: 0x297))
+        let keyPhase = Int(t / 0.12) % 6  // 比别的角色稍慢的打字速度
+
+        let shadowWidth: CGFloat = 9 - abs(bounce) * 0.3
+        context.fill(
+            Path(sprite.r(3.5 + (9 - shadowWidth) / 2, 17, shadowWidth, 1)),
+            with: .color(.black.opacity(max(0.1, 0.35 - abs(bounce) * 0.03))))
+
+        drawLegs(&context, sprite)
+
+        // 键盘（画在腿前面，把腿挡住）
+        context.fill(Path(sprite.r(0, 15, 15, 3)), with: .color(Self.kbBase))
+        for row in 0..<2 {
+            let keyY = 15.5 + CGFloat(row) * 1.2
+            for column in 0..<6 {
+                let keyX = 0.5 + CGFloat(column) * 2.4
+                context.fill(Path(sprite.r(keyX, keyY, 1.8, 0.7)), with: .color(Self.kbKey))
+            }
+        }
+        let flashColumn = keyPhase % 6
+        let flashRow = keyPhase / 3
+        context.fill(
+            Path(sprite.r(0.5 + CGFloat(flashColumn) * 2.4, 15.5 + CGFloat(flashRow) * 1.2, 1.8, 0.7)),
+            with: .color(Self.kbFlash.opacity(0.9)))
+
+        drawRobot(&context, sprite, dy: bounce)
+        drawEyes(&context, sprite, dy: bounce, scale: blink)
+    }
+
+    // MARK: - 待审批：三连跳
+
+    private var alertScene: some View {
+        ZStack {
+            // 警报光晕：常亮一点余晖、随安静段慢慢呼吸。用径向渐变而不是 `blur`
+            // （20fps 下模糊的离屏渲染太贵），强度是 `t` 的纯函数。
+            RadialGradient(
+                colors: [
+                    Self.alert.opacity(0.05 + 0.07 * (0.5 + 0.5 * sin(t * 2 * .pi / 1.0))),
+                    Self.alert.opacity(0),
+                ],
+                center: .center,
+                startRadius: 0,
+                endRadius: size * 0.45
+            )
+            .frame(width: size * 0.9, height: size * 0.9)
+
+            Canvas { context, canvas in
+                drawAlert(&context, MascotSprite(canvas, svgWidth: 16, svgHeight: 16, svgTop: 2))
             }
         }
         .frame(width: size, height: size)
     }
 
-    // MARK: - 三套场景
+    /// 起跳：3.5 秒一轮，跳三次、一次比一次矮，然后安静到下一轮。
+    /// 影子留在地上（只有身躯与眼睛跟着跳），惊叹号的位置按跳跃高度做阻尼。
+    private func drawAlert(_ context: inout GraphicsContext, _ sprite: MascotSprite) {
+        let pct = t.truncatingRemainder(dividingBy: 3.5) / 3.5
 
-    /// 空闲：整台悬停呼吸 + 眨眼 + 偶发小动作（辐条拧一格再拧回来）。
-    private func drawIdle(_ context: inout GraphicsContext, _ grid: MascotGrid) {
-        // 呼吸到顶时整台抬起 1 块；t == 0 恰好呼到底，不位移。
-        let breath = MascotMotion.breathe(t)
-        var dy = -breath
+        let jumpY = MascotMotion.lerp(
+            [
+                (at: 0, value: 0), (at: 0.03, value: 0), (at: 0.10, value: -1), (at: 0.15, value: 1.5),
+                (at: 0.175, value: -8), (at: 0.20, value: -8), (at: 0.25, value: 1.5),
+                (at: 0.275, value: -6), (at: 0.30, value: -6), (at: 0.35, value: 1.0),
+                (at: 0.375, value: -4), (at: 0.40, value: -4), (at: 0.45, value: 0.8),
+                (at: 0.475, value: -2), (at: 0.50, value: -2), (at: 0.55, value: 0.3),
+                (at: 0.62, value: 0), (at: 1.0, value: 0),
+            ], at: pct)
 
-        // 小动作的包络是 0→1→0，所以辐条「拧过去再拧回来」正好落在这一格上。
-        let quirk = MascotMotion.quirk(t, duration: 0.15, seed: Self.seed)
-        var rotation: CGFloat = 0
-        if quirk > 0 {
-            switch MascotMotion.quirkVariant(t, count: 2, seed: Self.seed) {
-            case 0:
-                rotation = quirk        // 拧满一格
-                dy -= 0.25 * quirk      // 顺手抬一下，力气用在了辐条上
-            default:
-                rotation = 0.5 * quirk  // 只拧半格：抖一下
-            }
+        // 上游的顶点会把身体整个抛出视口（实拍只剩腿与影子）：整条曲线等比缩到身体
+        // 顶边不越出视口上边缘，跳得起来、也永远看得见。
+        // 16×16 的视口在方形画布里没有纵向余量：越顶余量必须取 0，否则顶点会把天线帽削平。
+        let rise = jumpY * Self.alertSpec.riseFactor
+
+        // 落地瞬间压扁、离地时拉长。
+        let squashX: CGFloat = jumpY > 0.5 ? 1.0 + jumpY * 0.03 : 1.0
+        let squashY: CGFloat = jumpY > 0.5 ? 1.0 - jumpY * 0.02 : 1.0
+        // 横向抖动：只在起跳那一段，随节拍来回。
+        let shakeX: CGFloat = (pct > 0.15 && pct < 0.55) ? sin(pct * 80) * 0.6 : 0
+
+        // 警报里独眼闪红（随节拍明暗交替）。
+        let eyeFlash = (pct > 0.03 && pct < 0.55 && sin(pct * 20) > 0)
+        let eyeColor = eyeFlash ? Self.alert : Self.eye
+
+        let bangOpacity = MascotMotion.lerp(
+            [
+                (at: 0, value: 0), (at: 0.03, value: 1), (at: 0.10, value: 1), (at: 0.55, value: 1),
+                (at: 0.62, value: 0), (at: 1.0, value: 0),
+            ], at: pct)
+        let bangScale = MascotMotion.lerp(
+            [
+                (at: 0, value: 0.3), (at: 0.03, value: 1.3), (at: 0.10, value: 1.0),
+                (at: 0.55, value: 1.0), (at: 0.62, value: 0.6), (at: 1.0, value: 0.6),
+            ], at: pct)
+
+        // 影子：跳得越高越窄越淡，但**留在原地**。
+        let shadowWidth: CGFloat = 9 * (1.0 - abs(min(0, rise)) * 0.04)
+        context.fill(
+            Path(sprite.r(3.5 + (9 - shadowWidth) / 2, 17, shadowWidth, 1)),
+            with: .color(.black.opacity(max(0.08, 0.4 - abs(min(0, rise)) * 0.04))))
+
+        // 腿（钉在地上）
+        drawLegs(&context, sprite)
+
+        context.translateBy(x: shakeX * sprite.block, y: 0)
+        drawRobot(&context, sprite, dy: rise, squashX: squashX, squashY: squashY)
+        drawEyes(
+            &context, sprite, dy: rise, color: eyeColor,
+            scale: pct > 0.03 && pct < 0.15 ? 1.3 : 1.0)
+        context.translateBy(x: -shakeX * sprite.block, y: 0)
+
+        // 惊叹号：在头顶上方，位移只有跳跃的 15%（不会飞出画布）。
+        if bangOpacity > 0.01 {
+            let width: CGFloat = 2 * bangScale
+            let x: CGFloat = 13
+            let y: CGFloat = 3 + rise * 0.15
+            context.fill(
+                Path(sprite.r(x, y, width, 3.5 * bangScale)),
+                with: .color(Self.alert.opacity(bangOpacity)))
+            context.fill(
+                Path(sprite.r(x, y + 4.0 * bangScale, width, 1.5 * bangScale)),
+                with: .color(Self.alert.opacity(bangOpacity)))
         }
-
-        MascotDraw.groundLine(&context, grid, row: 11, width: 11, lift: -dy)
-        drawDroid(
-            &context, grid,
-            dy: dy, rotation: rotation,
-            eyeWidth: 2, eyeHeight: max(0.35, 2 * MascotMotion.blink(t, seed: Self.seed)),
-            eyeColor: .black)
     }
-
-    /// 处理中：辐条当齿轮转。`t == 0` 辐条停在初始方位、头不颠、眼睛正好 2 块宽——代表帧。
-    private func drawWorking(_ context: inout GraphicsContext, _ grid: MascotGrid) {
-        // 每 0.24 秒轻颠一下（每两格一次），比辐条慢一倍，读起来是「转的惯性」。
-        let dy = -0.5 * MascotMotion.hop(t, beat: 0.24)
-        let rotation = Self.gearRotation(t, beat: 0.12)
-        // 眼睛宽度在 1.5…2.5 块间摆；用正弦保证 t == 0 时恰在中间态 2 块。
-        let eyeWidth = 2 + 0.5 * MascotMotion.swing(t, period: 0.24)
-
-        MascotDraw.groundLine(&context, grid, row: 11, width: 11, lift: -dy)
-        drawDroid(
-            &context, grid,
-            dy: dy, rotation: rotation,
-            eyeWidth: eyeWidth,
-            eyeHeight: max(0.35, 2 * MascotMotion.blink(t, seed: Self.seed)),
-            eyeColor: .black)
-    }
-
-    /// 待审批：辐条转速翻倍 + 独眼瞪大点亮（跳跃、缩放与光晕由统一层 `AgentMascot` 施加）。
-    private func drawAlert(_ context: inout GraphicsContext, _ grid: MascotGrid) {
-        let rotation = Self.gearRotation(t, beat: 0.06)
-
-        MascotDraw.groundLine(&context, grid, row: 11, width: 11)
-        drawDroid(
-            &context, grid,
-            dy: 0, rotation: rotation,
-            eyeWidth: 3, eyeHeight: 3,
-            eyeColor: Self.body)
-    }
-
-    // MARK: - 画法
-
-    /// 齿轮的连续方位（单位：格，顺时针）：每 `beat` 秒推进一格——前 60% 的时间把这一格
-    /// 走完（缓入缓出），剩下 40% 停在格位上，像棘轮卡进齿位。`t == 0` 正好停在初始方位。
-    ///
-    /// 刻意不做成 `beat(t, beat:) % 8` 那样的整数跳变：八根辐条同色同形，整数格之间只是
-    /// 互相置换，画面逐像素全等 —— 离散跳变在屏幕上是**看不见**的。留出一段走格的过程，
-    /// 转才读得出来。
-    private static func gearRotation(_ t: CGFloat, beat: CGFloat) -> CGFloat {
-        let steps = t / beat
-        let index = steps.rounded(.down)
-        return index + MascotMotion.easeInOut(min(1, (steps - index) / 0.6))
-    }
-
-    /// 画出整台机械头机器人：八根辐条 → 头壳 → 独眼。
-    ///
-    /// - Parameters:
-    ///   - dy: 整体纵向位移（像素块，负值向上），头壳与辐条一起走
-    ///   - rotation: 辐条的连续方位（0…8，顺时针；整数 = 停在某个方位上）
-    ///   - eyeWidth: 眼睛宽度（像素块）
-    ///   - eyeHeight: 眼睛高度（像素块，眨眼时收窄）
-    ///   - eyeColor: 眼睛颜色（空闲 / 处理中是挖空的黑，瞪眼时换成品牌橙）
-    private func drawDroid(
-        _ context: inout GraphicsContext, _ grid: MascotGrid,
-        dy: CGFloat, rotation: CGFloat,
-        eyeWidth: CGFloat, eyeHeight: CGFloat, eyeColor: Color
-    ) {
-        // 八根辐条：各自沿着那一圈方位走（`rotation + slot` 是它的当前位置）。
-        for slot in 0..<8 {
-            let position = Self.spokePosition(rotation + CGFloat(slot))
-            MascotDraw.block(
-                &context,
-                grid.rect(Self.snap(position.x), Self.snap(position.y), 2, 1, dy: dy),
-                Self.spoke)
-        }
-
-        // 头壳：7×7 的退台方块——顶盖用品牌橙、主体与底行用暗一档的头壳色，
-        // 顶 / 底行各内收一格拼出圆角。
-        MascotDraw.block(&context, grid.rect(6, 3, 5, 1, dy: dy), Self.body)
-        MascotDraw.block(&context, grid.rect(5, 4, 7, 5, dy: dy), Self.shell)
-        MascotDraw.block(&context, grid.rect(6, 9, 5, 1, dy: dy), Self.shell)
-
-        // 独眼：挖在头壳正中（头壳连续区域是 5…12 列、3…10 行，中心 8.5 / 6.5）。
-        MascotDraw.block(
-            &context,
-            grid.rect(
-                8.5 - eyeWidth / 2, 6.5 - eyeHeight / 2, eyeWidth, eyeHeight, dy: dy),
-            eyeColor)
-    }
-
-    /// 辐条在连续方位 `rotation` 上的左上角：在相邻两个方位之间线性插值，
-    /// 因此整数方位之外的位置也能画（空闲小动作的「拧一格」靠它）。
-    private static func spokePosition(_ rotation: CGFloat) -> (x: CGFloat, y: CGFloat) {
-        let wrapped = rotation.truncatingRemainder(dividingBy: CGFloat(spokeSlots.count))
-        let slot = Int(wrapped)
-        let fraction = wrapped - CGFloat(slot)
-        let from = spokeSlots[slot % spokeSlots.count]
-        let to = spokeSlots[(slot + 1) % spokeSlots.count]
-        return (from.x + (to.x - from.x) * fraction, from.y + (to.y - from.y) * fraction)
-    }
-
-    /// 把坐标量化到 0.25 块的台阶：亚像素的平滑位移会让方块糊边。
-    private static func snap(_ value: CGFloat) -> CGFloat { (value * 4).rounded() / 4 }
 }

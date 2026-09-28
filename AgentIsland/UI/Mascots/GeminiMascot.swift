@@ -2,17 +2,18 @@
 //  GeminiMascot.swift
 //  AgentIsland
 //
-//  Gemini 的像素星芒。官方标记是四角星（sparkle），这里把它做成会呼吸的星芒精灵：
-//    · 空闲：四条尖角随呼吸各进 1 块再退回、眨眼，偶尔歪一下头 / 抖一下耳 / 摆一下尾，
-//      星芒外侧还会闪一颗小星点；
-//    · 处理中：四条尖角按各自的节拍交替伸长（像在脉动），3 颗小星点沿轨道绕中心转，
-//      眼睛同时亮起来；
-//    · 待审批：四条尖角同时张到最开、眼睛瞪大——「跳起来」由 `AgentMascot` 的统一层施加。
+//  Gemini（Google）的像素角色：一枚四角星（品牌渐变蓝 #4796E4 → 紫 #847ACE → 玫瑰 #C3677F），
+//  星面上挖出两只白点眼，底下两条短短的腿。
+//    · 空闲：两条不成比例的漂移周期叠加，整颗星悬着轻轻起伏并缓慢自转（因此读起来不像节拍器），
+//      眼睛时而眯成一条缝，头顶飘三个 Z；
+//    · 处理中：趴在键盘上敲字，身体随按键起伏并小幅左右摆动，按下的键亮一下，偶尔停一轮；
+//    · 待审批：3.5 秒一轮的三连跳（一跳比一跳矮）+ 星面脉冲放大 + 左右抖动 + 头顶惊叹号。
 //
-//  网格占用（16×12）：星芒占第 1…10 行 × 第 3…12 列（上下尖角各 5 块高、左右尖角各 5 块宽，
-//  中间 6 块宽 × 4 块高是实心块），底边钉在接地的第 11 行；四条尖角的尖端各点亮成 2×2 的亮块；
-//  眼睛挖在第 5…6 行 × 第 6 / 9 列。绕行小星点走直径 12 块的轨道，会用到画布上下各 2 块的余量
-//  （网格只有 12 行，画布按 16 块见方居中，所以行 0 与行 12 都还在画布内）。
+//  场景视口（SVG 单位）：睡觉 15×12（上边缘 y=4）、打字 16×14（上边缘 y=3）、
+//  起跳 16×14（上边缘 y=3）——视口不同只影响这一套场景里角色的位置与大小。
+//
+//  移植自 CodeIsland（MIT，Copyright (c) 2026 wxtsky）的 `Sources/CodeIsland/GeminiView.swift`，
+//  坐标常量与配色逐值保留。
 //
 
 import SwiftUI
@@ -23,185 +24,274 @@ struct GeminiMascot: View {
     let t: CGFloat
     var size: CGFloat = 27
 
-    /// 星芒主体取 Gemini 的品牌紫。舞台底色是黑的，所以直接用它偏亮的一档，
-    /// 刘海上也认得出是哪个 Agent。
-    private static let body = Color(mascotHex: 0x8C74D4)
-    /// 尖端与绕行小星点的亮档：同一色相亮一档，黑底上才看得见。
-    private static let tip = Color(mascotHex: 0xB9A6F0)
-    private static let seed = MascotMotion.stableSeed("gemini")
+    /// 品牌渐变三档（左上蓝 → 中段紫 → 右下玫瑰）、白脸、警报橙、键盘三档灰。
+    private static let blueC = Color(mascotHex: 0x4796E4)
+    private static let purpC = Color(mascotHex: 0x847ACE)
+    private static let roseC = Color(mascotHex: 0xC3677F)
+    private static let faceC = Color(red: 1.0, green: 1.0, blue: 1.0)
+    private static let alertC = Color(red: 1.0, green: 0.24, blue: 0.0)
+    private static let kbBase = Color(red: 0.22, green: 0.25, blue: 0.38)
+    private static let kbKey = Color(red: 0.40, green: 0.44, blue: 0.58)
+    private static let kbHi = Color(red: 1.0, green: 1.0, blue: 1.0)
 
-    /// 星芒的行表：每行「所在行 + 宽度」。宽度以网格中线（第 8 列）为中心，
-    /// 从尖端的 2 块逐级退台到中段的 10 块——四条尖角就藏在这张表里：
-    /// 最外两行是上下尖角（各 2 块宽），中段两行是左右尖角（各 10 块宽）。
-    private static let starRows: [(row: CGFloat, width: CGFloat)] = [
-        (1, 2), (2, 2), (3, 4), (4, 6), (5, 10), (6, 10), (7, 6), (8, 4), (9, 2), (10, 2),
-    ]
-
-    /// 星芒的纵向中线（行）：眼睛以此为中心，绕行小星点以此当圆心。
-    private static let centerRow: CGFloat = 6
-
-    /// 绕行小星点：轨道直径 12 块（半径 6 块）、3.6 秒一圈。
-    private static let orbitRadius: CGFloat = 6
-    private static let orbitPeriod: CGFloat = 3.6
+    /// 起跳截顶的入参（`MascotMotion.alertRiseFactor`）：`drawAlert` 的 `rise` 与单测的
+    /// 断言都从这里取，改这组数字会被 `AgentMascotRenderTests` 当场抓到。
+    static let alertSpec = MascotAlertSpec(maxRise: 8, bodyTop: 5.5, svgTop: 3)
 
     var body: some View {
-        Canvas { context, canvasSize in
-            let grid = MascotGrid(canvasSize)
+        ZStack {
             switch status {
-            case .idle: drawIdle(&context, grid)
-            case .working: drawWorking(&context, grid)
-            case .alert: drawAlert(&context, grid)
+            case .idle:
+                sleepScene
+            case .working:
+                workScene
+            case .alert:
+                alertScene
+            }
+        }
+        .frame(width: size, height: size)
+        .clipped()
+    }
+
+    // MARK: - 空闲：悬着打盹
+
+    private var sleepScene: some View {
+        Canvas { context, canvas in
+            let sprite = MascotSprite(canvas, svgWidth: 15, svgHeight: 12, svgTop: 4)
+            drawSleeping(&context, sprite)
+            // Z 从趴姿星尖上方升起（星尖 = cy − outerR = 10 − 4.5·0.9），不压到星面上。
+            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 5.95, t: t, size: size)
+        }
+    }
+
+    /// 打盹：两条不成比例的漂移周期叠出的呼吸（漂移几乎不重复），星面缩到 90% 摊着，
+    /// 影子随漂移变宽变淡，眼睛眯成半条缝——睡是睡着的，但还在呼吸。
+    private func drawSleeping(_ context: inout GraphicsContext, _ sprite: MascotSprite) {
+        let float = sin(t * 2 * .pi / 4.67) * 0.68 + sin(t * 2 * .pi / 7.01) * 0.36
+        // 漂移周期里的自转：不是整圈，只来回歪 5°。
+        let phase = (t / 4.67).truncatingRemainder(dividingBy: 1)
+        let slowSpin = sin(phase * .pi * 2) * 5
+
+        // 每 4 秒眯一下眼（0.15 → 只留一道光），其余时间半睁。
+        let blinkCycle = t.truncatingRemainder(dividingBy: 4.0)
+        let blink: CGFloat = (blinkCycle > 3.5 && blinkCycle < 3.7) ? 0.15 : 0.5
+
+        drawShadow(&context, sprite, width: 6 + abs(float) * 0.3, opacity: 0.2)
+        drawLegs(&context, sprite, dy: float)
+        drawStar(&context, sprite, dy: float, scale: 0.9, rotate: slowSpin)
+        drawFace(&context, sprite, dy: float, blinkPhase: blink)
+    }
+
+    // MARK: - 处理中：趴在键盘上打字
+
+    private var workScene: some View {
+        Canvas { context, canvas in
+            drawWorking(&context, MascotSprite(canvas, svgWidth: 16, svgHeight: 14, svgTop: 3))
+        }
+    }
+
+    /// 打字：身体随按键快速起伏、星面小幅左右摆（不是整圈转），停下来那一轮换成缓慢的摆动；
+    /// 按下的键亮一下（亮哪一格按 `t` 的槽位确定，因此同一时刻永远亮同一格）。
+    private func drawWorking(_ context: inout GraphicsContext, _ sprite: MascotSprite) {
+        let workPause = MascotMotion.quirk(t, cycle: 12.9, duration: 1.2, seed: 0x40D)
+        let bounce =
+            sin(t * 2 * .pi / 0.4) * 1.0 * (1 - workPause)
+            + sin(t * 2 * .pi / 2.9) * 0.3 * workPause
+        let spin = sin(t * 2 * .pi / 1.2) * 15
+        let blink = max(0.1, MascotMotion.blink(t, seed: 0x40E))
+        let keyPhase = Int(t / 0.1) % 6
+
+        // 1. 影子（起伏越大越窄越淡）
+        let shadowWidth: CGFloat = 7 - abs(bounce) * 0.3
+        context.fill(
+            Path(sprite.r(4 + (7 - shadowWidth) / 2, 16, shadowWidth, 1)),
+            with: .color(.black.opacity(max(0.1, 0.35 - abs(bounce) * 0.03))))
+
+        // 2. 短腿（在键盘后面）
+        drawLegs(&context, sprite, dy: bounce)
+
+        // 3. 键盘（盖在腿上）+ 2 行 × 6 列的键帽
+        context.fill(Path(sprite.r(0, 13, 15, 3)), with: .color(Self.kbBase))
+        for row in 0..<2 {
+            let keyY = 13.5 + CGFloat(row) * 1.2
+            for column in 0..<6 {
+                context.fill(
+                    Path(sprite.r(0.5 + CGFloat(column) * 2.4, keyY, 1.8, 0.7)),
+                    with: .color(Self.kbKey))
+            }
+        }
+        context.fill(
+            Path(
+                sprite.r(
+                    0.5 + CGFloat(keyPhase % 6) * 2.4, 13.5 + CGFloat(keyPhase / 3) * 1.2, 1.8, 0.7)),
+            with: .color(Self.kbHi.opacity(0.9)))
+
+        // 4. 星面与脸（整体跟着敲击起伏）
+        drawStar(&context, sprite, dy: bounce, scale: 1.0, rotate: spin)
+        drawFace(&context, sprite, dy: bounce, blinkPhase: blink)
+    }
+
+    // MARK: - 待审批：三连跳 + 星面脉冲 + 惊叹号
+
+    private var alertScene: some View {
+        ZStack {
+            // 警报光晕：常亮一点余晖、随安静段慢慢呼吸。用径向渐变而不是 `blur`
+            // （20fps 下模糊的离屏渲染太贵），强度是 `t` 的纯函数。
+            RadialGradient(
+                colors: [
+                    Self.alertC.opacity(0.05 + 0.07 * (0.5 + 0.5 * sin(t * 2 * .pi / 1.0))),
+                    Self.alertC.opacity(0),
+                ],
+                center: .center,
+                startRadius: 0,
+                endRadius: size * 0.45
+            )
+            .frame(width: size * 0.9, height: size * 0.9)
+
+            Canvas { context, canvas in
+                drawAlert(&context, MascotSprite(canvas, svgWidth: 16, svgHeight: 14, svgTop: 3))
             }
         }
         .frame(width: size, height: size)
     }
 
-    // MARK: - 三套场景
+    /// 起跳：3.5 秒一轮，跳三次、一次比一次矮，跳到顶点时整颗星左右抖动、星角脉冲放大。
+    /// 影子留在地上（只有星面与腿跟着跳），惊叹号的位置按跳跃高度做阻尼。
+    private func drawAlert(_ context: inout GraphicsContext, _ sprite: MascotSprite) {
+        let pct = t.truncatingRemainder(dividingBy: 3.5) / 3.5
 
-    /// 空闲：呼吸让四条尖角各进 1 块（不用透明度）、眨眼，偶尔歪头 / 抖耳 / 摆尾。
-    private func drawIdle(_ context: inout GraphicsContext, _ grid: MascotGrid) {
-        let breath = MascotMotion.breathe(t)
-        let quirk = MascotMotion.quirk(t, seed: Self.seed)
+        // 三连跳：一跳比一跳矮。
+        let jumpY = MascotMotion.lerp(
+            [
+                (at: 0, value: 0), (at: 0.03, value: 0), (at: 0.10, value: -1),
+                (at: 0.15, value: 1.5), (at: 0.175, value: -8), (at: 0.20, value: -8),
+                (at: 0.25, value: 1.5), (at: 0.275, value: -6), (at: 0.30, value: -6),
+                (at: 0.35, value: 1.0), (at: 0.375, value: -4), (at: 0.40, value: -4),
+                (at: 0.45, value: 0.8), (at: 0.475, value: -2), (at: 0.50, value: -2),
+                (at: 0.55, value: 0.3), (at: 0.62, value: 0), (at: 1.0, value: 0),
+            ], at: pct)
 
-        var topDx: CGFloat = 0
-        var bottomDx: CGFloat = 0
-        var leftExtra: CGFloat = 0
-        if quirk > 0 {
-            switch MascotMotion.quirkVariant(t, count: 3, seed: Self.seed) {
-            case 0:
-                topDx = Self.step(quirk)  // 歪头：上尖角往右歪 1 块
-            case 1:
-                leftExtra = quirk  // 抖耳：左横尖角多伸 1 块
-            default:
-                bottomDx = -Self.step(quirk)  // 摆尾：下尖角往左摆 1 块
-            }
+        // 上游的顶点会把身体整个抛出视口（星尖到视口上边缘只有 2.5 个单位）：
+        // 整条曲线等比缩到星尖不越出视口上边缘，跳得起来、也永远看得见。
+        let rise = jumpY * Self.alertSpec.riseFactor
+
+        // 顶点最抖：横向的抖动与跳幅无关（不会把身体推出画布），因此不随截顶缩放。
+        let shakeX: CGFloat = (pct > 0.15 && pct < 0.55) ? sin(pct * 80) * 0.6 : 0
+        // 惊慌时的星角脉冲（缩放，不动位置）。
+        let pulseScale: CGFloat =
+            (pct > 0.03 && pct < 0.55) ? 1.0 + sin(pct * 20) * 0.15 : 1.0
+
+        // 惊叹号：起跳一开始亮起，安静下来淡出。
+        let bangOpacity = MascotMotion.lerp(
+            [
+                (at: 0, value: 0), (at: 0.03, value: 1), (at: 0.10, value: 1),
+                (at: 0.55, value: 1), (at: 0.62, value: 0), (at: 1.0, value: 0),
+            ], at: pct)
+        let bangScale = MascotMotion.lerp(
+            [
+                (at: 0, value: 0.3), (at: 0.03, value: 1.3), (at: 0.10, value: 1.0),
+                (at: 0.55, value: 1.0), (at: 0.62, value: 0.6), (at: 1.0, value: 0.6),
+            ], at: pct)
+
+        // 影子：跳得越高越窄越淡，但**留在原地**。
+        let shadowWidth: CGFloat = 7 * (1.0 - abs(min(0, rise)) * 0.04)
+        context.fill(
+            Path(sprite.r(4 + (7 - shadowWidth) / 2, 16, shadowWidth, 1)),
+            with: .color(.black.opacity(max(0.08, 0.4 - abs(min(0, rise)) * 0.04))))
+
+        // 腿（跟着机身跳，幅度仍是机身的 30%）
+        drawLegs(&context, sprite, dy: rise)
+
+        // 星面与脸：整体左右抖，抖完再挪回去（让惊叹号留在原地）；
+        // 眼睛在刚被惊到时放大 1.3 倍。
+        context.translateBy(x: shakeX * sprite.block, y: 0)
+        drawStar(&context, sprite, dy: rise, scale: pulseScale)
+        drawFace(
+            &context, sprite, dy: rise, eyeScale: (pct > 0.03 && pct < 0.15) ? 1.3 : 1.0)
+        context.translateBy(x: -shakeX * sprite.block, y: 0)
+
+        // 惊叹号：在头顶上方，位移只有跳跃的 15%（不会飞出画布）。
+        if bangOpacity > 0.01 {
+            let width: CGFloat = 2 * bangScale
+            let x: CGFloat = 13
+            let y: CGFloat = 4 + rise * 0.15
+            context.fill(
+                Path(sprite.r(x, y, width, 3.5 * bangScale)),
+                with: .color(Self.alertC.opacity(bangOpacity)))
+            context.fill(
+                Path(sprite.r(x, y + 4.0 * bangScale, width, 1.5 * bangScale)),
+                with: .color(Self.alertC.opacity(bangOpacity)))
         }
-
-        MascotDraw.groundLine(&context, grid, row: 11, width: 8)
-        drawStar(
-            &context, grid,
-            top: breath, bottom: breath, left: breath + leftExtra, right: breath,
-            topDx: topDx, bottomDx: bottomDx)
-        drawFace(&context, grid, height: 2 * MascotMotion.blink(t, seed: Self.seed), lit: false)
-
-        // 小星点：停在上尖角的右外侧，平时不画，闪起来时连四向的碎光一起长出来
-        let spark = MascotMotion.twinkle(t, period: 2.4)
-        if spark > 0.08 {
-            drawSpark(&context, grid, column: 11.5, row: 2, spark: spark)
-        }
-    }
-
-    /// 处理中：四条尖角错开四分之一周期交替伸长（脉动），小星点绕圈、眼睛亮起来。
-    /// `t == 0` 时四条尖角都在基准姿态、小星点停在轨道起点，是这套动作的代表帧。
-    private func drawWorking(_ context: inout GraphicsContext, _ grid: MascotGrid) {
-        // 四条尖角各差四分之一周期：先上、再右、然后下、最后左
-        let period: CGFloat = 1.2
-        drawStar(
-            &context, grid,
-            top: MascotMotion.twinkle(t, period: period),
-            bottom: MascotMotion.twinkle(t - period / 2, period: period),
-            left: MascotMotion.twinkle(t - period * 3 / 4, period: period),
-            right: MascotMotion.twinkle(t - period / 4, period: period),
-            topDx: 0, bottomDx: 0)
-        MascotDraw.groundLine(&context, grid, row: 11, width: 8)
-        drawFace(&context, grid, height: 2, lit: true)
-
-        // 3 颗小星点绕中心转：角度由 `t` 算，位置量化到 0.25 块（亚像素位移会糊边）
-        for index in 0..<3 {
-            let angle = (t / Self.orbitPeriod + CGFloat(index) / 3) * 2 * .pi
-            drawSpark(
-                &context, grid,
-                column: MascotGrid.centerColumn + Self.orbitRadius * cos(angle),
-                row: Self.centerRow + Self.orbitRadius * sin(angle),
-                spark: MascotMotion.twinkle(t - CGFloat(index) * 0.3, period: 0.9))
-        }
-    }
-
-    /// 待审批：四条尖角同时张到最开，眼睛瞪大（跳跃与光晕由统一层施加）。
-    private func drawAlert(_ context: inout GraphicsContext, _ grid: MascotGrid) {
-        MascotDraw.groundLine(&context, grid, row: 11, width: 10)
-        drawStar(&context, grid, top: 1, bottom: 1, left: 1, right: 1, topDx: 0, bottomDx: 0)
-        drawFace(&context, grid, height: 3, width: 2, lit: false)
     }
 
     // MARK: - 画法
 
-    /// 画出星芒本体：先按行表铺主体，再把四条尖角的尖端点亮。
-    ///
-    /// - Parameters:
-    ///   - top: 上尖角向外伸出的量（块）：0 是基准姿态、1 是张到最开
-    ///   - bottom: 下尖角向外伸出的量（块）
-    ///   - left: 左尖角向外伸出的量（块）
-    ///   - right: 右尖角向外伸出的量（块）
-    ///   - topDx: 上尖角的横向摆动（块，歪头用）
-    ///   - bottomDx: 下尖角的横向摆动（块，摆尾用）
+    /// 四角星：八个顶点在内外半径之间交替（内半径 40%），顶点绕自己转 `rotate` 度。
+    /// 星面填品牌渐变（左上蓝 → 中段紫 → 右下玫瑰），渐变方向跟着 `dy` 一起走。
     private func drawStar(
-        _ context: inout GraphicsContext, _ grid: MascotGrid,
-        top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat,
-        topDx: CGFloat, bottomDx: CGFloat
+        _ context: inout GraphicsContext, _ sprite: MascotSprite, dy: CGFloat,
+        scale: CGFloat = 1.0, rotate: CGFloat = 0
     ) {
-        for entry in Self.starRows {
-            var x = grid.centeredX(entry.width)
-            var y = entry.row
-            var width = entry.width
-            var height: CGFloat = 1
-            if entry.row <= 2 {
-                // 上尖角的两行：整段向上长，退台因此跟着拉长
-                y -= top
-                x += topDx
-                height += top
-            } else if entry.row >= 9 {
-                // 下尖角的两行：整段向下长
-                x += bottomDx
-                height += bottom
-            } else if entry.row == 5 || entry.row == 6 {
-                // 左右尖角的两行：两端各向外长
-                x -= left
-                width += left + right
+        let cx: CGFloat = 7.5, cy: CGFloat = 10.0
+        let outerR: CGFloat = 4.5 * scale
+        let innerR: CGFloat = 1.8 * scale
+        let rot = rotate * .pi / 180
+
+        var path = Path()
+        for index in 0..<8 {
+            let angle = CGFloat(index) * .pi / 4 - .pi / 2 + rot
+            let radius = index % 2 == 0 ? outerR : innerR
+            let target = sprite.point(cx + cos(angle) * radius, cy + sin(angle) * radius, dy: dy)
+            if index == 0 {
+                path.move(to: target)
+            } else {
+                path.addLine(to: target)
             }
-            MascotDraw.block(&context, grid.rect(x, y, width, height), Self.body)
         }
+        path.closeSubpath()
 
-        // 四条尖角的尖端点亮成亮档：各 2×2 一块，跟着尖角一起进 / 一起摆
-        MascotDraw.block(&context, grid.rect(7 + topDx, 1 - top, 2, 2), Self.tip)
-        MascotDraw.block(&context, grid.rect(7 + bottomDx, 9 + bottom, 2, 2), Self.tip)
-        MascotDraw.block(&context, grid.rect(3 - left, 5, 2, 2), Self.tip)
-        MascotDraw.block(&context, grid.rect(11 + right, 5, 2, 2), Self.tip)
+        let topPoint = sprite.point(cx - outerR, cy - outerR, dy: dy)
+        let bottomPoint = sprite.point(cx + outerR, cy + outerR, dy: dy)
+        context.fill(
+            path,
+            with: .linearGradient(
+                Gradient(colors: [Self.blueC, Self.purpC, Self.roseC]),
+                startPoint: topPoint, endPoint: bottomPoint))
     }
 
-    /// 眼睛：挖空成黑块（舞台底色本来就是黑的），上下各留一行主体，所以是嵌在星芒里的两点。
-    ///
-    /// - Parameters:
-    ///   - height: 眼睛高度（块）：眨眼时收窄、瞪眼时放大，恒以星芒中线为中心
-    ///   - width: 眼睛宽度（块）：常态 1 块，瞪大时向外各长 1 块
-    ///   - lit: 处理中亮起来（换成亮档当瞳色），其余时候是挖空的黑
+    /// 脸：星面上的两只白点眼。`eyeScale` 是「被惊到」时的放大，`blinkPhase` 收窄眼高
+    /// （→0 时眼睛闭成一条线）。
     private func drawFace(
-        _ context: inout GraphicsContext, _ grid: MascotGrid,
-        height: CGFloat, width: CGFloat = 1, lit: Bool
+        _ context: inout GraphicsContext, _ sprite: MascotSprite, dy: CGFloat,
+        eyeScale: CGFloat = 1.0, blinkPhase: CGFloat = 1.0
     ) {
-        let eyeHeight = max(0.5, height)
-        let top = Self.step(Self.centerRow - eyeHeight / 2)
-        let color: Color = lit ? Self.tip : .black
-        // 内缘钉在第 7 / 9 列：眼睛变宽时朝外长，两只因此始终对称于中线
-        MascotDraw.block(&context, grid.rect(7 - width, top, width, eyeHeight), color)
-        MascotDraw.block(&context, grid.rect(9, top, width, eyeHeight), color)
+        let eyeHeight: CGFloat = 1.5 * eyeScale * blinkPhase
+        let eyeY: CGFloat = 9.5 + (1.5 - eyeHeight) / 2
+        context.fill(
+            Path(sprite.r(5.5, eyeY, 1.2, max(0.3, eyeHeight), dy: dy)),
+            with: .color(Self.faceC))
+        context.fill(
+            Path(sprite.r(8.3, eyeY, 1.2, max(0.3, eyeHeight), dy: dy)),
+            with: .color(Self.faceC))
     }
 
-    /// 一颗小星点：中心 1 块，`spark` 高时朝四个方向各长半块碎光——像星光闪了一下。
-    private func drawSpark(
-        _ context: inout GraphicsContext, _ grid: MascotGrid,
-        column: CGFloat, row: CGFloat, spark: CGFloat
+    /// 影子：落地的那条 1 单位高的黑带，宽度与深浅由调用方给（跳得越高越窄越淡）。
+    private func drawShadow(
+        _ context: inout GraphicsContext, _ sprite: MascotSprite, width: CGFloat = 7,
+        opacity: Double = 0.3
     ) {
-        let x = Self.step(column)
-        let y = Self.step(row)
-        MascotDraw.block(&context, grid.rect(x, y, 1, 1), Self.tip)
-        guard spark > 0.55 else { return }
-        MascotDraw.block(&context, grid.rect(x + 0.25, y - 0.5, 0.5, 0.5), Self.tip)
-        MascotDraw.block(&context, grid.rect(x + 0.25, y + 1, 0.5, 0.5), Self.tip)
-        MascotDraw.block(&context, grid.rect(x - 0.5, y + 0.25, 0.5, 0.5), Self.tip)
-        MascotDraw.block(&context, grid.rect(x + 1, y + 0.25, 0.5, 0.5), Self.tip)
+        context.fill(
+            Path(sprite.r(7.5 - width / 2, 15, width, 1)), with: .color(.black.opacity(opacity)))
     }
 
-    /// 亚像素台阶：小件的位移量化到 0.25 块，像素块的边因此不会被磨糊。
-    private static func step(_ value: CGFloat) -> CGFloat { (value * 4).rounded() / 4 }
+    /// 两条短腿：只跟随机身 30% 的纵向位移（机身先动、腿后跟——整块一起平移就不像在蹬地了）。
+    private func drawLegs(
+        _ context: inout GraphicsContext, _ sprite: MascotSprite, dy: CGFloat = 0
+    ) {
+        let legDy = dy * 0.3
+        context.fill(
+            Path(sprite.r(5.5, 14, 1, 2, dy: legDy)), with: .color(Self.purpC.opacity(0.7)))
+        context.fill(
+            Path(sprite.r(8.5, 14, 1, 2, dy: legDy)), with: .color(Self.purpC.opacity(0.7)))
+    }
 }
