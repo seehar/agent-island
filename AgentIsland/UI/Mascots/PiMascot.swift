@@ -54,12 +54,16 @@ struct PiMascot: View {
             keyboardFlash: Color(red: 0.72, green: 0.96, blue: 1.0))
 
         /// Oh My Pi：外壳取品牌主色 **#9B4DFF**（`AgentPalette` 的 omp 档，也是刘海计数徽标
-        /// 用的那个色），叶面取同一条渐变里的青端 **#5AD8E6**（omp.sh 图标是
+        /// 用的那个色），叶面取同一条渐变里的**粉端 #ED4ABF**（omp.sh 图标是
         /// #ED4ABF → #9B4DFF → #5AD8E6），暗档与键盘按外壳压暗——三档仍读得出是同一台机器。
+        ///
+        /// 叶面为什么不是青端：青与亮紫是两个高饱和的异色相，贴在一起会互相打架（头顶那两片
+        /// 叶子因此读起来像别的零件）；粉端在 omp 自己的渐变里与紫**相邻**，既是品牌内的颜色，
+        /// 又能与紫壳拉开而不冲突。同色相提亮（淡紫）也试过——叶子会糊进机身顶边的高光带里。
         static let ohMyPi = Palette(
             shell: Color(mascotHex: 0x9B4DFF),
             shellDark: Color(mascotHex: 0x5C2E9E),
-            leaf: Color(mascotHex: 0x5AD8E6),
+            leaf: Color(mascotHex: 0xED4ABF),
             face: Color(mascotHex: 0x140D24),
             keyboardBase: Color(mascotHex: 0x1A1229),
             keyboardKey: Color(mascotHex: 0x332652),
