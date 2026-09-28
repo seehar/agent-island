@@ -7195,6 +7195,91 @@
           }
         }
       }
+    },
+    "Animations" : {
+      "comment" : "「标记动态」预览页的标题，也是「智能体」页页眉的入口按钮",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Animations"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "标记动画"
+          }
+        }
+      }
+    },
+    "Preview Agent Animations" : {
+      "comment" : "入口按钮的无障碍标签：说明点它会看到什么",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preview Agent Animations"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "预览智能体标记动画"
+          }
+        }
+      }
+    },
+    "Activity" : {
+      "comment" : "预览页状态选择行的标题",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activity"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "状态"
+          }
+        }
+      }
+    },
+    "Needs Approval" : {
+      "comment" : "预览页的状态档位：对应「等待审批」相位",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Needs Approval"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "待审批"
+          }
+        }
+      }
+    },
+    "Pick an activity to preview how every mark animates." : {
+      "comment" : "预览页脚注：说明状态选择行与画廊的关系",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pick an activity to preview how every mark animates."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选一种状态，预览每枚标记怎么动。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

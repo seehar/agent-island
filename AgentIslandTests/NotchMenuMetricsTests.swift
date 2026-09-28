@@ -39,6 +39,28 @@ struct NotchMenuMetricsTests {
         return height
     }
 
+    @Test("标记动态分组是固定高的一整块（状态选择行 + 画廊），不按设置行算")
+    func animationsSectionIsFixedHeightBlock() {
+        let blocks = NotchMenuMetrics.blocks(for: .animations)
+        #expect(blocks.count == 1)
+        #expect(blocks.first?.hasHeader == false)
+        #expect(blocks.first?.rows.isEmpty == true)
+        #expect(blocks.first?.fixedHeight == NotchMenuMetrics.animationsSectionHeight)
+        #expect(blocks.first?.hasFootnote == true)
+        // 固定块 = 状态选择行 + 画廊（画廊行数按 Agent 数量与列数推出、窗口封顶）。
+        #expect(
+            NotchMenuMetrics.animationsSectionHeight
+                == NotchMenuMetrics.rowHeight + NotchMenuMetrics.animationGalleryHeight)
+        let total = AgentKind.allCases.count
+        let columns = NotchMenuMetrics.animationGalleryColumns
+        let rows = (total + columns - 1) / columns
+        #expect(rows <= NotchMenuMetrics.animationGalleryMaxVisibleRows)
+        #expect(
+            NotchMenuMetrics.animationGalleryHeight
+                == CGFloat(rows) * NotchMenuMetrics.animationGalleryTileHeight
+                + CGFloat(rows - 1) * NotchMenuMetrics.animationGalleryRowSpacing)
+    }
+
     @Test("统计分组是固定高的一整块，不按设置行算")
     func statisticsSectionIsFixedHeightBlock() {
         let blocks = NotchMenuMetrics.blocks(for: .statistics)
@@ -280,6 +302,8 @@ struct NotchMenuMetricsTests {
             .about: 0,
             // 快捷键页也没有撑高面板的展开项：录制行是行内的按键块，不展开。
             .shortcuts: 0,
+            // 标记动态页同样没有撑高面板的展开项：状态选择是行内的分段控件。
+            .animations: 0,
         ]
 
         for section in NotchMenuSection.allCases {

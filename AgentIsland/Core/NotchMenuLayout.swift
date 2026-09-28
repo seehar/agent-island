@@ -31,6 +31,9 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
     /// 键盘快捷键：全局一条 + 面板内数条，可逐条录制。**不占分段位**——分段条
     /// 放不下第六段（实测见 `NotchMenuTabBar`），入口在「关于」页。
     case shortcuts
+    /// 标记动态：把各 Agent 标记的运行时动效一次铺开预览（空闲 / 处理中 / 待审批）。
+    /// 同样是**不占分段位**的页，入口在「智能体」页的页眉里。
+    case animations
 
     var id: String { rawValue }
 
@@ -50,6 +53,7 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
         case .statistics: return "chart.bar.xaxis"
         case .quota: return "creditcard"
         case .shortcuts: return "keyboard"
+        case .animations: return "sparkles"
         case .about: return "info.circle"
         }
     }
@@ -156,6 +160,35 @@ nonisolated enum NotchMenuMetrics {
     /// 在 chrome ≤ 50 时仍 ≤ 728（720），只有 chrome 76（胶囊高度自定义到最大）那一档被夹取
     /// （746）—— 与改造前登记的 `agents@76` 同一档，夹取组合没有增加。
     static let visibleAgentRows = 5
+
+    /// 「标记动态」页：每行铺几个标记、一个格子多高、画廊窗口最多几行。
+    ///
+    /// 与 `visibleAgentRows` 同一套做法——渲染全部 Agent，只把画廊窗口高度封顶，
+    /// 超出的在画廊里滚动；行数由 `AgentKind` 的数量与列数推出，因此新增 Agent
+    /// 不会把这一页撑出面板上限（ 18 个 ÷ 3 列 = 6 行，正好在窗口内）。
+    static let animationGalleryColumns = 4
+    /// 一个格子里黑色底块的高度（标记 32pt 画在里面）与名称行的高度。
+    static let animationGalleryMarkTileHeight: CGFloat = 46
+    static let animationGalleryTileTextHeight: CGFloat = 16
+    static var animationGalleryTileHeight: CGFloat {
+        animationGalleryMarkTileHeight + animationGalleryTileTextHeight
+    }
+    static let animationGalleryRowSpacing: CGFloat = 8
+    static let animationGalleryMaxVisibleRows = 6
+
+    /// 画廊的内容高：行数超过窗口时只算窗口那几行（渲染全部、窗口封顶）。
+    static var animationGalleryHeight: CGFloat {
+        let rows = min(
+            (AgentKind.allCases.count + animationGalleryColumns - 1) / animationGalleryColumns,
+            animationGalleryMaxVisibleRows)
+        let gaps = CGFloat(max(0, rows - 1)) * animationGalleryRowSpacing
+        return CGFloat(rows) * animationGalleryTileHeight + gaps
+    }
+
+    /// 「标记动态」页的固定内容高（`fixedHeight` 块）：状态选择行 + 画廊。
+    static var animationsSectionHeight: CGFloat {
+        rowHeight + animationGalleryHeight
+    }
 
     /// 额度页：账号列表不滚动就能看到的账号数。
     ///
@@ -316,6 +349,13 @@ nonisolated enum NotchMenuMetrics {
                 ),
                 // 工具调用保护：问什么 / 应用未运行时 / 有待处理请求时自动展开（三个全局档位）
                 Block(rows: Array(repeating: rowHeight, count: 3)),
+            ]
+        case .animations:
+            // 标记动态页是整块预览（状态选择行 + 画廊），不按设置行算——它不是配置项。
+            // 高度由 `animationsSectionHeight` 给出（与页面实际排版一致）：画廊按网格铺开、
+            // 窗口封顶，新增 Agent 只会在画廊里多一行可滚动内容，不改变面板高度。
+            return [
+                Block(hasHeader: false, fixedHeight: animationsSectionHeight, hasFootnote: true)
             ]
         case .shortcuts:
             return [
