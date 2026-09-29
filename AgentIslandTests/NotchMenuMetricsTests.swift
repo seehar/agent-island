@@ -72,10 +72,12 @@ struct NotchMenuMetricsTests {
         #expect(blocks.first?.fixedHeight == UsageStatsMetrics.sectionHeight)
     }
 
-    @Test("统计分组在最高固定开销下也不越过夹取上限")
+    @Test("统计分组：默认开销下确实在上限内，最高开销由夹取兜住")
     func statisticsSectionFitsPanelCap() {
-        // 固定开销含胶囊高度（自定义最高 64 → 开销 76）。统计分组是整页内容，
-        // 越上限就只能靠页内滚动，这里钉住「默认与最高开销都在上限内」。
+        // 固定开销含胶囊高度（自定义最高 64 → 开销 76）。统计分组是整页内容，越上限就只能
+        // 靠页内滚动（见 `clampedPairs` 的 `statistics@76`）。这里钉住「默认开销下真的在
+        // 上限内」（`low < cap` 才有区分力）与「最高开销被夹到上限」（`high <= cap` 在夹取
+        // 下恒真，真正兜住它的是 `clampedPairs` 的登记）。
         let low = NotchMenuMetrics.panelHeight(
             for: .statistics, expandedPickerHeight: 0, chromeHeight: 42)
         let high = NotchMenuMetrics.panelHeight(
@@ -206,7 +208,9 @@ struct NotchMenuMetricsTests {
 
     /// 已知被夹取（超出上限、改由页内滚动接管）的组合。**新增组合必须显式登记在这里**，
     /// 否则测试失败——那正是「又加了一行/一档，最后一个档位落到可视区外」的信号。
-    private static let clampedPairs: Set<String> = ["agents@76"]
+    /// 统计页在 `chromeHeight = 76` 也被夹取：脚注新增「不计入的 Agent」一行后
+    /// 整页 577 + 开销 76 = 745 > 728（默认开销 42 下 711，仍在上限内）。
+    private static let clampedPairs: Set<String> = ["agents@76", "statistics@76"]
 
     @Test("额度分组：动作条 + 详情基准一行，账号个数与可选行不进静态表")
     func quotaSectionHasActionRowAndDetailRows() {

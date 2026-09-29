@@ -7349,6 +7349,227 @@
         }
       }
     },
+    "Hover the notch to reopen this panel." : {
+      "comment" : "首次启动空态：交代收起后怎么把面板叫回来（首次展开不自动收起）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hover the notch to reopen this panel."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "把鼠标停在刘海上可以重新打开这个面板。"
+          }
+        }
+      }
+    },
+    "Answers are cut off after %lld characters." : {
+      "comment" : "作答自由文本顶到长度上限时的提示（%d = 上限字符数）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Answers are cut off after %lld characters."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "答案超过 %lld 个字符后会被截断。"
+          }
+        }
+      }
+    },
+    "Installed, but the hook file could not be made executable." : {
+      "comment" : "集成状态：Cline 的事件文件没设上可执行位（hook 不会触发）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installed, but the hook file could not be made executable."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已安装，但 hook 文件没能设成可执行（不会触发）。"
+          }
+        }
+      }
+    },
+    "Not installed — python3 is required for the shared hook script." : {
+      "comment" : "集成状态：这台机器上没有 python3，因此不写注定失败的 hook 命令",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not installed — python3 is required for the shared hook script."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未安装 —— 共用 hook 脚本需要 python3。"
+          }
+        }
+      }
+    },
+    "Restart the agent's CLI to load the integration." : {
+      "comment" : "智能体页脚注：装好集成后必须重启该 CLI 才会加载 hook",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restart the agent's CLI to load the integration."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重启该 Agent 的 CLI 才会加载集成。"
+          }
+        }
+      }
+    },
+    "Copy" : {
+      "comment" : "聊天气泡/工具输出的复制按钮",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "复制"
+          }
+        }
+      }
+    },
+    "Copied" : {
+      "comment" : "复制成功后的按钮文案（短暂显示）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copied"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已复制"
+          }
+        }
+      }
+    },
+    "Collapse" : {
+      "comment" : "展开全部之后收起长输出",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collapse"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收起"
+          }
+        }
+      }
+    },
+    "Show all %lld lines" : {
+      "comment" : "长输出的展开入口（%d = 总行数）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show all %lld lines"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "展开全部 %lld 行"
+          }
+        }
+      }
+    },
+    "Interrupt" : {
+      "comment" : "中断正在跑的回合（往 tmux 面板发 Ctrl-C）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Interrupt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中断"
+          }
+        }
+      }
+    },
+    "Send Ctrl-C to this session" : {
+      "comment" : "中断按钮的悬停提示",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send Ctrl-C to this session"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "给这个会话发送 Ctrl-C"
+          }
+        }
+      }
+    },
+    "Not counted: %@" : {
+      "comment" : "统计页脚注：说明哪些 Agent 不进统计（%@ = 短名单；文案压成一行）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not counted: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不计入：%@"
+          }
+        }
+      }
+    },
+    "Indexing failed — the numbers above may be stale." : {
+      "comment" : "统计页脚注：索引失败时的警告行",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Indexing failed — the numbers above may be stale."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "索引失败 —— 上面的数字可能已经过期。"
+          }
+        }
+      }
+    },
     "2×" : {
       "comment" : "「标记动态」页速度档位：两倍速",
       "localizations" : {

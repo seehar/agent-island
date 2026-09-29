@@ -13,7 +13,8 @@
 //
 //  安全口径（与 `HookInstaller` / `HookSettingsMerger` 同款）：
 //    - 读不懂的 JSON 放弃写入（返回 false）：宁可这次装不上，也不清空用户的配置；
-//    - 写前把上一版留成 `<文件名>.agent-island-backup`；
+//    - 写前把上一版留成 `<文件名>.agent-island-backup`，且**只写一次**：备份是
+//      **不可重写**的原始快照（升级新增事件时的第二次写入不会覆盖它，见 `AgentConfigBackup`）；
 //    - 原子替换；内容没有变化就一个字节都不写（不刷新时间戳，重复安装字节相同）；
 //    - 卸载只删自己的条目，别人的条目与其它键都留着；
 //    - 但「原本不存在、由我们创建的配置文件」在摘完我们的条目后已无内容（只剩我们种下的
@@ -50,9 +51,6 @@ import os.log
 nonisolated enum AgentConfigInstaller {
     private static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "Integration")
 
-    /// 备份后缀：`<原文件名>.agent-island-backup`（与 `HookInstaller` 同款命名）。
-    private static let backupExtension = "agent-island-backup"
-
     /// Copilot / Trae IDE 的 schema 版本号：我们只在用户自己没设过时种下它，卸载时又按
     /// 「顶层只剩这一个我们种的键」判空 —— 种什么、判什么必须是同一个值，因此放在一处。
     private static let seededVersionKey = "version"
@@ -62,17 +60,27 @@ nonisolated enum AgentConfigInstaller {
 
     /// 安装该 Agent 的 hook 配置。
     ///
-    /// 返回 false 只代表「本该能装好却没装成」（配置文件读不懂、写不进去）；
+    /// 返回 false 只代表「本该能装好却没装成」（配置文件读不懂、写不进去、**这台机器上
+    /// 没有 `python3`**）；
     /// 「这个工具没装」（存在性闸门）与「这个 Agent 不走配置文件」都算成功（跳过）。
+    ///
+    /// - Parameter interpreter: hook 命令要用的解释器；nil 表示探测不到 `python3`，
+    ///   此时**一个字节都不写**并返回 false —— 配置里塞一条跑不通的命令，工具会在每个
+    ///   事件上失败一次，而用户完全看不出为什么。默认值为现场探测结果；单测直接传 nil
+    ///   走「拒绝安装」这条分支（调用方据此把集成状态停在「未安装」并说明原因）。
     @discardableResult
     static func install(
         _ kind: AgentKind,
-        home: URL = FileManager.default.homeDirectoryForCurrentUser
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        interpreter: String? = HookInstaller.detectPython()
     ) -> Bool {
         guard let spec = kind.hookSpec else { return false }
         guard let location = location(for: kind, spec: spec, home: home) else { return true }
         // 解释器只探一次：`which` 会真起一个进程，而事件表最多有 14 个事件
-        let interpreter = HookInstaller.detectPython()
+        guard let interpreter else {
+            logger.error("未找到 python3，跳过 \(kind.rawValue, privacy: .public) 的集成安装：hook 命令需要它，写进去只会在每个事件上失败")
+            return false
+        }
 
         let installed: Bool
         switch spec.format {
@@ -99,6 +107,9 @@ nonisolated enum AgentConfigInstaller {
     // MARK: - 卸载
 
     /// 卸载该 Agent 的 hook 配置：只摘自己的条目，别人的内容一个字节都不动。
+    ///
+    /// 安装时一并打开的前置开关也要**对称还原**（Codex 的 `[features] hooks`，见
+    /// `disableCodexHooks`）：安装往用户配置里补的那一行，卸载必须还回去。
     ///
     /// 不动 hook 脚本本体：它由 `installHookScript` 统一维护（多个 Agent 共用一份），
     /// 单卸载一个 Agent 就把脚本删掉会让其余 Agent 的配置指向不存在的文件。
@@ -127,6 +138,8 @@ nonisolated enum AgentConfigInstaller {
         case .claude, .nested, .flat, .traeIDE, .copilot:
             removeEventTable(spec: spec, location: location)
         }
+        // 安装时一并打开的前置开关要对称还原（Codex 的 `[features] hooks = true`）
+        disablePrerequisites(spec, location: location)
     }
 
     // MARK: - 状态
@@ -219,6 +232,36 @@ nonisolated enum AgentConfigInstaller {
         let script = AgentHookScript.fileURL(home: home)
         if FileManager.default.fileExists(atPath: script.path) { files.append(script) }
         return files
+    }
+
+    // MARK: - 装了但没生效
+
+    /// 我们写下的文件是不是真的**能被工具执行**。
+    ///
+    /// 只有 Cline 的事件文件需要可执行位：它们是被 Cline **直接执行**的 shell 脚本；
+    /// 其余格式的命令都由 `python3` 解释执行（`<python3> <脚本> --source …`），不受权限位
+    /// 影响 —— 拿这条当通用判据会误报（共享脚本在 `~/.agent-island/hooks/` 下从来不需要
+    /// 自己能被执行）。
+    ///
+    /// 权限位设不上时（`setExecutable` 失败）配置内容仍然是我们写的（`isInstalled` 为真），
+    /// 但 Cline 每个事件都会执行失败 —— 设置行必须把这一态显示成「装了但没生效」而不是
+    /// 「已安装」（文案见 `AgentSettingsSection.integrationSummary`）。
+    static func hookFilesAreExecutable(
+        _ kind: AgentKind,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> Bool {
+        guard let spec = kind.hookSpec, spec.format == .cline,
+            let location = location(for: kind, spec: spec, home: home)
+        else { return true }
+
+        return spec.events.allSatisfy { event in
+            let file = location.configFile.appendingPathComponent(event.name)
+            // 不是我们的文件（用户自己的同名 hook）不归我们管
+            guard let text = textContents(of: file), HookInstaller.isOwnHookCommand(text) else {
+                return true
+            }
+            return FileManager.default.isExecutableFile(atPath: file.path)
+        }
     }
 
     // MARK: - hook 脚本
@@ -402,6 +445,9 @@ nonisolated enum AgentConfigInstaller {
         guard ensureDirectory(location.configFile) else { return false }
 
         var ok = true
+        // 这次真正由我们写出去的文件：安装失败时要收回来。留着会让用户在「开关已回到关闭 +
+        // 脚注说安装失败」的状态下，hooks 目录里却半套集成（Cline 照样会扫到并执行）。
+        var writtenFiles: [URL] = []
         for event in spec.events {
             let file = location.configFile.appendingPathComponent(event.name)
             // 用户自己写的同名 hook 一律不碰：顶掉它，卸载时也会因为「内容里没有我们的脚本」
@@ -422,8 +468,14 @@ nonisolated enum AgentConfigInstaller {
                 ok = false
                 continue
             }
-            // Cline 直接执行这个文件：内容没变时也要补权限位（用户可能改过）
-            setExecutable(file)
+            writtenFiles.append(file)
+            // Cline 直接执行这个文件：内容没变时也要补权限位（用户可能改过）。
+            // 权限位设不上就等于没装成——Cline 每个事件都会执行失败，此时安装必须
+            // 报失败（设置行由 `hookFilesAreExecutable` 显示成「装了但没生效」）。
+            if !setExecutable(file) { ok = false }
+        }
+        if !ok {
+            for file in writtenFiles { try? FileManager.default.removeItem(at: file) }
         }
         return ok
     }
@@ -442,12 +494,147 @@ nonisolated enum AgentConfigInstaller {
         return ok
     }
 
+    /// 卸载时对称还原安装时打开的前置开关。
+    private static func disablePrerequisites(_ spec: AgentHookSpec, location: Location) {
+        for prerequisite in spec.prerequisites {
+            switch prerequisite {
+            case .codexHooksFeature:
+                disableCodexHooks(location: location)
+            }
+        }
+    }
+
+    /// Codex 的 `config.toml` 落点（安装与卸载必须算成同一个文件）。
+    private static func codexConfigFile(location: Location) -> URL {
+        location.base.appendingPathComponent("config.toml")
+    }
+
     /// 打开 `<codexRoot>/config.toml` 的 `[features] hooks`；已经是 true 就不动文件。
+    ///
+    /// 写之前先把「安装前这个文件是什么样」记进备份（见 `AgentConfigBackup`）：
+    /// 文件**原本不存在**时也要落一份（内容为空串），否则卸载时分不清「我们种下的那份
+    /// config.toml」与「用户自己写的、内容恰好相同的那份」——两者的文件内容一模一样，
+    /// 只能靠这份记录区分（见 `disableCodexHooks`）。
     private static func enableCodexHooks(location: Location) -> Bool {
-        let configFile = location.base.appendingPathComponent("config.toml")
+        let configFile = codexConfigFile(location: location)
         guard let existing = existingText(at: configFile, kind: .codex) else { return false }
         guard let updated = AgentConfigMerger.enablingCodexHooks(in: existing) else { return true }
+        AgentConfigBackup.writeOnce(Data(existing.utf8), for: configFile)
         return write(Data(updated.utf8), to: configFile)
+    }
+
+    /// 卸载时对称还原 `<codexRoot>/config.toml` 的 `[features] hooks`：**只碰我们改过的那一行**，
+    /// 用户原有的设置一个字节都不动。
+    ///
+    /// 判据全部来自既有备份机制，不另存状态：
+    ///   - 没有备份 ⇒ 我们从没写过这个文件（安装时它就是 `hooks = true`，或压根没装成）⇒ 不动；
+    ///   - 备份里 `[features]` 段**有** `hooks` 键 ⇒ 那是用户自己的设置 ⇒ 连同值、行尾注释
+    ///     一起原样写回去（安装时可能被我们翻成过 true）；
+    ///   - 备份里没有这个键 ⇒ 是我们补上的 ⇒ 删掉那一行；连 `[features]` 表都是我们补的
+    ///     （备份里没有这个表）时，删完表内已无内容就连表头一起删；
+    ///   - 备份为空、删完也什么都不剩 ⇒ 那份 config.toml 是我们凭空种下的（安装前这个
+    ///     文件不存在），整份删掉——不给用户留下我们造出来的空壳文件。
+    private static func disableCodexHooks(location: Location) {
+        let configFile = codexConfigFile(location: location)
+        guard case let .text(existing) = readText(at: configFile) else { return }
+        guard case let .text(original) = readText(at: AgentConfigBackup.url(for: configFile)) else {
+            return
+        }
+        guard let updated = restoringCodexHooksKey(from: existing, to: original) else { return }
+        if isBlank(original), isBlank(updated) {
+            removeCreatedFile(configFile, reason: "卸载后已无内容")
+            return
+        }
+        write(Data(updated.utf8), to: configFile)
+    }
+
+    /// 把当前的 `[features] hooks` 还原成安装前的样子（`original` = 安装前的原文）。
+    ///
+    /// 返回 nil 表示无需改动（当前没有可还原的那一行）。表内其它键、`[features]` 之外
+    /// 的内容、注释与 CRLF 全部原样保留：这里只做**行级**替换 / 删除。
+    private static func restoringCodexHooksKey(from current: String, to original: String) -> String? {
+        var lines = current.components(separatedBy: "\n")
+        guard let featuresIndex = lines.firstIndex(where: isFeaturesTable),
+            let hooksIndex = codexHooksLineIndex(in: lines, after: featuresIndex)
+        else { return nil }
+
+        // 安装前就有这个键：把用户原本那一行（值、注释）写回去
+        if let originalLine = codexHooksLine(in: original) {
+            guard lines[hooksIndex] != originalLine else { return nil }
+            lines[hooksIndex] = originalLine
+            return lines.joined(separator: "\n")
+        }
+
+        // 安装前没有这个键：删掉我们补上的那一行
+        lines.remove(at: hooksIndex)
+        // 表头也是我们补的、且删完表内已无内容 ⇒ 连表头一起删
+        if !containsFeaturesTable(in: original) {
+            let sectionEnd = nextTableIndex(in: lines, after: featuresIndex)
+            if ((featuresIndex + 1)..<sectionEnd).allSatisfy({ isBlankOrComment(lines[$0]) }) {
+                lines.remove(at: featuresIndex)
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// `[features]` 段内 `hooks` 键所在的行号。
+    private static func codexHooksLineIndex(in lines: [String], after featuresIndex: Int) -> Int? {
+        let sectionEnd = nextTableIndex(in: lines, after: featuresIndex)
+        return ((featuresIndex + 1)..<sectionEnd).first { isCodexHooksLine(lines[$0]) }
+    }
+
+    /// 文本里 `[features]` 段的 `hooks` 行原文（还原时连注释一起写回）。
+    private static func codexHooksLine(in text: String) -> String? {
+        let lines = text.components(separatedBy: "\n")
+        guard let featuresIndex = lines.firstIndex(where: isFeaturesTable),
+            let index = codexHooksLineIndex(in: lines, after: featuresIndex)
+        else { return nil }
+        return lines[index]
+    }
+
+    /// 文本里有没有 `[features]` 表。
+    private static func containsFeaturesTable(in text: String) -> Bool {
+        text.components(separatedBy: "\n").contains(where: isFeaturesTable)
+    }
+
+    /// 这一行是不是 `[features]` 表头（允许缩进、行尾注释与 CR）。
+    private static func isFeaturesTable(_ line: String) -> Bool {
+        tomlLineBody(line).trimmingCharacters(in: .whitespaces) == "[features]"
+    }
+
+    /// 这一行是不是 `[features]` 段里的 `hooks` 键（**值不计**：还原时要认回用户原来的值）。
+    private static func isCodexHooksLine(_ line: String) -> Bool {
+        let parts = tomlLineBody(line)
+            .trimmingCharacters(in: .whitespaces)
+            .split(separator: "=", maxSplits: 1)
+        return parts.count == 2 && parts[0].trimmingCharacters(in: .whitespaces) == "hooks"
+    }
+
+    /// 下一个 TOML 表头行的行号（没有则返回行数）。
+    private static func nextTableIndex(in lines: [String], after index: Int) -> Int {
+        ((index + 1)..<lines.count).first { isTableHeader(lines[$0]) } ?? lines.count
+    }
+
+    /// 这一行是不是 TOML 表头（`[table]` / `[[array]]`）。
+    private static func isTableHeader(_ line: String) -> Bool {
+        let body = tomlLineBody(line).trimmingCharacters(in: .whitespaces)
+        return body.count >= 2 && body.hasPrefix("[") && body.hasSuffix("]")
+    }
+
+    /// 空行或注释行（删表头前的「表内已无内容」判据）。
+    private static func isBlankOrComment(_ line: String) -> Bool {
+        tomlLineBody(line).trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// 去掉行尾注释与 CR 之后的那一段（TOML 的键值判断只看它）。
+    private static func tomlLineBody(_ line: String) -> String {
+        let body = line.firstIndex(of: "#").map { String(line[..<$0]) } ?? line
+        return body.replacingOccurrences(of: "\r", with: "")
+    }
+
+    /// 文本是否没有实质内容（空串 / 只有空白）。
+    private static func isBlank(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: - 命令字符串
@@ -623,10 +810,16 @@ nonisolated enum AgentConfigInstaller {
     // MARK: - 落盘
 
     /// 原子写入：内容没变化就一个字节都不写；`backup` 为真时先把上一版留成
-    /// `<文件名>.agent-island-backup`（Cline 的事件文件不落备份：那个目录会被 Cline 当 hook 扫）。
+    /// `<文件名>.agent-island-backup`（**只写一次**，是不可重写的原始快照，见
+    /// `AgentConfigBackup`；Cline 的事件文件不落备份：那个目录会被 Cline 当 hook 扫）。
     ///
-    /// **原本不存在的文件不落备份**，因此「没有备份」等价于「这个文件是我们创建的」——
-    /// 卸载的对称性判据（`wasCreatedByUs`）就是靠这条，不另存状态。
+    /// **原本不存在的文件不落备份**，卸载的对称性判据（`wasCreatedByUs`）就靠「没有备份」
+    /// 表达「这个文件是我们创建的」，不另存状态。
+    ///
+    /// 已知例外（历史行为，本次未改）：**由我们创建、之后又被写第二次**的文件（典型是升级
+    /// 新增事件）会落下一份「我们自己内容」的备份，于是判据翻假、卸载只摘条目而不是整份
+    /// 删除，留下一个空壳。要修得把「我们创建的」显式记下来（而不是靠「无备份」推导），
+    /// 那是一次独立的改动。
     @discardableResult
     private static func write(_ data: Data, to file: URL, backup: Bool = true) -> Bool {
         let original = try? Data(contentsOf: file)
@@ -634,20 +827,14 @@ nonisolated enum AgentConfigInstaller {
         guard ensureDirectory(file.deletingLastPathComponent()) else { return false }
 
         if backup, let original {
-            let backup = file.appendingPathExtension(backupExtension)
-            do {
-                try original.write(to: backup, options: .atomic)
-            } catch {
-                // 备份失败不阻断安装（配置本身还能写），但要在日志里留痕
-                logger.error("备份失败（继续写入）：\(backup.path, privacy: .public)")
-            }
+            AgentConfigBackup.writeOnce(original, for: file)
         }
 
         do {
             try data.write(to: file, options: .atomic)
             // 首次启动会往**每个检测到的工具**的配置里写条目，所以「改了哪个文件、
             // 备份在哪」必须在日志里看得见（notice 级：debug 不会被持久化）。
-            let backupFile = backupURL(for: file)
+            let backupFile = AgentConfigBackup.url(for: file)
             let origin = FileManager.default.fileExists(atPath: backupFile.path)
                 ? "备份 \(backupFile.path)" : "无备份（文件原本不存在）"
             logger.notice("已写入 \(file.path, privacy: .public)（\(origin, privacy: .public)）")
@@ -677,7 +864,7 @@ nonisolated enum AgentConfigInstaller {
     /// —— `write` 只为「原本已存在」的文件落备份，所以「无备份」等价于「我们创建的」，
     /// 不需要另存一份状态（重启、重装后依然成立）。
     private static func wasCreatedByUs(_ file: URL) -> Bool {
-        !FileManager.default.fileExists(atPath: backupURL(for: file).path)
+        !FileManager.default.fileExists(atPath: AgentConfigBackup.url(for: file).path)
     }
 
     /// 摘掉我们的条目后，顶层是否只剩下我们为写入而种下的键（目前只有 Copilot / Trae IDE 的
@@ -703,11 +890,6 @@ nonisolated enum AgentConfigInstaller {
         } catch {
             logger.error("删除失败：\(file.path, privacy: .public) — \(error.localizedDescription, privacy: .public)")
         }
-    }
-
-    /// 备份文件的落点（`<文件名>.agent-island-backup`）。
-    private static func backupURL(for file: URL) -> URL {
-        file.appendingPathExtension(backupExtension)
     }
 
     /// 摘掉本应用的事件表条目；没有我们条目的文件原样不动（免得把用户的排版重排一遍）。
@@ -812,8 +994,19 @@ nonisolated enum AgentConfigInstaller {
 
     /// 可执行权限位 `0o755`：hook 脚本与 Cline 的事件文件都要能被直接执行
     /// （与 `HookInstaller` 给脚本设的权限位一致）。
-    private static func setExecutable(_ file: URL) {
-        try? FileManager.default.setAttributes(
-            [.posixPermissions: 0o755], ofItemAtPath: file.path)
+    ///
+    /// 返回是否设置成功：失败时文件内容仍然是我们写的（`isInstalled` 为真），但工具执行
+    /// 它会失败——必须留下日志，并由 `hookFilesAreExecutable` 在设置行上体现成
+    /// 「装了但没生效」。
+    @discardableResult
+    private static func setExecutable(_ file: URL) -> Bool {
+        do {
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: file.path)
+            return true
+        } catch {
+            logger.error("设置可执行位失败：\(file.path, privacy: .public) — \(error.localizedDescription, privacy: .public)")
+            return false
+        }
     }
 }

@@ -22,9 +22,15 @@ import CoreGraphics
 nonisolated enum UsageStatsMetrics {
     // MARK: - 版面
 
-    /// 统计页的内容高度。取 560 与「面板 + 分组页眉 + 分段控件」的固定开销相加后仍在
-    /// `NotchMenuMetrics.maxPanelHeight` 之内（有实测：见 `UsageStatsLayoutTests`）。
-    static let sectionHeight: CGFloat = 560
+    /// 统计页的内容高度（含脚注）。与「面板 + 分组页眉 + 分段控件」的固定开销相加后，
+    /// 默认开销（42）下仍在 `NotchMenuMetrics.maxPanelHeight` 之内（实测见
+    /// `UsageStatsLayoutTests`）；胶囊高度自定义到最高（开销 76）时越过上限，由页内滚动接管。
+    /// 560 → 577 是因为脚注新增了「不计入的 Agent」那一行
+    /// （`UsageStatsView.excludedAgentsNote`，文案压成一行、最窄档也排得下）。
+    /// 一行 = 10pt 字体 + `footnoteLineSpacing`(5) + 行高余量（实测 17）。
+    /// 代价：`chromeHeight = 76`（胶囊高度自定义到最高）时统计页越过 `maxPanelHeight`，
+    /// 与其他超出上限的分组一样由页内滚动接管（见 `NotchMenuMetricsTests.clampedPairs`）。
+    static let sectionHeight: CGFloat = 577
     /// 页面内容宽度：**面板宽上限**减去设置页的左右内边距（统计页与设置行左右对齐，
     /// 自己不再加内边距）。工具榜两列、芯片网格、月历与图例行都要在这个宽度内排下。
     ///
@@ -71,7 +77,7 @@ nonisolated enum UsageStatsMetrics {
     static let rangePickerGap: CGFloat = 10
     /// 选择器块的总高：卡片内边距 + 两行芯片 + 间距 + 分隔线 + 间距 + 月历 + 读数行。
     ///
-    /// 它**不参与面板高度**（统计分组是固定 560 的整块，且这种组合下已顶到 728 上限），
+    /// 它**不参与面板高度**（统计分组是固定 `sectionHeight` 的整块），
     /// 而是作为固定块插在分段条与滚动区之间挤占视口；`UsageStatsLayoutTests` 用它守住
     /// 「展开后滚动视口仍不小于 200pt」。
     static var rangePickerHeight: CGFloat {
@@ -198,8 +204,8 @@ nonisolated enum UsageStatsMetrics {
 
     /// 脚注（口径说明与索引时间）的行距。
     static let footnoteLineSpacing: CGFloat = 5
-    /// 空态的最小高度：设置面板给本分组的可视内容区是 560（页面顶部还有 10 的间距），
-    /// 留出这个高度后提示块落在视觉居中处，而不是贴着页眉。有数据时内容通常高于可视区
-    /// （由设置页的滚动接管）。
-    static let emptyStateMinHeight: CGFloat = 520
+    /// 空态的最小高度：跟着 `sectionHeight` 走——空态是同一页的「没有数据」面，留出这个
+    /// 高度后提示块落在视觉居中处，而不是贴着页眉；两者的差额保持在既有区间内
+    /// （见 `UsageStatsLayoutTests.emptyStateFitsPanel`）。
+    static let emptyStateMinHeight: CGFloat = 537
 }

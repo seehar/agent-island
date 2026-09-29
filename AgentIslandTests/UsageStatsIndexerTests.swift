@@ -518,7 +518,7 @@ struct UsageStatsIndexerTests {
   func deletedFileKeepsHistory() throws {
     let root = try makeFixtureTree()
     let store = try makeStore(in: root)
-    try pass(store).ingest(sources: sources(root: root))
+    pass(store).ingest(sources: sources(root: root))
     let before = try store.snapshot(
       window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
 
@@ -728,6 +728,188 @@ struct UsageStatsIndexerTests {
       plannedKeys == expectedKeys, "计划必须覆盖窗口内每个整点键，缺 \(expectedKeys.subtracting(plannedKeys))")
     #expect(dataKeys == expectedKeys, "有数据的桶必须都在计划里，缺 \(expectedKeys.subtracting(dataKeys))")
     #expect(snapshot.trend.count == expectedKeys.count)
+  }
+
+  // MARK: - 统计范围 / 结构版本 / 失败可见性
+
+  /// 不扫任何记录的一轮：注入空根目录，这类用例就不必碰（也不会拖慢）真实历史。
+  private var emptyRoots: UsageScanRoots {
+    UsageScanRoots(jsonlRoots: [:], openCodeDatabase: nil, hermesDatabase: nil)
+  }
+
+  @Test("不进统计的 Agent：喂它别的 Agent 的记录也读不出一条数据")
+  func agentsWithoutUsageReadNothing() throws {
+    let root = try tempRoot()
+    // 两种「别的 Agent」的记录形状（都带 token 与工具调用）：喂给名单里的 Agent，一条都不该出来。
+    let line =
+      piLine(
+        date: todayBase, input: 100, output: 20, cacheRead: 30, cacheWrite: 0, tools: ["bash"])
+      + "\n"
+      + claudeLine(
+        date: todayBase, isSidechain: false, input: 10, output: 5, cacheRead: 7, cacheWrite: 3,
+        tools: ["Bash"]) + "\n"
+
+    // 正向对照：同一份内容喂给 omp 读得出用量——否则下面全是恒真断言。
+    let controlFile = root.appendingPathComponent("omp/session.jsonl")
+    try write(line, to: controlFile)
+    let control = TranscriptUsageScanner.read(
+      source: UsageSourceFile(path: controlFile.path, agent: .ohMyPi, sessionId: "s1"),
+      previous: nil, calendar: calendar)
+    #expect(!control.deltas.isEmpty, "对照源（omp）没读出用量：夹具或扫描器已经变了")
+
+    for kind in TranscriptUsageScanner.agentsWithoutUsage {
+      let file = root.appendingPathComponent("\(kind.rawValue)/session.jsonl")
+      try write(line, to: file)
+      let result = TranscriptUsageScanner.read(
+        source: UsageSourceFile(path: file.path, agent: kind, sessionId: "s1"),
+        previous: nil, calendar: calendar)
+      #expect(result.deltas.isEmpty, "\(kind.rawValue) 读出了用量，「不进统计」的说明就是假的")
+    }
+  }
+
+  @Test("不进统计的名单：另走 SQLite 的、以及只统计工具调用的 Agent 都不在里面")
+  func agentsWithoutUsageExcludesCountedAgents() {
+    // 读不出记录的那几家（名单由扫描器的 `markers` 现算，见 `agentsWithoutUsage`）。
+    let expected: Set<AgentKind> = [
+      .gemini, .kimi, .cline, .grok, .trae, .traeCli, .deepSeekHarness,
+    ]
+    #expect(TranscriptUsageScanner.agentsWithoutUsage == expected)
+    // OpenCode / Hermes 的记录在 SQLite 里（各有独立读取器），Cursor / Copilot 没有 token
+    // 字段但确实进工具榜与会话数——这四家的数字都在页面上，说它们「不进统计」是假的。
+    for kind in [AgentKind.opencode, .hermes, .cursor, .copilot] {
+      #expect(!TranscriptUsageScanner.agentsWithoutUsage.contains(kind))
+    }
+  }
+
+  @Test("结构版本：最新版不动作、缺 model 列的旧库重建、空库建表")
+  func schemaMigrationFollowsVersionAndColumns() {
+    let currentColumns = [
+      "source_id", "agent", "session_id", "hour_key", "is_subagent", "tool", "model",
+    ]
+    let legacyColumns = currentColumns.filter { $0 != "model" }
+
+    #expect(UsageStatsSchema.current == 1)
+    // 已是最新版、列也对得上 → 什么都不做。
+    #expect(UsageStatsSchema.migration(of: 1, bucketColumns: currentColumns) == .none)
+    // 引入版本号之前建的库（版本 0）分两种：列齐全的只补版本号（不清存量数字），
+    // 缺 model 列的整表重建。
+    #expect(UsageStatsSchema.migration(of: 0, bucketColumns: currentColumns) == .none)
+    #expect(UsageStatsSchema.migration(of: 0, bucketColumns: legacyColumns) == .rebuild)
+    // 全新库（还没有 usage_bucket）→ 建表。
+    #expect(UsageStatsSchema.migration(of: 0, bucketColumns: nil) == .create)
+    // 版本号落后于代码（以后加列时就是这个形态）→ 也得重建，不能当成最新版。
+    #expect(
+      UsageStatsSchema.migration(of: 1, bucketColumns: currentColumns, currentVersion: 2)
+        == .rebuild)
+    // 版本号最新但列对不上（库被手工改过）→ 按重建兜底。
+    #expect(UsageStatsSchema.migration(of: 1, bucketColumns: ["tool"]) == .rebuild)
+  }
+
+  @Test("结构已经对、只是还没有版本号的库：打开时不重建，只补上版本号")
+  func unversionedCurrentStructureIsNotRebuilt() throws {
+    let root = try tempRoot()
+    // 复刻「引入版本号之前、但结构已经是当前结构」的库（存量用户升级时的样子）。
+    try execSQL(
+      """
+      CREATE TABLE usage_bucket (
+        source_id TEXT NOT NULL, agent TEXT NOT NULL, session_id TEXT NOT NULL,
+        hour_key TEXT NOT NULL, is_subagent INTEGER NOT NULL DEFAULT 0,
+        tool TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '',
+        records INTEGER NOT NULL DEFAULT 0, calls INTEGER NOT NULL DEFAULT 0,
+        input INTEGER NOT NULL DEFAULT 0, output INTEGER NOT NULL DEFAULT 0,
+        cache_read INTEGER NOT NULL DEFAULT 0, cache_write INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (source_id, hour_key, is_subagent, session_id, tool, model));
+      INSERT INTO usage_bucket (source_id, agent, session_id, hour_key, tool, model, input)
+        VALUES ('keep', 'omp', 'sess', '2026-01-01T00', '', 'gpt-5', 7);
+      """,
+      at: root.appendingPathComponent("usage.sqlite"))
+
+    let store = try makeStore(in: root)
+    // 版本号补上了（列齐全 → 只补版本号，不重建）。
+    #expect(try scalar("PRAGMA user_version;", in: root) == UsageStatsSchema.current)
+    // 桶留着：升级不该清掉用户的历史数字——清掉要等下一轮全量回填（本机约两分钟）才回来。
+    let snapshot = try store.snapshot(
+      window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
+    #expect(snapshot.totals.input == 7)
+  }
+
+  @Test("统计库带结构版本：新库建表时就写好，版本落后的旧库重建后补上")
+  func schemaVersionIsStampedOnCreateAndRebuild() throws {
+    let fresh = try tempRoot()
+    let freshStore = try makeStore(in: fresh)
+    // 新库打开时就把版本号写进库头：下一个版本才能只凭版本号决定要不要迁移。
+    #expect(try scalar("PRAGMA user_version;", in: fresh) == UsageStatsSchema.current)
+    #expect(try freshStore.indexedSourceCount() == 0)
+
+    // 引入版本号之前的旧库（`usage_bucket` 没有 model 列、也没有版本号）：打开时重建。
+    let legacy = try tempRoot()
+    try execSQL(
+      "CREATE TABLE usage_bucket (source_id TEXT, tool TEXT);",
+      at: legacy.appendingPathComponent("usage.sqlite"))
+    let legacyStore = try makeStore(in: legacy)
+    #expect(try scalar("PRAGMA user_version;", in: legacy) == UsageStatsSchema.current)
+    // 重建顺带清掉了旧表的行与读取进度（旧结构只有两列，历史数字本来就不全）。
+    #expect(try legacyStore.sourceRecords().isEmpty)
+  }
+
+  @Test("已是最新结构版本的库再打开不会重建（历史数字保留）")
+  func currentVersionStoreKeepsBuckets() throws {
+    let root = try makeFixtureTree()
+    let writer = try makeStore(in: root)
+    pass(writer).ingest(sources: sources(root: root))
+    let before = try writer.snapshot(
+      window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
+
+    // 再打开一次同一个库：版本号已是最新 → 什么都不做，桶原样留着（旧库会被整表清空）。
+    let reader = try makeStore(in: root)
+    let after = try reader.snapshot(
+      window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
+
+    #expect(!before.totals.isEmpty)
+    #expect(after.totals == before.totals)
+  }
+
+  @MainActor
+  @Test("整轮索引失败时：页脚拿得到失败摘要，且失败的一轮不算「上次索引完成」")
+  func indexingFailureIsVisibleInViewModel() async throws {
+    // 统计库的父路径是一个普通文件 ⇒ 每轮在建目录时就失败（整轮失败）。
+    let blocker = FileManager.default.temporaryDirectory
+      .appendingPathComponent("usage-stats-blocker-\(UUID().uuidString)")
+    try Data("not a directory".utf8).write(to: blocker)
+    defer { try? FileManager.default.removeItem(at: blocker) }
+
+    let indexer = UsageStatsIndexer(
+      databaseURL: blocker.appendingPathComponent("usage.sqlite"), roots: emptyRoots)
+    let model = UsageStatsViewModel(indexer: indexer)
+    model.onAppear()
+
+    for _ in 0..<300 {
+      if model.indexingFailure != nil { break }
+      try? await Task.sleep(for: .milliseconds(20))
+    }
+
+    let failure = try #require(model.indexingFailure, "整轮失败没有传到视图模型")
+    #expect(!failure.summary.isEmpty)
+    // 失败的一轮不更新「上次索引完成」：页脚的 Last indexed 说的是最后一次**成功**。
+    #expect(model.snapshot.indexedAt == nil)
+  }
+
+  @MainActor
+  @Test("一轮没有任何新增（空目录）不算失败：不显示警告，完成时间照写")
+  func emptyPassIsNotReportedAsFailure() async throws {
+    let root = try tempRoot()
+    let indexer = UsageStatsIndexer(
+      databaseURL: root.appendingPathComponent("usage.sqlite"), roots: emptyRoots)
+    let model = UsageStatsViewModel(indexer: indexer)
+    model.onAppear()
+
+    for _ in 0..<600 {
+      if model.snapshot.indexedAt != nil { break }
+      try? await Task.sleep(for: .milliseconds(20))
+    }
+
+    #expect(model.snapshot.indexedAt != nil, "空目录的一轮没有跑完")
+    #expect(model.indexingFailure == nil, "「本轮没有新增」被当成了失败")
   }
 
   /// 去掉 `/private` 前缀后的路径（macOS 上 `/var` 指向 `/private/var`）。

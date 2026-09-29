@@ -88,6 +88,8 @@ nonisolated enum AppSettings {
     static let approvalDegradation = "approvalDegradation"
     /// 面板展开时是否接管键盘焦点。
     static let panelTakesFocus = "panelTakesFocus"
+    /// 首次启动的引导是否还没走完（启动那次展开不自动收起，见 `performBootAnimation`）。
+    static let firstRunIntroPending = "firstRunIntroPending"
     /// omp 闸门等待预算写入失败；扩展可能仍运行，但请求会提前超时。
     static let ompGateTimeoutSetupFailed = "ompGateTimeoutSetupFailed"
     static let ompGateConfigBackupPath = "ompGateConfigBackupPath"
@@ -347,6 +349,20 @@ nonisolated enum AppSettings {
       return stored
     }
     set { defaults.set(newValue, forKey: Keys.panelTakesFocus) }
+  }
+
+  /// 首次启动的引导是否待做：缺键视为 true（全新安装），用户收起过一次面板后写成 false。
+  ///
+  /// 与 `panelTakesFocus` 同样用 `object(forKey:)` 判「键是否存在」而不是 `bool(forKey:)`——
+  /// 后者对缺失键返回 false，会把默认语义整个翻过来（这里会变成「全新安装没有引导」）。
+  static var firstRunIntroPending: Bool {
+    get {
+      guard let stored = defaults.object(forKey: Keys.firstRunIntroPending) as? Bool else {
+        return true
+      }
+      return stored
+    }
+    set { defaults.set(newValue, forKey: Keys.firstRunIntroPending) }
   }
 
   // MARK: - New API 额度

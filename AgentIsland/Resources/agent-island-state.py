@@ -387,8 +387,23 @@ def send_event(state, timeout=None, wait=None):
         # For permission requests, wait for response
         waiting = state.get("status") == "waiting_for_approval" if wait is None else wait
         if waiting:
-            response = sock.recv(4096)
+            # 累积读到**整条**应答为止：应用写完就关连接，但应答可能分片到达，也可能
+            # 长过一个 recv 缓冲区（作答自由文本能到几千字符）。单次 recv(4096) 会把
+            # 长答案截断成半条 JSON → 解析失败 → 当作「没拿到决定」静默回落原生弹窗，
+            # 用户在刘海上刚敲的字就白输了。
+            chunks = []
+            while True:
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                try:
+                    json.loads(b"".join(chunks).decode())
+                    break
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    continue
             sock.close()
+            response = b"".join(chunks)
             if response:
                 return json.loads(response.decode())
         else:

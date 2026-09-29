@@ -94,13 +94,15 @@ struct AgentConfigInstallerTests {
     }
 
     /// 环境变量临时改写（进程级；结束后一律复原）。
-    private func withEnvironment(_ name: String, _ value: String?, _ body: () -> Void) {
+    private func withEnvironment(_ name: String, _ value: String?, _ body: () throws -> Void)
+        rethrows
+    {
         let previous = Foundation.ProcessInfo.processInfo.environment[name]
         if let value { _ = setenv(name, value, 1) } else { _ = unsetenv(name) }
         defer {
             if let previous { _ = setenv(name, previous, 1) } else { _ = unsetenv(name) }
         }
-        body()
+        try body()
     }
 
     // MARK: - claude 家族（qoder / factory / codeBuddy）
@@ -887,7 +889,7 @@ struct AgentConfigInstallerTests {
         // 用户自己条目的**别的键**里恰好写着我们的脚本路径：卸载一个字节都不该动它
         let foreign = """
         hooks:
-          pre_tool_call: [{command: '/usr/local/bin/user.sh', name: '\\(script)', timeout: 30}]
+          pre_tool_call: [{command: '/usr/local/bin/user.sh', name: '\(script)', timeout: 30}]
 
         """
         try write(foreign, to: file)
@@ -895,7 +897,7 @@ struct AgentConfigInstallerTests {
         #expect(try text(file) == foreign)
 
         // 裸字符串条目（Hermes 不接受的形状）同样不算我们的
-        let bareString = "hooks:\n  pre_tool_call: ['python3 \\(script) --source hermes']\n"
+        let bareString = "hooks:\n  pre_tool_call: ['python3 \(script) --source hermes']\n"
         try write(bareString, to: file)
         AgentConfigInstaller.uninstall(.hermes, home: home)
         #expect(try text(file) == bareString)
@@ -1223,5 +1225,135 @@ struct AgentConfigInstallerTests {
                         atPath: overrideRoot.appendingPathComponent("hooks.json").path))
             }
         }
+    }
+
+    // MARK: - 备份只写一次
+
+    @Test("备份是不可重写的原始快照：第二次写入不覆盖它")
+    func backupIsWrittenOnce() throws {
+        let home = try makeHome()
+        let file = home.appendingPathComponent(".qoder/settings.json")
+        let original = #"{"model":"opus"}"#
+        try write(original, to: file)
+        let backup = file.appendingPathExtension("agent-island-backup")
+
+        #expect(AgentConfigInstaller.install(.qoder, home: home))
+        let firstInstall = try Data(contentsOf: file)
+        #expect(try Data(contentsOf: backup) == Data(original.utf8))
+
+        // 模拟「升级新增事件」之后的那次写入：文件已是安装态，用户后来又加过键
+        try write(#"{"model":"opus","theme":"dark"}"#, to: file)
+        #expect(AgentConfigInstaller.install(.qoder, home: home))
+        let secondInstall = try Data(contentsOf: file)
+        #expect(secondInstall != firstInstall)
+
+        // 备份仍是安装前那一版，而不是第一次安装后的内容（否则按 README 恢复拿不到原始文件）
+        #expect(try Data(contentsOf: backup) == Data(original.utf8))
+    }
+
+    // MARK: - 缺 python3（拒绝安装）
+
+    @Test("缺 python3：拒绝安装，一个字节都不写，也不留备份")
+    func missingPythonRefusesInstall() throws {
+        let home = try makeHome()
+        try makeDirectory(home.appendingPathComponent(".qoder"))
+        let file = home.appendingPathComponent(".qoder/settings.json")
+
+        #expect(AgentConfigInstaller.install(.qoder, home: home, interpreter: nil) == false)
+
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: file.appendingPathExtension("agent-island-backup").path))
+        #expect(!AgentConfigInstaller.isInstalled(.qoder, home: home))
+
+        // 拒绝只看解释器，与配置本身无关：探测到解释器之后同一次调用就能装好
+        #expect(AgentConfigInstaller.install(.qoder, home: home))
+        #expect(AgentConfigInstaller.isInstalled(.qoder, home: home))
+    }
+
+    // MARK: - 装了但没生效（Cline 的可执行位）
+
+    @Test("Cline 的事件文件缺可执行位：`hookFilesAreExecutable` 必须说没生效")
+    func clineHookFilesExecutableCheck() throws {
+        let home = try makeHome()
+        let root = home.appendingPathComponent("Documents/Cline")
+        try makeDirectory(root)
+
+        #expect(AgentConfigInstaller.install(.cline, home: home))
+        #expect(AgentConfigInstaller.hookFilesAreExecutable(.cline, home: home))
+
+        // 模拟权限位没设上（或用户后来改掉）：内容仍是我们写的（`isInstalled` 为真），
+        // 但 Cline 执行不了它 —— 设置行靠这条判据显示「装了但没生效」
+        let event = root.appendingPathComponent("Hooks/PreToolUse")
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o644], ofItemAtPath: event.path)
+        #expect(AgentConfigInstaller.isInstalled(.cline, home: home))
+        #expect(!AgentConfigInstaller.hookFilesAreExecutable(.cline, home: home))
+
+        // 其它格式不受权限位影响：命令由 python3 解释执行，脚本不必自己可执行
+        #expect(AgentConfigInstaller.hookFilesAreExecutable(.qoder, home: home))
+    }
+
+    // MARK: - 前置开关的对称还原（Codex 的 `[features] hooks`）
+
+    @Test("codex 卸载：补的删掉、用户原有的写回、种下的空壳删掉、没写过的原样不动")
+    func codexUninstallRestoresHooksFeature() throws {
+        let home = try makeHome()
+
+        // 情形一：原本没有 [features] 表 ⇒ 表与键都是我们补的 ⇒ 卸载逐字节还原
+        let appendedRoot = home.appendingPathComponent("codex-appended")
+        let appendedConfig = appendedRoot.appendingPathComponent("config.toml")
+        let appendedText = "model = \"gpt-5\"\n"
+        try write(appendedText, to: appendedConfig)
+        try withEnvironment("CODEX_HOME", appendedRoot.path) {
+            #expect(AgentConfigInstaller.install(.codex, home: home))
+            let afterInstall = try text(appendedConfig)
+            #expect(afterInstall.contains("hooks = true"))
+            AgentConfigInstaller.uninstall(.codex, home: home)
+            #expect(!AgentConfigInstaller.isInstalled(.codex, home: home))
+        }
+        #expect(try text(appendedConfig) == appendedText)
+
+        // 情形二：用户原本写着 hooks = false（带行尾注释）⇒ 安装翻成 true ⇒ 卸载写回原样
+        let flippedRoot = home.appendingPathComponent("codex-flipped")
+        let flippedConfig = flippedRoot.appendingPathComponent("config.toml")
+        let flippedText = "[features]\nhooks = false # 手改过\nmodel = \"gpt\"\n"
+        try write(flippedText, to: flippedConfig)
+        try withEnvironment("CODEX_HOME", flippedRoot.path) {
+            #expect(AgentConfigInstaller.install(.codex, home: home))
+            let afterInstall = try text(flippedConfig)
+            #expect(afterInstall.contains("hooks = true # 手改过"))
+            AgentConfigInstaller.uninstall(.codex, home: home)
+        }
+        #expect(try text(flippedConfig) == flippedText)
+
+        // 情形三：config.toml 原本不存在（那一份是我们种下的）⇒ 卸载整份删掉
+        let createdRoot = home.appendingPathComponent("codex-created")
+        try makeDirectory(createdRoot)
+        withEnvironment("CODEX_HOME", createdRoot.path) {
+            #expect(AgentConfigInstaller.install(.codex, home: home))
+            #expect(
+                FileManager.default.fileExists(
+                    atPath: createdRoot.appendingPathComponent("config.toml").path))
+            AgentConfigInstaller.uninstall(.codex, home: home)
+        }
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: createdRoot.appendingPathComponent("config.toml").path))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: createdRoot.appendingPathComponent("hooks.json").path))
+
+        // 情形四：用户自己就写着 hooks = true（我们一个字节都没写过它）⇒ 卸载这不该动它
+        let ownRoot = home.appendingPathComponent("codex-own")
+        let ownConfig = ownRoot.appendingPathComponent("config.toml")
+        let ownText = "[features]\nhooks = true\n"
+        try write(ownText, to: ownConfig)
+        withEnvironment("CODEX_HOME", ownRoot.path) {
+            #expect(AgentConfigInstaller.install(.codex, home: home))
+            AgentConfigInstaller.uninstall(.codex, home: home)
+        }
+        #expect(try text(ownConfig) == ownText)
     }
 }

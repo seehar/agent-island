@@ -422,9 +422,10 @@ class NotchViewModel: ObservableObject {
         openReason = reason
         status = .opened
 
-        // Don't restore chat on notification - show instances list instead
+        // Don't restore chat on notification - show instances list instead.
+        // 只「这次不恢复」：以前顺手把 `currentChatSession` 清成 nil，通知展开一次就把用户
+        // 正在读的对话永久弄丢了（作答/收起后再点开刘海回到会话列表，位置没了）。
         if reason == .notification {
-            currentChatSession = nil
             return
         }
 
@@ -439,12 +440,34 @@ class NotchViewModel: ObservableObject {
     }
 
     func notchClose() {
+        // 面板被收起过一次 = 用户已经见过它，首次启动的引导到此结束。
+        // 只在「还待做」时写一次：收起是热路径（点一下面板外就走到这），不必每次都落盘。
+        if AppSettings.firstRunIntroPending {
+            AppSettings.firstRunIntroPending = false
+        }
+
         // Save chat session before closing if in chat mode
         if case .chat(let session) = contentType {
             currentChatSession = session
         }
         status = .closed
         contentType = .instances
+    }
+
+    /// 展开时是否把键盘焦点抢到面板上（窗口层据此决定 `NSApp.activate` + `makeKey`）。
+    ///
+    /// 只有**用户主动唤出**才算：点击胶囊、或全局热键。悬停展开（默认 1s，鼠标只是路过
+    /// 而已）、启动动画、通知触发的展开都是「用户没点任何东西」时发生的 —— 抢焦点会让他
+    /// 在编辑器/终端里正在打的字丢进面板（面板里当时没有聚焦的输入框，字直接没了）。
+    /// 「到底要不要抢焦点」这个总开关在通用页（`AppSettings.panelTakesFocus`）。
+    ///
+    /// 已知取舍：面板内的键盘快捷键要求 `panel.isKeyWindow && NSApp.isActive`
+    /// （见 `ShortcutController`），因此**悬停展开的面板只能用鼠标操作**——与通知触发的
+    /// 展开一直如此（那条路径改动前也不抢焦点），不是本批新增的例外。要面板接管键盘：
+    /// 用全局热键唤出，或点一下面板。反过来「鼠标只是路过就抢走键盘」的代价更大（用户
+    /// 正在编辑器/终端里打的字会丢进面板，而面板里当时没有聚焦的输入框）。
+    var takesKeyboardFocusOnOpen: Bool {
+        openReason == .click || openReason == .hotkey
     }
 
     func notchPop() {
@@ -566,11 +589,32 @@ class NotchViewModel: ObservableObject {
     }
 
     /// Perform boot animation: expand briefly then collapse
+    ///
+    /// 首次启动（还没有任何 Agent 被启用）时**不自动收起**：这次展开的就是「没有启用
+    /// 任何 Agent」的空态 —— 装完只闪 1 秒空列表，用户既不知道面板在哪、也看不到
+    /// 「去启用一个 Agent」那一步。用户自己收起一次就把标记清掉，之后恢复 1 秒动画。
     func performBootAnimation() {
         notchOpen(reason: .boot)
+
+        guard
+            !Self.shouldKeepBootPanelOpen(
+                firstRunIntroPending: AppSettings.firstRunIntroPending,
+                enabledAgentCount: AgentRegistry.enabled.count)
+        else { return }
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             guard let self = self, self.openReason == .boot else { return }
             self.notchClose()
         }
+    }
+
+    /// 启动那次展开是否要**留着不收起**：首次启动（引导还没走完）且还没有任何 Agent 被启用。
+    ///
+    /// 抽成纯函数是为了能单测——定时器那段在用例里跑不了，而这条判据一旦反过来（老用户
+    /// 每次启动都停在展开态）是明显的体验事故。
+    nonisolated static func shouldKeepBootPanelOpen(
+        firstRunIntroPending: Bool, enabledAgentCount: Int
+    ) -> Bool {
+        firstRunIntroPending && enabledAgentCount == 0
     }
 }

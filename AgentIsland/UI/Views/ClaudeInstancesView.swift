@@ -61,6 +61,12 @@ struct ClaudeInstancesView: View {
                     .appFont(11)
                     .foregroundColor(AppPalette.subtleText)
 
+                // 首次启动这次展开是**不自动收起**的（见 `performBootAnimation`），
+                // 所以这句话得交代「以后怎么回来」——否则用户收起面板后再也找不到入口。
+                Text(l10n.t("Hover the notch to reopen this panel."))
+                    .appFont(11)
+                    .foregroundColor(AppPalette.subtleText)
+
                 Button {
                     viewModel.openAgentsSettings()
                 } label: {
@@ -242,7 +248,7 @@ struct InstanceRow: View {
 
     /// 单击的落点由档位决定（见 `SessionRowClickAction.singleTapTarget`）。
     private func handleSingleTap() {
-    onSelect()
+        onSelect()
         switch clickAction.option.singleTapTarget(isInTmux: session.isInTmux) {
         case .chat:
             onChat()
@@ -608,7 +614,9 @@ struct IconButton: View {
                         .fill(isHovered ? AppPalette.rowHover : Color.clear)
                 )
         }
-        .buttonStyle(SessionPressFeedbackStyle(shape: RoundedRectangle(cornerRadius: AppRadius.control)))
+        .buttonStyle(
+            SessionPressFeedbackStyle(shape: RoundedRectangle(cornerRadius: AppRadius.control))
+        )
         .onHover { isHovered = $0 }
     }
 }
@@ -701,7 +709,6 @@ struct TerminalButton: View {
         .help(helpText ?? l10n.t("Focus Terminal"))
     }
 }
-
 
 // MARK: - 按压反馈
 

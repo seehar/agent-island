@@ -12,6 +12,9 @@
 //      重写时；OpenCode 按页回填用批版，消息与游标因此同生共死）。
 //  这两条让「扫描两次 == 扫描一次」成为可测的不变量。
 //
+//  库头用 `PRAGMA user_version` 记住结构版本：打开库时由 `UsageStatsSchema` 决定建表 /
+//  重建 / 什么都不做（判定在 `init(url:)` 里，动作是 `createSchema` 与 `dropLegacySchema`）。
+//
 //  本类型不是线程安全的：只在 `UsageStatsIndexer` actor 内部使用。
 //
 
@@ -105,8 +108,24 @@ nonisolated final class UsageStatsStore {
     // WAL + NORMAL：写入随时可能被应用退出打断，这两项让「半途退出」不损坏库。
     try execute("PRAGMA journal_mode = WAL;")
     try execute("PRAGMA synchronous = NORMAL;")
-    try dropLegacySchemaIfNeeded()
-    try createSchema()
+    // 结构版本决定打开时做什么（见 `UsageStatsSchema`）：全新库建表、旧库重建、
+    // 已是最新版什么都不做。重建会把读取进度一起清掉，下一轮从头回填历史数字。
+    let storedVersion = try userVersion()
+    let columns = try bucketColumns()
+    switch UsageStatsSchema.migration(of: storedVersion, bucketColumns: columns) {
+    case .create, .none:
+      // 建表是幂等的（`CREATE … IF NOT EXISTS`）：全新库由此建起来，结构已经最新的库
+      // 什么都不动（存量数字因此不会被清），版本号在下面按需补写。
+      try createSchema()
+    case .rebuild:
+      try dropLegacySchema()
+      try createSchema()
+    }
+    // 版本号只在真的对不上时才写：`PRAGMA user_version = n` 即使值没变也会开一个写事务，
+    // 而统计库有两条连接（索引器写、页面读），读侧每次打开都白写一下是没有必要的争用。
+    if storedVersion != UsageStatsSchema.current {
+      try execute("PRAGMA user_version = \(UsageStatsSchema.current);")
+    }
   }
 
   deinit {
@@ -120,6 +139,21 @@ nonisolated final class UsageStatsStore {
       ?? FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent("Library/Application Support")
     return base.appendingPathComponent("AgentIsland/usage.sqlite")
+  }
+
+  /// 库里的结构版本（`PRAGMA user_version`；全新库、以及引入版本号之前建的库都是 0）。
+  private func userVersion() throws -> Int {
+    try query("PRAGMA user_version;", values: []) { statement in
+      Int(sqlite3_column_int64(statement, 0))
+    }.first ?? 0
+  }
+
+  /// `usage_bucket` 的列名；表还不存在（全新库）时返回 `nil`。
+  private func bucketColumns() throws -> [String]? {
+    let columns = try query("PRAGMA table_info(usage_bucket);", values: []) { statement in
+      self.text(statement, 1)
+    }
+    return columns.isEmpty ? nil : columns
   }
 
   private func createSchema() throws {
@@ -159,17 +193,13 @@ nonisolated final class UsageStatsStore {
     try execute("CREATE INDEX IF NOT EXISTS usage_bucket_model ON usage_bucket(model, hour_key);")
   }
 
-  /// 旧库的 `usage_bucket` 没有 `model` 列，而 SQLite 改不了主键——整表 drop，并把
-  /// `indexed_source` 一起清掉：读取进度留着的话历史记录的模型永远补不回来，只能让
-  /// 下一轮从头回填（统计的唯一事实源是磁盘上的记录，重建不丢数据）。
-  private func dropLegacySchemaIfNeeded() throws {
-    let columns = try query("PRAGMA table_info(usage_bucket);", values: []) { statement in
-      self.text(statement, 1)
-    }
-    guard !columns.isEmpty, !columns.contains("model") else { return }
+  /// 整表重建：SQLite 改不了主键，旧结构一律 drop 重来（判定在 `UsageStatsSchema.migration`
+  /// 里，这里只负责动作）。`indexed_source` 的读取进度一起清掉——进度留着的话历史记录的
+  /// 新列永远补不回来，只能让下一轮从头回填（统计的唯一事实源是磁盘上的记录，重建不丢数据）。
+  private func dropLegacySchema() throws {
     try execute("DROP TABLE usage_bucket;")
     try execute("DROP TABLE IF EXISTS indexed_source;")
-    Self.logger.notice("用量统计库结构升级：旧表缺 model 列，已清空，下一轮将重新回填。")
+    Self.logger.notice("用量统计库结构升级：旧表结构落后，已清空，下一轮将重新回填。")
   }
 
   // MARK: - 进度
@@ -597,6 +627,66 @@ nonisolated final class UsageStatsStore {
   private func text(_ statement: OpaquePointer, _ index: Int32) -> String? {
     guard let pointer = sqlite3_column_text(statement, index) else { return nil }
     return String(cString: pointer)
+  }
+}
+
+/// 统计库的结构版本，以及「打开这个库时该做什么」的判定。
+///
+/// 版本沿革（`PRAGMA user_version`）：
+///   · 0：引入版本号之前建的库（`usage_bucket` 缺 `model` 列、主键是五元组）；
+///   · 1：当前版本——`usage_bucket` 带 `model` 列，主键是六元组。
+///
+/// **加列 / 改表时的做法**：把 `current` 加一，并在 `migration(of:bucketColumns:)` 里
+/// 追加一条按 `storedVersion` 分档的分支说明怎么升（能让 `ALTER TABLE` 解决的别整表重建，
+/// 重建会丢历史数字、只能靠磁盘记录回填）。
+nonisolated enum UsageStatsSchema {
+  /// 当前代码要求的结构版本。
+  static let current = 1
+
+  /// 打开库时要做的事。
+  enum Migration: Equatable {
+    /// 全新库（或表被手工删了）：按最新结构建表。
+    case create
+    /// 结构本来就是当前结构：不需要重建（打开时不动既有数据，只在版本号落后时补写）。
+    case none
+    /// 旧结构：整表重建（历史数字由磁盘记录回填，见 `UsageStatsStore.dropLegacySchema`）。
+    case rebuild
+  }
+
+  /// 库里的结构版本与列名 → 打开时该做什么。纯函数，单测直接调它。
+  ///
+  /// 判据分两层：**列**说明结构本身对不对，**版本号**只说明这是哪一档库。
+  ///
+  /// - Parameters:
+  ///   - storedVersion: 库里的 `PRAGMA user_version`；引入版本号之前的库是 0。
+  ///   - bucketColumns: 库里 `usage_bucket` 的列名；**表不存在**时传 `nil`。
+  ///   - currentVersion: 代码要求的版本（默认 `UsageStatsSchema.current`）。
+  static func migration(
+    of storedVersion: Int,
+    bucketColumns: [String]?,
+    currentVersion: Int = UsageStatsSchema.current
+  ) -> Migration {
+    guard let columns = bucketColumns else { return .create }
+
+    // 版本号 0（引入版本号之前建的库）与「已经是最新版本」这两档都只按列判断：列齐全
+    // 说明库本来就是当前结构（只需补上版本号，**不要**白白清掉用户的历史数字再等一轮
+    // 全量回填），缺 `model` 列的才是真的旧库，只能重建。
+    if storedVersion == currentVersion {
+      return columns.contains("model") ? .none : .rebuild
+    }
+    if storedVersion == 0 {
+      // 版本号 0 = 「引入版本号之前建的库」。它的结构**只可能是 v1**（`usage_bucket` 带
+      // `model`），因此只有当前代码也正好是 v1 时才按列判断；以后 `current` 升到 2 时，
+      // 0 号库必须先升到 2（不能因为「列里有 model」被判成已是最新，那会用 v2 的代码读到
+      // 缺列的表）。列判断写死 `model` 这件事因此只在这一档里成立。
+      if currentVersion != 1 { return .rebuild }
+      return columns.contains("model") ? .none : .rebuild
+    }
+
+    // 版本号与代码对不上（以后新增的旧版本会落到这里）：整表重建兜底。加列时在这里
+    // 追加一条「旧版本号 → 怎么升」的分支；能让 `ALTER TABLE` 解决的别走重建（重建会丢
+    // 历史数字），那时再给 `Migration` 添一个档。
+    return .rebuild
   }
 }
 

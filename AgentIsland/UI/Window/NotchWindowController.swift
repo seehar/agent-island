@@ -61,7 +61,8 @@ class NotchWindowController: NSWindowController {
             collapse: { [weak self] in self?.viewModel.collapseForForwardedClick() })
 
         // Create the SwiftUI view with pass-through hosting
-        let hostingController = NotchViewController(viewModel: viewModel, sessionMonitor: sessionMonitor)
+        let hostingController = NotchViewController(
+            viewModel: viewModel, sessionMonitor: sessionMonitor)
         notchWindow.contentViewController = hostingController
 
         notchWindow.setFrame(windowFrame, display: true)
@@ -72,26 +73,41 @@ class NotchWindowController: NSWindowController {
 
         // Dynamically toggle mouse event handling based on notch state:
         // - Closed: ignoresMouseEvents = true (clicks pass through to menu bar/apps)
-        // - Opened: ignoresMouseEvents = false (buttons inside panel work)
+        // - Opened: 只在自己那张卡片上接收（见 updateMouseAcceptance()）
         viewModel.$status
             .receive(on: DispatchQueue.main)
-            .sink { [weak notchWindow, weak viewModel] status in
+            .sink { [weak self] status in
+                guard let self else { return }
                 switch status {
                 case .opened:
-                    // Accept mouse events when opened so buttons work
-                    notchWindow?.ignoresMouseEvents = false
-                    // 不抢键盘焦点的两种情况：通知触发的展开（任务完成），或用户在通用页
-                    // 关掉了「接管键盘焦点」。后者仍可正常使用——点进聊天输入框时，
-                    // 这个 `becomesKeyOnlyIfNeeded` 的 NSPanel 会自己变成 key window。
-                    if viewModel?.openReason != .notification, AppSettings.panelTakesFocus {
+                    // 不抢键盘焦点的场合：悬停展开（默认 1s，鼠标只是路过）、启动动画与
+                    // 通知触发的展开 —— 用户都没点任何东西，抢焦点会让他正在打的字丢进面板
+                    // （面板里没有聚焦的输入框，字直接没了）。判据抽在视图模型里（可单测）。
+                    if self.viewModel.takesKeyboardFocusOnOpen, AppSettings.panelTakesFocus {
                         NSApp.activate(ignoringOtherApps: false)
-                        notchWindow?.makeKey()
+                        self.window?.makeKey()
                     }
+                    self.updateMouseAcceptance()
                 case .closed, .popping:
-                    // Ignore mouse events when closed so clicks pass through
-                    notchWindow?.ignoresMouseEvents = true
+                    self.window?.ignoresMouseEvents = true
                 }
             }
+            .store(in: &cancellables)
+
+        // 指针位置（**未节流**）驱动「窗口收不收鼠标事件」。视图模型那条流节流 50ms，
+        // 用它做这个判据会让「刚进卡片就点」的第一下被判在卡外而丢掉。
+        EventMonitors.shared.mouseLocation
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateMouseAcceptance() }
+            .store(in: &cancellables)
+
+        // 模态窗口（NSAlert / NSOpenPanel）结束后重算一次：`withNotchPanelYielded` 期间窗口
+        // 被设成「让开鼠标」，它记下的快照在展开态已经不等于当前该有的值（该不该接收是随
+        // 指针变化的），原样写回会让面板重新吞掉屏顶 750pt 的滚轮/手势，而且只靠「指针动一下」
+        // 才自愈（关闭模态那一次点击只产生 leftMouseDown，位置流不订阅它）。
+        NotificationCenter.default.publisher(for: .notchPanelYieldEnded)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateMouseAcceptance() }
             .store(in: &cancellables)
 
         // Start with ignoring mouse events (closed state)
@@ -113,6 +129,29 @@ class NotchWindowController: NSWindowController {
                 self?.viewModel.performBootAnimation()
             }
         }
+    }
+
+    /// 面板只在**指针落在卡片里**时接收鼠标事件。
+    /// 展开态窗口盖住整屏宽、屏顶 750pt（层级高过菜单栏），整段时间 `ignoresMouseEvents
+    /// = false` 的话，卡片之外的滚轮 / 中键 / 拖拽 / 触控板手势都会被这个窗口吃掉 ——
+    /// 用户看到的是「屏幕上半部分卡住了」，而 `NotchPanel.sendEvent` 只补投左/右「按下」，
+    /// 滚轮这类事件没有兜底。因此接收范围跟着指针走：卡外一律放行，点击与滚动直接落到下层
+    /// 应用（菜单栏也恢复原生行为），只用卡内那一段接收 SwiftUI 的交互。
+    ///
+    /// 判定与「点面板外收起」「点击转投」同源（都是 `NotchGeometry.openedScreenRect`）：
+    /// 卡外点击既会被放行、也会被鼠标监听收掉面板，不会出现「点了没反应」。
+    /// - Note: 判据用的是 `NotchGeometry.openedScreenRect`（比卡片**视觉范围**左右各小 3pt、
+    ///   底部小 30pt）——那是「点面板外收起」与「点击转投」同源的既有矩形，本批刻意不另立
+    ///   一套：那条底部窄带因此仍按「卡外」处理（点击放行给下层并顺手收起面板），与改动前
+    ///   的观感一致。三条路径共用同一个矩形，不会出现「窗口判卡内、收起判卡外」。
+    private func updateMouseAcceptance() {
+        guard let window else { return }
+        let shouldIgnore =
+            viewModel.status != .opened
+            || !viewModel.isScreenPointInPanel(NSEvent.mouseLocation)
+        // 指针每移动一次都会走到这里（未节流），值没变就别写窗口属性。
+        guard window.ignoresMouseEvents != shouldIgnore else { return }
+        window.ignoresMouseEvents = shouldIgnore
     }
 
     required init?(coder: NSCoder) {

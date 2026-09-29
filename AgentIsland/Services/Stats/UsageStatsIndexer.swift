@@ -23,6 +23,9 @@
 //  是全表扫描，冷缓存约 2 秒（采样实测），而库没被写过时注定查不出新数据。Hermes 的记录
 //  同样在 SQLite 里（`~/.hermes/state.db`，走 `HermesUsageReader`），它们共用这套指纹。
 //
+//  失败（跳过了若干源、或整轮失败）会留成一条 `UsageStatsFailureReport` 供统计页显示；
+//  「本轮没有新增」是正常的空轮，不算失败。
+//
 
 import Combine
 import Foundation
@@ -84,6 +87,17 @@ nonisolated struct UsageIngestOutcome: Equatable {
   var failures = 0
   /// 真正读或写过的源数：为 0 说明这一批只是 `stat` 了一圈，批间不必让出。
   var changed = 0
+}
+
+/// 最近一次索引失败：一句可读摘要 + 发生时间。
+///
+/// 统计页的页脚据此显示「上面的数字可能已经落后」的警告行，因此这一条必须在**失败**时
+/// 才有——磁盘上什么都没变的空轮不是失败（那是每分钟都在发生的正常情形）。
+nonisolated struct UsageStatsFailureReport: Equatable, Sendable {
+  /// 可读摘要（跳过多少个源 / 整轮失败的原因）。界面用的是自己的本地化文案，这里供排查与断言。
+  var summary: String
+  /// 失败发生的时间。
+  var failedAt: Date
 }
 
 /// 一轮索引的具体执行体。同步接口，由索引器在后台任务里驱动，测试可直接调用。
@@ -396,6 +410,9 @@ actor UsageStatsIndexer {
   private static let chunkPauseNanoseconds: UInt64 = 20_000_000
 
   private let databaseURL: URL
+  /// 扫描的记录根目录：`nil` 表示每轮现取（`UsageScanRoots.live`，用户在设置里开了新
+  /// Agent 时下一轮就能扫到）。测试注入一份空根目录，就能让一轮扫描不碰真实历史。
+  private let scanRootsOverride: UsageScanRoots?
   private var readerStore: UsageStatsStore?
   private var passTask: Task<Void, Never>?
   private var periodicTask: Task<Void, Never>?
@@ -412,6 +429,14 @@ actor UsageStatsIndexer {
   /// Hermes 的「还没追平」标记，语义与 `openCodeCatchUpPending` 相同。
   private var hermesCatchUpPending = true
   private var lastPassFinishedAt: Date?
+  /// 最近一次**成功**的一轮结束时间：页脚的「Last indexed」用它。
+  ///
+  /// 失败的一轮**不**更新它——那一行说的是「最后一次成功索引完成」，拿失败时刻顶上会把
+  /// 页脚变成一句假话（显示「刚索引过」而实际上这一轮什么都没写进去）。
+  private var lastSuccessfulIndexAt: Date?
+  /// 最近一次失败的摘要；某一轮完全成功时清空（页脚的警告行因此能自己消失，而不是
+  /// 一次失败就永久挂着）。
+  private var lastFailureReport: UsageStatsFailureReport?
   private(set) var isIndexing = false
 
   private nonisolated let updatesSubject = CurrentValueSubject<Void, Never>(())
@@ -420,8 +445,12 @@ actor UsageStatsIndexer {
     updatesSubject.eraseToAnyPublisher()
   }
 
-  init(databaseURL: URL = UsageStatsStore.defaultDatabaseURL) {
+  init(
+    databaseURL: URL = UsageStatsStore.defaultDatabaseURL,
+    roots: UsageScanRoots? = nil
+  ) {
     self.databaseURL = databaseURL
+    self.scanRootsOverride = roots
   }
 
   // MARK: - 生命周期
@@ -486,11 +515,16 @@ actor UsageStatsIndexer {
       let store = try reader()
       return try store.snapshot(
         window: window, calendar: .current, now: Date(), isIndexing: isIndexing,
-        indexedAt: lastPassFinishedAt)
+        indexedAt: lastSuccessfulIndexAt)
     } catch {
       Self.logger.error("读取用量统计失败：\(String(describing: error), privacy: .public)")
       return UsageStatsSnapshot(window: window)
     }
+  }
+
+  /// 最近一次索引失败（没有失败时为 `nil`）。统计页的页脚据此显示/隐藏警告行。
+  func failureReport() -> UsageStatsFailureReport? {
+    lastFailureReport
   }
 
   // MARK: - 扫描
@@ -509,7 +543,7 @@ actor UsageStatsIndexer {
 
     let databaseURL = databaseURL
     let calendar = Calendar.current
-    let roots = UsageScanRoots.live
+    let roots = scanRootsOverride ?? UsageScanRoots.live
     let chunkLimit = Self.passChunkFileLimit
     let chunkPause = Self.chunkPauseNanoseconds
     // 跨轮状态在 actor 上，后台任务只能读快照、只能通过方法回写（见 finishOpenCodeSweep）。
@@ -528,6 +562,9 @@ actor UsageStatsIndexer {
         phaseSeconds[phase, default: 0] += now.timeIntervalSince(phaseStart)
         phaseStart = now
       }
+      // 这一轮的失败摘要（没有失败就留 nil）：整轮失败与「跳过了若干源」都算，但
+      // 「本轮没有新增」（`changed == 0`）**不算**——那是每分钟都在发生的正常空轮。
+      var failure: UsageStatsFailureReport?
       do {
         let store = try UsageStatsStore(url: databaseURL)
         let pass = UsageStatsPass(store: store, calendar: calendar)
@@ -668,11 +705,15 @@ actor UsageStatsIndexer {
 
         if failures > 0 {
           Self.logger.error("用量统计本轮跳过 \(failures) 个数据源（详见上面各条日志）")
+          failure = UsageStatsFailureReport(
+            summary: "有 \(failures) 个数据源没能索引", failedAt: Date())
         }
       } catch {
         Self.logger.error("用量统计索引失败：\(String(describing: error), privacy: .public)")
+        failure = UsageStatsFailureReport(
+          summary: "整轮索引失败：\(String(describing: error))", failedAt: Date())
       }
-      await self?.finishPass()
+      await self?.finishPass(failure: failure)
     }
   }
 
@@ -729,10 +770,23 @@ actor UsageStatsIndexer {
     hermesCatchUpPending = true
   }
 
-  fileprivate func finishPass() {
+  fileprivate func finishPass(failure: UsageStatsFailureReport?) {
     passTask = nil
     isIndexing = false
-    lastPassFinishedAt = Date()
+    let finishedAt = Date()
+    // 节流用的是「这一轮跑完了」这件事，成败一样：失败后立刻放行会让「每打开一次统计页
+    // 都跑一整轮」成为常态（尤其是 OpenCode 库失败时会连着冷扫 2.3 GB 库）。
+    lastPassFinishedAt = finishedAt
+    if let failure {
+      // 失败：只记失败时间。页脚的「Last indexed」是「最后一次**成功**完成」的意思，
+      // 拿失败时刻顶上会让页脚显示成「刚索引过」，而这一轮其实什么都没写进去。
+      lastFailureReport = failure
+    } else {
+      // 成功（含「本轮没有新增」的空轮）：清掉上一次的失败——警告行不是永久标语，
+      // 索引恢复正常就该消失。
+      lastFailureReport = nil
+      lastSuccessfulIndexAt = finishedAt
+    }
     // 复位节流：下一轮的第一批（或页面打开时的刷新）要能立刻通知，别被上一轮的窗口吃掉。
     lastProgressNotifyAt = nil
     updatesSubject.send()

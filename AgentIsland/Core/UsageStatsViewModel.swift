@@ -33,15 +33,19 @@ final class UsageStatsViewModel: ObservableObject {
     @Published private(set) var calendarMonth: Date = Date()
     /// 曲线图显示哪几路（默认总量 / 输入 / 输出）。
     @Published var visibleSeries: Set<StatsSeries> = StatsSeries.defaultVisible
+    /// 最近一次索引失败的摘要（没有失败时为 `nil`）。页脚据此显示/隐藏警告行；
+    /// 某一轮完全成功（含「没有新增」的空轮）后索引器会清掉它，警告行随即消失。
+    @Published private(set) var indexingFailure: UsageStatsFailureReport?
 
-    private let indexer = UsageStatsIndexer.shared
+    private let indexer: UsageStatsIndexer
     private var cancellables = Set<AnyCancellable>()
     /// 已发出的快照请求序号，用于丢弃过期返回。
     private var requestSequence = 0
     /// 是否正显示在面板上（决定要不要跟着索引通知自动重取）。
     private var isActive = false
 
-    init() {
+    init(indexer: UsageStatsIndexer = .shared) {
+        self.indexer = indexer
         // 索引器每完成一批扫描都会发一次更新，收到就重取当前窗口的快照。
         indexer.updatesPublisher
             .receive(on: DispatchQueue.main)
@@ -168,9 +172,13 @@ final class UsageStatsViewModel: ObservableObject {
 
         Task {
             let fresh = await indexer.snapshot(for: requested)
+            // 失败信息与快照一起取回：两者必须来自同一次刷新，否则页脚会出现「有警告行但
+            // 数字是新的」这类错配，并一直留到下一次刷新。
+            let failure = await indexer.failureReport()
             // 过期返回（期间换了窗口，或已有更新的请求在飞）直接丢弃。
             guard sequence == requestSequence, requested == window else { return }
             snapshot = fresh
+            indexingFailure = failure
         }
     }
 }

@@ -133,6 +133,15 @@ def handle(conn):
         elif mode == "answer":
             payload = json.dumps({"decision": "answer", "answers": current_answers()})
             conn.sendall(payload.encode("utf-8"))
+        elif mode == "answer-split":
+            # answer 的分片版：应答分两片发（中间隔 50ms）。逼客户端累积读到完整 JSON
+            # 为止 —— 单次 recv 会把长答案截成半条 JSON（解析失败 → 静默回落原生弹窗）。
+            payload = json.dumps({"decision": "answer", "answers": current_answers()})
+            raw = payload.encode("utf-8")
+            half = len(raw) // 2
+            conn.sendall(raw[:half])
+            time.sleep(0.05)
+            conn.sendall(raw[half:])
         elif mode == "passthrough":
             # 应用在门口丢弃这条信封时的显式应答（`shouldIgnore`）：hook 脚本必须**不输出**，
             # 让工具回落自己的原生审批 —— 与扩展侧的 passthrough 语义一致。
@@ -220,6 +229,22 @@ def main():
         assert isinstance(answers, dict), "updatedInput.answers 不是对象"
         assert answers.get(question) == "C1", "answers[%r]=%r（期望 \"C1\"）" % (
             question, answers.get(question))
+    elif kind == "ask-answer-long":
+        # 长作答的往返完整性：答案必须**完整**到达模型侧。
+        # 判据有两条——长度超过旧的单次 recv(4096) 上限（长过它才说明不是被截断的），
+        # 以及尾部标记还在（截断发生在尾部）。
+        decision = behavior(payload, "allow")
+        updated = decision.get("updatedInput")
+        assert isinstance(updated, dict), "缺 updatedInput"
+        answers = updated.get("answers")
+        question = sys.argv[3]
+        tail = sys.argv[4] if len(sys.argv) > 4 else ""
+        value = answers.get(question) if isinstance(answers, dict) else None
+        assert isinstance(value, str) and value, "answers[%r] 不是非空字符串：%r" % (
+            question, value)
+        assert len(value) > 4096, "答案只有 %d 字符：短过旧版 recv(4096) 的截断点，这条用例失去意义" % len(
+            value)
+        assert value.endswith(tail), "答案尾部丢了（应答没读全）：尾部 %r" % (value[-40:],)
     else:
         raise AssertionError("未知 kind：%s" % kind)
     print("OK")
@@ -468,9 +493,10 @@ assert_pid() {
 }
 
 assert_stdout_shape() {
-  local file="$1" kind="$2" label="$3" extra="${4:-}"
+  local file="$1" kind="$2" label="$3"
+  shift 3
   local output
-  output="$(python3 "$ROOT/check_stdout.py" "$file" "$kind" "$extra" 2>&1)"
+  output="$(python3 "$ROOT/check_stdout.py" "$file" "$kind" "$@" 2>&1)"
   if [ "$output" = "OK" ]; then
     pass "${label}：stdout 形状 ${kind}"
   else
@@ -548,6 +574,9 @@ run_case() {
     gemini-allow)  assert_stdout_shape "$dir/stdout.txt" gemini-allow "$label" ;;
     cline-cancel)  assert_stdout_shape "$dir/stdout.txt" cline-cancel "$label" ;;
     ask-answer)    assert_stdout_shape "$dir/stdout.txt" ask-answer "$label" "$ASK_QUESTION" ;;
+    ask-answer-long)
+      assert_stdout_shape "$dir/stdout.txt" ask-answer-long "$label" "$ASK_QUESTION" "TAIL-MARKER"
+      ;;
     *)             fail "${label}：未知的期望 stdout 类型 ${expect_stdout}" ;;
   esac
   if [ -s "$dir/stderr.txt" ]; then
@@ -1450,6 +1479,24 @@ run_cases_one() {
         '"expects_response": true'
       printf '{}' > "$ANSWERS_FILE"
       ;;
+
+    # 长作答 + 分片到达：答案 5KB（大过旧的单次 recv(4096)）、替身分两片发。
+    # 期望：stdout 里的 updatedInput.answers 是**完整**的答案（长度 > 4096 且尾部标记在）。
+    claude-ask-answer-long)
+      python3 - "$ANSWERS_FILE" <<'PY'
+import json
+import sys
+
+payload = {"今晚吃哪种菜系？": ["L" * 5000 + "TAIL-MARKER"]}
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    fh.write(json.dumps(payload, ensure_ascii=False))
+PY
+      run_case claude-ask-answer-long claude - answer-split ask-answer-long \
+        "{\"session_id\":\"claude-ask-long\",\"cwd\":\"/tmp/ask\",\"hook_event_name\":\"PermissionRequest\",\"tool_name\":\"AskUserQuestion\",\"tool_input\":{\"questions\":[{\"question\":\"$ASK_QUESTION\",\"header\":\"菜系\",\"options\":[{\"label\":\"C1\"},{\"label\":\"C2\"}],\"multiSelect\":false}]}}" \
+        '"agent": "claude"' '"status": "waiting_for_approval"' '"ask": {"questions"' \
+        '"expects_response": true'
+      printf '{}' > "$ANSWERS_FILE"
+      ;;
   esac
 }
 
@@ -1465,7 +1512,7 @@ ALL_CASES=(claude-default claude-permission-allow claude-permission-deny qoder-p
   grok-workspace-env trae-shell
   traecli-permission traecli-permission-event-flag
   hermes-post-tool hermes-session-start hermes-pre-llm-call hermes-ancestry hermes-degraded
-  claude-ask-answer claude-passthrough
+  claude-ask-answer claude-ask-answer-long claude-passthrough
   legacy-equivalence socket-absent malformed-stdin timeout-negative)
 
 selected=("$@")

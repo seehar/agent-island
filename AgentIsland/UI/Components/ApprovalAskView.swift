@@ -23,6 +23,19 @@ nonisolated struct AskSelection: Equatable, Sendable {
     /// 每个问题输入的自由文本原文。
     private var freeTexts: [String: String] = [:]
 
+    /// 自由文本的长度上限（按字符）。
+    ///
+    /// 作答要经 socket 回写、再由各集成翻译成 `updatedInput`：应用侧的 fd 是非阻塞的、
+    /// 对端也只是一条连接，过长的答案没有可靠通道（历史坑：脚本端单次 `recv(4096)` 会把
+    /// 长答案截成半条 JSON → 静默回落原生弹窗）。这里在**入口**截断，界面同时显示计数，
+    /// 用户看得见「被截了」，而不是敲完才发现字没了。
+    nonisolated static let freeTextLimit = 4000
+
+    /// 该题的输入是否已顶到上限（界面据此显示计数提示）。
+    func reachedFreeTextLimit(for questionId: String) -> Bool {
+        (freeTexts[questionId]?.count ?? 0) >= Self.freeTextLimit
+    }
+
     /// 该选项在当前选择下是否已选中。
     func isPicked(_ label: String, in questionId: String) -> Bool {
         picked[questionId]?.contains(label) == true
@@ -41,9 +54,9 @@ nonisolated struct AskSelection: Equatable, Sendable {
         picked[question.id] = current
     }
 
-    /// 记录某题的自由文本原文。
+    /// 记录某题的自由文本原文（超过 `freeTextLimit` 的部分在这里就被截掉）。
     mutating func setFreeText(_ text: String, for questionId: String) {
-        freeTexts[questionId] = text
+        freeTexts[questionId] = String(text.prefix(Self.freeTextLimit))
     }
 
     /// 某题的自由文本（未输入过为空串）。
@@ -131,7 +144,8 @@ struct ApprovalAskView: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 10) {
-                    ForEach(Array(ask.questions.enumerated()), id: \.element.id) { index, question in
+                    ForEach(Array(ask.questions.enumerated()), id: \.element.id) {
+                        index, question in
                         questionBlock(question, index: index)
                     }
                 }
@@ -226,10 +240,12 @@ struct ApprovalAskView: View {
             selection.toggle(option.label, in: question)
         } label: {
             HStack(alignment: .top, spacing: 8) {
-                Image(systemName: selectionSymbol(isSelected: isSelected, multi: question.multiSelect))
-                    .appFont(11, weight: .medium)
-                    .foregroundColor(isSelected ? AppPalette.accent : AppPalette.subtleText)
-                    .frame(width: 14, height: 14)
+                Image(
+                    systemName: selectionSymbol(isSelected: isSelected, multi: question.multiSelect)
+                )
+                .appFont(11, weight: .medium)
+                .foregroundColor(isSelected ? AppPalette.accent : AppPalette.subtleText)
+                .frame(width: 14, height: 14)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(option.label)
@@ -269,21 +285,30 @@ struct ApprovalAskView: View {
 
     /// 自由文本输入：`free_text` 为真时提供，回车即提交。
     private func freeTextField(_ question: AskQuestion) -> some View {
-        TextField(l10n.t("Type your answer"), text: freeTextBinding(for: question.id))
-            .textFieldStyle(.plain)
-            .appFont(12)
-            .foregroundColor(AppPalette.primaryText)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: AppRadius.control)
-                    .fill(Color.white.opacity(0.08))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: AppRadius.control)
-                            .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
-                    )
-            )
-            .onSubmit { submit() }
+        VStack(alignment: .leading, spacing: 4) {
+            TextField(l10n.t("Type your answer"), text: freeTextBinding(for: question.id))
+                .textFieldStyle(.plain)
+                .appFont(12)
+                .foregroundColor(AppPalette.primaryText)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: AppRadius.control)
+                        .fill(Color.white.opacity(0.08))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: AppRadius.control)
+                                .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+                        )
+                )
+                .onSubmit { submit() }
+
+            // 顶到上限时说清「后面的字不会再进答案」——否则用户以为全发出去了。
+            if selection.reachedFreeTextLimit(for: question.id) {
+                Text(l10n.t("Answers are cut off after %lld characters.", AskSelection.freeTextLimit))
+                    .appFont(10)
+                    .foregroundColor(AppPalette.warning)
+            }
+        }
     }
 
     private func freeTextBinding(for questionId: String) -> Binding<String> {

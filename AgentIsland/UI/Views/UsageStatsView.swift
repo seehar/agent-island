@@ -304,7 +304,16 @@ struct UsageStatsView: View {
                 l10n.t(
                     "Session counts exclude subagents; usage from deleted session records is still counted."
                 ))
-            indexStatus
+            excludedAgentsNote
+            // 「上次索引」与「索引失败」共用一个槽位：失败时说的是同一件事（数字可能不新），
+            // 两条都画等于往这一页多塞一行——统计页的高度预算只多留了 `excludedAgentsNote`
+            // 那一行（见 `UsageStatsMetrics.sectionHeight`）。失败的一轮不写 `indexedAt`，
+            // 因此这句话在失败期间是唯一的口径说明，成功后再换回时间。
+            if viewModel.indexingFailure != nil {
+                failureNotice
+            } else {
+                indexStatus
+            }
         }
         .appFont(10)
         .foregroundColor(AppPalette.subtleText)
@@ -331,6 +340,37 @@ struct UsageStatsView: View {
         }
     }
 
+    /// 不进统计的 Agent：先说清「哪些 Agent 的数字不在上面」，否则用户会以为集成没生效。
+    /// 名单由扫描器现算（见 `TranscriptUsageScanner.agentsWithoutUsage`），顺序按枚举声明序
+    /// ——`Set` 的遍历顺序不稳定，直接拼会出现同一份名单每次渲染顺序都不同。
+    @ViewBuilder
+    private var excludedAgentsNote: some View {
+        if !excludedAgentNames.isEmpty {
+            // 文案刻意压到一行：统计页的高度是解析式预算（`UsageStatsMetrics.sectionHeight`），
+            // 这一行是往整页里新增的一行，宽度上必须装得进最窄档面板
+            // （回归见 `UsageStatsLayoutTests` 的「不进统计的名单在紧凑档里也是一行」）。
+            Text(l10n.t("Not counted: %@", excludedAgentNames.joined(separator: ", ")))
+        }
+    }
+
+    /// 不进统计的 Agent 的本地化短名（按 `AgentKind.allCases` 的顺序）。
+    private var excludedAgentNames: [String] {
+        AgentKind.allCases.filter { TranscriptUsageScanner.agentsWithoutUsage.contains($0) }
+            .map(\.shortName)
+    }
+
+    /// 索引失败：说清「上面的数字可能不是最新的」。
+    ///
+    /// 失败的一轮**不**更新快照里的 `indexedAt`（那一行说的是最近一次成功完成），因此这里
+    /// 必须在旁边补一句，否则页脚看起来只是「上次索引在很久以前」而已。
+    @ViewBuilder
+    private var failureNotice: some View {
+        if viewModel.indexingFailure != nil {
+            Text(l10n.t("Indexing failed — the numbers above may be stale."))
+                .foregroundColor(AppPalette.warning)
+        }
+    }
+
     private var emptyState: some View {
         VStack(spacing: 8) {
             Text(l10n.t("No data yet"))
@@ -350,6 +390,10 @@ struct UsageStatsView: View {
             indexStatus
                 .appFont(10)
                 .foregroundColor(AppPalette.subtleText)
+
+            // 空态也要说清「一轮索引失败了」：失败轮不写 `indexedAt`，`indexStatus` 会是空的，
+            // 而上面那句「检查集成是否已安装」在集成明明装好的情况下是假话。
+            failureNotice
         }
         .frame(maxWidth: .infinity, minHeight: UsageStatsMetrics.emptyStateMinHeight)
         .padding(.horizontal, NotchMenuMetrics.rowHorizontalPadding)

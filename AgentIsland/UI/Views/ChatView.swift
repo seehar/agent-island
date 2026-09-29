@@ -194,8 +194,33 @@ struct ChatView: View {
  // MARK: - Header
 
  @State private var isHeaderHovered = false
+ @State private var isInterruptHovered = false
+ /// 中断请求在途：拦住连点，免得同一个 pane 连收两次 Ctrl-C。
+ @State private var isInterrupting = false
 
  private var chatHeader: some View {
+  HStack(spacing: 4) {
+   exitButton
+   interruptButton
+  }
+  .padding(.horizontal, 8)
+  .padding(.vertical, 4)
+  .background(Color.black.opacity(0.2))
+  .overlay(alignment: .bottom) {
+   LinearGradient(
+    colors: [fadeColor.opacity(0.7), fadeColor.opacity(0)],
+    startPoint: .top,
+    endPoint: .bottom
+   )
+   .frame(height: 24)
+   .offset(y: 24)  // Push below header
+   .allowsHitTesting(false)
+  }
+  .zIndex(1)  // Render above message list
+ }
+
+ /// 返回按钮：占满头部里除中断按钮之外的整行，点任意处退出对话。
+ private var exitButton: some View {
   Button {
    viewModel.exitChat()
   } label: {
@@ -215,7 +240,7 @@ struct ChatView: View {
      AgentBadge(agent: session.agent)
     }
 
-    Spacer()
+    Spacer(minLength: 0)
    }
    .padding(.horizontal, 12)
    .padding(.vertical, 10)
@@ -223,23 +248,33 @@ struct ChatView: View {
     RoundedRectangle(cornerRadius: 8)
      .fill(isHeaderHovered ? Color.white.opacity(0.08) : Color.clear)
    )
+   .contentShape(Rectangle())
   }
   .buttonStyle(.plain)
   .onHover { isHeaderHovered = $0 }
-  .padding(.horizontal, 8)
-  .padding(.vertical, 4)
-  .background(Color.black.opacity(0.2))
-  .overlay(alignment: .bottom) {
-   LinearGradient(
-    colors: [fadeColor.opacity(0.7), fadeColor.opacity(0)],
-    startPoint: .top,
-    endPoint: .bottom
-   )
-   .frame(height: 24)
-   .offset(y: 24)  // Push below header
-   .allowsHitTesting(false)
+ }
+
+ /// 中断按钮：给跑偏的 Agent 补上一次 Ctrl-C（此前全仓没有中断入口，只能干等）。
+ /// 可用条件与「发送消息」同源（`canSendMessages`：会话在 tmux 且拿得到 tty）——
+ /// 两者走的是同一条路，先按 tty 解析出 pane，再交给 `ToolApprovalHandler`。
+ /// 不可用时按钮仍在（用户看得到它存在），只是置灰。
+ private var interruptButton: some View {
+  Button {
+   interruptSession()
+  } label: {
+   Image(systemName: "stop.circle")
+    .appFont(13)
+    .foregroundColor(
+     canSendMessages ? .white.opacity(isInterruptHovered ? 1.0 : 0.6) : .white.opacity(0.2)
+    )
+    .frame(width: 24, height: 24)
+    .contentShape(Rectangle())
   }
-  .zIndex(1)  // Render above message list
+  .buttonStyle(.plain)
+  .disabled(!canSendMessages || isInterrupting)
+  .onHover { isInterruptHovered = $0 }
+  .help(l10n.t("Send Ctrl-C to this session"))
+  .accessibilityLabel(Text(l10n.t("Interrupt")))
  }
 
  /// Whether the session is currently processing
@@ -328,6 +363,10 @@ struct ChatView: View {
     .animation(.spring(response: 0.3, dampingFraction: 0.8), value: history.count)
    }
    .scaleEffect(x: 1, y: -1)
+   // 对话面整体可选中、可复制：此前全仓没有 textSelection，用户看到 agent 给出的
+   // 命令/路径/结论只能手抄。落在**列表容器**上（不是每个 `Text` 各来一遍），
+   // 消息正文、工具入参/输出、Thinking 文本一并覆盖。
+   .textSelection(.enabled)
    .onScrollGeometryChange(for: Bool.self) { geometry in
     // Check if we're near the top of the content (which is bottom in inverted view)
     // contentOffset.y near 0 means at bottom, larger means scrolled up
@@ -610,6 +649,30 @@ struct ChatView: View {
   }
 
   return nil
+ }
+
+ /// 中断当前会话：向它所在的 tmux pane 发一次 Ctrl-C。
+ /// 走 `ToolApprovalHandler.sendInterrupt`——与批准/拒绝同一条回传通道，
+ /// 这里不自解析 pane、也不直接跑 tmux 命令（否则又会多出一份 pane 解析逻辑）。
+ private func interruptSession() {
+  guard canSendMessages, !isInterrupting else { return }
+  guard let tty = session.tty else { return }
+
+  sendErrorMessage = nil
+  isInterrupting = true
+
+  Task {
+   defer { isInterrupting = false }
+
+   guard let target = await findTmuxTarget(tty: tty),
+    await ToolApprovalHandler.shared.sendInterrupt(to: target)
+   else {
+    // 与发送消息共用同一处提示位：找不到 pane / tmux 不可用 / 写不进去都在这里说，
+    // 不再出现「点了没反应」。
+    sendErrorMessage = l10n.t("Couldn't send to the terminal")
+    return
+   }
+  }
  }
 }
 
@@ -919,6 +982,28 @@ struct ToolCallView: View {
       .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isExpanded)
     }
    }
+   // 摘要行自己承载悬停高亮与「点一下展开/收起」：结果内容区留给文本选择
+   // （对话面整体开了 `textSelection`），否则在输出里拖选会被这个点击手势抢走。
+   // 命中区至少 22pt 高：摘要行本身只有 ~14pt（12pt 字号 × 行高），而**整块的收起**
+   // 只有这一个入口（footer 的 Show all/Collapse 只管内层行数窗口），精确点中 14pt 太容易落空。
+   .frame(maxWidth: .infinity, minHeight: 22, alignment: .leading)
+   .background(
+    RoundedRectangle(cornerRadius: 6)
+     .fill(canExpand && isHovering ? Color.white.opacity(0.05) : Color.clear)
+   )
+   .contentShape(Rectangle())
+   .onHover { hovering in
+    isHovering = hovering
+   }
+   .onTapGesture {
+    if canExpand {
+     withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+      isExpanded.toggle()
+     }
+    }
+   }
+   .animation(.easeOut(duration: 0.15), value: isHovering)
+   .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isExpanded)
 
    // 子代理明细：只有开关打开时才列（关掉后保留上面那行摘要，上下文仍可判断）。
    if subagentDetails.isOn {
@@ -956,23 +1041,6 @@ struct ToolCallView: View {
    }
   }
   .frame(maxWidth: .infinity, alignment: .leading)
-  .background(
-   RoundedRectangle(cornerRadius: 6)
-    .fill(canExpand && isHovering ? Color.white.opacity(0.05) : Color.clear)
-  )
-  .contentShape(Rectangle())
-  .onHover { hovering in
-   isHovering = hovering
-  }
-  .onTapGesture {
-   if canExpand {
-    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-     isExpanded.toggle()
-    }
-   }
-  }
-  .animation(.easeOut(duration: 0.15), value: isHovering)
-  .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isExpanded)
  }
 
  private func startPulsing() {
@@ -1101,10 +1169,39 @@ struct SubagentToolsList: View {
  }
 }
 
+/// 子代理工具行的状态文案。
+///
+/// 与「主工具行」（`ToolCallItem.statusDisplay`）同一套口径，差别只在子工具没有
+/// 结果数据，完成态落不到「Read xxx（12 行）」这类具体文案上，只能取通用词。
+///
+/// 独立成 `nonisolated` 类型是为了可单测：这里原本是 `SubagentToolRow.statusText`
+/// 里的一串 if/else，其中「运行中」那一支与 `else`（完成/失败/等待）那一支**逐字
+/// 相同**（都取 `ToolStatusDisplay.running(...)`），于是子工具跑完之后整行仍显示
+/// 「Running…」。按 `status` 逐档取词后，用例可以钉住「完成 / 失败 / 中断都不是
+/// 运行中文案」这条不变量。
+nonisolated enum SubagentToolStatusText {
+    static func display(
+        for status: ToolStatus, name: String, input: [String: String]
+    ) -> ToolStatusDisplay {
+        switch status {
+        case .running:
+            return ToolStatusDisplay.running(for: name, input: input)
+        case .waitingForApproval:
+            return ToolStatusDisplay(
+                text: LocalizationManager.t("Waiting for approval..."), isRunning: true)
+        case .success:
+            return ToolStatusDisplay(text: LocalizationManager.t("Completed"), isRunning: false)
+        case .error:
+            return ToolStatusDisplay(text: LocalizationManager.t("Failed"), isRunning: false)
+        case .interrupted:
+            return ToolStatusDisplay(text: LocalizationManager.t("Interrupted"), isRunning: false)
+        }
+    }
+}
+
 /// Single subagent tool row
 struct SubagentToolRow: View {
  let tool: SubagentToolCall
- @ObservedObject private var l10n = LocalizationManager.shared
 
  @State private var dotOpacity: Double = 0.5
 
@@ -1116,17 +1213,9 @@ struct SubagentToolRow: View {
   }
  }
 
- /// Get status text using the same logic as regular tools
+ /// 状态文案按 `tool.status` 逐档取词（见 `SubagentToolStatusText`）。
  private var statusText: String {
-  if tool.status == .interrupted {
-   return l10n.t("Interrupted")
-  } else if tool.status == .running {
-   return ToolStatusDisplay.running(for: tool.name, input: tool.input).text
-  } else {
-   // For completed subagent tools, we don't have the result data
-   // so use a simple display based on tool name and input
-   return ToolStatusDisplay.running(for: tool.name, input: tool.input).text
-  }
+  SubagentToolStatusText.display(for: tool.status, name: tool.name, input: tool.input).text
  }
 
  var body: some View {

@@ -12,7 +12,6 @@ import os.log
 /// Logger for hook socket server
 private let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "Hooks")
 
-
 /// Event received from an agent's live integration (Claude Code hooks, pi/omp
 /// extension, OpenCode plugin).
 nonisolated struct HookEvent: Codable, Sendable {
@@ -76,12 +75,12 @@ nonisolated struct HookEvent: Codable, Sendable {
   case toolUseId = "tool_use_id"
   case notificationType = "notification_type"
   case message, agent
- case wantsResponse = "expects_response"
- case approvalKind = "approval_kind"
- case degradation
- case gateEnabled = "gate_enabled"
- case ompOwnsApproval = "omp_owns_approval"
- case ask
+  case wantsResponse = "expects_response"
+  case approvalKind = "approval_kind"
+  case degradation
+  case gateEnabled = "gate_enabled"
+  case ompOwnsApproval = "omp_owns_approval"
+  case ask
   case sessionFile = "session_file"
   case subagentId = "subagent_id"
   case subagentAgent = "subagent_agent"
@@ -500,7 +499,8 @@ class HookSocketServer {
  /// 环境变量 `AGENT_ISLAND_PENDING_TTL_SECONDS` 可覆盖（验证用钩子）。
  private let pendingTTL: TimeInterval = {
   // 项目内自有 `ProcessInfo`（进程树）会遮蔽 Foundation 的同名类型，故显式限定
-  guard let raw = Foundation.ProcessInfo.processInfo.environment["AGENT_ISLAND_PENDING_TTL_SECONDS"],
+  guard
+   let raw = Foundation.ProcessInfo.processInfo.environment["AGENT_ISLAND_PENDING_TTL_SECONDS"],
    let seconds = TimeInterval(raw), seconds > 0
   else { return 330 }
   return seconds
@@ -831,7 +831,9 @@ class HookSocketServer {
  private func reapExpiredPending() {
   let now = Date()
   permissionsLock.lock()
-  let expired = pendingPermissions.filter { now.timeIntervalSince($0.value.receivedAt) > pendingTTL }
+  let expired = pendingPermissions.filter {
+   now.timeIntervalSince($0.value.receivedAt) > pendingTTL
+  }
   for pendingKey in expired.keys {
    pendingPermissions.removeValue(forKey: pendingKey)
   }
@@ -857,23 +859,43 @@ class HookSocketServer {
   let response = AskAnswerBuilder.normalized(
    decision: AskAnswerBuilder.decisionDeny, answers: nil, reason: reason)
   if let data = try? Self.responseEncoder.encode(response) {
-   data.withUnsafeBytes { bytes in
-    guard let baseAddress = bytes.baseAddress else { return }
-    let written = write(pending.clientSocket, baseAddress, data.count)
-    if written < 0 {
-     logger.error(
-      "Write failed for reaped pending - agent:\(pending.key.agent.rawValue, privacy: .public) errno:\(errno, privacy: .public)"
-     )
-    } else if written < data.count {
-     // 这里是「问了没人答」唯一的通道，短写会让对端 JSON 解析失败（等于退回旧行为），必须留痕。
-     logger.error(
-      "Short write for reaped pending - agent:\(pending.key.agent.rawValue, privacy: .public) wrote:\(written, privacy: .public)/\(data.count, privacy: .public)"
-     )
-    }
-   }
+   _ = writeAll(data, to: pending.clientSocket, context: "reaped pending")
   }
   closeClient(pending.clientSocket)
   permissionFailureHandler?(pending.key, pending.toolUseId)
+ }
+
+ /// 把整段字节写进 fd，直到写完或失败。
+ ///
+ /// `write` 允许短写：客户端的 fd 是非阻塞的，对端还没读走时内核缓冲区会满，一次 `write`
+ /// 只写进一部分。只调一次 `write` 就等于把**半条 JSON** 发给对端 —— 对端 `JSON.parse`
+ /// 失败、拿不到决定，于是静默回落到工具自己的原生审批（用户以为在刘海上答了，其实没答）。
+ /// 因此这里必须循环：`EINTR` 直接重试，`EAGAIN/EWOULDBLOCK` 等一小段可写窗口再重试。
+ private func writeAll(_ data: Data, to fd: Int32, context: String) -> Bool {
+  var written = 0
+  var waits = 0
+  return data.withUnsafeBytes { bytes -> Bool in
+   guard let base = bytes.baseAddress else { return false }
+   while written < data.count {
+    let result = write(fd, base + written, data.count - written)
+    if result > 0 {
+     written += result
+     continue
+    }
+    if result < 0 && errno == EINTR { continue }
+    if result < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) && waits < 10 {
+     waits += 1
+     var pollFd = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+     _ = poll(&pollFd, 1, 50)
+     continue
+    }
+    logger.error(
+     "Write failed (\(context, privacy: .public)) wrote:\(written, privacy: .public)/\(data.count, privacy: .public) errno:\(errno, privacy: .public)"
+    )
+    return false
+   }
+   return true
+  }
  }
 
  // MARK: - Tool Use ID Cache
@@ -979,6 +1001,25 @@ class HookSocketServer {
   let clientSocket = accept(serverSocket, nil, nil)
   guard clientSocket >= 0 else { return }
 
+  // 对端必须是同一个用户。`chmod 0600` 只挡别的用户**主动去连**，挡不住同 uid 的任意
+  // 进程；这条 socket 上跑的是「批准/拒绝」，身份不校验就等于把审批降格成非安全边界
+  // （伪造一条 `Stop` 就能让应用撤下待批卡片）。同 uid 之外一律不接受。
+  var peerUid: uid_t = 0
+  var peerGid: gid_t = 0
+  let peerResult = getpeereid(clientSocket, &peerUid, &peerGid)
+  guard peerResult == 0, peerUid == geteuid() else {
+   // 拒绝前先回一条**显式** passthrough：这一条我们确实没处理（不是「问了没答」），
+   // 客户端据此按降级档裁决；只关连接会让闸门把它读成「应用中途消失」而一律拒绝，
+   // 理由是误导的（真实原因：连接来自别的 uid，典型是把 CLI 放在 sudo 下跑）。
+   // `privacy:` 只在 Logger 的插值里合法，这里先拼成普通字符串（uid 与 errno 都不是敏感值）。
+   let ownership = peerResult == 0 ? "uid \(peerUid)" : "errno \(errno)"
+   logger.warning(
+    "Rejected hook connection from a different user (\(ownership, privacy: .public)); replied passthrough")
+   replyGateUnavailableRaw(clientSocket: clientSocket)
+   close(clientSocket)
+   return
+  }
+
   var nosigpipe: Int32 = 1
   setsockopt(
    clientSocket, SOL_SOCKET, SO_NOSIGPIPE, &nosigpipe, socklen_t(MemoryLayout<Int32>.size))
@@ -990,6 +1031,16 @@ class HookSocketServer {
   )
 
   handleClient(clientSocket)
+ }
+
+ /// 回一条「闸门不处理这条」的显式应答（`passthrough`）。
+ ///
+ /// 与 `replyGateUnavailable` 同一份语义与编码器，区别只在这里拿不到 `event`（uid 拒绝发生
+ /// 在解析之前）。写成独立入口是为了两处的字节形状完全一致——对端据此判「无人可问」。
+ private func replyGateUnavailableRaw(clientSocket: Int32) {
+  let response = AskAnswerBuilder.normalized(decision: "passthrough", answers: nil, reason: nil)
+  guard let data = try? Self.responseEncoder.encode(response) else { return }
+  _ = writeAll(data, to: clientSocket, context: "gate unavailable reply (unparsed)")
  }
 
  /// 该事件是否应当在门口丢弃：Agent 被关掉时丢弃。Agent **默认关闭**，「关掉」在设置页
@@ -1080,7 +1131,7 @@ class HookSocketServer {
   // 的章进状态机，相位就会被钉在 waitingForApproval——工具明明已经跑完/被拒，行上却还
   // 挂着点了没用的 Allow/Deny。撤批与盖章在同一条串行队列上，先后因此是确定的；
   // 会话监视器随后那次撤批（按同一个 tool_use_id）会命中空条目，是无害的重复调用。
-  if (event.event == "PostToolUse" || event.event == "PostToolUseFailure"),
+  if event.event == "PostToolUse" || event.event == "PostToolUseFailure",
    let toolUseId = event.toolUseId
   {
    cleanupSpecificPermission(key: event.sessionKey, toolUseId: toolUseId)
@@ -1187,13 +1238,7 @@ class HookSocketServer {
   logger.info(
    "Agent \(event.sessionKey.agent.rawValue, privacy: .public) is disabled - replying passthrough for session \(event.sessionId.prefix(8), privacy: .public) tool \(event.tool ?? "-", privacy: .public)"
   )
-  data.withUnsafeBytes { bytes in
-   guard let baseAddress = bytes.baseAddress else { return }
-   let result = write(clientSocket, baseAddress, data.count)
-   if result < 0 {
-    logger.error("Gate-unavailable write failed with errno: \(errno)")
-   }
-  }
+  _ = writeAll(data, to: clientSocket, context: "gate unavailable reply")
  }
 
  private func autoAllow(event: HookEvent, clientSocket: Int32) {
@@ -1207,13 +1252,7 @@ class HookSocketServer {
    "Auto-allowed outside scope - agent:\(event.sessionKey.agent.rawValue, privacy: .public) session:\(event.sessionId.prefix(8), privacy: .public) tool:\(event.tool ?? "-", privacy: .public) kind:\(event.approvalKind ?? "-", privacy: .public) scope:\(AppSettings.approvalAskScope.rawValue, privacy: .public)"
   )
 
-  data.withUnsafeBytes { bytes in
-   guard let baseAddress = bytes.baseAddress else { return }
-   let result = write(clientSocket, baseAddress, data.count)
-   if result < 0 {
-    logger.error("Auto-allow write failed with errno: \(errno)")
-   }
-  }
+  _ = writeAll(data, to: clientSocket, context: "auto-allow reply")
 
   closeClient(clientSocket)
  }
@@ -1246,20 +1285,9 @@ class HookSocketServer {
    "Sending response: \(decision, privacy: .public) for \(key.sessionId.prefix(8), privacy: .public) agent:\(key.agent.rawValue, privacy: .public) tool:\(toolUseId.prefix(12), privacy: .public) (age: \(String(format: "%.1f", age), privacy: .public)s)"
   )
 
-  var writeSuccess = false
-  data.withUnsafeBytes { bytes in
-   guard let baseAddress = bytes.baseAddress else {
-    logger.error("Failed to get data buffer address")
-    return
-   }
-   let result = write(pending.clientSocket, baseAddress, data.count)
-   if result < 0 {
-    logger.error("Write failed with errno: \(errno)")
-   } else {
-    logger.debug("Write succeeded: \(result) bytes")
-    writeSuccess = true
-   }
-  }
+  let writeSuccess = writeAll(
+   data, to: pending.clientSocket,
+   context: "response \(decision) for \(key.agent.rawValue)")
 
   closeClient(pending.clientSocket)
 
@@ -1302,20 +1330,9 @@ class HookSocketServer {
    "Sending response: \(decision, privacy: .public) for \(key.sessionId.prefix(8), privacy: .public) agent:\(key.agent.rawValue, privacy: .public) tool:\(pending.toolUseId.prefix(12), privacy: .public) (age: \(String(format: "%.1f", age), privacy: .public)s)"
   )
 
-  var writeSuccess = false
-  data.withUnsafeBytes { bytes in
-   guard let baseAddress = bytes.baseAddress else {
-    logger.error("Failed to get data buffer address")
-    return
-   }
-   let result = write(pending.clientSocket, baseAddress, data.count)
-   if result < 0 {
-    logger.error("Write failed with errno: \(errno)")
-   } else {
-    logger.debug("Write succeeded: \(result) bytes")
-    writeSuccess = true
-   }
-  }
+  let writeSuccess = writeAll(
+   data, to: pending.clientSocket,
+   context: "response \(decision) for \(key.agent.rawValue)")
 
   closeClient(pending.clientSocket)
 

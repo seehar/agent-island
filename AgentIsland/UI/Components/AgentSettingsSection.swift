@@ -5,6 +5,8 @@
 //  设置面板中的 Agent 区段：卡片的第一行是批量动作条（全部启用并安装 / 全部关闭并卸载），
 //  下面逐个列出受支持的 Agent CLI，提供配置目录、启用开关与实时集成的安装状态。
 //  关闭某个 Agent 会卸载其集成，重新打开会安装集成；需要集成却安装失败时给出提示。
+//  只要有启用的 Agent，卡片脚注就提示「重启 CLI」——运行中的 CLI 不会因为我们改了它的
+//  配置就加载 hook，提示只出现在脚注这一处（不在每个 Agent 行里重复）。
 //
 //  两处看着别扭、但都是版面约束逼出来的：
 //  * 卡片**渲染全部行**，只把可视窗口按 `visibleAgentRows` 封顶（滚动交给卡内）——
@@ -42,7 +44,8 @@ struct AgentSettingsSection: View {
     @State private var customDirectories = AgentSettingsSection.currentDirectoryMap()
     /// 卡片的显示顺序：已启用的排在前面（见 `enabledFirstOrder()`）。
     @State private var orderedAgents = AgentKind.allCases
-    /// 卡片下方的提示行（行内开关的回执 / 失败原因，或批量动作的汇总）由**页面**持有：
+    /// 卡片下方的提示行（行内开关的回执 / 失败原因、批量动作的汇总，或「有启用的 Agent
+    /// 就得重启 CLI」这条状态提示）由**页面**持有：
     /// 它渲染在卡片脚注那一格里（定点 20pt，已进高度预算）。画在卡片内部会凭空多出一份
     /// 不在解析式里的高度，把下面的「工具调用保护」卡挤出可视区——而这条回执恰恰是
     /// 用户刚点完开关在等的东西。
@@ -99,6 +102,9 @@ struct AgentSettingsSection: View {
         .onAppear {
             refreshState()
             orderedAgents = Self.enabledFirstOrder()
+            // 进页面就先立好脚注：有启用的 Agent 时提示「重启 CLI」（回执是动作触发的，
+            // 这里没有新的动作，传 nil）。
+            publishFootnote()
         }
     }
 
@@ -139,8 +145,8 @@ struct AgentSettingsSection: View {
         }
 
         refreshState()
-        setNotice(
-            failures == 0
+        publishFootnote(
+            receipt: failures == 0
                 ? l10n.t("Enabled and installed every detected agent.")
                 : l10n.t("Some integrations could not be installed."),
             isError: failures > 0
@@ -159,7 +165,7 @@ struct AgentSettingsSection: View {
         }
 
         refreshState()
-        setNotice(l10n.t("Disabled every agent and removed its integrations."), isError: false)
+        publishFootnote(receipt: l10n.t("Disabled every agent and removed its integrations."))
     }
 
     /// 关闭全部的确认弹窗。
@@ -179,14 +185,35 @@ struct AgentSettingsSection: View {
         return withNotchPanelYielded { alert.runModal() } == .alertSecondButtonReturn
     }
 
-    private func setNotice(_ message: String, isError: Bool) {
-        notice = message
-        noticeIsError = isError
+    /// 脚注一行显示什么（内部可见：单测钉住「启用之后必须提示重启 CLI」）。
+    ///
+    /// 优先级：动作回执（用户刚点完开关在等的结果，失败原因尤其）> 重启提示 > nil
+    /// （交回页面自己的默认文案）。
+    ///
+    /// 提示是**状态**而不是一次性回执：运行中的 Agent CLI 不会因为我们改了它的配置就加载
+    /// hook —— 用户不重启，集成就不会生效。它只出现在卡片脚注这一处，不在每个 Agent 行里
+    /// 重复（行内副标题已经被集成状态与配置目录占满）。
+    nonisolated static func footnote(receipt: String?, hasEnabledAgent: Bool) -> String? {
+        if let receipt { return receipt }
+        guard hasEnabledAgent else { return nil }
+        return LocalizationManager.t("Restart the agent's CLI to load the integration.")
+    }
+
+    /// 重算脚注：没有回执时按「有没有启用的 Agent」给出重启提示或交回默认文案。
+    private func publishFootnote(receipt: String? = nil, isError: Bool = false) {
+        let text = AgentSettingsSection.footnote(
+            receipt: receipt, hasEnabledAgent: isEnabled.values.contains(true))
+        notice = text
+        noticeIsError = text == nil ? false : isError
     }
 
     // MARK: - Actions
 
     private func toggle(_ kind: AgentKind) {
+        // 回执先攒着：脚注内容在重读状态**之后**才算得出（「有没有启用的 Agent」是状态，
+        // 不是动作本身）。
+        var receipt: String?
+        var isError = false
         if isEnabled[kind] ?? false {
             // 关闭：卸载集成并停用该 Agent。omp 那侧抬过的 handler 预算**保持不动**：
             // 还原是整份写回备份，会连带盖掉用户此后自己对 omp 配置的改动，代价比留下
@@ -195,16 +222,16 @@ struct AgentSettingsSection: View {
             AppSettings.setAgent(kind, enabled: false)
             // 单行关闭也要回执：这一步会删掉该工具配置里的 hook 条目（不可见、不可撤销），
             // 而批量版既有确认也有回执——同一动作的两条路径不能只有批量那条说话。
-            setNotice(
-                l10n.t("Turned off %@ and removed its integration.", kind.displayName),
-                isError: false)
+            receipt = l10n.t("Turned off %@ and removed its integration.", kind.displayName)
         } else if let failure = enable(kind) {
-            setNotice(failure, isError: true)
-        } else {
-            notice = nil
+            receipt = failure
+            isError = true
         }
 
         refreshState()
+        // 启用成功时没有回执：脚注就该提示「重启 CLI」——运行中的 CLI 不会因为我们改了
+        // 配置就加载 hook（见 `footnote(receipt:hasEnabledAgent:)`）。
+        publishFootnote(receipt: receipt, isError: isError)
     }
 
     /// 启用一个 Agent：装集成（omp / pi 在这里顺带装上闸门版扩展），失败即退回关闭状态。
@@ -426,7 +453,8 @@ private struct AgentSettingsRow: View {
     }
 
     /// 副标题：集成状态，已安装时在后面补上写在哪（长路径交给截断）。
-    /// 不可用是唯一需要引人注意的状态，因此只有它用警告色，且不必再报路径。
+    /// 需要引人注意的状态都用警告色：不可用、装完没生效（可执行位设不上）、缺 `python3`
+    /// 而装不上；版本过旧要重装同理。其余按普通状态显示。
     private var integrationSummary: (text: String, isWarning: Bool)? {
         if let warning = ompTimeoutWarning { return (warning, true) }
         guard let status = AgentRegistry.provider(for: kind).integrationStatus() else { return nil }
@@ -439,6 +467,20 @@ private struct AgentSettingsRow: View {
             AgentIntegrationInstaller.isInstalled(kind) == false
         {
             return (l10n.t("Outdated — reinstall"), true)
+        }
+        // 装了但没生效：配置里写着我们的脚本，可是文件差一道可执行位（只有 Cline 的事件
+        // 文件需要自己被执行）——工具会调用它、每个事件都失败。
+        if status.health == .installed, !AgentConfigInstaller.hookFilesAreExecutable(kind) {
+            return (l10n.t("Installed, but the hook file could not be made executable."), true)
+        }
+        // hook 命令全靠 `python3` 的 Agent（Claude 与所有配置文件型 Agent）：这台机器上没有
+        // 它时我们一个字节都不写（见 `AgentConfigInstaller.install` / `HookInstaller`），
+        // 状态因此停在「未安装」，但必须说清原因。
+        if status.health == .missing,
+            kind.hookSpec != nil || kind == .claudeCode,
+            !HookInstaller.pythonIsAvailable
+        {
+            return (l10n.t("Not installed — python3 is required for the shared hook script."), true)
         }
         let health = healthText(status.health)
         guard let file = status.installedFiles.first else { return (health, false) }
@@ -476,18 +518,22 @@ private struct AgentSettingsRow: View {
 
 /// 弹 AppKit 的模态窗口（`NSAlert` / `NSOpenPanel`）期间，把刘海面板降回普通层并让出鼠标。
 ///
-/// 刘海面板在 `.mainMenu + 3`，会盖住模态窗口；结束后原样还原。批量动作的确认弹窗与
+/// 刘海面板在 `.mainMenu + 3`，会盖住模态窗口；结束后还原层级。批量动作的确认弹窗与
 /// 目录编辑器里的选择面板都要走这一步，因此抽在一起、而不是各抄一份。
+///
+/// `ignoresMouseEvents` **不写回快照**：展开态该不该接收鼠标是**随指针位置变化的**
+/// （见 `NotchWindowController.updateMouseAcceptance`），模态前那个快照在指针已经离开
+/// 卡片时就是错的——写回去会让面板重新吞掉屏顶 750pt 的滚轮/手势。因此改成发一条通知，
+/// 让控制器按当前指针重算。
 func withNotchPanelYielded<T>(_ body: () -> T) -> T {
     let notchWindow = NSApp.windows.first { $0 is NotchPanel }
     let originalLevel = notchWindow?.level ?? (.mainMenu + 3)
-    let wasIgnoring = notchWindow?.ignoresMouseEvents ?? true
     notchWindow?.level = .normal
     notchWindow?.ignoresMouseEvents = true
 
     let result = body()
 
     notchWindow?.level = originalLevel
-    notchWindow?.ignoresMouseEvents = wasIgnoring
+    NotificationCenter.default.post(name: .notchPanelYieldEnded, object: nil)
     return result
 }

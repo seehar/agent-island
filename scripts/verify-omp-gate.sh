@@ -154,8 +154,9 @@ def handle(conn: socket.socket) -> None:
             # 这一条」，扩展必须按降级档裁决，**不是**用户拒绝。
             conn.sendall(b'{"decision":"passthrough"}')
         elif mode == "hangup":
-            # 应用只关连接、不给任何应答（旧行为 / 应用中途退出）：不做任何事，
-            # 走 finally 的 close。扩展必须把「连上后被收掉」也当「闸门不可用」。
+            # 应用收到请求后**只关连接、不给任何应答**（应用中途退出/崩溃，或有人让应用
+            # 撤下了这张卡）。这一档是「问了没答」，与 silence（超时）同类，**不是**
+            # 「无人可问」——扩展必须一律拒绝，不能按降级档放行。
             pass
         else:
             # silence：不发应答、保持连接打开（最多 120s），等客户端自己超时。
@@ -634,11 +635,13 @@ run_case() {
       assert_absent "$run/out/server.jsonl" '"status": "degraded_allowed"' "$name 危险命令没有降级放行"
       ;;
     gate-hangup)
-      # 只关连接、不给应答（旧行为 / 应用中途退出）也必须走降级档，不能再报
-      # 「AgentIsland is no longer available」。
-      assert_file_exists "$run/ran.txt" "$name 连接被收掉 ⇒ 工具照跑"
-      assert_transcript_absent "$run" "AgentIsland is no longer available" "$name 不再报「应用不可用」"
-      assert_payload_soon "$run" 'gate unavailable' "$name 可读提示文案"
+      # 「连上后被收掉、一个决定都没给」= 问了没答，与 silence（超时）同类：
+      # **一律拒绝**，不看降级档。以前这一档是「按降级档裁决」，等于把用户已经看到的
+      # 待批卡片在应用退出/崩溃时静默变成放行（默认档 notify-only 下写/执行命令会真跑）。
+      # 危险命令仍然由 tier 兜底，这条断言的是普通命令也不再放行。
+      assert_file_absent "$run/ran.txt" "$name 问了没答 ⇒ 工具不跑"
+      assert_transcript "$run" "the approval gate went away before a decision was made" "$name 拒绝理由可读"
+      assert_absent "$run/out/server.jsonl" '"status": "degraded_allowed"' "$name 不是降级放行"
       ;;
     enoent-exec)
       assert_file_exists "$run/ran.txt" "$name 降级放行"

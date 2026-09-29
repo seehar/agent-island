@@ -262,6 +262,9 @@ private struct CodeBlockView: View {
 
     let code: String
 
+    /// 悬停态：复制入口只在指针停在这个代码块上时出现。
+    @State private var isHovered = false
+
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             SwiftUI.Text(code)
@@ -272,5 +275,20 @@ private struct CodeBlockView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.white.opacity(0.08))
         .cornerRadius(6)
+        // 复制入口压在右上角、悬停才出现：代码块自己就是一段横向滚动区，给它加一行
+        // 头会把**每个**代码块都撑高一行，而对话面板的纵向空间就是消息列表本身。
+        // 出现时垫一层深色底片，免得盖住首行代码的尾巴。
+        .overlay(alignment: .topTrailing) {
+            if isHovered {
+                CopyButton(text: code)
+                    .padding(4)
+                    .background(
+                        RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous)
+                            .fill(Color.black.opacity(0.55))
+                    )
+                    .padding(6)
+            }
+        }
+        .onHover { isHovered = $0 }
     }
 }

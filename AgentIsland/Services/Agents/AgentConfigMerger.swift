@@ -1148,31 +1148,37 @@ nonisolated enum AgentConfigMerger {
     // MARK: - 私有：TOML / 行工具
 
     /// 表头行是否为 `[name]`（允许行尾注释）。
+    ///
+    /// 行文本是**按 `\n` 切**出来的，CRLF 文件的行尾因此还挂着 `\r`；而 `\r` 属于
+    /// `.newlines` 不属于 `.whitespaces`，用后者去修剪会认不出 `[features]\r` —— 安装侧
+    /// 于是往里再补一个同名表（TOML 重复表 = 整个 config.toml 解析失败），卸载侧却认得出来
+    /// 而 no-op。两侧判据必须同源：一律按 `whitespacesAndNewlines` 修剪。
     private static func isTomlTable(_ line: String, named name: String) -> Bool {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("["), !trimmed.hasPrefix("[[") else { return false }
         guard let closing = trimmed.firstIndex(of: "]") else { return false }
         guard String(trimmed[trimmed.index(after: trimmed.startIndex)..<closing]) == name else {
             return false
         }
-        let rest = trimmed[trimmed.index(after: closing)...].trimmingCharacters(in: .whitespaces)
+        let rest = trimmed[trimmed.index(after: closing)...]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         return rest.isEmpty || rest.hasPrefix("#")
     }
 
-    /// 键行是否为 `name = …`（`name_x` 这类前缀相同的不算）。
+    /// 键行是否为 `name = …`（`name_x` 这类前缀相同的不算）。修剪口径同 `isTomlTable`。
     private static func isTomlKey(_ line: String, named name: String) -> Bool {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix(name) else { return false }
-        let rest = trimmed.dropFirst(name.count).trimmingCharacters(in: .whitespaces)
+        let rest = trimmed.dropFirst(name.count).trimmingCharacters(in: .whitespacesAndNewlines)
         return rest.hasPrefix("=")
     }
 
-    /// 键行的值是否为 `true`（行尾注释不算）。
+    /// 键行的值是否为 `true`（行尾注释不算）。修剪口径同 `isTomlTable`（CRLF 的值尾有 `\r`）。
     private static func isTomlBooleanTrue(_ line: String) -> Bool {
         guard let equals = line.firstIndex(of: "=") else { return false }
         var value = String(line[line.index(after: equals)...])
         if let hash = value.range(of: "#") { value = String(value[value.startIndex..<hash.lowerBound]) }
-        return value.trimmingCharacters(in: .whitespaces) == "true"
+        return value.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
     }
 
     /// 行尾注释（`#` 之后的部分，含 `#`）；没有则 nil。

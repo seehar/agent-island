@@ -99,14 +99,27 @@ nonisolated struct HookInstaller {
 
     /// 把 hook 条目合并写回 settings.json。
     ///
-    /// 三条安全约束：
-    /// 1. 读不到或读不懂原文件时**放弃写入**（见 `HookSettingsLoad.refusalReason`）：
+    /// 四条安全约束：
+    /// 1. 这台机器上没有 `python3` 时**放弃写入**：hook 命令必须由一个真实存在的解释器
+    ///    解释，写进去只会在每个事件上跑一次注定失败的命令（见 `detectPython`）。
+    /// 2. 读不到或读不懂原文件时**放弃写入**（见 `HookSettingsLoad.refusalReason`）：
     ///    宁可这次装不上 hook，也不能把用户整份 Claude Code 配置清空。
-    /// 2. 内容没有变化就一个字节都不写，避免每次启动都刷新文件时间戳。
-    /// 3. 覆盖前把上一版留成 `settings.json.agent-island-backup`，写入用原子替换。
+    /// 3. 内容没有变化就一个字节都不写，避免每次启动都刷新文件时间戳。
+    /// 4. 覆盖前把上一版留成 `settings.json.agent-island-backup`（**只写一次**，
+    ///    见 `AgentConfigBackup`），写入用原子替换。
     /// 内部可见而不是 private：单测要拿**临时目录**里的 settings.json 走一遍真实的
     /// 读-改-写（含备份与原子替换），真实路径永远由 `installIfNeeded` 传进来。
-    static func updateSettings(at settingsURL: URL) {
+    /// - Parameter interpreter: hook 命令要用的解释器；nil 表示探测不到 `python3`，
+    ///   此时一个字节都不写。默认值为现场探测结果；单测直接传 nil 走「拒绝安装」分支。
+    static func updateSettings(
+        at settingsURL: URL,
+        interpreter: String? = HookInstaller.detectPython()
+    ) {
+        guard let python = interpreter else {
+            logger.error("未找到 python3，本次不改 settings.json：hook 命令需要它，写进去只会在每个事件上失败")
+            return
+        }
+
         let fileExists = FileManager.default.fileExists(atPath: settingsURL.path)
         let loaded = HookSettingsMerger.load(
             data: fileExists ? try? Data(contentsOf: settingsURL) : nil,
@@ -121,7 +134,7 @@ nonisolated struct HookInstaller {
             from: loaded.settings,
             isOwnCommand: isOwnHookCommand
         )
-        let merged = HookSettingsMerger.appending(hookEvents: hookEvents(), to: stripped)
+        let merged = HookSettingsMerger.appending(hookEvents: hookEvents(python: python), to: stripped)
 
         guard
             let data = try? JSONSerialization.data(
@@ -137,8 +150,9 @@ nonisolated struct HookInstaller {
         guard original != data else { return }  // 已经是目标状态
 
         if let original, fileExists {
-            let backup = settingsURL.appendingPathExtension("agent-island-backup")
-            try? original.write(to: backup, options: [.atomic])
+            // 备份是**不可重写**的原始快照：已经存在就不覆盖，用户按 README 恢复时拿到的
+            // 才是他最初的那一份（见 `AgentConfigBackup`）。
+            AgentConfigBackup.writeOnce(original, for: settingsURL)
         }
 
         do {
@@ -152,8 +166,9 @@ nonisolated struct HookInstaller {
     }
 
     /// 本次要注册的 hook 事件：基础集 + 按已装 Claude Code 版本追加的事件。
-    private static func hookEvents() -> [(event: String, entries: [[String: Any]])] {
-        let python = detectPython()
+    ///
+    /// - Parameter python: 解释器（调用方已确认这台机器上真的有它）。
+    private static func hookEvents(python: String) -> [(event: String, entries: [[String: Any]])] {
         let command = "\(python) \(ClaudePaths.hookScriptShellPath)"
         let hookEntry: [[String: Any]] = [["type": "command", "command": command]]
         let hookEntryWithTimeout: [[String: Any]] = [
@@ -372,9 +387,43 @@ nonisolated struct HookInstaller {
         }
     }
 
-    /// python 解释器探测：所有 Agent 的配置安装器共用这一份
-    /// （找不到 `python3` 就退回 `python`）。
-    nonisolated static func detectPython() -> String {
+    /// python 解释器探测：所有 Agent 的配置安装器共用这一份。
+    ///
+    /// **只认 `python3`**：探测不到时返回 nil，而不是退回 `python` —— macOS 上 `python`
+    /// 要么不存在、要么是 Xcode 的占位壳（运行只会弹安装提示），写进配置就是一条
+    /// **每个事件都失败**的命令，而用户完全看不出为什么。
+    ///
+    /// 调用方拿到 nil 必须**放弃安装**（一个字节都不写），把原因写进日志，并让集成状态
+    /// 停在「未安装」（见 `AgentConfigInstaller.install`、`updateSettings(at:interpreter:)`）。
+    nonisolated static func detectPython() -> String? {
+        if probePython3() { return "python3" }
+        // PATH 里没有时再试常见绝对路径：Finder 启动的应用拿的是系统默认 PATH
+        // （`launchctl getenv PATH` 为空 → `/usr/bin:/bin:/usr/sbin:/sbin`），Homebrew
+        // （`/opt/homebrew/bin`）与 python.org（`/usr/local/bin`）装法都不在其中，
+        // 那台机器上 `which python3` 找不到，但我们明明能用一个绝对路径跑通。
+        // 只检查「可执行」而不试跑：`/usr/bin/python3` 在没装命令行工具的机器上是会弹
+        // 安装对话框的桩，绝不能去执行它。`detectClaudeCodeVersion` 面对同类问题也是列候选路径。
+        for candidate in ["/opt/homebrew/bin/python3", "/usr/local/bin/python3"]
+        where FileManager.default.isExecutableFile(atPath: candidate) {
+            return candidate
+        }
+        return nil
+    }
+
+    /// 这台机器上有没有可用的 `python3`。
+    ///
+    /// 供设置行使用：hook 命令的解释器是它，探测不到时状态必须是「未安装 + 原因」，
+    /// 而设置页每画一行都会问一次——每次起一个 `which` 进程太贵，因此这里缓存探测结果
+    /// （同一个进程里解释器的存在不会变）。
+    nonisolated static var pythonIsAvailable: Bool { cachedPython3Availability }
+
+    /// `which python3` 的结果，进程内只探一次（只问「PATH 里有没有」，与
+    /// `detectPython()` 的候选路径无关：设置行显示「缺 python3」只在真的一个都用不了时才该出现，
+    /// 因此这里也把候选路径算进来）。
+    nonisolated private static let cachedPython3Availability: Bool = detectPython() != nil
+
+    /// 真起一个 `which python3` 进程探测。
+    nonisolated private static func probePython3() -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
         process.arguments = ["python3"]
@@ -384,12 +433,10 @@ nonisolated struct HookInstaller {
         do {
             try process.run()
             process.waitUntilExit()
-            if process.terminationStatus == 0 {
-                return "python3"
-            }
-        } catch {}
-
-        return "python"
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
 
     nonisolated private static func removingAgentIslandHooks(from entry: [String: Any]) -> [String: Any]? {
@@ -408,5 +455,45 @@ nonisolated struct HookInstaller {
     nonisolated private static func isAgentIslandHook(_ hook: [String: Any]) -> Bool {
         let cmd = hook["command"] as? String ?? ""
         return isOwnHookCommand(cmd)
+    }
+}
+
+// MARK: - 备份
+
+/// 安装器改写用户文件前的备份规则：`<文件名>.agent-island-backup` 是**不可重写**的
+/// 原始快照，`HookInstaller` 与 `AgentConfigInstaller` 共用这一处。
+///
+/// 为什么只写一次：第二次安装（升级新增事件、重装）若用「当前内容」覆盖备份，用户按
+/// README 恢复时拿到的就不再是他自己的原始文件，而是我们写过一版的内容 —— 备份从此
+/// 回答不了「装之前是什么样」，恢复也就失去了意义。
+///
+/// 备份的**存在**同时是本仓的一处判据：「没有备份」等价于「这个文件原本不存在、是我们
+/// 创建的」（见 `AgentConfigInstaller.wasCreatedByUs`），所以常规写入只给「原文件真的
+/// 存在」的落备份。唯一的例外是 Codex 的 `config.toml`：`enableCodexHooks` 明知文件不存在
+/// 也要落一份内容为空的记录 —— 「我们种下的那份 config.toml」与「用户自己写的、内容恰好
+/// 相同的那份」在文件上无法区分，卸载时只能靠这份记录（见 `disableCodexHooks`）。
+nonisolated enum AgentConfigBackup {
+    /// 备份后缀（`<原文件名>.agent-island-backup`）。
+    static let fileExtension = "agent-island-backup"
+
+    private static let logger = Logger(
+        subsystem: "com.celestial.AgentIsland", category: "Integration")
+
+    /// 该文件的备份落点。
+    static func url(for file: URL) -> URL {
+        file.appendingPathExtension(fileExtension)
+    }
+
+    /// 落一份备份；**已经存在就不覆盖**（那才是更接近原始的那一版）。
+    ///
+    /// 备份失败不阻断安装（配置本身还能写），但要在日志里留痕。
+    static func writeOnce(_ original: Data, for file: URL) {
+        let backup = url(for: file)
+        guard !FileManager.default.fileExists(atPath: backup.path) else { return }
+        do {
+            try original.write(to: backup, options: .atomic)
+        } catch {
+            logger.error("备份失败（继续写入）：\(backup.path, privacy: .public)")
+        }
     }
 }

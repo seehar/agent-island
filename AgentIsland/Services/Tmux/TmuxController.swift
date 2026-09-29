@@ -25,16 +25,9 @@ actor TmuxController {
         await ToolApprovalHandler.shared.sendMessage(message, to: target)
     }
 
-    func approveOnce(target: TmuxTarget) async -> Bool {
-        await ToolApprovalHandler.shared.approveOnce(target: target)
-    }
-
-    func approveAlways(target: TmuxTarget) async -> Bool {
-        await ToolApprovalHandler.shared.approveAlways(target: target)
-    }
-
-    func reject(target: TmuxTarget, message: String? = nil) async -> Bool {
-        await ToolApprovalHandler.shared.reject(target: target, message: message)
+    /// 往该会话所在的 pane 发一个 Ctrl-C，中断正在跑的回合。
+    func sendInterrupt(to target: TmuxTarget) async -> Bool {
+        await ToolApprovalHandler.shared.sendInterrupt(to: target)
     }
 
     func switchToPane(target: TmuxTarget) async -> Bool {
@@ -43,13 +36,17 @@ actor TmuxController {
         }
 
         do {
-            _ = try await ProcessExecutor.shared.run(tmuxPath, arguments: [
-                "select-window", "-t", "\(target.session):\(target.window)"
-            ])
+            _ = try await ProcessExecutor.shared.run(
+                tmuxPath,
+                arguments: [
+                    "select-window", "-t", "\(target.session):\(target.window)",
+                ])
 
-            _ = try await ProcessExecutor.shared.run(tmuxPath, arguments: [
-                "select-pane", "-t", target.targetString
-            ])
+            _ = try await ProcessExecutor.shared.run(
+                tmuxPath,
+                arguments: [
+                    "select-pane", "-t", target.targetString,
+                ])
 
             return true
         } catch {

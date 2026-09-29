@@ -138,4 +138,8 @@ final class NotchHeightSelector: ObservableObject {
 extension Notification.Name {
     /// 关闭态胶囊的几何设置（高度或宽度）变化：窗口控制器据此换掉关闭态矩形。
     static let notchGeometryPreferenceChanged = Notification.Name("NotchGeometryPreferenceChanged")
+
+    /// 刘海面板让出鼠标（模态窗口）结束：窗口控制器据此按当前指针重算「收不收鼠标事件」
+    /// ——模态前的快照在展开态已经不等于当前该有的值（见 `withNotchPanelYielded`）。
+    static let notchPanelYieldEnded = Notification.Name("NotchPanelYieldEnded")
 }

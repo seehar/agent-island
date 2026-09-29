@@ -305,6 +305,23 @@ nonisolated enum TranscriptUsageScanner {
     return (size: UInt64(max(0, info.st_size)), mtime: mtime)
   }
 
+  // MARK: - 统计范围
+
+  /// 记录不在 JSONL 里、另有独立统计路径的 Agent：它们的用量由各自的 SQLite 读取器
+  /// （`OpenCodeUsageReader` / `HermesUsageReader`）供给，因此**不**属于「不进统计」。
+  private static let agentsWithDedicatedUsagePath: Set<AgentKind> = [.opencode, .hermes]
+
+  /// 一条数据都统计不到的 Agent：本扫描器读不出它们的任何记录，且它们没有别的统计路径。
+  ///
+  /// 这份集合由 `markers(for:)` **现算**，不是手写的清单：给某个 Agent 打开标记的那一刻，
+  /// 统计页脚注上的说明会自动跟着变（手写的清单迟早与扫描器不一致，变成一句假话）。
+  /// 它**不**等于「只统计工具调用」的 Agent（Cursor / Copilot）——那两家确实会出现在工具榜
+  /// 与会话数里，只是没有 token，说它们「不进统计」同样是假的。
+  static var agentsWithoutUsage: Set<AgentKind> {
+    Set(AgentKind.allCases.filter { Self.markers(for: $0).isEmpty })
+      .subtracting(Self.agentsWithDedicatedUsagePath)
+  }
+
   /// 只有含这些字节标记的行才值得做 JSON 解析（工具结果等大行因此被整体跳过）。
   private static func markers(for agent: AgentKind) -> [[UInt8]] {
     switch agent {

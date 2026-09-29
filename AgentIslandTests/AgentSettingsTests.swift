@@ -217,3 +217,32 @@ struct ApprovalGateFollowsEnablementTests {
         #expect(AgentIntegrationInstaller.hasEnabledGate)
     }
 }
+
+@Suite("启用后的脚注提示")
+struct AgentFootnoteTests {
+    /// 键即英语源文案（本地化守卫按这个键审计）；与代码里写的逐字一致。
+    private let restartHint = "Restart the agent's CLI to load the integration."
+
+    /// 一个都没启用：脚注交回页面自己的默认文案（nil），不该凭空多出一句提示。
+    @Test("没有启用的 Agent：脚注交给页面的默认文案")
+    func noEnabledAgentHasNoHint() {
+        #expect(AgentSettingsSection.footnote(receipt: nil, hasEnabledAgent: false) == nil)
+    }
+
+    /// 只要有一个启用着就提示：运行中的 CLI 不会因为我们改了它的配置就加载 hook。
+    @Test("启用了至少一个 Agent：脚注提示重启 CLI")
+    func enabledAgentShowsRestartHint() {
+        #expect(
+            AgentSettingsSection.footnote(receipt: nil, hasEnabledAgent: true)
+                == LocalizationManager.t(restartHint))
+    }
+
+    /// 刚点完开关时用户等的是动作结果（失败原因尤其），回执必须压过状态提示。
+    @Test("动作回执优先于重启提示")
+    func receiptWinsOverHint() {
+        #expect(
+            AgentSettingsSection.footnote(receipt: "done", hasEnabledAgent: true) == "done")
+        #expect(
+            AgentSettingsSection.footnote(receipt: "boom", hasEnabledAgent: false) == "boom")
+    }
+}

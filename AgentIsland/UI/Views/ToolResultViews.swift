@@ -212,10 +212,9 @@ struct BashResultContent: View {
                     Text(l10n.t("stderr:"))
                         .appFont(10, weight: .medium)
                         .foregroundColor(AppPalette.danger)
-                    Text(result.stderr)
-                        .appFont(11, design: .monospaced)
-                        .foregroundColor(AppPalette.danger)
-                        .lineLimit(10)
+                    // 与 stdout 同一条路径：stderr 才是编译报错/栈这类真正要看全、要拷走的长文本
+                    // （改动前这里硬封 10 行，且没有展开与复制入口）。
+                    GenericTextContent(text: result.stderr, color: AppPalette.danger)
                 }
             }
 
@@ -523,10 +522,7 @@ struct BashOutputResultContent: View {
             }
 
             if !result.stderr.isEmpty {
-                Text(result.stderr)
-                    .appFont(11, design: .monospaced)
-                    .foregroundColor(AppPalette.danger)
-                    .lineLimit(5)
+                GenericTextContent(text: result.stderr, color: AppPalette.danger)
             }
         }
     }
@@ -627,14 +623,156 @@ struct GenericResultContent: View {
     }
 }
 
-struct GenericTextContent: View {
-    let text: String
+// MARK: - 长输出的折叠窗口
+
+/// 长输出（工具结果、文件内容）的折叠/展开算术。
+///
+/// 单独抽成 `nonisolated` 的纯函数放在视图外：「可见行数、仍被挡住的行数、
+/// 要不要给展开入口、按钮用哪条文案」只由「总行数 / 折叠上限 / 是否展开」三个数
+/// 决定，因此可以单测钉住，不必渲染 SwiftUI。
+nonisolated enum ToolOutputWindow {
+    /// 展开态的高度上限（pt）。
+    ///
+    /// 展开不能无限撑高：对话区总高 580pt（见 `NotchViewModel` 的
+    /// `scaledPanelHeight(580)`），扣掉头部与底部输入条后消息列表可用高度约 440pt。
+    /// 单块输出超过可用高度会让用户「看不完也滚不动」，所以取 240pt——约占可用
+    /// 高度的一半，展开后仍看得见上下文。
+    static let expandedMaxHeight: CGFloat = 240
+
+    /// 折行估算用的每行字符数：对话面内容宽约 464pt（480pt 面板减两侧外边距），
+    /// 11pt 等宽字每字符约 6.6pt → 一行约 70 个字符；取 64 留一点保守余量。
+    static let estimatedCharactersPerLine = 64
+
+    /// 折叠态可见行数；展开态可见全部行。
+    static func visibleLineCount(total: Int, limit: Int, isExpanded: Bool) -> Int {
+        guard total > 0 else { return 0 }
+        guard !isExpanded else { return total }
+        return min(total, max(0, limit))
+    }
+
+    /// 折叠态仍被挡住的行数（展开态为 0），用于「…（还有 N 行）」。
+    /// 夹到 0 以上：负数会让文案变成「还有 -3 行」。
+    static func hiddenLineCount(total: Int, limit: Int, isExpanded: Bool) -> Int {
+        max(0, total - visibleLineCount(total: total, limit: limit, isExpanded: isExpanded))
+    }
+
+    /// 是否真被截断过——只有截断过的块才给「展开全部 / 收起」入口。
+    static func isTruncated(total: Int, limit: Int) -> Bool {
+        total > max(0, limit)
+    }
+
+    /// 会折行的文本（靠 `lineLimit` 按**视觉行**裁剪）的可见行数估算。
+    ///
+    /// 这类文本不能直接用换行符数行：整段 JSON 挤在一行时逻辑行数是 1，但它早就
+    /// 被 `lineLimit` 裁掉了。取「逻辑行数」与「按宽度折出来的行数」的大者。
+    static func estimatedWrappedLineCount(
+        of text: String,
+        charactersPerLine: Int = estimatedCharactersPerLine
+    ) -> Int {
+        let logicalLineCount = text.components(separatedBy: "\n").count
+        let perLine = max(1, charactersPerLine)
+        let wrappedLineCount = (text.count + perLine - 1) / perLine
+        return max(logicalLineCount, wrappedLineCount)
+    }
+
+    /// 展开/收起按钮用哪条文案。真正的查表仍走 `l10n`，这里只决定用哪个键，
+    /// 所以可以单测。
+    enum ToggleLabel: Equatable {
+        case collapse
+        case showAll(lineCount: Int)
+    }
+
+    static func toggleLabel(total: Int, isExpanded: Bool) -> ToggleLabel {
+        isExpanded ? .collapse : .showAll(lineCount: max(0, total))
+    }
+}
+
+/// 「展开全部 / 收起」行内按钮：只切换行数窗口，不改变折叠上限之外的版面。
+struct ToolOutputToggleButton: View {
+    let total: Int
+    let isExpanded: Bool
+    let onToggle: () -> Void
+
+    @ObservedObject private var l10n = LocalizationManager.shared
 
     var body: some View {
-        Text(text)
-            .appFont(11, design: .monospaced)
-            .foregroundColor(AppPalette.secondaryText)
-            .lineLimit(15)
+        Button(action: onToggle) {
+            Text(label)
+                .appFont(10, weight: .medium)
+                .foregroundColor(AppPalette.secondaryText)
+                .lineLimit(1)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(SettingsCompactButtonStyle())
+    }
+
+    private var label: String {
+        switch ToolOutputWindow.toggleLabel(total: total, isExpanded: isExpanded) {
+        case .collapse:
+            return l10n.t("Collapse")
+        case .showAll(let lineCount):
+            return l10n.t("Show all %lld lines", lineCount)
+        }
+    }
+}
+
+struct GenericTextContent: View {
+    let text: String
+    /// 文本颜色：默认是常规正文色；stderr 这类要用红色传 `AppPalette.danger`。
+    var color: Color = AppPalette.secondaryText
+
+    @ObservedObject private var l10n = LocalizationManager.shared
+
+    @State private var isExpanded = false
+
+    /// 折叠态的行数上限：与改动前的 `.lineLimit(15)` 一致。
+    private static let collapsedLineLimit = 15
+
+    var body: some View {
+        // 行数只估一次：`estimatedWrappedLineCount` 会对整串做一次切分，而工具输出没有长度
+        // 上限（几万行的 stdout 整串塞在这里），流式期间每帧求值多次就是每帧多切几次。
+        let lineCount = ToolOutputWindow.estimatedWrappedLineCount(of: text)
+        let hiddenLineCount = ToolOutputWindow.hiddenLineCount(
+            total: lineCount, limit: Self.collapsedLineLimit, isExpanded: isExpanded)
+        let isTruncated = ToolOutputWindow.isTruncated(
+            total: lineCount, limit: Self.collapsedLineLimit)
+
+        VStack(alignment: .leading, spacing: 2) {
+            if isExpanded {
+                // 展开态限高 + 可滚动：看得到全部，又不把对话区撑成一条长瀑布。
+                ScrollView(.vertical) {
+                    Text(text)
+                        .appFont(11, design: .monospaced)
+                        .foregroundColor(color)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: ToolOutputWindow.expandedMaxHeight)
+            } else {
+                Text(text)
+                    .appFont(11, design: .monospaced)
+                    .foregroundColor(color)
+                    .lineLimit(Self.collapsedLineLimit)
+            }
+
+            // 控制行：折叠态的「还有 N 行」沿用原样，右侧是复制与展开入口。
+            HStack(spacing: 8) {
+                if hiddenLineCount > 0 {
+                    Text(l10n.t("... (%lld more lines)", hiddenLineCount))
+                        .appFont(10, design: .monospaced)
+                        .foregroundColor(AppPalette.subtleText)
+                }
+
+                Spacer(minLength: 0)
+
+                CopyButton(text: text)
+
+                if isTruncated {
+                    ToolOutputToggleButton(total: lineCount, isExpanded: isExpanded) {
+                        isExpanded.toggle()
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -649,16 +787,31 @@ struct FileCodeView: View {
     @ObservedObject private var l10n = LocalizationManager.shared
     let maxLines: Int
 
+    @State private var isExpanded = false
+
     private var lines: [String] {
         content.components(separatedBy: "\n")
     }
 
     private var displayLines: [String] {
-        Array(lines.prefix(maxLines))
+        Array(lines.prefix(visibleLineCount))
     }
 
-    private var hasMoreAfter: Bool {
-        lines.count > maxLines
+    private var visibleLineCount: Int {
+        ToolOutputWindow.visibleLineCount(total: lines.count, limit: maxLines, isExpanded: isExpanded)
+    }
+
+    private var hiddenLineCount: Int {
+        ToolOutputWindow.hiddenLineCount(total: lines.count, limit: maxLines, isExpanded: isExpanded)
+    }
+
+    private var isTruncated: Bool {
+        ToolOutputWindow.isTruncated(total: lines.count, limit: maxLines)
+    }
+
+    /// 是否画底部信息行（「还有 N 行」与收起入口共用这一行，不额外加高）。
+    private var showsFooterRow: Bool {
+        hiddenLineCount > 0 || isTruncated
     }
 
     private var hasLinesBefore: Bool {
@@ -675,6 +828,11 @@ struct FileCodeView: View {
                 Text(filename)
                     .appFont(11, weight: .medium, design: .monospaced)
                     .foregroundColor(AppPalette.primaryText)
+
+                Spacer(minLength: 8)
+
+                // 复制的是整份内容（不是界面上折叠后的那几行）。
+                CopyButton(text: content)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 8)
@@ -693,28 +851,58 @@ struct FileCodeView: View {
                     .background(AppPalette.cardFill)
             }
 
-            // Code lines with line numbers
-            ForEach(Array(displayLines.enumerated()), id: \.offset) { index, line in
-                let lineNumber = startLine + index
-                let isLast = index == displayLines.count - 1 && !hasMoreAfter
-                CodeLineView(
-                    line: line,
-                    lineNumber: lineNumber,
-                    isLast: isLast
-                )
+            // 代码行：展开态限高 + 懒加载滚动（几百行的文件一次性铺开会卡），
+            // 折叠态沿用原来的「只铺前 maxLines 行」。
+            if isExpanded {
+                ScrollView(.vertical) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        codeLineRows
+                    }
+                }
+                .frame(maxHeight: ToolOutputWindow.expandedMaxHeight)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    codeLineRows
+                }
             }
 
-            // Bottom overflow indicator
-            if hasMoreAfter {
-                Text(l10n.t("... (%lld more lines)", lines.count - maxLines))
-                    .appFont(10, design: .monospaced)
-                    .foregroundColor(AppPalette.subtleText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 46)
-                    .padding(.vertical, 3)
-                    .background(AppPalette.cardFill)
-                    .clipShape(RoundedCorner(radius: AppRadius.control, corners: [.bottomLeft, .bottomRight]))
+            // Bottom row：折叠时是「…（还有 N 行）」+ 展开入口，展开时只剩收起。
+            if showsFooterRow {
+                HStack(spacing: 8) {
+                    if hiddenLineCount > 0 {
+                        Text(l10n.t("... (%lld more lines)", hiddenLineCount))
+                            .appFont(10, design: .monospaced)
+                            .foregroundColor(AppPalette.subtleText)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    if isTruncated {
+                        ToolOutputToggleButton(total: lines.count, isExpanded: isExpanded) {
+                            isExpanded.toggle()
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 46)
+                .padding(.vertical, 3)
+                .background(AppPalette.cardFill)
+                .clipShape(RoundedCorner(radius: AppRadius.control, corners: [.bottomLeft, .bottomRight]))
             }
+        }
+    }
+
+    /// 可见行（带行号）。最后一行只有在它下面不再跟信息行时才收底角。
+    @ViewBuilder
+    private var codeLineRows: some View {
+        ForEach(Array(displayLines.enumerated()), id: \.offset) { index, line in
+            let lineNumber = startLine + index
+            let isLast = index == displayLines.count - 1 && !showsFooterRow
+            CodeLineView(
+                line: line,
+                lineNumber: lineNumber,
+                isLast: isLast
+            )
         }
     }
 
@@ -752,24 +940,73 @@ struct CodePreview: View {
     let maxLines: Int
     @ObservedObject private var l10n = LocalizationManager.shared
 
+    @State private var isExpanded = false
+
+    private var lines: [String] {
+        content.components(separatedBy: "\n")
+    }
+
+    private var visibleLineCount: Int {
+        ToolOutputWindow.visibleLineCount(total: lines.count, limit: maxLines, isExpanded: isExpanded)
+    }
+
+    private var hiddenLineCount: Int {
+        ToolOutputWindow.hiddenLineCount(total: lines.count, limit: maxLines, isExpanded: isExpanded)
+    }
+
+    private var isTruncated: Bool {
+        ToolOutputWindow.isTruncated(total: lines.count, limit: maxLines)
+    }
+
     var body: some View {
-        let lines = content.components(separatedBy: "\n")
-        let displayLines = Array(lines.prefix(maxLines))
-        let hasMore = lines.count > maxLines
-
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(displayLines.enumerated()), id: \.offset) { _, line in
-                Text(line.isEmpty ? " " : line)
-                    .appFont(11, design: .monospaced)
-                    .foregroundColor(AppPalette.secondaryText)
+        VStack(alignment: .leading, spacing: 2) {
+            if isExpanded {
+                // 展开态限高 + 懒加载行：几百行的 `swift test` 输出铺成普通 VStack
+                // 会一次建立所有行，滚动会卡。
+                ScrollView(.vertical) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        lineRows
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: ToolOutputWindow.expandedMaxHeight)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    lineRows
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            if hasMore {
-                Text(l10n.t("... (%lld more lines)", lines.count - maxLines))
-                    .appFont(10, design: .monospaced)
-                    .foregroundColor(AppPalette.subtleText)
-                    .padding(.top, 2)
+            // 控制行：折叠态的「还有 N 行」沿用原样，右侧是复制与展开入口。
+            // 只有一行文字那么高，不会把块撑高一截；占位宽度固定，所以点击复制
+            // 前后行高与相邻元素位置都不动。
+            HStack(spacing: 8) {
+                if hiddenLineCount > 0 {
+                    Text(l10n.t("... (%lld more lines)", hiddenLineCount))
+                        .appFont(10, design: .monospaced)
+                        .foregroundColor(AppPalette.subtleText)
+                }
+
+                Spacer(minLength: 0)
+
+                // 复制的是整份输出（不是界面上折叠后的那几行）。
+                CopyButton(text: content)
+
+                if isTruncated {
+                    ToolOutputToggleButton(total: lines.count, isExpanded: isExpanded) {
+                        isExpanded.toggle()
+                    }
+                }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var lineRows: some View {
+        ForEach(Array(lines.prefix(visibleLineCount).enumerated()), id: \.offset) { _, line in
+            Text(line.isEmpty ? " " : line)
+                .appFont(11, design: .monospaced)
+                .foregroundColor(AppPalette.secondaryText)
         }
     }
 }

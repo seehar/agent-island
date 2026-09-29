@@ -692,12 +692,15 @@ function flushDegradedReports(): void {
 /** 一次询问的结果。 */
 interface ApprovalOutcome {
   /**
-   * `passthrough` = 「闸门没处理这一条」：应用明确回了 `passthrough`，或连接建立后被应用
-   * 主动收掉（例如该 Agent 已被用户关闭，应用在门口丢弃这条信封）。语义是**放行但不阻塞**
-   * ——让 omp 走它自己的审批路径，绝不能当成「用户拒绝」（这条从没问过任何人）。
+   * `passthrough` = 「闸门没处理这一条」：应用明确回了 `passthrough`（例如该 Agent 已被用户
+   * 关闭，应用在门口丢弃这条信封）。语义是**放行但不阻塞** —— 让 omp 走它自己的审批路径，
+   * 绝不能当成「用户拒绝」（这条从没问过任何人）。
+   * `gateLost` = **问过了，但应用在给出决定之前消失**（连接建立后被关掉/报错：应用退出、
+   * 崩溃、或有人伪造事件让应用主动撤下了这张卡）。这条**一律拒绝**：用户以为会被拦下的调用
+   * 不能因为应用不在了就自动放行，而且我们确实把问题问到过界面上。
    * `aborted` 只留给**我们确实拿到 abort 语义**的场景（本地 `cancel()`：原生 ask 先答）。
    */
-  kind: "decision" | "timeout" | "unreachable" | "aborted" | "passthrough";
+  kind: "decision" | "timeout" | "unreachable" | "aborted" | "passthrough" | "gateLost";
   decision?: string;
   reason?: string;
   /** `ask` 作答（`decision === "answer"`）；其余决定不带这个键。 */
@@ -798,11 +801,11 @@ function startDecisionRequest(body: Record<string, unknown>, timeoutMs: number):
         // 数据还没收全：继续累积，直到超时。
       }
     });
-    // 连上之后被关掉（应用在门口丢弃了这条信封、或应用中途退出）且**没给任何决定**：
-    // 这是「闸门不可用」，不是「用户拒绝」——走 passthrough，由调用方按降级档裁决 /
-    // 影子 ask 交回原生。`aborted` 仍只代表本地 `cancel()`。
-    socket.on("error", () => done(connected ? { kind: "passthrough" } : { kind: "unreachable" }));
-    socket.on("close", () => done(connected ? { kind: "passthrough" } : { kind: "unreachable" }));
+    // 连上之后被关掉（应用中途退出/崩溃，或有人让应用撤下了这张卡）且**没给任何决定**：
+    // 这不是「无人可问」，是「问了没答」，因此是 `gateLost` —— 一律拒绝（见 `resolveOutcome`）。
+    // 从未连上（应用没在跑）才是 `unreachable`，那条按用户选的降级档裁决。
+    socket.on("error", () => done(connected ? { kind: "gateLost" } : { kind: "unreachable" }));
+    socket.on("close", () => done(connected ? { kind: "gateLost" } : { kind: "unreachable" }));
   } catch {
     done({ kind: "unreachable" });
   }
@@ -875,7 +878,17 @@ function resolveOutcome(
     // 只有本地 `cancel()` 会走到这里（我们已经拿到 abort 语义）：不静默放行。
     return { allowed: false, reason: "AgentIsland is no longer available" };
   }
-  // `unreachable`（应用从未运行）与 `passthrough`（应用不处理 / 主动收掉连接）：
+  if (outcome.kind === "gateLost") {
+    // 问过了，应用没给决定就消失（退出/崩溃/卡片被撤下）：**一律拒绝**，不看降级档。
+    // 降级档管的是「根本没人可问」；这一条是「用户在界面上看到了问题但没答完」，
+    // 按放行处理等于把闸门静默关掉（omp 在 yolo 下没有原生兜底，工具会真跑）。
+    return {
+      allowed: false,
+      reason:
+        "Blocked on AgentIsland: the approval gate went away before a decision was made",
+    };
+  }
+  // `unreachable`（应用从未运行）与 `passthrough`（应用不处理 / 这条没交到它手里）：
   // 都是「无人可问」，按降级档裁决。
   return resolveWhenGateUnavailable(tier);
 }

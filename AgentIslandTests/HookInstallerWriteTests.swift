@@ -80,4 +80,39 @@ struct HookInstallerWriteTests {
         #expect(json["hooks"] != nil)
         #expect(!FileManager.default.fileExists(atPath: file.appendingPathExtension("agent-island-backup").path))
     }
+
+    @Test("备份是不可重写的原始快照：第二次写入不覆盖它")
+    func backupIsWrittenOnce() throws {
+        let original = #"{"model":"opus"}"#
+        let file = try makeTempSettings(original)
+        let backup = file.appendingPathExtension("agent-island-backup")
+
+        HookInstaller.updateSettings(at: file)
+        #expect(try Data(contentsOf: backup) == Data(original.utf8))
+        let afterFirstWrite = try Data(contentsOf: file)
+
+        // 用户后来又改了配置（或我们重装时事件表变了）：再写一次，内容确实变了
+        let updated = #"{"model":"opus","theme":"dark"}"#
+        try updated.write(to: file, atomically: true, encoding: .utf8)
+
+        HookInstaller.updateSettings(at: file)
+
+        #expect(try Data(contentsOf: file) != afterFirstWrite)
+        // 备份仍是安装前那一版（按 README 恢复拿到的必须是他自己的原始文件）
+        #expect(try Data(contentsOf: backup) == Data(original.utf8))
+    }
+
+    @Test("没有 python3：一个字节都不写（hook 命令会指向不存在的解释器）")
+    func missingPythonRefusesWrite() throws {
+        let original = #"{"model":"opus"}"#
+        let file = try makeTempSettings(original)
+        let before = try Data(contentsOf: file)
+
+        HookInstaller.updateSettings(at: file, interpreter: nil)
+
+        #expect(try Data(contentsOf: file) == before)
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: file.appendingPathExtension("agent-island-backup").path))
+    }
 }

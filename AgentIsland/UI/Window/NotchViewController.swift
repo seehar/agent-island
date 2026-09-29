@@ -10,7 +10,14 @@ import SwiftUI
 
 /// Custom NSHostingView that only accepts mouse events within the panel bounds.
 /// Clicks outside the panel pass through to windows behind.
+///
 class PassThroughHostingView<Content: View>: NSHostingView<Content> {
+    /// 卡片范围（宿主视图坐标系）：命中判定的依据。
+    ///
+    /// **不要**拿它去改宿主视图的 frame：状态变化发生在显示周期里，此时改视图 frame
+    /// 会让 AppKit 在 `updateConstraintsIfNeeded` 中抛异常（实测崩溃于
+    /// `+[NSApplication _crashOnException:]`）。窗口的鼠标接收范围改由
+    /// `NotchWindowController.updateMouseAcceptance` 按指针位置在**窗口层**控制。
     var hitTestRect: () -> CGRect = { .zero }
 
     override func hitTest(_ point: NSPoint) -> NSView? {

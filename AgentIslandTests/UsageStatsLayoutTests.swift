@@ -436,6 +436,40 @@ struct UsageStatsLayoutTests {
         >= UsageStatsMetrics.sectionHeight - UsageStatsMetrics.contentTopGap - 40)
   }
 
+  @Test("不进统计的名单在两种面板宽度、两种语言下都只占一行")
+  func excludedAgentNoteFitsOneLine() {
+    // 统计页的高度是解析式预算，脚注里的这一行是「往整页新增的一行」
+    // （见 `UsageStatsMetrics.sectionHeight`）：宽度上装不进最窄档，就得折行、高度预算失效。
+    // 短名键与 `AgentKind.shortName` 一一对应；名单本身取扫描器现算的那一份，因此
+    // 「改名单 / 改短名 / 加 Agent」都会让这条用例失败——那时要重算统计页的高度预算。
+    let nameKeys = ["Gemini", "Kimi", "Cline", "Grok", "Trae", "Trae CLI", "DSH"]
+    #expect(
+      AgentKind.allCases.filter { TranscriptUsageScanner.agentsWithoutUsage.contains($0) }.count
+        == nameKeys.count)
+
+    let panels: [(name: String, width: CGFloat)] = [
+      ("standard", NotchMenuMetrics.panelWidthMax),
+      ("compact", NotchMenuMetrics.panelWidthMax * PanelSize.compact.scale),
+    ]
+    for panel in panels {
+      // 可用宽 = 面板内容宽 − 脚注自己的左右内边距（脚注是整页里最靠外的一行）。
+      let available =
+        panel.width - NotchMenuMetrics.listPaddingHeight - 2 * NotchMenuMetrics.rowHorizontalPadding
+      for code in ["en", "zh-Hans"] {
+        let bundle = LocalizationManager.bundle(for: code)
+        let names = nameKeys.map { bundle.localizedString(forKey: $0, value: nil, table: nil) }
+        let note = String(
+          format: bundle.localizedString(forKey: "Not counted: %@", value: nil, table: nil),
+          names.joined(separator: ", "))
+        // 用 medium 量（脚注实际是 regular）：量出来的偏宽，判据因此是保守的。
+        let needed = labelWidth(note, size: 10)
+        #expect(
+          needed <= available,
+          "\(panel.name) 档下 \(code) 的「\(note)」要 \(needed)pt，可用 \(available)pt")
+      }
+    }
+  }
+
   @Test("额度入口：三个头部按钮的 xmark 互斥，且不污染上一次待过的设置分组")
   @MainActor
   func quotaEntryKeepsThreeFacesExclusive() {
