@@ -337,6 +337,16 @@ def resolve_tracked_pid(source, table):
     return matched
 
 
+def paseo_terminal_context():
+    """读取 Paseo 托管的终端 id 与其 CLI 路径（`@getpaseo/server` 注入 `PASEO_TERMINAL_ID` /
+    `PASEO_HOOK_CLI`）。只有在该终端里执行时才非空。"""
+    terminal_id = (os.environ.get("PASEO_TERMINAL_ID") or "").strip()
+    if not terminal_id:
+        return None, None
+    cli_path = (os.environ.get("PASEO_HOOK_CLI") or "").strip()
+    return terminal_id, cli_path or None
+
+
 def get_tty():
     """Get the TTY of the Claude process (parent)"""
     # Get parent PID (Claude process)
@@ -848,6 +858,15 @@ def main():
         "event": event,
         "agent": source,
     }
+
+    # Paseo 托管终端：带上终端 id 与 Paseo 自己给出的 CLI 路径。有它就能在**不经 tmux**
+    # 的前提下把刘海里的消息写进本会话的 pty（`paseo terminal send-keys <id> --literal …`）。
+    paseo_terminal_id, paseo_cli_path = paseo_terminal_context()
+    if paseo_terminal_id:
+        state["paseo_terminal_id"] = paseo_terminal_id
+        if paseo_cli_path:
+            state["paseo_cli_path"] = paseo_cli_path
+
     if source == CLINE_SOURCE:
         # Cline 没有 CLI 二进制（VSCode 扩展派生的临时 shell 起 hook），上报的 pid 会被
         # 应用侧按存活检查秒回收（上游同样把它清成 0）：因此一律不带 pid / tty。

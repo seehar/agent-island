@@ -28,6 +28,10 @@ nonisolated struct SessionState: Equatable, Identifiable, Sendable {
     var pid: Int?
     var tty: String?
     var isInTmux: Bool
+    /// Paseo（`@getpaseo/server`）托管终端 id；有值即可不走 tmux 发送消息。
+    var paseoTerminalId: String?
+    /// Paseo 自己解析出的 CLI 绝对路径（`PASEO_HOOK_CLI`）；缺省时由应用自己找。
+    var paseoCliPath: String?
 
     // MARK: - State Machine
 
@@ -92,7 +96,9 @@ nonisolated struct SessionState: Equatable, Identifiable, Sendable {
         ),
         needsClearReconciliation: Bool = false,
         lastActivity: Date = Date(),
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        paseoTerminalId: String? = nil,
+        paseoCliPath: String? = nil
     ) {
         self.agent = agent
         self.sessionId = sessionId
@@ -102,6 +108,8 @@ nonisolated struct SessionState: Equatable, Identifiable, Sendable {
         self.pid = pid
         self.tty = tty
         self.isInTmux = isInTmux
+        self.paseoTerminalId = paseoTerminalId
+        self.paseoCliPath = paseoCliPath
         self.phase = phase
         self.chatItems = chatItems
         self.toolTracker = toolTracker
@@ -483,7 +491,8 @@ nonisolated struct SubagentRun: Equatable, Identifiable, Sendable {
     /// 任务描述首行，供密集行展示（omp 的 task 正文是完整 brief，太长）。
     nonisolated var taskSummary: String? {
         guard let task, !task.isEmpty else { return nil }
-        let firstLine = task.split(separator: "\n", omittingEmptySubsequences: true)
+        let firstLine =
+            task.split(separator: "\n", omittingEmptySubsequences: true)
             .first.map(String.init) ?? task
         return String(firstLine.prefix(120))
     }

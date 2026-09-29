@@ -237,4 +237,32 @@ struct HookEventDecodingTests {
         #expect(event.expectsResponse)
         #expect(event.ask == nil)
     }
+
+    @Test("Paseo 托管终端身份落位：终端 id 与 CLI 路径")
+    func paseoTerminalIdentityDecodes() throws {
+        let event = try decode(
+            """
+            {"session_id": "decode-paseo", "cwd": "/tmp", "event": "SessionStart",
+             "status": "idle", "agent": "omp",
+             "paseo_terminal_id": "4a206ff5-55b7-4f59-a0fd-da0c25799673",
+             "paseo_cli_path": "/Users/x/.nvm/versions/node/v22.21.1/bin/paseo"}
+            """)
+
+        // 这两个字段决定「非 tmux 的会话能不能从刘海发消息」：键名映射写错的表现是
+        // 输入框一直置灰（没有报错、也没有日志），只能靠这条断言钉住。
+        #expect(event.paseoTerminalId == "4a206ff5-55b7-4f59-a0fd-da0c25799673")
+        #expect(event.paseoCliPath == "/Users/x/.nvm/versions/node/v22.21.1/bin/paseo")
+    }
+
+    @Test("不是 Paseo 托管的会话：两个字段缺省为 nil")
+    func paseoFieldsDefaultToNil() throws {
+        let event = try decode(
+            """
+            {"session_id": "decode-no-paseo", "cwd": "/tmp", "event": "SessionStart",
+             "status": "idle", "agent": "omp"}
+            """)
+
+        #expect(event.paseoTerminalId == nil)
+        #expect(event.paseoCliPath == nil)
+    }
 }

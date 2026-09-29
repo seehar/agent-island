@@ -343,6 +343,17 @@ let rootSessionId: string | undefined;
 let pid: number | undefined;
 let tty: string | undefined;
 
+/**
+ * Paseo（`@getpaseo/server`）托管终端的身份：它给每个终端注入 `PASEO_TERMINAL_ID`，并把该
+ * 终端可用的 CLI 绝对路径放进 `PASEO_HOOK_CLI`（`terminal-manager.js` 的 activityEnv）。
+ * 有这两个值，刘海就能在**不经 tmux** 的前提下把消息写进本会话的 pty：
+ * `paseo terminal send-keys <id> --literal <文本>` + `Enter`。
+ *
+ * 进程启动时求值一次：Paseo 的注入是环境变量，进程生命周期内不变。
+ */
+const paseoTerminalId: string | undefined = process.env.PASEO_TERMINAL_ID?.trim() || undefined;
+const paseoCliPath: string | undefined = process.env.PASEO_HOOK_CLI?.trim() || undefined;
+
 // 串行发送，保证事件顺序；应用不在时也不会堆积。
 let chain: Promise<boolean> = Promise.resolve(true);
 
@@ -911,6 +922,8 @@ function buildBody(
     cwd: typeof process.cwd === "function" ? process.cwd() : undefined,
     pid,
     tty,
+    paseo_terminal_id: paseoTerminalId,
+    paseo_cli_path: paseoCliPath,
     agent: AGENT,
     session_file: sessionFile,
     ...payload,

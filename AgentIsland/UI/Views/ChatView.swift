@@ -416,9 +416,9 @@ struct ChatView: View {
 
  // MARK: - Input Bar
 
- /// Can send messages only if session is in tmux
+ /// 能否往该会话写东西：tmux（原有通道）或 Paseo 托管终端（`PASEO_TERMINAL_ID`）。
  private var canSendMessages: Bool {
-  session.isInTmux && session.tty != nil
+  (session.isInTmux && session.tty != nil) || session.paseoTerminalId != nil
  }
 
  private var inputBar: some View {
@@ -608,15 +608,24 @@ struct ChatView: View {
   }
  }
 
- /// 把一条消息送进该会话所在的 tmux pane，返回是否真的送达。
+ /// 把一条消息送进该会话所在的终端，返回是否真的送达：
+ /// ① tmux（原有通道，pane 级更精确）② Paseo 托管终端（`paseo terminal send-keys`）。
  /// 以前这个返回值被丢弃：「找不到 pane / tmux 路径不可用 / 发送失败」在界面上完全一样，
  /// 用户看到的是消息凭空消失。
  private func sendToSession(_ text: String) async -> Bool {
-  guard session.isInTmux else { return false }
-  guard let tty = session.tty else { return false }
+  if session.isInTmux, let tty = session.tty,
+   let target = await findTmuxTarget(tty: tty),
+   await ToolApprovalHandler.shared.sendMessage(text, to: target)
+  {
+   return true
+  }
 
-  guard let target = await findTmuxTarget(tty: tty) else { return false }
-  return await ToolApprovalHandler.shared.sendMessage(text, to: target)
+  if let terminalId = session.paseoTerminalId {
+   return await PaseoCli.shared.sendMessage(
+    text, toTerminal: terminalId, cliPath: session.paseoCliPath)
+  }
+
+  return false
  }
 
  private func findTmuxTarget(tty: String) async -> TmuxTarget? {
@@ -651,27 +660,34 @@ struct ChatView: View {
   return nil
  }
 
- /// 中断当前会话：向它所在的 tmux pane 发一次 Ctrl-C。
- /// 走 `ToolApprovalHandler.sendInterrupt`——与批准/拒绝同一条回传通道，
- /// 这里不自解析 pane、也不直接跑 tmux 命令（否则又会多出一份 pane 解析逻辑）。
+ /// 中断当前会话：先按 tmux pane 发 Ctrl-C，退到 Paseo 托管终端。
+ /// 两条通道与「发送消息」同源（都不自解析 pane、不直接跑 tmux 命令），
+ /// 因此可用条件也一致（`canSendMessages`）。
  private func interruptSession() {
   guard canSendMessages, !isInterrupting else { return }
-  guard let tty = session.tty else { return }
-
   sendErrorMessage = nil
   isInterrupting = true
 
   Task {
    defer { isInterrupting = false }
 
-   guard let target = await findTmuxTarget(tty: tty),
+   if session.isInTmux, let tty = session.tty,
+    let target = await findTmuxTarget(tty: tty),
     await ToolApprovalHandler.shared.sendInterrupt(to: target)
-   else {
-    // 与发送消息共用同一处提示位：找不到 pane / tmux 不可用 / 写不进去都在这里说，
-    // 不再出现「点了没反应」。
-    sendErrorMessage = l10n.t("Couldn't send to the terminal")
+   {
     return
    }
+
+   if let terminalId = session.paseoTerminalId,
+    await PaseoCli.shared.sendInterrupt(
+     toTerminal: terminalId, cliPath: session.paseoCliPath)
+   {
+    return
+   }
+
+   // 与发送消息共用同一处提示位：找不到 pane / 终端 / 写不进去都在这里说，
+   // 不再出现「点了没反应」。
+   sendErrorMessage = l10n.t("Couldn't send to the terminal")
   }
  }
 }

@@ -37,9 +37,11 @@ nonisolated enum AgentIntegrationInstaller {
   static let openCodePluginVersion = 3
 
   /// 6 = 闸门不可用（含「该 Agent 已被关闭」）改走降级档，而不是把服务端关闭读成拒绝。
+  /// 7 = 上报 Paseo 托管终端身份（`PASEO_TERMINAL_ID` / `PASEO_HOOK_CLI`），
+  ///     使非 tmux 会话（如「我的机器」里的终端）也能从刘海发消息。
   /// 当前应用期望的扩展版本戳：改 pi/omp 扩展时必须同步 +1。
   /// `isInstalled` 按它比对（不再只看「文件在不在」），用户手改过或升级未重写都能被发现。
-  static let piFamilyExtensionVersion = 6
+  static let piFamilyExtensionVersion = 7
 
   /// 扩展源码里声明版本 / 变体 / 降级档的三行注释标记。
   private static let versionMarkerPrefix = "// agent-island-extension-version:"

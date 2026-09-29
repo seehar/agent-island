@@ -53,6 +53,12 @@ nonisolated struct HookEvent: Codable, Sendable {
  var agent: String?
  /// 记录文件路径，由非 Claude 集成上报，避免应用再按目录反推。
  let sessionFile: String?
+ /// Paseo（`@getpaseo/server`）托管终端的 id（集成读 `PASEO_TERMINAL_ID` 上报）。
+ /// 有值时「发消息 / 中断」不必走 tmux：`paseo terminal send-keys <id> …` 直接写 pty。
+ let paseoTerminalId: String?
+ /// Paseo 自己给该终端解析出的 CLI 绝对路径（集成读 `PASEO_HOOK_CLI` 上报）。
+ /// 应用是 GUI 进程、PATH 里没有 nvm/bin，因此优先用它而不是自己猜。
+ let paseoCliPath: String?
  /// 子 Agent 实例标识（omp 的 job 名，如 `EchoAlpha`）。
  let subagentId: String?
  /// 子 Agent 类型名（omp 的 agent 名，如 `scout` / `sonic`）。
@@ -82,6 +88,8 @@ nonisolated struct HookEvent: Codable, Sendable {
   case ompOwnsApproval = "omp_owns_approval"
   case ask
   case sessionFile = "session_file"
+  case paseoTerminalId = "paseo_terminal_id"
+  case paseoCliPath = "paseo_cli_path"
   case subagentId = "subagent_id"
   case subagentAgent = "subagent_agent"
   case subagentStatus = "subagent_status"
@@ -113,7 +121,8 @@ nonisolated struct HookEvent: Codable, Sendable {
    tool: tool, toolInput: toolInput, toolUseId: toolUseId, notificationType: notificationType,
    message: message, agent: agent, sessionFile: sessionFile,
    subagentId: nil, subagentAgent: nil, subagentStatus: nil, subagentCurrentTool: nil,
-   subagentTask: nil, parentToolCallId: nil, subagentSessionFile: nil
+   subagentTask: nil, parentToolCallId: nil, subagentSessionFile: nil,
+   paseoTerminalId: nil, paseoCliPath: nil
   )
  }
 
@@ -125,7 +134,8 @@ nonisolated struct HookEvent: Codable, Sendable {
   subagentTask: String?, parentToolCallId: String?, subagentSessionFile: String?,
   wantsResponse: Bool? = nil,
   approvalKind: String? = nil, degradation: String? = nil, gateEnabled: Bool? = nil,
-  ompOwnsApproval: Bool? = nil, ask: AskPayload? = nil
+  ompOwnsApproval: Bool? = nil, ask: AskPayload? = nil,
+  paseoTerminalId: String? = nil, paseoCliPath: String? = nil
  ) {
   self.sessionId = sessionId
   self.cwd = cwd
@@ -153,6 +163,8 @@ nonisolated struct HookEvent: Codable, Sendable {
   self.gateEnabled = gateEnabled
   self.ompOwnsApproval = ompOwnsApproval
   self.ask = ask
+  self.paseoTerminalId = paseoTerminalId
+  self.paseoCliPath = paseoCliPath
  }
 
  /// 是否为子代理总线事件（omp/pi 的 `task:subagent:*` 上报，不是会话自身的一轮活动）。
@@ -1014,7 +1026,8 @@ class HookSocketServer {
    // `privacy:` 只在 Logger 的插值里合法，这里先拼成普通字符串（uid 与 errno 都不是敏感值）。
    let ownership = peerResult == 0 ? "uid \(peerUid)" : "errno \(errno)"
    logger.warning(
-    "Rejected hook connection from a different user (\(ownership, privacy: .public)); replied passthrough")
+    "Rejected hook connection from a different user (\(ownership, privacy: .public)); replied passthrough"
+   )
    replyGateUnavailableRaw(clientSocket: clientSocket)
    close(clientSocket)
    return

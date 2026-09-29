@@ -116,6 +116,13 @@ actor SessionStore {
         if let sessionFile = event.sessionFile {
             session.transcriptPath = sessionFile
         }
+        // Paseo 托管终端身份：有它就能在**不经 tmux** 的前提下把刘海的消息写进本会话的 pty。
+        if let paseoTerminalId = event.paseoTerminalId {
+            session.paseoTerminalId = paseoTerminalId
+        }
+        if let paseoCliPath = event.paseoCliPath {
+            session.paseoCliPath = paseoCliPath
+        }
         session.lastActivity = Date()
 
         if event.status == "ended" {
@@ -202,7 +209,9 @@ actor SessionStore {
             pid: event.pid,
             tty: event.tty?.replacingOccurrences(of: "/dev/", with: ""),
             isInTmux: false,  // 稍后根据进程树更新
-            phase: .idle
+            phase: .idle,
+            paseoTerminalId: event.paseoTerminalId,
+            paseoCliPath: event.paseoCliPath
         )
     }
 

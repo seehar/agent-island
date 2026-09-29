@@ -55,6 +55,7 @@ AgentIsland/
     Hooks/      # HookSocketServer（/tmp/agent-island.sock）、HookInstaller
     Chat/       # ChatHistoryManager
     Tmux/       # 审批键序下发：ToolApprovalHandler、TmuxController/TargetFinder/Matcher
+    Paseo/      # 非 tmux 会话的写入通道：PaseoCli（`paseo terminal send-keys`）
     Window/     # 聚焦终端窗口：WindowFinder/Focuser、YabaiController
     Update/     # Sparkle 更新 UI 做进刘海（NotchUserDriver）
   UI/
@@ -84,7 +85,10 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 ```
 
 - 所有会话状态变化都只经过 `SessionStore.process(_:)`；视图不直接改状态。
-- 权限审批是请求/响应：`HookSocketServer` 收到需要响应的事件后保持连接，等刘海上的批准/拒绝，再由 `ToolApprovalHandler` 通过 tmux 把键序发给正确的 pane。`PermissionRequest` 不带 `tool_use_id`，靠 `PreToolUse` 的 `sessionId:toolName:tool_input` 缓存做关联。
+- 权限审批是请求/响应：`HookSocketServer` 收到需要响应的事件后保持连接，等刘海上的批准/拒绝，再**由 socket 回写决定**（因此对非 tmux 会话同样有效）。`PermissionRequest` 不带 `tool_use_id`，靠 `PreToolUse` 的 `sessionId:toolName:tool_input` 缓存做关联。
+- 「用户主动发消息 / 中断」是另一条通道，按会话宿主分两路（`ChatView.sendToSession` / `interruptSession` 先试 tmux、再退到 Paseo，两条都不可用才置灰输入框）：
+  tmux 会话走 `ToolApprovalHandler`（`tmux send-keys` 到按 tty 解析出的 pane）；
+  **Paseo（`@getpaseo/server`，即「我的机器」的宿主）用它自己的 node-pty 起终端、不经过 tmux**，这类会话走 `PaseoCli`（`paseo terminal send-keys <终端 id> …`）。终端 id 无法从 daemon 反查（列表只有 `{id, cwd, name}`），只能由集成读 `PASEO_TERMINAL_ID` 上报（`PASEO_HOOK_CLI` 一并上报，供应用定位 CLI）。
 
 ### 新增一个 Agent 要动的地方（接入面）
 
@@ -205,6 +209,7 @@ Cline / Grok / Trae / Trae CLI / DSH）**没有本机样本**。所以这一块�
 - Codex 只在 `$CODEX_HOME/config.toml` 的 `[features] hooks = true` 时才触发 hook（安装器会补这一行），并且要用户在 Codex 里跑一次 `/hooks` 审核信任本应用的 hook；没审核时 Codex **静默不跑**，看起来就像「没支持 Codex」。
 - Kimi 的 `hooks` 在 TOML 里是 `[[hooks]]` 数组表，与旧的标量 `hooks = …` 互斥：安装时把标量行注释掉、卸载时再放回去（不能删——那是用户的内容）。
 - 单个 Agent 卸载**不要**删 `~/.agent-island/hooks/agent-island-state.py`：它是所有配置文件型 Agent 共用的脚本，删掉会让其余工具的配置指向不存在的文件。
+- 改 pi/omp 扩展（`agent-island-pi-extension*.ts.txt`）必须同步 +1 `AgentIntegrationInstaller.piFamilyExtensionVersion`（两个变体文件都要改），否则 `isInstalled` 认不出升级、界面继续显示「已安装」。**扩展是进程启动时求值一次的**：改完只有新起的 CLI 会加载，已在跑的会话（含 Paseo 终端里的）要重启才会带上新字段——症状是「代码改了但界面上没变化」。
 - **路径归一不是一个可选优化**：`FileManager` 的目录遍历返回的是 `realpath` 展开后的路径（macOS 下 `/var/…` → `/private/var/…`），而 `URL.resolvingSymlinksInPath()` / `standardizedFileURL` **不会**展开 `/var`、`/tmp`、`/etc` 这几个系统软链。provider 里 `hasPrefix(自己的根)` 的判定因此会与遍历结果对不上，记录被静默跳过（表现：工具在跑，面板里一个会话都没有）。统一走 `AgentProviderRoot.canonical`（POSIX `realpath`），用例夹具建目录后也要过它一次。
 
 <delegation_rules>
