@@ -18,11 +18,12 @@ import Testing
 @Suite("关闭态计数徽标")
 struct NotchClosedMetricsTests {
     /// 用与视图 `sessionCountBadge` 同一串字体修饰符渲染一次，取真实排版宽度。
-    private func renderedWidth(_ text: String) -> CGFloat {
+    /// `scale` 是用户的内容字号档位（视图按它乘字号，见 `NotchView.headerTextScale`）。
+    private func renderedWidth(_ text: String, scale: CGFloat = 1) -> CGFloat {
         let view = Text(text)
             .font(
                 .system(
-                    size: NotchClosedMetrics.fontSize,
+                    size: NotchClosedMetrics.fontSize * scale,
                     weight: NotchClosedMetrics.fontWeight,
                     design: NotchClosedMetrics.fontDesign)
             )
@@ -33,11 +34,16 @@ struct NotchClosedMetricsTests {
         return host.fittingSize.width
     }
 
-    @Test("视图字体与宽度实测同源：渲染宽度与算出来的宽度一致")
+    @Test("视图字体与宽度实测同源：渲染宽度与算出来的宽度一致（各字号档位都对）")
     func fontMatchesRenderedText() {
-        for text in ["1/3", "11/22", "11+11/22"] {
-            // 排版宽度按整点取整，留 1pt 容差
-            #expect(abs(renderedWidth(text) - NotchClosedMetrics.textWidth(text)) <= 1)
+        for scale in [1.0, 1.3] as [CGFloat] {
+            for text in ["1/3", "11/22", "11+11/22"] {
+                // 排版宽度按整点取整，留 1pt 容差
+                #expect(
+                    abs(
+                        renderedWidth(text, scale: scale)
+                            - NotchClosedMetrics.textWidth(text, scale: scale)) <= 1)
+            }
         }
     }
 
@@ -111,5 +117,72 @@ struct NotchClosedMetricsTests {
             activeSessions: 999, subagents: 999, totalSessions: 9999, limit: .infinity)
         #expect(label.level == .full)
         #expect(label.text == "999+999/9999")
+    }
+
+    @Test("字号档位抬上去：先降级保住耳宽上限，而不是把耳宽顶出挖孔")
+    func scaleDegradesLabelToProtectTheEarCap() {
+        // 真实契约是「先按当前字号挑档位，再量耳宽」：耳宽上限贴着相机挖孔，是不随字号
+        // 放大的绝对几何约束。字号变大时唯一的合法腾位手段是**降级计数段**——耳宽因此
+        // 不一定变大变小，但每一档都必须装得下自己的文字，且永不越上限。
+        let standardLabel = NotchClosedMetrics.label(
+            activeSessions: 11, subagents: 11, totalSessions: 22, scale: 1)
+        let largeLabel = NotchClosedMetrics.label(
+            activeSessions: 11, subagents: 11, totalSessions: 22, scale: 1.3)
+        let standard = NotchClosedMetrics.earWidth(for: standardLabel, minimum: 30, scale: 1)
+        let large = NotchClosedMetrics.earWidth(for: largeLabel, minimum: 30, scale: 1.3)
+
+        // 1× 下最全的一档放得下，所以拿到完整写法。
+        #expect(standardLabel.level == .full)
+
+        // 1.3× 下同一份计数放不下了，降级必须真的发生——否则上限会被顶破、计数滑进挖孔。
+        #expect(largeLabel.level != .full, "字号放大后必须降级，不能硬撑")
+        #expect(
+            largeLabel.text.count <= standardLabel.text.count,
+            "降级只能往短走，不能反向取更长的写法")
+        // 不管降了几级：每档的耳宽都装得下自己的文字，且不越上限。
+        for (label, scale, ear) in [
+            (standardLabel, CGFloat(1), standard), (largeLabel, CGFloat(1.3), large),
+        ] {
+            #expect(ear >= NotchClosedMetrics.textWidth(label.text, scale: scale))
+            #expect(ear <= NotchClosedMetrics.maximumEarWidth)
+        }
+        // 降级本身已经证明字号档位参与了度量：`label` 只在**按当前 scale 量出的宽度**
+        // 顶破上限时才降级，1× 不降、1.3× 降，正是这一条判据在起作用。
+    }
+
+    @Test("胶囊尺寸 = 左右耳 + 文字槽 + 尾距 + 两侧内边距（画出来的那一块）")
+    func capsuleSizeIsTheSumOfItsParts() {
+        let notch = CGSize(width: 200, height: 32)
+        let ear: CGFloat = 30
+        let size = NotchClosedMetrics.capsuleSize(notchSize: notch, earWidth: ear, showsEars: true)
+        let expected =
+            2 * ear + (notch.width - NotchClosedMetrics.Capsule.centerInset)
+            + NotchClosedMetrics.Capsule.badgeTrailing + 2 * NotchClosedMetrics.Capsule.sidePadding
+
+        #expect(size.width == expected)
+        #expect(size.height == max(NotchClosedMetrics.Capsule.minimumHeight, notch.height))
+        // 胶囊必须盖住物理挖孔（否则计数会落在挖孔边缘上）。
+        #expect(size.width > notch.width)
+
+        // 有待批指示：左耳多占一个指示宽度（右耳不加宽——加宽右耳会把计数推回挖孔里）。
+        let withIndicator = NotchClosedMetrics.capsuleSize(
+            notchSize: notch, earWidth: ear, showsEars: true, showsPermissionIndicator: true)
+        #expect(withIndicator.width == size.width + NotchClosedMetrics.Capsule.permissionIndicator)
+        #expect(withIndicator.height == size.height)
+
+        // 弹跳那一档也会被画出来，因此也要算进尺寸（判据跟着它走才不会与画面分家）。
+        let bouncing = NotchClosedMetrics.capsuleSize(
+            notchSize: notch, earWidth: ear, showsEars: true, isBouncing: true)
+        #expect(bouncing.width == size.width + NotchClosedMetrics.Capsule.bounce)
+
+        // 没有活动时不画耳朵：胶囊按「空胶囊」那一档（命中带不能拿宽胶囊去覆盖它）。
+        let idle = NotchClosedMetrics.capsuleSize(
+            notchSize: notch, earWidth: ear, showsEars: false)
+        #expect(
+            idle.width
+                == max(0, notch.width - NotchClosedMetrics.Capsule.idleCenterInset)
+                + 2 * NotchClosedMetrics.Capsule.sidePadding)
+        #expect(idle.width < size.width)
+        #expect(idle.height == size.height)
     }
 }

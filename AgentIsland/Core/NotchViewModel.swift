@@ -40,6 +40,21 @@ enum NotchContentType: Equatable {
     }
 }
 
+/// 面板状态的快照。
+///
+/// 屏幕参数变化（改分辨率、换主屏、插拔显示器）时窗口会重建，而用户此刻可能正开着面板
+/// 在读东西。重建前把状态取走、装到新窗口上：展开的那一面（会话列表 / 某个设置分组 /
+/// 某条对话）与「收起后回到上次那条对话」的粘性都不该因为一次显示设置变化而丢掉。
+struct NotchPanelState {
+    let status: NotchStatus
+    let openReason: NotchOpenReason
+    let contentType: NotchContentType
+    /// 设置面板当前分组：`.menu` 面靠它决定停在通用页还是统计/额度/智能体页。
+    let menuSection: NotchMenuSection
+    /// 「收起后下次点开回到哪条对话」的那条会话（`contentType` 为 `.instances` 时也保留）。
+    let chatSession: SessionState?
+}
+
 @MainActor
 class NotchViewModel: ObservableObject {
     // MARK: - Published State
@@ -61,7 +76,11 @@ class NotchViewModel: ObservableObject {
 
     /// 上一次待过的分段页分组（`menuSection` 的 didSet 维护）。
     private var lastSettingsSection: NotchMenuSection = .general
-    @Published var isHovering: Bool = false
+    /// 指针是否停在刘海/胶囊上（悬停展开的判据）。
+    ///
+    /// **不发布**：全仓没有读者（视图有自己的 `@State`，悬停展开只在这里的定时器里用），
+    /// 而 `@Published` 会让每一次悬停进出都重排整棵面板树。
+    var isHovering: Bool = false
 
     /// 会话列表的键盘选中项（快捷键导航写它，行高亮与滚动读它）。
     /// 选中的会话消失后不必清理：读的时候找不到就回落第一行。
@@ -112,6 +131,25 @@ class NotchViewModel: ObservableObject {
     /// 换一个关闭态胶囊矩形（宽度跟着屏幕走，高度跟着高度设置走）。
     func updateDeviceNotchRect(_ rect: CGRect) {
         deviceNotchRect = rect
+    }
+
+    /// 关闭态胶囊**画出来的**尺寸，由视图在布局变化时发布（见 `updateClosedCapsuleSize`）。
+    @Published private(set) var closedCapsuleSize: CGSize
+
+    /// 发布关闭态胶囊尺寸。
+    ///
+    /// **不变量：这个尺寸必须是当前真正画出来的那一块**——悬停展开、点击展开与点击转投
+    /// 都按它判，画出来的与判据一旦分家，就会出现「看得见的胶囊点上去没反应」或
+    /// 「空处也在收点击」。因此它由视图按 `NotchClosedMetrics.capsuleSize` 算出后写回，
+    /// 而不是在这里另推一套（耳宽只有视图知道：它来自计数文案的实测宽度）。
+    func updateClosedCapsuleSize(_ size: CGSize) {
+        guard size != closedCapsuleSize else { return }
+        closedCapsuleSize = size
+    }
+
+    /// 关闭态胶囊的命中判据（屏幕坐标）。见 `closedCapsuleSize` 的不变量。
+    func isPointInClosedCapsule(_ point: CGPoint) -> Bool {
+        geometry.isPointInClosedCapsule(point, size: closedCapsuleSize)
     }
 
     /// Dynamic opened size based on content type
@@ -220,12 +258,6 @@ class NotchViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Animation
-
-    var animation: Animation {
-        .easeOut(duration: 0.25)
-    }
-
     // MARK: - Private
 
     private var cancellables = Set<AnyCancellable>()
@@ -240,6 +272,12 @@ class NotchViewModel: ObservableObject {
         self.screenRect = screenRect
         self.windowHeight = windowHeight
         self.hasPhysicalNotch = hasPhysicalNotch
+        // 关闭态胶囊尺寸先用「最小耳宽 + 空胶囊」形态铺底：视图第一次布局之前就来悬停时
+        // 判据不能是 .zero（那段时间会整段漏判）。同一个纯函数，视图随后按真实计数文案覆盖。
+        self.closedCapsuleSize = NotchClosedMetrics.capsuleSize(
+            notchSize: deviceNotchRect.size,
+            earWidth: NotchClosedMetrics.minimumEarWidth(notchHeight: deviceNotchRect.height),
+            showsEars: false)
         setupEventHandlers()
         observeSelectors()
     }
@@ -333,11 +371,13 @@ class NotchViewModel: ObservableObject {
     private var currentChatSession: SessionState?
 
     private func handleMouseMove(_ location: CGPoint) {
-        let inNotch = geometry.isPointInNotch(location)
+        // 两个状态的判据都取「画出来的那一块」：关闭态是视图发布的胶囊尺寸，展开态是
+        // `openedSize`（见 `NotchGeometry` 与 `closedCapsuleSize` 的不变量）。
+        let inClosedCapsule = isPointInClosedCapsule(location)
         let inOpened =
             status == .opened && geometry.isPointInOpenedPanel(location, size: openedSize)
 
-        let newHovering = inNotch || inOpened
+        let newHovering = inClosedCapsule || inOpened
 
         // Only update if changed to prevent unnecessary re-renders
         guard newHovering != isHovering else { return }
@@ -369,7 +409,7 @@ class NotchViewModel: ObservableObject {
     /// 一次鼠标按下（位置可注入，便于单测）。
     ///
     /// 面板**内部**的点击一律不在这里处理，交给 SwiftUI 自己分派（见 `NotchView` 头部
-    /// 条带上的手势）。原因：这里的判定带是**关闭态胶囊**矩形（`notchScreenRect`），
+    /// 条带上的手势）。原因：这里的判定带是**关闭态胶囊**那一块（`closedCapsuleSize`），
     /// 而「点胶囊收起」这个手势会连头部条带上的按钮一起吃掉——用户把胶囊调宽到 300pt
     /// 后，统计按钮（命中区 [1089, 1111]）整个落进带里（带右边缘 1110），点击被抢走，
     /// 灵动岛收起而不是切页；再宽一点设置按钮与设置页的返回箭头也会中招。
@@ -377,13 +417,16 @@ class NotchViewModel: ObservableObject {
     /// 这里**不转投**点击：这一下有没有被面板窗口吞掉只有窗口自己知道，转投统一由
     /// `NotchPanel.sendEvent` 做。这里再投一次的话，屏幕下半部（不在窗口覆盖范围内、
     /// 系统本来就已经把点击交给了下层应用）会变成双击。
+    ///
+    /// 左键与右键走同一个入口：右键在卡片外同样要能收起面板（左键收起、右键不收起的话，
+    /// 面板会停在「看着还在、窗口其实已经让开」的状态），在胶囊上则与左键同义（展开）。
     func handleMouseDown(at location: CGPoint) {
         switch status {
         case .opened:
             guard geometry.isPointOutsidePanel(location, size: openedSize) else { return }
             notchClose()
         case .closed, .popping:
-            if geometry.isPointInNotch(location) {
+            if isPointInClosedCapsule(location) {
                 notchOpen(reason: .click)
             }
         }
@@ -414,6 +457,31 @@ class NotchViewModel: ObservableObject {
     func collapseForForwardedClick() {
         guard status == .opened else { return }
         notchClose()
+    }
+
+    // MARK: - 状态接续（屏幕参数变化重建窗口）
+
+    /// 当前状态快照：窗口管理器在销毁旧窗口**之前**取走，装到新窗口上（见 `NotchPanelState`）。
+    var panelState: NotchPanelState {
+        NotchPanelState(
+            status: status,
+            openReason: openReason,
+            contentType: contentType,
+            menuSection: menuSection,
+            chatSession: currentChatSession)
+    }
+
+    /// 把一份状态快照装回来。`status` 最后写：状态订阅随后看到的是这一份完整的快照。
+    ///
+    /// 刻意**不**在这里抢键盘焦点：状态变化时用户多半正在系统设置里改显示参数，
+    /// 抢走键盘会打断他；焦点该不该拿仍由 `takesKeyboardFocusOnOpen` 那套规则管，
+    /// 窗口控制器在接续这一跳里会跳过它。
+    func restorePanelState(_ state: NotchPanelState) {
+        openReason = state.openReason
+        contentType = state.contentType
+        menuSection = state.menuSection
+        currentChatSession = state.chatSession
+        status = state.status
     }
 
     // MARK: - Actions

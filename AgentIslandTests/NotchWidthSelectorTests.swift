@@ -111,4 +111,22 @@ struct NotchWidthSelectorTests {
             selector.expandedPickerHeight == NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 2)
         )
     }
+
+    @Test("标称宽度只加长胶囊中间那段：胶囊宽度随它 1:1 增长，两侧耳位完全不参与")
+    func nominalWidthOnlyLengthensTheMiddleSection() {
+        // 「计数避开相机挖孔」只由耳宽决定（推导见 `NotchClosedMetrics` 文件头）：把胶囊调宽
+        // 不该把计数推进挖孔里，也不该让计数换档；边界各向外长一半。
+        let ear: CGFloat = 30
+        let narrow = NotchClosedMetrics.capsuleSize(
+            notchSize: CGSize(width: 200, height: 32), earWidth: ear, showsEars: true)
+        let wide = NotchClosedMetrics.capsuleSize(
+            notchSize: CGSize(width: 300, height: 32), earWidth: ear, showsEars: true)
+
+        #expect(wide.width - narrow.width == 100, "标称宽 +100 → 画出来的胶囊宽 +100")
+        #expect(wide.width / 2 - narrow.width / 2 == 50, "多出来的宽度两侧平分，耳位不动")
+        #expect(wide.height == narrow.height)
+        // 胶囊始终盖住物理挖孔（两种标称宽下都成立）。
+        #expect(narrow.width > 200)
+        #expect(wide.width > 300)
+    }
 }

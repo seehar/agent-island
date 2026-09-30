@@ -9,11 +9,10 @@ import AppKit
 import CoreGraphics
 import SwiftUI
 
-// Corner radius constants
-private let cornerRadiusInsets = (
- opened: (top: CGFloat(19), bottom: CGFloat(24)),
- closed: (top: CGFloat(6), bottom: CGFloat(14))
-)
+// 展开态卡片的内边距。**与圆角分开成一组**：这两个数原先直接借用顶角圆角值，于是改一下
+// 圆角就把版面一起挪走。第一层让头部条带避开顶部的反向弧，第二层是卡片四周的留白。
+private let openedCardHeaderInset: CGFloat = 19
+private let openedCardSideInset: CGFloat = 12
 
 // 头部行的间距（实测校准）。展开态右端是「图表 · 额度 · 齿轮 · 计数」：
 //   · 三个按钮之间用 `headerControlSpacing`（原先固定 12，字形之间因此有 ~22pt）；
@@ -23,7 +22,6 @@ private let cornerRadiusInsets = (
 // 关闭态没有按钮，计数沿用胶囊自己的 4pt 尾距。
 private let headerControlSpacing: CGFloat = 8
 private let headerGlyphMargin: CGFloat = 5
-private let headerBadgeTrailing: CGFloat = 4
 
 struct NotchView: View {
  @ObservedObject var viewModel: NotchViewModel
@@ -116,33 +114,25 @@ struct NotchView: View {
   )
  }
 
- /// Extra width for expanding activities (like Dynamic Island)
- private var expansionWidth: CGFloat {
-  // Permission indicator adds width on left side only
-  let permissionIndicatorWidth: CGFloat = hasPendingPermission ? 18 : 0
+ /// 卡片的尺寸：**画出来的那一块**（`NotchCard` 按它定死 frame）。命中判定与「点卡片外
+ /// 收起」取的是同一个矩形（`NotchGeometry` 按这个尺寸摆位），三处不再各算一套。
+ private var cardSize: CGSize {
+  viewModel.status == .opened ? notchSize : closedCapsuleSize
+ }
 
-  // Expand for processing activity
-  if activityCoordinator.expandingActivity.show {
-   switch activityCoordinator.expandingActivity.type {
-   case .processing:
-    let baseWidth = 2 * max(0, closedNotchSize.height - 12) + 20
-    return baseWidth + permissionIndicatorWidth
-   case .none:
-    break
-   }
-  }
-
-  // Expand for pending permissions (left indicator) or waiting for input (checkmark on right)
-  if hasPendingPermission {
-   return 2 * max(0, closedNotchSize.height - 12) + 20 + permissionIndicatorWidth
-  }
-
-  // Waiting for input just shows checkmark on right, no extra left indicator
-  if hasWaitingForInput {
-   return 2 * max(0, closedNotchSize.height - 12) + 20
-  }
-
-  return 0
+ /// 关闭态胶囊**画出来的**尺寸：宽度跟着计数文案的实测宽度走（左右耳 + 中间文字槽 +
+ /// 计数尾距 + 两侧内边距，见 `NotchClosedMetrics.capsuleSize`）。
+ ///
+ /// 它同时是命中判据：布局变化时发布给视图模型，悬停展开与点击展开都按它判——
+ /// 画出来的与判据必须是同一个数，否则角色（左耳）与计数徽标（右耳）会跨在边线两侧：
+ /// 耳朵外半截悬停没反应、点击还会穿到菜单栏。
+ private var closedCapsuleSize: CGSize {
+  NotchClosedMetrics.capsuleSize(
+   notchSize: closedNotchSize,
+   earWidth: countEarWidth,
+   showsEars: showClosedActivity,
+   showsPermissionIndicator: hasPendingPermission,
+   isBouncing: isBouncing)
  }
 
  private var notchSize: CGSize {
@@ -154,23 +144,14 @@ struct NotchView: View {
   }
  }
 
- /// Width of the closed content (notch + any expansion)
- private var closedContentWidth: CGFloat {
-  closedNotchSize.width + expansionWidth
- }
-
  // MARK: - Corner Radii
 
  private var topCornerRadius: CGFloat {
-  viewModel.status == .opened
-   ? cornerRadiusInsets.opened.top
-   : cornerRadiusInsets.closed.top
+  viewModel.status == .opened ? AppRadius.panelOpenedTop : AppRadius.panelClosedTop
  }
 
  private var bottomCornerRadius: CGFloat {
-  viewModel.status == .opened
-   ? cornerRadiusInsets.opened.bottom
-   : cornerRadiusInsets.closed.bottom
+  viewModel.status == .opened ? AppRadius.panelOpenedBottom : AppRadius.panelClosedBottom
  }
 
  private var currentNotchShape: NotchShape {
@@ -180,11 +161,26 @@ struct NotchView: View {
   )
  }
 
- // Animation springs
- private let openAnimation = Animation.spring(
-  response: 0.42, dampingFraction: 0.8, blendDuration: 0)
- private let closeAnimation = Animation.spring(
-  response: 0.45, dampingFraction: 1.0, blendDuration: 0)
+ // MARK: - Motion
+
+ /// 系统「减弱动态效果」：下面每条曲线都经 `AppMotion.pick` 换档（短促淡出，不弹不冲）。
+ @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+ /// 展开 / 收起的弹簧。
+ private var openAnimation: Animation {
+  AppMotion.pick(
+   .spring(response: 0.42, dampingFraction: 0.8, blendDuration: 0), reduceMotion: reduceMotion)
+ }
+
+ private var closeAnimation: Animation {
+  AppMotion.pick(
+   .spring(response: 0.45, dampingFraction: 1.0, blendDuration: 0), reduceMotion: reduceMotion)
+ }
+
+ /// 合入减动效档位的曲线：视图里所有弹簧/脉冲都从这一道过。
+ private func motion(_ animation: Animation) -> Animation {
+  AppMotion.pick(animation, reduceMotion: reduceMotion)
+ }
 
  // MARK: - Body
 
@@ -192,57 +188,47 @@ struct NotchView: View {
   ZStack(alignment: .top) {
    // Outer container does NOT receive hits - only the notch content does
    VStack(spacing: 0) {
-    notchLayout
-     .frame(
-      maxWidth: viewModel.status == .opened ? notchSize.width : nil,
-      alignment: .top
-     )
-     .padding(
-      .horizontal,
-      viewModel.status == .opened
-       ? cornerRadiusInsets.opened.top
-       : cornerRadiusInsets.closed.bottom
-     )
-     .padding([.horizontal, .bottom], viewModel.status == .opened ? 12 : 0)
-     .background {
-      // 展开态才换材质：关闭态胶囊整体落在真实刘海的物理黑像素区（或菜单栏）上，
-      // 换材质会在挖孔边缘留出可见的错位亮边，判据见 `NotchPanelSurface`。
-      if viewModel.status == .opened {
-       Color.clear.notchPanelSurface(shape: currentNotchShape)
-      } else {
-       Color.black
-      }
+    // 卡片：画出来的那一块由 `cardSize` 定死（命中判定与「点卡片外收起」同源）。内边距留在
+    // 框**之内**——原先那套「两层 padding + maxWidth/maxHeight 夹」只约束布局尺寸、不裁剪
+    // 溢出，背景因此画到比声明宽 19pt 的一块上，而判据按声明值算。
+    NotchCard(size: cardSize, shape: currentNotchShape, isOpened: viewModel.status == .opened) {
+     notchLayout
+      .frame(
+       maxWidth: viewModel.status == .opened ? notchSize.width : nil,
+       alignment: .top
+      )
+      .padding(
+       .horizontal,
+       viewModel.status == .opened
+        ? openedCardHeaderInset
+        : NotchClosedMetrics.Capsule.sidePadding
+      )
+      .padding([.horizontal, .bottom], viewModel.status == .opened ? openedCardSideInset : 0)
+    }
+    .shadow(
+     color: (viewModel.status == .opened || isHovering) ? .black.opacity(0.7) : .clear,
+     radius: 6
+    )
+    .animation(
+     viewModel.status == .opened ? openAnimation : closeAnimation, value: viewModel.status
+    )
+    .animation(openAnimation, value: notchSize)  // Animate container size changes between content types
+    .animation(motion(.smooth), value: activityCoordinator.expandingActivity)
+    .animation(motion(.smooth), value: hasPendingPermission)
+    .animation(motion(.smooth), value: hasWaitingForInput)
+    .animation(motion(.smooth), value: countEarWidth)
+    .animation(motion(.spring(response: 0.3, dampingFraction: 0.5)), value: isBouncing)
+    .contentShape(Rectangle())
+    .onHover { hovering in
+     withAnimation(motion(.spring(response: 0.38, dampingFraction: 0.8))) {
+      isHovering = hovering
      }
-     .clipShape(currentNotchShape)
-     .shadow(
-      color: (viewModel.status == .opened || isHovering) ? .black.opacity(0.7) : .clear,
-      radius: 6
-     )
-     .frame(
-      maxWidth: viewModel.status == .opened ? notchSize.width : nil,
-      maxHeight: viewModel.status == .opened ? notchSize.height : nil,
-      alignment: .top
-     )
-     .animation(
-      viewModel.status == .opened ? openAnimation : closeAnimation, value: viewModel.status
-     )
-     .animation(openAnimation, value: notchSize)  // Animate container size changes between content types
-     .animation(.smooth, value: activityCoordinator.expandingActivity)
-     .animation(.smooth, value: hasPendingPermission)
-     .animation(.smooth, value: hasWaitingForInput)
-     .animation(.smooth, value: countEarWidth)
-     .animation(.spring(response: 0.3, dampingFraction: 0.5), value: isBouncing)
-     .contentShape(Rectangle())
-     .onHover { hovering in
-      withAnimation(.spring(response: 0.38, dampingFraction: 0.8)) {
-       isHovering = hovering
-      }
+    }
+    .onTapGesture {
+     if viewModel.status != .opened {
+      viewModel.notchOpen(reason: .click)
      }
-     .onTapGesture {
-      if viewModel.status != .opened {
-       viewModel.notchOpen(reason: .click)
-      }
-     }
+    }
    }
   }
   .opacity(isVisible ? 1 : 0)
@@ -254,9 +240,19 @@ struct NotchView: View {
    if !viewModel.hasPhysicalNotch || !idleVisibility.option.hidesWhenIdle {
     isVisible = true
    }
+   // 接续来的展开态（屏幕参数变化重建窗口）在 onAppear 时就已是 opened：onChange 不会再触发，
+   // 可见性得在这里补上，否则恢复出来的面板是隐形的。
+   if viewModel.status == .opened {
+    isVisible = true
+   }
+   // 关闭态胶囊尺寸先发布一次：`.onChange` 只在变化时触发，首帧的判据不能停在初始估值上。
+   viewModel.updateClosedCapsuleSize(closedCapsuleSize)
   }
   .onChange(of: viewModel.status) { oldStatus, newStatus in
    handleStatusChange(from: oldStatus, to: newStatus)
+  }
+  .onChange(of: closedCapsuleSize) { _, size in
+   viewModel.updateClosedCapsuleSize(size)
   }
   .onChange(of: sessionMonitor.pendingInstances) { _, sessions in
    handlePendingSessionsChange(sessions)
@@ -306,8 +302,8 @@ struct NotchView: View {
       .asymmetric(
        insertion: .scale(scale: 0.8, anchor: .top)
         .combined(with: .opacity)
-        .animation(.smooth(duration: 0.35)),
-       removal: .opacity.animation(.easeOut(duration: 0.15))
+        .animation(motion(.smooth(duration: 0.35))),
+       removal: .opacity.animation(motion(.easeOut(duration: 0.15)))
       )
      )
    }
@@ -382,7 +378,10 @@ struct NotchView: View {
     HStack(spacing: 4) {
      headerLogo(isSource: showClosedActivity)
 
-     // Permission indicator only (amber) - waiting for input shows checkmark on right
+     // 审批指示只在这里（琥珀色）。「等待输入（就绪）」**不画**右侧勾：关闭态由角色的
+     // 姿态与计数取色表达（见 `handleWaitingForInputChange`）。这里原先写着「右边画勾」，
+     // 但那个勾在这份实现里从来没有画过——`expansionWidth` 一类预留宽度的属性也一并删了，
+     // 它们只会让「按公式算出来的胶囊」与真正画出来的那一块对不上。
      if hasPendingPermission {
       PermissionIndicatorIcon(size: 14, color: TerminalColors.amber)
        .matchedGeometryEffect(
@@ -390,7 +389,10 @@ struct NotchView: View {
      }
     }
     .frame(
-     width: viewModel.status == .opened ? nil : countEarWidth + (hasPendingPermission ? 18 : 0)
+     width: viewModel.status == .opened
+      ? nil
+      : countEarWidth
+       + (hasPendingPermission ? NotchClosedMetrics.Capsule.permissionIndicator : 0)
     )
     .padding(.leading, viewModel.status == .opened ? 8 : 0)
    }
@@ -403,14 +405,16 @@ struct NotchView: View {
     // Closed without activity: empty space
     Rectangle()
      .fill(.clear)
-     .frame(width: closedNotchSize.width - 20)
+     .frame(width: closedNotchSize.width - NotchClosedMetrics.Capsule.idleCenterInset)
    } else {
     // Closed with activity: spacer (with optional bounce)
     // 透明占位：这一块画成黑色只是因为**关闭态背景**是黑的，它的作用是把左右
     // 两侧撑开。跟着背景一起换成 clear，与上面「无活动」分支同源。
     Rectangle()
      .fill(.clear)
-     .frame(width: closedNotchSize.width - cornerRadiusInsets.closed.top + (isBouncing ? 16 : 0))
+     .frame(
+      width: closedNotchSize.width - NotchClosedMetrics.Capsule.centerInset
+       + (isBouncing ? NotchClosedMetrics.Capsule.bounce : 0))
    }
 
    // Right side - **只画关闭态**的「活跃数/总数」：状态由计数取色与左侧 logo 表达。
@@ -419,7 +423,7 @@ struct NotchView: View {
    if showClosedActivity && viewModel.status != .opened {
     sessionCountBadge(for: closedCountLabel)
      .frame(width: countEarWidth)
-     .padding(.trailing, headerBadgeTrailing)
+     .padding(.trailing, NotchClosedMetrics.Capsule.badgeTrailing)
    }
   }
   .frame(height: closedNotchSize.height)
@@ -428,7 +432,16 @@ struct NotchView: View {
  /// 关闭态的**最小**耳宽：由胶囊高度推出（32pt 高的刘海 → 30），跟着「胶囊高度」设置走。
  /// 计数文案更宽时由 `countEarWidth` 抬上去，见 `NotchClosedMetrics`。
  private var sideWidth: CGFloat {
-  max(0, closedNotchSize.height - 12) + 10
+  NotchClosedMetrics.minimumEarWidth(notchHeight: closedNotchSize.height)
+ }
+
+ /// 头部文字（计数徽标）的字号档位：与内容面同一个来源。
+ ///
+ /// 关闭态胶囊原先忽略用户的「内容字号」——比例只注入给了内容面，于是用户调大字号后，
+ /// 内容跟着变大、而贴在相机挖孔边上的计数还是 11pt。这里直接把档位交给度量函数：
+ /// 字号与耳宽必须一起缩放（见 `NotchClosedMetrics.textWidth`）。
+ private var headerTextScale: CGFloat {
+  textSizeSelector.scale
  }
 
  /// 关闭态计数徽标的档位：受胶囊耳宽上限约束，超宽的计数退成更短的写法，而不是被截断。
@@ -446,14 +459,16 @@ struct NotchView: View {
    activeSessions: activeSessionCount,
    subagents: activeSubagentCount,
    totalSessions: totalSessionCount,
-   limit: limit)
+   limit: limit,
+   scale: headerTextScale)
  }
 
  /// 关闭态左右耳的宽度：按当前计数文案的实测宽度自适应，夹在最小耳宽与上限之间。
  /// 左右耳**同宽**——胶囊在屏幕上居中，文字槽在右耳里居中，因此「计数避开相机挖孔」
  /// 只由耳宽决定；只加宽右耳反而会把计数推回挖孔里（推导见 `NotchClosedMetrics`）。
  private var countEarWidth: CGFloat {
-  NotchClosedMetrics.earWidth(for: closedCountLabel, minimum: sideWidth)
+  NotchClosedMetrics.earWidth(
+   for: closedCountLabel, minimum: sideWidth, scale: headerTextScale)
  }
 
  /// 会话计数徽标：`活跃[+子]/总数`，按档位取舍（见 `NotchClosedMetrics`）。
@@ -463,7 +478,7 @@ struct NotchView: View {
   sessionCountText(for: label)
    .font(
     .system(
-     size: NotchClosedMetrics.fontSize,
+     size: NotchClosedMetrics.fontSize * headerTextScale,
      weight: NotchClosedMetrics.fontWeight,
      design: NotchClosedMetrics.fontDesign)
    )
@@ -523,7 +538,7 @@ struct NotchView: View {
     // 一个分组，因此这个按钮等价于「设置面板 → 统计」；设置页自己的返回箭头仍负责
     // 「回到会话列表」。
     Button {
-     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+     withAnimation(motion(.spring(response: 0.3, dampingFraction: 0.8))) {
       viewModel.toggleStatistics()
      }
     } label: {
@@ -545,7 +560,7 @@ struct NotchView: View {
     // 会话列表），否则显示信用卡图标。额度页同样是设置面板里的一个分组，因此这个按钮等价于
     // 「设置面板 → 额度」。
     Button {
-     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+     withAnimation(motion(.spring(response: 0.3, dampingFraction: 0.8))) {
       viewModel.toggleQuota()
      }
     } label: {
@@ -565,7 +580,7 @@ struct NotchView: View {
 
     // Menu toggle
     Button {
-     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+     withAnimation(motion(.spring(response: 0.3, dampingFraction: 0.8))) {
       viewModel.toggleMenu()
       if viewModel.isShowingSettings {
        updateManager.markUpdateSeen()
@@ -827,5 +842,43 @@ struct NotchView: View {
   }
 
   return false
+ }
+}
+
+// MARK: - 卡片容器
+
+/// 面板卡片的容器：把**画出来的那一块**定死成一个显式尺寸的框。
+///
+/// 尺寸来自 `NotchGeometry` 的那套矩形（展开态是 `openedSize`，关闭态是胶囊按计数文案
+/// 算出来的尺寸，见 `NotchClosedMetrics.capsuleSize`）：视图画的是它、宿主视图的命中判定是它、
+/// 「点卡片外收起」与点击转投也是它——三种说法因此不可能再各算一套。
+///
+/// 为什么用固定 `frame` 而不是「两层 padding + `maxWidth`/`maxHeight` 夹」：后者只约束
+/// **布局**尺寸、**不裁剪**溢出，背景会画到比声明更宽的一块上（打开态左右各 19pt），而
+/// 命中区与行为判据按声明值算——那条 19pt 的边上「看得见卡片、点上去没反应」。内边距因此
+/// 留在框**之内**，外溢的部分交给 `clipShape`（内容在设计上装得下，裁到的只是多余的边）。
+///
+/// - Note: 关闭态保持纯黑：胶囊整体落在真实刘海的物理黑像素区（或菜单栏）上，
+///   换材质会在挖孔边缘留出可见的错位亮边（判据见 `NotchPanelSurface`）。
+struct NotchCard<Content: View>: View {
+ /// 卡片尺寸（与 `NotchGeometry` 的卡片矩形同源）。
+ let size: CGSize
+ /// 卡片形状（两套角的分工见 `NotchShape`）。
+ let shape: NotchShape
+ /// 展开态才换材质。
+ let isOpened: Bool
+ @ViewBuilder var content: Content
+
+ var body: some View {
+  content
+   .frame(width: size.width, height: size.height, alignment: .top)
+   .background {
+    if isOpened {
+     Color.clear.notchPanelSurface(shape: shape)
+    } else {
+     Color.black
+    }
+   }
+   .clipShape(shape)
  }
 }

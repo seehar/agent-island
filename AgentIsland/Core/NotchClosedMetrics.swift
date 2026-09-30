@@ -2,7 +2,7 @@
 //  NotchClosedMetrics.swift
 //  AgentIsland
 //
-//  关闭态胶囊右侧计数徽标的档位与耳宽。
+//  关闭态胶囊的度量：右侧计数徽标的档位与耳宽，以及**画出来的胶囊尺寸**。
 //
 //  关闭态胶囊在屏幕上居中、左右耳等宽，计数文字槽在右耳里居中，因此（相对屏幕中线）：
 //
@@ -19,30 +19,38 @@
 //  实测校准（1512×982 内置屏、耳宽 30、文字槽 30、11pt 字号）：`1/3`(19.5pt) 刚好压线过
 //  挖孔 1.5pt，`11/22`(34.5pt) 已经滑进挖孔 —— 这就是「计数显示不全」的根因。
 //
+//  `capsuleSize` 是「画出来的那块」的**唯一**出处：视图按它定死卡片的尺寸，
+//  `NotchViewModel` 按它判悬停/点击/转投。过去这三处各算一套（画 286、判据 224），
+//  角色与计数徽标正好跨在边的两侧——耳朵的外半截悬停没反应、点击穿到菜单栏。
+//
 
 import AppKit
 import CoreGraphics
 import Foundation
 import SwiftUI
 
-/// 关闭态计数徽标的度量与档位（纯函数，可单测）。
+/// 关闭态计数徽标与胶囊的度量与档位（纯函数，可单测）。
 nonisolated enum NotchClosedMetrics {
     // MARK: - 字体
 
-    /// 徽标字号 / 字重 / 字体设计：视图的 `.font(...)` 与这里的宽度实测同源。
-    /// SwiftUI 的 `Font.Weight` 不暴露数值，两处只能各写 `.semibold`；等价性由
-    /// `NotchClosedMetricsTests` 用「真实 SwiftUI 排版宽度」对照钉住，改一处不改另一处会失败。
-    static let fontSize: CGFloat = 11
+    /// 徽标字号：取字号阶梯的「副标题/脚注」档（11pt），**刻意不跟菜单栏的 13pt 常规体对齐**。
+    ///
+    /// 理由：这一枚是在 30pt 宽的耳位里、贴着相机挖孔边缘的一小段数字，宽度直接决定耳宽，
+    /// 而耳宽又决定计数会不会滑进挖孔（见文件头的实测校准）。换成菜单栏那档（13pt 常规体）
+    /// 会把参考宽度表与整条「耳宽 ≥ 文字宽 + 余量」的不变量一起推翻，而菜单栏文字本来也
+    /// 不比它更容易读——它只是同一条顶边上的邻居，不是同一套排版。
+    static let fontSize: CGFloat = AppTypeScale.footnote
     static let fontWeight: Font.Weight = .semibold
     static let fontDesign: Font.Design = .rounded
 
     /// 宽度实测用的 AppKit 字体，与上面三个常量等价（顺序与视图一致：
     /// 先取等宽数字的系统字体，再换成 `.rounded` 设计）。
-    private static let measurementFont: NSFont = {
-        let base = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .semibold)
+    private static func measurementFont(scale: CGFloat) -> NSFont {
+        let size = fontSize * scale
+        let base = NSFont.monospacedDigitSystemFont(ofSize: size, weight: .semibold)
         let descriptor = base.fontDescriptor.withDesign(.rounded) ?? base.fontDescriptor
-        return NSFont(descriptor: descriptor, size: fontSize) ?? base
-    }()
+        return NSFont(descriptor: descriptor, size: size) ?? base
+    }
 
     // MARK: - 宽度
 
@@ -56,8 +64,35 @@ nonisolated enum NotchClosedMetrics {
 
     /// 文案在徽标字体下的排版宽度。实测而不是估算：数字虽然等宽，`+` 与 `/` 的推进量不同，
     /// 估出来的宽度会让耳宽系统性偏窄或偏宽。
-    static func textWidth(_ text: String) -> CGFloat {
-        (text as NSString).size(withAttributes: [.font: measurementFont]).width
+    ///
+    /// `scale` 是用户的**内容字号**档位：关闭态胶囊原先忽略它（只有内容面注入了
+    /// `\.appTextScale`），于是用户把内容字号调大后，计数照旧按 11pt 排版，而它周围
+    /// 一切都放大了。字号与耳宽必须同源缩放，否则字先被撑破、耳宽还按旧字号算。
+    static func textWidth(_ text: String, scale: CGFloat = 1) -> CGFloat {
+        (text as NSString).size(withAttributes: [.font: measurementFont(scale: scale)]).width
+    }
+
+    // MARK: - 胶囊的排版常量
+
+    /// 关闭态胶囊的排版常量：与 `NotchView.headerRow` 的算式**同源**（视图排版与下面的
+    /// 宽度公式必须是同一个数，否则「画出来的胶囊」与命中带又会分家）。
+    /// 这些值刻意不借用圆角（顶部圆角曾是 6、左右内边距曾是 14）：改圆角不该把胶囊的
+    /// 布局一起挪走。
+    enum Capsule {
+        /// 活动态中间文字槽相对标称胶囊宽度的内缩（顶部圆角那一段）。
+        static let centerInset: CGFloat = 6
+        /// 无活动态中间文字槽相对标称胶囊宽度的内缩（`NotchView` 的空胶囊分支）。
+        static let idleCenterInset: CGFloat = 20
+        /// 计数徽标与胶囊右缘之间的尾距。
+        static let badgeTrailing: CGFloat = 4
+        /// 胶囊两侧的内边距。
+        static let sidePadding: CGFloat = 14
+        /// 头部条带的固定高度：胶囊高度不足 24 时也画 24（关闭态胶囊的最小高度）。
+        static let minimumHeight: CGFloat = 24
+        /// 左侧审批指示（琥珀色）占掉的宽度：图标 14 + 与角色之间的间距 4。
+        static let permissionIndicator: CGFloat = 18
+        /// 提示弹跳时临时加宽的宽度（`isBouncing`）。
+        static let bounce: CGFloat = 16
     }
 
     // MARK: - 档位
@@ -96,7 +131,8 @@ nonisolated enum NotchClosedMetrics {
         activeSessions: Int,
         subagents: Int,
         totalSessions: Int,
-        limit: CGFloat = maximumEarWidth
+        limit: CGFloat = maximumEarWidth,
+        scale: CGFloat = 1
     ) -> Label {
         let subagentCount = max(0, subagents)
         for level in LabelLevel.allCases {
@@ -106,7 +142,7 @@ nonisolated enum NotchClosedMetrics {
                 subagents: level == .activeOnly || level == .withoutSubagents
                     ? nil : (subagentCount > 0 ? subagentCount : nil),
                 totalSessions: level == .activeOnly || level == .withoutTotal ? nil : totalSessions)
-            if textWidth(candidate.text) + countClearance <= limit { return candidate }
+            if textWidth(candidate.text, scale: scale) + countClearance <= limit { return candidate }
         }
         // 最省位的一档仍然超上限：交给 minimumScaleFactor 缩字。
         return Label(
@@ -115,7 +151,51 @@ nonisolated enum NotchClosedMetrics {
 
     /// 耳宽：文字宽 + 余量，夹在 `minimum`（胶囊高度推出的最小耳宽）与上限之间。
     /// 左右耳同宽使用——只加宽右耳解不了问题（见文件头）。
-    static func earWidth(for label: Label, minimum: CGFloat) -> CGFloat {
-        min(maximumEarWidth, max(minimum, textWidth(label.text) + countClearance))
+    static func earWidth(for label: Label, minimum: CGFloat, scale: CGFloat = 1) -> CGFloat {
+        min(maximumEarWidth, max(minimum, textWidth(label.text, scale: scale) + countClearance))
+    }
+
+    /// 由胶囊高度推出的最小耳宽（32pt 高的刘海 → 30），跟着「胶囊高度」设置走。
+    static func minimumEarWidth(notchHeight: CGFloat) -> CGFloat {
+        max(0, notchHeight - 12) + 10
+    }
+
+    // MARK: - 胶囊尺寸
+
+    /// 关闭态胶囊**画出来的**尺寸。
+    ///
+    /// 宽度 = 左耳 + 中间文字槽 + 右耳 + 计数尾距 + 两侧内边距；左耳在有待批指示时多占
+    /// 一个指示宽度（右耳不加宽——只加宽右耳会把计数推回挖孔里，见文件头）。
+    /// 高度取「头部条带的固定高度」，胶囊高度更小时也不会被压扁。
+    ///
+    /// 没有活动时视图不画耳朵（文字槽取 `idleCenterInset`），因此那种形态按 `showsEars: false`
+    /// 单列：命中带必须与**当前画出来的那一块**一致，不能拿活动态的宽胶囊去覆盖空胶囊
+    /// （那会在菜单栏上多出一条无罪受判的悬停带）。
+    ///
+    /// - Parameters:
+    ///   - notchSize: 标称胶囊尺寸（`NotchViewModel.deviceNotchRect`）。
+    ///   - earWidth: `earWidth(for:minimum:scale:)` 给出的耳宽。
+    ///   - showsEars: 视图当前是否画了左右耳（关闭态有活动）。
+    ///   - showsPermissionIndicator: 左侧是否画了琥珀色审批指示。
+    ///   - isBouncing: 是否处于提示弹跳（短促加宽）。
+    static func capsuleSize(
+        notchSize: CGSize,
+        earWidth: CGFloat,
+        showsEars: Bool,
+        showsPermissionIndicator: Bool = false,
+        isBouncing: Bool = false
+    ) -> CGSize {
+        let height = max(Capsule.minimumHeight, notchSize.height)
+        guard showsEars else {
+            let centerWidth = max(0, notchSize.width - Capsule.idleCenterInset)
+            return CGSize(width: centerWidth + 2 * Capsule.sidePadding, height: height)
+        }
+
+        let leftEar = earWidth + (showsPermissionIndicator ? Capsule.permissionIndicator : 0)
+        let width =
+            leftEar + max(0, notchSize.width - Capsule.centerInset) + earWidth
+            + Capsule.badgeTrailing + 2 * Capsule.sidePadding
+            + (isBouncing ? Capsule.bounce : 0)
+        return CGSize(width: width, height: height)
     }
 }
