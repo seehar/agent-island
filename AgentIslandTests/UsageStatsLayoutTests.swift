@@ -571,6 +571,57 @@ struct UsageStatsLayoutTests {
     #expect(measured == expected, "编辑凭据态实际排版 \(measured) ≠ 解析式 \(expected)")
   }
 
+  /// 凭据表单的文本框宽度：理想上限与行的可用宽取小，紧凑档因此不会把标签列挤没
+  /// （真机实测：写死 246pt 时紧凑档的标签列只剩约 38pt，标题与副标题都变成省略号）。
+  @Test("凭据行的文本框按行的可用宽收窄：紧凑档下标签列仍有它的下限")
+  @MainActor
+  func credentialFieldNarrowsAtCompactWidth() {
+    // 行的可用宽 = 面板内容宽 − 行左右内边距 − 徽标块（`SettingsRowLabel` 的排版）：
+    // 它才是文本框与标签列争的那块宽度。
+    func rowAvailableWidth(contentWidth: CGFloat) -> CGFloat {
+      contentWidth - 2 * NotchMenuMetrics.rowHorizontalPadding
+        - NotchMenuMetrics.badgeSize - NotchMenuMetrics.badgeGap
+    }
+    let standard = rowAvailableWidth(
+      contentWidth: NotchMenuMetrics.panelWidthMax - NotchMenuMetrics.listPaddingHeight)
+    let compact = rowAvailableWidth(
+      contentWidth: NotchMenuMetrics.panelWidthMax * PanelSize.compact.scale
+        - NotchMenuMetrics.listPaddingHeight)
+
+    // 账号名 / 服务器地址两行的理想上限就是 `credentialFields` 里的 246：标准档下它必须
+    // 原样保住——标准档的排版与改造前逐点一致。
+    #expect(
+      BalanceConfigRow.fieldWidth(preferred: 246, available: standard, isSecret: false)
+        == 246,
+      "标准档下长字段应当仍然拿满 246pt（可用宽 \(standard)pt）")
+
+    // 紧凑档：按可用宽收窄，标签列至少留下它自己的下限（130pt）+ 尾部间隙（8pt）。
+    let compactField = BalanceConfigRow.fieldWidth(
+      preferred: 246, available: compact, isSecret: false)
+    #expect(compactField < 246, "紧凑档下长字段必须收窄，否则标签列会被挤成省略号")
+    #expect(
+      abs(compactField - (compact - 138)) < 0.01,
+      "紧凑档下文本框应当收到 \(compact - 138)pt，实际 \(compactField)pt")
+    #expect(
+      compact - compactField >= 130 - 0.01,
+      "紧凑档下标签列只剩 \(compact - compactField)pt，低于下限就会变成省略号")
+
+    // 密钥行尾部还挂着显示 / 隐藏按钮（间距 6 + 命中框 28），那一段也要先扣掉：
+    // 可用宽够时（用 246 的长字段试）收到 `可用宽 − 标签列下限 − 尾部间隙 − 34`。
+    #expect(
+      abs(
+        BalanceConfigRow.fieldWidth(preferred: 246, available: compact, isSecret: true)
+          - (compact - 138 - 34)) < 0.01,
+      "密钥行的文本框宽度没有扣掉显示 / 隐藏按钮那一段")
+    // 扣完之后仍装得下理想上限（短字段 150pt）时按上限来，不被可用宽改写。
+    #expect(
+      BalanceConfigRow.fieldWidth(preferred: 150, available: compact, isSecret: true) == 150)
+
+    // 理想上限本身就短（`sk-…` / 令牌 / 用户 ID）时按上限走，不受可用宽影响。
+    #expect(
+      BalanceConfigRow.fieldWidth(preferred: 150, available: compact, isSecret: false) == 150)
+  }
+
   // MARK: - 额度页：详情卡按「有没有数据」增减行
 
   /// 详情卡的可选行（身份 / 密钥额度）随「这一槽取不取得到数据」增减：平台只给 `sk-` 时

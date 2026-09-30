@@ -24,6 +24,8 @@ struct QuotaSettingsPage: View {
     @ObservedObject private var pageState = NewAPIAccountPageState.shared
     @ObservedObject private var l10n = LocalizationManager.shared
 
+    /// 「减少动态效果」系统偏好：凭据表单的展开动画据此换成不动的版本（见 `AppMotion`）。
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
 
     var body: some View {
@@ -113,7 +115,7 @@ struct QuotaSettingsPage: View {
     private func toggleEditing() {
         // `toggleExpansion()` 而不是直接翻 Bool：展开前先收起面板里上一个展开块、收起时
         // 清掉互斥登记（面板高度只按单个展开核对，见 `PickerExpansion`）。
-        withAnimation(SettingsMotion.expand) {
+        withAnimation(AppMotion.pick(SettingsMotion.expand, reduceMotion: reduceMotion)) {
             pageState.toggleExpansion()
         }
     }
@@ -157,7 +159,7 @@ struct QuotaSettingsPage: View {
         ) {
             if let identity = reading.identity, identity.requestCount > 0 {
                 Text(l10n.t("%lld requests", identity.requestCount))
-                    .font(.system(size: 11))
+                    .font(.system(size: AppTypeScale.footnote))
                     .monospacedDigit()
                     .lineLimit(1)
                     .foregroundColor(AppPalette.tertiaryText)
@@ -234,7 +236,9 @@ struct QuotaSettingsPage: View {
         let usage = QuotaReadingSelection.statusText(
             reading.key, currency: reading.siteCurrency, locale: locale, l10n: l10n)
         guard let token = reading.token, !token.name.isEmpty else { return usage }
-        return l10n.t("Token %@", token.name) + " · " + usage
+        // 令牌名与用量拼一句时走格式键（`%@ · %@`）：分隔符两侧要按语言重排，
+        // 直接字符串相加会让译者改不了语序。
+        return l10n.t("%@ · %@", l10n.t("Token %@", token.name), usage)
     }
 
     private var keySubtitleColor: Color {
@@ -310,7 +314,7 @@ struct QuotaSettingsPage: View {
                 isSecret: entry.isSecret,
                 placeholder: entry.placeholder,
                 showsSeparator: position < credentialFields.count - 1,
-                fieldWidth: entry.fieldWidth,
+                preferredFieldWidth: entry.preferredFieldWidth,
                 onSubmit: viewModel.commitConfig
             )
         }
@@ -327,14 +331,16 @@ struct QuotaSettingsPage: View {
                 placeholder: l10n.t("Optional"),
                 // 账号名与服务器地址是这一页最长的两条值（主机名或用户写的备注）：
                 // 文本框给宽一档，否则 `https://your.newapi.host` 这类值会被截掉尾巴。
-                fieldWidth: 246),
+                // 这是**上限**：紧凑档面板窄，实际宽度会缩到可用宽（见 `BalanceConfigRow`），
+                // 免得把标签列挤成省略号。
+                preferredFieldWidth: 246),
             CredentialField(
                 field: .serverURL,
                 badge: SettingsBadge(source: .symbol(name: "link", tint: AppPalette.accent)),
                 title: l10n.t("Server URL"),
                 subtitle: l10n.t("Only https:// is supported"),
                 placeholder: l10n.t("https://api.example.com"),
-                fieldWidth: 246),
+                preferredFieldWidth: 246),
             CredentialField(
                 field: .apiKey,
                 badge: SettingsBadge(source: .symbol(name: "key", tint: AppPalette.accent)),
@@ -367,7 +373,8 @@ struct QuotaSettingsPage: View {
         let subtitle: String
         var isSecret: Bool = false
         var placeholder: String = ""
-        var fieldWidth: CGFloat = 150
+        /// 文本框的理想上限宽度（实际宽度还会按行内可用宽收窄）。
+        var preferredFieldWidth: CGFloat = 150
     }
 
     // MARK: - 输入框绑定
@@ -429,7 +436,9 @@ struct QuotaRefreshControl: View {
             .buttonStyle(SettingsCompactButtonStyle())
             .disabled(viewModel.isRefreshing)
             .onHover { isHovered = $0 }
-            .help(l10n.t("Refresh"))
+            // 禁用时把原因写进提示（与统计页的「重新统计」同一条做法）：刷新中再点也只会
+            // 被同一次请求吞掉，而界面上的唯一信号是图标变淡。
+            .help(viewModel.isRefreshing ? l10n.t("Loading…") : l10n.t("Refresh"))
             .accessibilityLabel(Text(l10n.t("Refresh")))
         }
     }

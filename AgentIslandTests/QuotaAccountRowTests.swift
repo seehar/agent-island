@@ -10,6 +10,7 @@
 //  所以它单独有用例。
 //
 
+import AppKit
 import Foundation
 import Testing
 
@@ -188,5 +189,26 @@ struct QuotaAccountRowTests {
             QuotaAccountRowText(
                 account: blank, reading: NewAPIAccountReading(), locale: locale, l10n: l10n
             ).subtitle == l10n.t("Not configured"))
+    }
+
+    /// 删除账号是这一页唯一的破坏性动作（账号连同偏好域里的凭据一起没）：确认弹窗的按钮
+    /// 次序就是它的安全边界——`NSAlert` 的第一个按钮是默认按钮（回车），所以「取消」必须在
+    /// 第一个；破坏性动作放第二个并标成红色。
+    @Test("删除账号的确认弹窗：取消在第一个，破坏性动作不是回车 / Esc 的落点")
+    @MainActor
+    func removalAlertKeepsCancelFirst() {
+        let alert = QuotaAccountRow.removalAlert()
+
+        #expect(alert.alertStyle == .warning)
+        #expect(
+            alert.messageText
+                == LocalizationManager.t("Remove this account and its stored credentials?"))
+        #expect(alert.buttons.count == 2, "多一个按钮就多一个落点，这里只该有取消与删除")
+        #expect(
+            alert.buttons[0].title == LocalizationManager.t("Cancel"),
+            "第一个按钮必须是取消：它才是回车与 Esc 的落点")
+        #expect(alert.buttons[1].title == LocalizationManager.t("Remove Account"))
+        #expect(alert.buttons[1].hasDestructiveAction, "破坏性动作要让系统标红")
+        #expect(alert.buttons[0].hasDestructiveAction == false)
     }
 }

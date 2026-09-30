@@ -345,12 +345,22 @@ struct UsageStatsView: View {
     /// ——`Set` 的遍历顺序不稳定，直接拼会出现同一份名单每次渲染顺序都不同。
     @ViewBuilder
     private var excludedAgentsNote: some View {
-        if !excludedAgentNames.isEmpty {
-            // 文案刻意压到一行：统计页的高度是解析式预算（`UsageStatsMetrics.sectionHeight`），
-            // 这一行是往整页里新增的一行，宽度上必须装得进最窄档面板
-            // （回归见 `UsageStatsLayoutTests` 的「不进统计的名单在紧凑档里也是一行」）。
-            Text(l10n.t("Not counted: %@", excludedAgentNames.joined(separator: ", ")))
+        if let note = excludedAgentsText {
+            // 这一行是往整页里新增的一行，而统计页的高度是解析式预算
+            // （`UsageStatsMetrics.sectionHeight`）：名单再长也只占一行、超出按尾部截断，
+            // 完整名单走 `.help`（与设置面板的脚注同一套截断策略）。不加 `lineLimit`
+            // 会让它折行——面板高度与实际排版立刻脱钩。
+            Text(note)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(note)
         }
+    }
+
+    /// 「不进统计」那一行的文案；名单为空时不画这一行。
+    private var excludedAgentsText: String? {
+        guard !excludedAgentNames.isEmpty else { return nil }
+        return l10n.t("Not counted: %@", excludedAgentNames.joined(separator: ", "))
     }
 
     /// 不进统计的 Agent 的本地化短名（按 `AgentKind.allCases` 的顺序）。

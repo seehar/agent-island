@@ -12,6 +12,7 @@
 //    多数账号只填得起一个（否则会有一行恒为「—」，改造前就是这个样子）。
 //
 
+import AppKit
 import SwiftUI
 
 /// 一个账号行。
@@ -32,6 +33,11 @@ struct QuotaAccountRow: View {
     @State private var isHovered = false
     @State private var isRemoveHovered = false
 
+    /// 破坏性图标按钮的最小命中边长：画出来的方块是 24×22，命中框撑到 28×28
+    /// （低于 28pt 的图标按钮点起来太窄）。两者都不进高度预算——行高由
+    /// `twoLineRowHeight` 钉住，`contentShape` 只扩命中面。
+    private static let minimumHitTarget: CGFloat = 28
+
     private var text: QuotaAccountRowText {
         QuotaAccountRowText(account: account, reading: reading, locale: locale, l10n: l10n)
     }
@@ -49,6 +55,8 @@ struct QuotaAccountRow: View {
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
             .disabled(!isInteractive)
+            // 选中态只有一个强调色勾与文字明度，读屏读不出来——补上选中特征。
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
 
             if isSelected && canRemove && isInteractive { removeButton }
         }
@@ -62,7 +70,7 @@ struct QuotaAccountRow: View {
             badge: SettingsBadge(source: .symbol(name: "globe", tint: AppPalette.accent)),
             title: newAPIAccountDisplayName(account, index: index, l10n: l10n),
             subtitle: text.subtitle,
-            titleColor: isSelected ? AppPalette.primaryText : AppPalette.secondaryText,
+            titleColor: titleColor,
             subtitleColor: text.isFailure ? AppPalette.danger : AppPalette.secondaryText
         ) {
             HStack(spacing: 6) {
@@ -73,8 +81,7 @@ struct QuotaAccountRow: View {
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
-                    .foregroundColor(
-                        isSelected ? AppPalette.primaryText : AppPalette.secondaryText)
+                    .foregroundColor(titleColor)
 
                 if isSelected {
                     Image(systemName: "checkmark")
@@ -85,23 +92,67 @@ struct QuotaAccountRow: View {
         }
     }
 
-    /// 删除这一行（选中行才出现）：22pt 的方形悬停框，不改变行高。
+    /// 行标题与主读数的明度：选中行最亮，未选中行弱一档、悬停时升到
+    /// `hoverForeground`（比 `secondaryText` 亮一档）——整行只有一层悬停底色时，
+    /// 文字跟着亮一档，才读得出「这一行是可以点的」。
+    private var titleColor: Color {
+        if isSelected { return AppPalette.primaryText }
+        return isHovered && isInteractive ? AppPalette.hoverForeground : AppPalette.secondaryText
+    }
+
+    /// 删除这一行（选中行才出现）：画出来的方块仍是 24×22，命中框撑到 28×28
+    /// （`contentShape` 只扩命中面，不改版面、不改行高）。
+    ///
+    /// 图标用 `trash` 而不是 `minus`：减号读起来是「收起 / 折叠」，而这一下会把该账号
+    /// 连它存下的凭据一起清掉——图标必须说清是删除。
     private var removeButton: some View {
-        Button(action: onRemove) {
-            Image(systemName: "minus")
+        Button(action: remove) {
+            Image(systemName: "trash")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(AppPalette.secondaryText)
+                .foregroundColor(
+                    isRemoveHovered ? AppPalette.hoverForeground : AppPalette.secondaryText)
                 .frame(width: 24, height: 22)
                 .background(
                     RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous)
                         .fill(isRemoveHovered ? AppPalette.rowHover : Color.clear)
                 )
+                .frame(
+                    minWidth: Self.minimumHitTarget, minHeight: Self.minimumHitTarget)
                 .contentShape(Rectangle())
         }
         .buttonStyle(SettingsCompactButtonStyle())
         .onHover { isRemoveHovered = $0 }
         .help(l10n.t("Remove Account"))
         .accessibilityLabel(Text(l10n.t("Remove Account")))
+    }
+
+    /// 删除：先确认，再回调视图模型。
+    ///
+    /// 删除不可撤销（账号连同偏好域里的凭据一起没），所以它是这一页唯一带确认的动作。
+    private func remove() {
+        guard confirmRemoval() else { return }
+        onRemove()
+    }
+
+    /// 删除确认弹窗（内部可见：单测钉住「取消在第一个」这条排序）。
+    ///
+    /// 「取消」放第一个：`NSAlert` 的第一个按钮既是默认按钮（回车）也在最右，而破坏性
+    /// 动作不该是回车与 Esc 的落点；第二个按钮标成破坏性动作，系统因此把它画成红色。
+    static func removalAlert() -> NSAlert {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = LocalizationManager.t(
+            "Remove this account and its stored credentials?")
+        alert.addButton(withTitle: LocalizationManager.t("Cancel"))
+        alert.addButton(withTitle: LocalizationManager.t("Remove Account"))
+        alert.buttons.last?.hasDestructiveAction = true
+        return alert
+    }
+
+    /// 删除确认：弹窗期间走 `withNotchPanelYielded`——刘海面板在 `.mainMenu + 3`，
+    /// 不降层会盖住模态窗（与批量卸载同一条路径）。
+    private func confirmRemoval() -> Bool {
+        withNotchPanelYielded { Self.removalAlert().runModal() } == .alertSecondButtonReturn
     }
 }
 

@@ -14,41 +14,27 @@
 //  高度是定值（`NotchMenuMetrics.animationsSectionHeight`）：画廊窗口封顶、超出的在
 //  画廊里滚动，因此新增 Agent 不会把面板撑长。
 //
+//  速度那一行写的**不是本页状态**，而是全局偏好 `AppSettings.mascotAnimationSpeed`
+//  （页面直接 `@AppStorage` 绑在那个键上）：刘海头部、各行标记与转圈都读它，所以在这里
+//  选「静止」是整块界面一起停——它只是这一页私有的预览档位时就做不到这件事。
+//
 
 import SwiftUI
-
-// MARK: - 预览速度
-
-/// 「标记动态」页的预览倍速。
-///
-/// **不写偏好**：它只影响这一页的渲染（与状态选择同一口径），所以不进 `AppSettings`，
-/// 也不占别页的版面预算——用户要的是「放慢看清细节」，不是长期改动画速度。
-private enum AgentPreviewSpeed: CaseIterable, Hashable {
-    /// 完全停住（定格在各场景的代表时刻，见 `AgentMascotStatus.stillInstant`），
-    /// 用来细看角色的静态姿势。
-    case still
-    case half
-    case normal
-    case fast
-
-    /// 传给角色时钟的倍速；0 表示不跑时钟。
-    var value: Double {
-        switch self {
-        case .still: return 0
-        case .half: return 0.5
-        case .normal: return 1
-        case .fast: return 2
-        }
-    }
-}
 
 // MARK: - 页面
 
 struct AgentAnimationsSettingsPage: View {
     @ObservedObject private var l10n = LocalizationManager.shared
-    /// 预览的活动状态与速度：只影响这一页的渲染，不写任何偏好。
+    /// 预览的活动状态：只影响这一页的渲染（与改造前同一口径）。
     @State private var status: AgentMascotStatus = .working
-    @State private var speed: AgentPreviewSpeed = .normal
+    /// 角色动效速度档位。它是**全局**偏好（键 `mascotAnimationSpeed`）：刘海头部、
+    /// 各行的 Agent 标记与转圈都读同一个值，停在这里它们也一起停。改造前它只是这一页的
+    /// `@State`，别处照旧以 1× 跑，越看越对不上。
+    ///
+    /// 直接用 `@AppStorage` 落在那个键上：写入即持久化，也自带变更通知（`AppSettings`
+    /// 的静态读写不会让视图重画）。默认值与 `AppSettings.mascotAnimationSpeed` 的
+    /// 「缺键取 1」一致。
+    @AppStorage(AppSettings.mascotAnimationSpeedKey) private var speed: Double = 1
 
     var body: some View {
         VStack(alignment: .leading, spacing: NotchMenuMetrics.groupSpacing) {
@@ -59,7 +45,7 @@ struct AgentAnimationsSettingsPage: View {
             ) {
                 AgentStatusPreviewRow(status: $status)
                 AgentSpeedPreviewRow(speed: $speed)
-                AgentMascotGallery(status: status, speed: speed.value)
+                AgentMascotGallery(status: status, speed: speed)
             }
         }
     }
@@ -106,6 +92,18 @@ struct AgentAnimationsEntryRow: View {
 
 // MARK: - 两行预览控件
 
+/// 活动状态的本地化短名。档位行与画廊格子共用它：VoiceOver 在格子上念到的状态，
+/// 与屏幕上「活动」那一行选中的档位是同一批键、同一个词。
+///
+/// 键按字面量写在这里（本地化守卫只认字面量），调用方因此只传状态、不传键。
+private func mascotStatusTitle(_ status: AgentMascotStatus) -> String {
+    switch status {
+    case .idle: return LocalizationManager.t("Idle")
+    case .working: return LocalizationManager.t("Working")
+    case .alert: return LocalizationManager.t("Needs Approval")
+    }
+}
+
 /// 状态选择行：空闲 / 处理中 / 待审批。行内分段控件，不展开、不撑高面板。
 private struct AgentStatusPreviewRow: View {
     @Binding var status: AgentMascotStatus
@@ -118,11 +116,9 @@ private struct AgentStatusPreviewRow: View {
             title: l10n.t("Activity")
         ) {
             AgentPreviewSegmentedControl(
-                options: [
-                    (value: AgentMascotStatus.idle, title: l10n.t("Idle")),
-                    (value: .working, title: l10n.t("Working")),
-                    (value: .alert, title: l10n.t("Needs Approval")),
-                ],
+                options: [AgentMascotStatus.idle, .working, .alert].map {
+                    (value: $0, title: mascotStatusTitle($0))
+                },
                 thumbID: "mascot-status-thumb",
                 selection: $status
             )
@@ -133,8 +129,11 @@ private struct AgentStatusPreviewRow: View {
 }
 
 /// 速度选择行：静止 / 0.5× / 1× / 2×。放慢是为了看清细节，停下是为了看静态姿势。
+///
+/// 它写的是**全局**偏好 `AppSettings.mascotAnimationSpeed`（页面用 `@AppStorage`
+/// 直接绑在那个键上），所以「静止」不只是这一页停：头部标记、各行标记与转圈一起停。
 private struct AgentSpeedPreviewRow: View {
-    @Binding var speed: AgentPreviewSpeed
+    @Binding var speed: Double
 
     @ObservedObject private var l10n = LocalizationManager.shared
 
@@ -143,19 +142,29 @@ private struct AgentSpeedPreviewRow: View {
             badge: SettingsBadge(source: .symbol(name: "speedometer", tint: AppPalette.accent)),
             title: l10n.t("Speed")
         ) {
+            // 档位列表不另写一份：它就是 `AppSettings.mascotAnimationSpeedTiers`
+            // （那一侧也是夹取逻辑用的那一份），界面档位因此不会与偏好档位漂移。
             AgentPreviewSegmentedControl(
-                options: [
-                    (value: AgentPreviewSpeed.still, title: l10n.t("Still")),
-                    (value: .half, title: l10n.t("0.5×")),
-                    (value: .normal, title: l10n.t("1×")),
-                    (value: .fast, title: l10n.t("2×")),
-                ],
+                options: AppSettings.mascotAnimationSpeedTiers.map {
+                    (value: $0, title: speedTitle($0))
+                },
                 thumbID: "mascot-speed-thumb",
                 selection: $speed
             )
         }
         .frame(height: NotchMenuMetrics.rowHeight)
         .settingsRowSeparator(true)
+    }
+
+    /// 档位标签。档位集合就这四挡（`AppSettings.mascotAnimationSpeedTiers`），
+    /// 列表外的取值会被偏好的夹取收进这四挡，因此 `default` 兜住最后一挡即可。
+    private func speedTitle(_ value: Double) -> String {
+        switch value {
+        case 0: return l10n.t("Still")
+        case 0.5: return l10n.t("0.5×")
+        case 1: return l10n.t("1×")
+        default: return l10n.t("2×")
+        }
     }
 }
 
@@ -171,6 +180,8 @@ private struct AgentPreviewSegmentedControl<Option: Hashable>: View {
     let thumbID: String
     @Binding var selection: Option
 
+    /// 「减少动态效果」系统偏好：滑块改成不滑（见 `AppMotion`）。
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var thumb
 
     var body: some View {
@@ -181,7 +192,7 @@ private struct AgentPreviewSegmentedControl<Option: Hashable>: View {
         }
         .padding(2)
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: AppRadius.row, style: .continuous)
                 .fill(AppPalette.segmentedTrack)
         )
     }
@@ -190,7 +201,9 @@ private struct AgentPreviewSegmentedControl<Option: Hashable>: View {
         let isSelected = option.value == selection
 
         return Button {
-            withAnimation(SettingsMotion.segment) { selection = option.value }
+            withAnimation(AppMotion.pick(SettingsMotion.segment, reduceMotion: reduceMotion)) {
+                selection = option.value
+            }
         } label: {
             Text(option.title)
                 .font(.system(size: 10, weight: .medium))
@@ -202,7 +215,7 @@ private struct AgentPreviewSegmentedControl<Option: Hashable>: View {
                 .frame(height: 20)
                 .background {
                     if isSelected {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous)
                             .fill(AppPalette.segmentedThumb)
                             .matchedGeometryEffect(id: thumbID, in: thumb)
                     }
@@ -211,6 +224,8 @@ private struct AgentPreviewSegmentedControl<Option: Hashable>: View {
         }
         .buttonStyle(SettingsCompactButtonStyle())
         .accessibilityLabel(Text(option.title))
+        // 选中态只有一个滑块与文字明度，读屏读不出来——补上选中特征。
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -248,7 +263,7 @@ private struct AgentMascotGallery: View {
     }
 
     private func grid(at time: Double) -> some View {
-        ScrollView(.vertical, showsIndicators: true) {
+        ScrollView(.vertical, showsIndicators: false) {
             LazyVGrid(columns: columns, spacing: NotchMenuMetrics.animationGalleryRowSpacing) {
                 ForEach(AgentKind.allCases) { kind in
                     AgentMascotTile(kind: kind, status: status, time: time)
@@ -270,7 +285,7 @@ private struct AgentMascotTile: View {
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: AppRadius.row, style: .continuous)
                     .fill(Color.black)
 
                 AgentMascot(
@@ -290,5 +305,10 @@ private struct AgentMascotTile: View {
                 .frame(height: NotchMenuMetrics.animationGalleryTileTextHeight)
         }
         .frame(height: NotchMenuMetrics.animationGalleryTileHeight)
+        // 一格 = 一个整体：念「谁 + 正在演哪个状态」。舞台里的像素角色是纯画出来的
+        // （没有可读文本），不这样包一层，读屏就只会念一遍短名、状态永远读不到。
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(kind.shortName))
+        .accessibilityValue(Text(mascotStatusTitle(status)))
     }
 }
