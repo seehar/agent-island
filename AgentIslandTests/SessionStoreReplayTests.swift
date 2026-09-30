@@ -82,6 +82,12 @@ struct SessionStoreReplayTests {
 
     @Test("启动事件建立会话并进入处理中")
     func startEventCreatesProcessingSession() async {
+        // 保留档从**真实偏好域**读（用户在设置面板里改的就是它，实测本机被改成过 `hour`）：
+        // 「结束即移除」这条断言必须先把档位钉成 `immediate`，否则会随用户设置变红。
+        let retention = PreferenceStore.read(SessionRetention.self)
+        PreferenceStore.write(SessionRetention.immediate, defaults: .standard)
+        defer { PreferenceStore.write(retention, defaults: .standard) }
+
         let sessionId = makeSessionId("start")
         let cwd = makeCwd("start")
         let key = SessionKey(agent: .claudeCode, sessionId: sessionId)
@@ -192,8 +198,14 @@ struct SessionStoreReplayTests {
         await SessionStore.shared.process(.sessionEnded(key: key))
     }
 
-    @Test("立即档（默认）：status=ended 的 hook 事件直接移除会话")
+    @Test("立即档：status=ended 的 hook 事件直接移除会话")
     func endedStatusRemovesSession() async {
+        // 保留档从**真实偏好域**读（用户在设置面板里改的就是它，实测本机被改成过 `hour`）：
+        // 「结束即移除」这条断言必须先把档位钉成 `immediate`，否则会随用户设置变红。
+        let retention = PreferenceStore.read(SessionRetention.self)
+        PreferenceStore.write(SessionRetention.immediate, defaults: .standard)
+        defer { PreferenceStore.write(retention, defaults: .standard) }
+
         let sessionId = makeSessionId("ended")
         let cwd = makeCwd("ended")
         let key = SessionKey(agent: .claudeCode, sessionId: sessionId)
