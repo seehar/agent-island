@@ -28,7 +28,7 @@ struct NotchPanelFaceTests {
     )
   }
 
-  @Test("面板高跟着内容面换：会话列表 320、统计分组 = 固定开销 + 内容、收起回到会话列表")
+  @Test("面板高跟着内容面换：会话列表 320、统计分组被夹到上限、收起回到会话列表")
   @MainActor
   func panelHeightFollowsContentFace() {
     let model = makeModel()
@@ -37,12 +37,12 @@ struct NotchPanelFaceTests {
     #expect(model.contentType == .instances)
     #expect(model.openedSize.height == 320)
 
-    // 切到统计分组：高度立刻是「固定开销 + 该分组内容」，不需要收起再展开。
+    // 切到统计分组：高度立刻跟着换过去，不需要收起再展开。上限 640 之后统计页在所有
+    // chrome 档都被夹取，所以这里是「被夹到上限」而不是解析值——夹取本身由
+    // `NotchMenuMetricsTests` 的 `clampedPairs` 钉着，这里只钉「切分组即换高」。
     model.toggleStatistics()
     #expect(model.isShowingStatistics)
-    #expect(
-      model.openedSize.height - NotchMenuMetrics.contentHeight(for: .statistics)
-        == max(24, model.geometry.deviceNotchRect.height) + 12)
+    #expect(model.openedSize.height == NotchMenuMetrics.maxPanelHeight)
 
     // 收起：回到会话列表（既定行为——面板关掉不保留设置面，见 NotchPanelClickTests）。
     model.notchClose()

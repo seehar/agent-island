@@ -71,22 +71,21 @@ struct NotchMenuMetricsTests {
         #expect(blocks.first?.fixedHeight == UsageStatsMetrics.sectionHeight)
     }
 
-    @Test("统计分组：默认开销下确实在上限内，最高开销同样不触顶")
-    func statisticsSectionFitsPanelCap() {
-        // 固定开销含胶囊高度（自定义最高 64 → 开销 76）。统计分组是整页内容：侧栏化之后
-        // 内容高 635（16 + 28 + 4 + 10 + `UsageStatsMetrics.sectionHeight` 577），
-        // chrome 76 下 711 < 728，因此这一档不再需要页内滚动兜底（`clampedPairs` 为空）。
-        // 两条断言都要有区分力：`low < cap` 钉「默认开销真的装得下」，
-        // `high < cap` 钉「最高开销也还在上限内」——退化成 `<=` 就失去意义了。
+    @Test("统计分组：上限压到 640 后在所有 chrome 档都被夹取，页内滚动接管")
+    func statisticsSectionIsClampedAtTheCap() {
+        // 上限 728 时统计页是 635 + 76 = 711，最紧的一档之一；降到 640 之后它在**每一个**
+        // chrome 档都被夹取（最小的 36 也已经是 671）。这是有意的取舍：面板不再一路胀高，
+        // 代价是统计页要滚动才能看全趋势图。
         let low = NotchMenuMetrics.panelHeight(
             for: .statistics, expandedPickerHeight: 0, chromeHeight: 42)
         let high = NotchMenuMetrics.panelHeight(
             for: .statistics, expandedPickerHeight: 0, chromeHeight: 76)
-        #expect(low < NotchMenuMetrics.maxPanelHeight)
-        #expect(high < NotchMenuMetrics.maxPanelHeight)
+        #expect(low == NotchMenuMetrics.maxPanelHeight)
+        #expect(high == NotchMenuMetrics.maxPanelHeight)
+        // 夹取之后仍要能说清「本来该多高」——否则这一档会退化成一个没有来由的数字。
         #expect(
-            high == 76 + NotchMenuMetrics.contentHeight(for: .statistics),
-            "统计页能不夹取就得能被解析式算出来：内容 \(NotchMenuMetrics.contentHeight(for: .statistics)) + 76")
+            NotchMenuMetrics.contentHeight(for: .statistics) + 76 > NotchMenuMetrics.maxPanelHeight,
+            "统计页不再越界，说明上限或内容高改了，clampedPairs 里的登记要一起更新")
     }
 
     // MARK: - 侧栏
@@ -301,13 +300,25 @@ struct NotchMenuMetricsTests {
     /// 已知被夹取（超出上限、改由页内滚动接管）的组合。**新增组合必须显式登记在这里**，
     /// 否则测试失败——那正是「又加了一行/一档，最后一个档位落到可视区外」的信号。
     ///
-    /// 当前为空：侧栏化之后每页少掉 34pt 固定开销，逐页重算的最高组合在 chrome 取可达最大
-    /// 值 76 时是智能体页 530 + 106 + 76 = 712（余量 16，最紧的一档）、
-    /// 统计页 635 + 0 + 76 = 711，其余更宽松——没有任何组合触顶。
-    /// （旧注释里的 670/669 与 746/745 都是侧栏化**之前**的内容高。）
-    /// 新增分组、加行或加档位若顶到上限，必须登记到这里，并接受该档下页内滚动
-    /// （见 `NotchMenuLayout.maxPanelHeight` 的加法）。
-    private static let clampedPairs: Set<String> = []
+    /// 上限从 728 降到 640 之后，下列组合**会被夹取**，该档下由页内滚动接管（滚动条隐藏）：
+    ///
+    /// - `general@{36,37,44,50,76}`：通用页内容 480 + 最高单个展开 138（刘海高度 4 档）
+    ///   ＝ 618，最小的 chrome 36 就已经是 654。因此**通用页在所有 chrome 档下展开选择器
+    ///   都会被切掉十几 pt**——这是把上限压到 640 的直接代价。
+    /// - `agents@{36,37,44,50,76}`：530 + 106 ＝ 636，同样在最小 chrome 就越界。
+    /// - `statistics@{36,37,44,50,76}`：635 + 0 ＝ 635，最小 chrome 也是 663。统计页在
+    ///   任何 chrome 档下都需要滚动才能看全趋势图。
+    /// - `behavior@{76}`（660）与 `shortcuts@{76}`（666）：只在胶囊高度自定义到最大时触顶。
+    ///
+    /// 新增分组、加行或加档位若顶到上限，必须登记到这里（见 `NotchMenuLayout.maxPanelHeight`
+    /// 的加法）。
+    private static let clampedPairs: Set<String> = [
+        "general@36", "general@37", "general@44", "general@50", "general@76",
+        "behavior@76",
+        "agents@36", "agents@37", "agents@44", "agents@50", "agents@76",
+        "statistics@36", "statistics@37", "statistics@44", "statistics@50", "statistics@76",
+        "shortcuts@76",
+    ]
 
     @Test("额度分组：动作条 + 详情基准一行，账号个数与可选行不进静态表")
     func quotaSectionHasActionRowAndDetailRows() {
