@@ -7586,6 +7586,74 @@
           }
         }
       }
+    },
+    "Undo" : {
+      "comment" : "智能体页单条关闭回执旁的撤销按钮：单个关闭不弹确认，改为可撤销。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Undo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "撤销"
+          }
+        }
+      }
+    },
+    "Run anyway" : {
+      "comment" : "命中危险命令名单的审批：放行按钮改写，不再与常规放行同形。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run anyway"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仍然运行"
+          }
+        }
+      }
+    },
+    "Remove this account and its stored credentials?" : {
+      "comment" : "额度页移除账号的确认弹窗正文。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove this account and its stored credentials?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移除该账号及其已保存的凭据？"
+          }
+        }
+      }
+    },
+    "%@ · %@" : {
+      "comment" : "两段数据之间的通用连接符：状态与路径、令牌名与用量。分隔符落在两个数据槽之间，顺序归译者决定。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %@"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

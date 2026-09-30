@@ -17,7 +17,7 @@ import SwiftUI
 /// 强调色跟随系统「强调色」偏好——这是 macOS 控件的惯例：用户换了强调色，开关、
 /// 选中勾与分段滑块跟着换。**成功/警告/危险只表达状态，不参与选中态**：一个颜色
 /// 不能同时表示「被选中」和「状态正常」两件事，选中一律用 `accent`。
-enum AppPalette {
+nonisolated enum AppPalette {
     /// 控件强调色：开关、选中勾、分段滑块、行内按钮。**唯一的选中态颜色**；
     /// 不要在状态表达（成功/警告/危险）里用它，也不要用它画装饰。
     static let accent = Color.accentColor
@@ -67,7 +67,7 @@ enum AppPalette {
 
 /// 全应用的圆角档位。数值取自代码里实际在用的档位，按「控件 → 行 → 卡片 → 浮层
 /// → 气泡」递增；不要为单点需求另起数值，选最接近的一档即可。
-enum AppRadius {
+nonisolated enum AppRadius {
     /// 小控件：图标块、返回按钮、终端输出块、内联徽标底。与
     /// `NotchMenuMetrics.badgeRadius` 同值。
     static let control: CGFloat = 6
@@ -81,12 +81,52 @@ enum AppRadius {
     static let bubble: CGFloat = 18
 }
 
+extension AppRadius {
+    /// 面板卡片自身的圆角（关闭态胶囊 / 展开态面板）。**与 `AppRadius.card` 不是同一档**：
+    /// 这两档描述的是「贴着屏幕顶边、要在顶边融进刘海或菜单栏」的那一块，形状由
+    /// `NotchShape` 在两个状态之间插值，因此单独成档。
+    static let panelClosedTop: CGFloat = 6
+    static let panelClosedBottom: CGFloat = 14
+    static let panelOpenedTop: CGFloat = 19
+    static let panelOpenedBottom: CGFloat = 24
+}
+
+extension AppPalette {
+    /// 面板材质之上的压暗层。没有它，`AppPalette` 那套「黑底叠白」的文字层级在浅色
+    /// 材质上会失效（`subtleText` 0.30 直接看不见）。取值范围 0.55–0.7。
+    static let panelScrim = Color.black.opacity(0.62)
+    /// 卡片内某一行悬停时的前景色（比 `secondaryText` 亮一档）。
+    static let hoverForeground = Color.white.opacity(0.75)
+    /// 行首图标块的强调色底（选中/进行中）。
+    static let badgeTint = Color.accentColor.opacity(0.18)
+    /// 行内胶囊按钮（撤销、批量动作、删除）的底色。
+    ///
+    /// 与 `separator` 同为 0.08 叠白，但**不是同一个语义**：`separator` 的约定是「只画线」，
+    /// 拿它当按钮底色会让这枚胶囊日后跟着分隔线一起变色，因此单列一档。
+    static let pillFill = Color.white.opacity(0.08)
+}
+
+/// 字号阶梯。设置面板的排版全部走这张表——面板高度由 `NotchMenuMetrics` 的常量解析式
+/// 算出，所以这里只统一「有哪些档」，**不**在这里放会随用户设置缩放的倍数。
+nonisolated enum AppTypeScale {
+    /// 大写分组标题、脚注前缀。
+    static let caption: CGFloat = 9
+    /// 副标题、脚注、说明文字。
+    static let footnote: CGFloat = 11
+    /// 选项行文字。
+    static let option: CGFloat = 12
+    /// 行标题、按钮文字。
+    static let body: CGFloat = 13
+    /// 强调标题（关于页的应用名）。
+    static let title: CGFloat = 15
+}
+
 // MARK: - 统计图表的序列色
 
 /// 统计曲线图的序列色。**不是状态色**：只在同一张图里区分维度，因此不复用
 /// `success` / `warning` / `danger`（它们在别的页面表达状态），也不参与选中态
 /// （选中态一律 `accent`）。五路在黑色面板上两两可辨：色相分开，亮度都落在可读区间。
-enum ChartPalette {
+nonisolated enum ChartPalette {
     /// 总量（输入 + 输出 + 缓存读 + 缓存写）：最亮的一路，面积填充也画它。
     static let total = Color(red: 0.62, green: 0.80, blue: 1.00)
     static let input = Color(red: 0.44, green: 0.72, blue: 0.98)
