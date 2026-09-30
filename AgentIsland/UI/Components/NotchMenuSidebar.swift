@@ -92,8 +92,9 @@ struct NotchMenuSidebar: View {
       Image(systemName: section.symbolName)
         .font(.system(size: NotchMenuMetrics.sidebarIconSize, weight: .medium))
         .foregroundColor(foregroundColor(for: section))
-        // 命中区与底色都铺满整条侧栏：选中/悬停读起来是「一整行」，而不是一个浮在
-        // 空槽里的小方块；命中区跟着一起变大，点得到。
+        // 命中区是**整条栏 × 行高**（点得到，也和右侧设置行按同一节奏排）；
+        // 底色则是 `sidebarItemBox` 见方的瓦片，在行高里居中——铺满 40 高会读成一块
+        // 竖长方，而不是一个图标（判据见 `NotchMenuMetrics.sidebarItemBox`）。
         .frame(
           width: NotchMenuMetrics.sidebarWidth,
           height: NotchMenuMetrics.sidebarItemHeight
@@ -102,10 +103,18 @@ struct NotchMenuSidebar: View {
           if isSelected {
             RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous)
               .fill(AppPalette.segmentedThumb)
+              .frame(
+                width: NotchMenuMetrics.sidebarItemBox,
+                height: NotchMenuMetrics.sidebarItemBox
+              )
               .matchedGeometryEffect(id: "sidebar-thumb", in: thumb)
           } else if hoveredSection == section {
             RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous)
               .fill(AppPalette.rowHover)
+              .frame(
+                width: NotchMenuMetrics.sidebarItemBox,
+                height: NotchMenuMetrics.sidebarItemBox
+              )
           }
         }
         .contentShape(Rectangle())

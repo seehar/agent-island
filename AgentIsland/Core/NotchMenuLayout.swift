@@ -136,8 +136,13 @@ nonisolated enum NotchMenuMetrics {
     /// 侧栏一个条目的**行高**（纵向节奏）。**复用 `rowHeight`**（与设置行同一档行高），
     /// 不要写字面量——侧栏的条目与右侧的设置行按同一节奏排，横向才对得齐。
     ///
-    /// 条目宽度不另设：命中区与选中/悬停底色都铺满整条侧栏（`sidebarWidth`）。
     static let sidebarItemHeight: CGFloat = rowHeight
+    /// 条目上那块选中/悬停底色的边长——**正方形**。
+    ///
+    /// 命中区铺满整条栏（`sidebarWidth` × 行高，点得到），但底色取 `sidebarWidth` 见方、
+    /// 在行高里居中：铺满 40 高会读成一块竖长方，而不是一个图标瓦片（实机截图就是
+    /// 这个观感）。上下各留 4pt，与条目间距一致。
+    static let sidebarItemBox: CGFloat = sidebarWidth
     /// 侧栏图标尺寸。行高是 40（与设置行对齐），但图标本身按窄栏取 14，
     /// 否则 15pt 的图标在 32pt 宽的栏里会顶到边。
     static let sidebarIconSize: CGFloat = 14

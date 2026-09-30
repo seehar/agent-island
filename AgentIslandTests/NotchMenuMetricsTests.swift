@@ -148,6 +148,18 @@ struct NotchMenuMetricsTests {
             "\(NotchMenuMetrics.sidebarIconSize)pt 图标在 \(NotchMenuMetrics.sidebarWidth)pt 栏里太满")
         // 分隔线不能比栏还宽。
         #expect(NotchMenuMetrics.sidebarDividerLength < NotchMenuMetrics.sidebarWidth)
+        // 选中/悬停底色是**正方形**瓦片（宽高共用 `sidebarItemBox`）：行高是 40
+        // （与设置行对齐），底色若铺满行高会读成一块竖长方（实机截图就是这个观感）。
+        // 正方形是结构保证的，能断言的是它装得下、且上下留白够。
+        #expect(
+            NotchMenuMetrics.sidebarItemBox >= NotchMenuMetrics.sidebarIconSize,
+            "瓦片比图标还小")
+        #expect(
+            NotchMenuMetrics.sidebarItemBox <= NotchMenuMetrics.sidebarItemHeight,
+            "底色 \(NotchMenuMetrics.sidebarItemBox)pt 比行高 \(NotchMenuMetrics.sidebarItemHeight)pt 还高")
+        // 上下留白要够，否则瓦片会贴到相邻条目上。
+        let pad = (NotchMenuMetrics.sidebarItemHeight - NotchMenuMetrics.sidebarItemBox) / 2
+        #expect(pad >= NotchMenuMetrics.sidebarItemSpacing, "瓦片上下只留 \(pad)pt，比条目间距还窄")
     }
 
     @Test("每个分组的高度都等于行表重算的结果")
