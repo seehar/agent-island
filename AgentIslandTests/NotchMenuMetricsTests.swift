@@ -106,7 +106,7 @@ struct NotchMenuMetricsTests {
         // 在任何一页都放得下」，否则「关于」会在被裁掉的卡片里消失，用户再也回不去。
         let needed = CGFloat(NotchMenuSection.sidebarFooterSections.count)
             * (NotchMenuMetrics.sidebarItemHeight + NotchMenuMetrics.sidebarItemSpacing)
-            + NotchMenuMetrics.sidebarDividerHeight + NotchMenuMetrics.sidebarItemSpacing
+            + NotchMenuMetrics.sidebarDividerThickness + NotchMenuMetrics.sidebarItemSpacing
         let shortest = NotchMenuSection.allCases.min {
             NotchMenuMetrics.contentHeight(for: $0) < NotchMenuMetrics.contentHeight(for: $1)
         }!

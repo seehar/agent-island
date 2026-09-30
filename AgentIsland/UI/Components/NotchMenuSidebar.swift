@@ -56,7 +56,10 @@ struct NotchMenuSidebar: View {
 
       Rectangle()
         .fill(AppPalette.separator)
-        .frame(width: NotchMenuMetrics.sidebarDividerWidth, height: NotchMenuMetrics.sidebarDividerHeight)
+        .frame(
+          width: NotchMenuMetrics.sidebarDividerLength,
+          height: NotchMenuMetrics.sidebarDividerThickness
+        )
 
       ForEach(NotchMenuSection.sidebarFooterSections) { section in
         item(for: section)
@@ -64,6 +67,12 @@ struct NotchMenuSidebar: View {
     }
     .frame(width: NotchMenuMetrics.sidebarWidth)
     .padding(.vertical, 2)
+    // 指针**整个离开侧栏**时清掉悬停态。只靠条目自己的 `onHover(false)` 清不干净：
+    // 面板收起、`ignoresMouseEvents` 切换、指针瞬移这几种情况下退出事件不会送达，
+    // 悬停底色会留在上一个条目上——与真正的选中底色叠在一起，看上去像「选中了两个」。
+    .onHover { inside in
+      if !inside { hoveredSection = nil }
+    }
   }
 
   // MARK: - 条目

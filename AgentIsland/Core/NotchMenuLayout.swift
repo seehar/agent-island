@@ -133,9 +133,13 @@ nonisolated enum NotchMenuMetrics {
     static let sidebarItemHeight: CGFloat = rowHeight
     /// 侧栏条目之间的间距。
     static let sidebarItemSpacing: CGFloat = 4
-    /// 侧栏内部分隔线（把「关于」与一级分组隔开）的宽度与高度。
-    static let sidebarDividerWidth: CGFloat = 1
-    static let sidebarDividerHeight: CGFloat = 20
+    /// 侧栏内把「关于」与一级分组隔开的那条发丝线。
+    ///
+    /// 是**横向**的：侧栏条目竖排，分隔两组就要横线。写成 1pt×20pt 的竖条会读成
+    /// 一个杂散的小竖杠（实机截图就是这个效果），不是分隔线。长度比侧栏窄一点居中，
+    /// 粗细与页面里其它分隔线（`AppPalette.separator`）一致。
+    static let sidebarDividerLength: CGFloat = 24
+    static let sidebarDividerThickness: CGFloat = 1
     /// 外层 VStack 的间距。
     static let rowSpacing: CGFloat = 4
     /// 容器上下内边距（8 + 8）。
