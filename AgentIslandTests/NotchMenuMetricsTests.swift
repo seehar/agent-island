@@ -108,15 +108,17 @@ struct NotchMenuMetricsTests {
         // 额度页在没有账号时内容高只有 218pt，扣掉容器上下内边距只剩 238pt——放不下
         // 6 个一级分组（312pt）。因此上面那组滚动、下面这组钉底；这里守住「钉底这组
         // 在任何一页都放得下」，否则「关于」会在被裁掉的卡片里消失，用户再也回不去。
-        let needed = CGFloat(NotchMenuSection.sidebarFooterSections.count)
+        let needed =
+            CGFloat(NotchMenuSection.sidebarFooterSections.count)
             * (NotchMenuMetrics.sidebarItemHeight + NotchMenuMetrics.sidebarItemSpacing)
             + NotchMenuMetrics.sidebarDividerThickness + NotchMenuMetrics.sidebarItemSpacing
         let shortest = NotchMenuSection.allCases.min {
             NotchMenuMetrics.contentHeight(for: $0) < NotchMenuMetrics.contentHeight(for: $1)
         }!
         for chrome in [CGFloat(36), NotchMenuMetrics.maxPanelHeight] {
-            let available = NotchMenuMetrics.panelHeight(
-                for: shortest, expandedPickerHeight: 0, chromeHeight: chrome)
+            let available =
+                NotchMenuMetrics.panelHeight(
+                    for: shortest, expandedPickerHeight: 0, chromeHeight: chrome)
                 - NotchMenuMetrics.listPaddingHeight
             #expect(
                 needed <= available,
@@ -126,8 +128,14 @@ struct NotchMenuMetricsTests {
 
     @Test("侧栏不吃掉统计页与标记动态页的版面")
     func sidebarKeepsCalibratedPageWidths() {
-        let content = NotchMenuMetrics.panelWidthMax - 16 - NotchMenuMetrics.sidebarWidth
-            - NotchMenuMetrics.sidebarItemSpacing
+        // 详情区宽度 = 面板宽度预算 − 容器左右内边距 − 窄轨 − 栏间距。四项都取常量：
+        // 此前这里写的是 `- 16 - sidebarItemSpacing`，与实际版面的「4×2 + 12」数值恰好相等
+        // 才没暴露——改任一档都会静默失配。
+        let content =
+            NotchMenuMetrics.panelWidthMax
+            - 2 * NotchMenuMetrics.panelContentPadding
+            - NotchMenuMetrics.sidebarWidth
+            - NotchMenuMetrics.sidebarContentSpacing
         // 统计页以 panelWidthMax − 16 为标定基准；紧凑档（0.88）已经贴到 422.4。
         // 侧栏后详情区仍要不低于紧凑档的标定宽度，否则趋势图绘图区会被新裁。
         let compactCalibrated = NotchMenuMetrics.panelWidthMax * 0.88 - 16
@@ -141,8 +149,11 @@ struct NotchMenuMetricsTests {
         // 初版侧栏给 44pt、条目底色 40pt，几乎占满整条栏，相对右侧几百点的详情区
         // 就是一个过宽的空槽（实机截图就是这个观感）。这条钉住「侧栏只是图标栏，
         // 不是第二列内容」：它占的宽度必须显著小于详情区，且自身要装得下图标。
-        let detail = NotchMenuMetrics.panelWidthMax - 16 - NotchMenuMetrics.sidebarWidth
-            - NotchMenuMetrics.sidebarItemSpacing
+        let detail =
+            NotchMenuMetrics.panelWidthMax
+            - 2 * NotchMenuMetrics.panelContentPadding
+            - NotchMenuMetrics.sidebarWidth
+            - NotchMenuMetrics.sidebarContentSpacing
         #expect(
             NotchMenuMetrics.sidebarWidth * 4 <= detail,
             "侧栏 \(NotchMenuMetrics.sidebarWidth)pt 相对详情区 \(detail)pt 太宽了")
@@ -160,7 +171,8 @@ struct NotchMenuMetricsTests {
             "瓦片比图标还小")
         #expect(
             NotchMenuMetrics.sidebarItemBox <= NotchMenuMetrics.sidebarItemHeight,
-            "底色 \(NotchMenuMetrics.sidebarItemBox)pt 比行高 \(NotchMenuMetrics.sidebarItemHeight)pt 还高")
+            "底色 \(NotchMenuMetrics.sidebarItemBox)pt 比行高 \(NotchMenuMetrics.sidebarItemHeight)pt 还高"
+        )
         // 上下留白要够，否则瓦片会贴到相邻条目上。
         let pad = (NotchMenuMetrics.sidebarItemHeight - NotchMenuMetrics.sidebarItemBox) / 2
         #expect(pad >= NotchMenuMetrics.sidebarItemSpacing, "瓦片上下只留 \(pad)pt，比条目间距还窄")

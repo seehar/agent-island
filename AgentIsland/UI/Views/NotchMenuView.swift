@@ -36,7 +36,7 @@ struct NotchMenuView: View {
 
             detailColumn
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, NotchMenuMetrics.panelContentPadding)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
