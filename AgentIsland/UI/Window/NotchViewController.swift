@@ -65,7 +65,7 @@ class NotchViewController: NSViewController {
             let vm = self.viewModel
             switch vm.status {
             case .opened:
-                return vm.geometry.openedWindowRect(for: vm.openedSize)
+                return vm.geometry.openedWindowRect(for: vm.cardSize)
             case .closed, .popping:
                 return vm.geometry.closedCapsuleWindowRect(for: vm.closedCapsuleSize)
             }

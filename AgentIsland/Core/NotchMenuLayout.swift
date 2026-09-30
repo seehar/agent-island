@@ -75,6 +75,16 @@ nonisolated enum NotchMenuMetrics {
     /// （`NotchViewModel.openedSize` 与版面测试都读它，不要再写字面量）。
     static let panelWidthMax: CGFloat = 480
 
+    /// 展开态卡片的**头部内边距**：卡片在面板宽度预算之外，左右各再留这一圈。
+    ///
+    /// `panelWidthMax` 约束的是「内容 + 侧内边距」这一层；头部内边距是外圈留白，所以
+    /// 卡片实测宽度 = `panelWidthMax + 2 × panelCardHeaderInset` = 518pt。夹掉这一圈会把
+    /// 内容一起压窄 38pt，观感上整块缩一截（这正是这批改动一度出现的现象）。
+    static let panelCardHeaderInset: CGFloat = 19
+    /// 展开态卡片的**侧内边距**：内容与卡片左右边缘的距离，由上面两圈共同组成
+    /// （`panelCardHeaderInset + panelCardSideInset` = 31pt）。
+    static let panelCardSideInset: CGFloat = 12
+
     // MARK: - 行的几何
 
     /// 行左侧图标块的边长与圆角。圆角取全应用档位（`AppRadius`），不再各写一个数。

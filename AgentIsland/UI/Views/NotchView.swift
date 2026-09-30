@@ -11,8 +11,8 @@ import SwiftUI
 
 // 展开态卡片的内边距。**与圆角分开成一组**：这两个数原先直接借用顶角圆角值，于是改一下
 // 圆角就把版面一起挪走。第一层让头部条带避开顶部的反向弧，第二层是卡片四周的留白。
-private let openedCardHeaderInset: CGFloat = 19
-private let openedCardSideInset: CGFloat = 12
+private let openedCardHeaderInset = NotchMenuMetrics.panelCardHeaderInset
+private let openedCardSideInset = NotchMenuMetrics.panelCardSideInset
 
 // 头部行的间距（实测校准）。展开态右端是「图表 · 额度 · 齿轮 · 计数」：
 //   · 三个按钮之间用 `headerControlSpacing`（原先固定 12，字形之间因此有 ~22pt）；
@@ -114,10 +114,12 @@ struct NotchView: View {
   )
  }
 
- /// 卡片的尺寸：**画出来的那一块**（`NotchCard` 按它定死 frame）。命中判定与「点卡片外
- /// 收起」取的是同一个矩形（`NotchGeometry` 按这个尺寸摆位），三处不再各算一套。
+ /// 卡片的尺寸：**画出来的那一块**（`NotchCard` 按它定死 frame）。
+ /// 卡片的尺寸直接取视图模型的 `cardSize`：那里是唯一同时被「画出来的那一块」与全部命中
+ /// 判据消费的地方（展开态 = 面板宽度预算 + 左右各一圈头部内边距 = 518pt，内容 456pt；
+ /// 关闭态 = 视图发布的胶囊尺寸）。这里再自己算一遍，就等于又开了一套说法。
  private var cardSize: CGSize {
-  viewModel.status == .opened ? notchSize : closedCapsuleSize
+  viewModel.cardSize
  }
 
  /// 关闭态胶囊**画出来的**尺寸：宽度跟着计数文案的实测宽度走（左右耳 + 中间文字槽 +

@@ -152,6 +152,25 @@ class NotchViewModel: ObservableObject {
         geometry.isPointInClosedCapsule(point, size: closedCapsuleSize)
     }
 
+    /// 卡片**画出来的那一块**：视图的 `NotchCard` 按它定死 frame，命中判定、点卡片外收起与
+    /// 点击转投也全部取它——三处共用同一个数，才不会出现「看得见却点不到」的死边。
+    ///
+    /// 关闭态由视图发布（`closedCapsuleSize`，耳宽只有视图知道）；展开态是解析式的：
+    /// 面板宽度预算之外左右各再留一圈头部内边距（`NotchMenuMetrics.panelCardHeaderInset`）。
+    var cardSize: CGSize {
+        guard status == .opened else { return closedCapsuleSize }
+        return CGSize(
+            width: openedSize.width + 2 * NotchMenuMetrics.panelCardHeaderInset,
+            height: openedSize.height
+        )
+    }
+
+    /// 展开态卡片的命中判据（屏幕坐标）。见 `cardSize` 的不变量。
+    func isPointInCard(_ point: CGPoint) -> Bool {
+        guard status == .opened else { return false }
+        return geometry.isPointInOpenedPanel(point, size: cardSize)
+    }
+
     /// Dynamic opened size based on content type
     ///
     /// 尺寸取基准值乘「面板尺寸」档位的比例；宽度不越过屏幕，高度不越过窗口。
@@ -372,10 +391,9 @@ class NotchViewModel: ObservableObject {
 
     private func handleMouseMove(_ location: CGPoint) {
         // 两个状态的判据都取「画出来的那一块」：关闭态是视图发布的胶囊尺寸，展开态是
-        // `openedSize`（见 `NotchGeometry` 与 `closedCapsuleSize` 的不变量）。
+        // `cardSize`（见 `NotchGeometry` 与 `closedCapsuleSize` 的不变量）。
         let inClosedCapsule = isPointInClosedCapsule(location)
-        let inOpened =
-            status == .opened && geometry.isPointInOpenedPanel(location, size: openedSize)
+        let inOpened = isPointInCard(location)
 
         let newHovering = inClosedCapsule || inOpened
 
@@ -423,7 +441,7 @@ class NotchViewModel: ObservableObject {
     func handleMouseDown(at location: CGPoint) {
         switch status {
         case .opened:
-            guard geometry.isPointOutsidePanel(location, size: openedSize) else { return }
+            guard geometry.isPointOutsidePanel(location, size: cardSize) else { return }
             notchClose()
         case .closed, .popping:
             if isPointInClosedCapsule(location) {
@@ -446,7 +464,7 @@ class NotchViewModel: ObservableObject {
     /// 快照），那时按矩形判会让用户点在其他应用内容上的点击被静默吞掉。
     func isScreenPointInPanel(_ point: CGPoint) -> Bool {
         guard status == .opened else { return false }
-        return geometry.isPointInOpenedPanel(point, size: openedSize)
+        return geometry.isPointInOpenedPanel(point, size: cardSize)
     }
 
     /// 面板把一次「卡片外、被窗口吞掉」的点击转投给下层应用之后收起自己（幂等）。
