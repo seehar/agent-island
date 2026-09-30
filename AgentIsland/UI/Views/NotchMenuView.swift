@@ -27,12 +27,16 @@ struct NotchMenuView: View {
     var body: some View {
         // 侧栏在左、详情在右。侧栏是**横向**的，垂直方向零成本——分组切换从分段控件
         // 搬过来之后每页少掉 34pt 固定开销（见 `NotchMenuMetrics.contentHeight`）。
-        HStack(alignment: .top, spacing: NotchMenuMetrics.sidebarItemSpacing) {
+        //
+        // 左右内边距取 4pt、栏间距取 12pt：两者合计与改动前的 8 + 4 相同，**详情列宽度
+        // 一pt 不变**，换来的是窄轨左移 4pt、且与详情之间有 8pt 更宽的呼吸——原先 4pt
+        // 直接复用了轨内条目间距（`sidebarItemSpacing`），两栏看着糊成一块。
+        HStack(alignment: .top, spacing: NotchMenuMetrics.sidebarContentSpacing) {
             NotchMenuSidebar(selection: $viewModel.menuSection)
 
             detailColumn
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 4)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {

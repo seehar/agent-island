@@ -85,6 +85,13 @@ nonisolated enum NotchMenuMetrics {
     /// （`panelCardHeaderInset + panelCardSideInset` = 31pt）。
     static let panelCardSideInset: CGFloat = 12
 
+    /// 侧栏窄轨与详情列之间的横向间距。
+    ///
+    /// **不复用 `sidebarItemSpacing`**（那是轨内条目之间的纵向间距）：两列之间要的是
+    /// 「这是两栏」的呼吸感，4pt 会让侧栏和详情糊成一整块。配合容器左右内边距取小值
+    /// （`NotchMenuView` 的 4pt），合计与改动前同宽——详情列宽度不变，窄轨反而左移。
+    static let sidebarContentSpacing: CGFloat = 12
+
     // MARK: - 行的几何
 
     /// 行左侧图标块的边长与圆角。圆角取全应用档位（`AppRadius`），不再各写一个数。
