@@ -45,18 +45,20 @@ struct NotchMenuSidebar: View {
       // 分两条是因为**侧栏必须能放进最矮的一页**：额度页在没有账号时内容高只有 218pt
       // （`NotchMenuMetrics.contentHeight`），扣掉容器上下内边距只剩 238pt，而 6 个
       // 一级分组按 40pt 行高要 312pt。卡片外层是 `clipShape` 的，超出就会被裁掉——
-      // 「关于」会直接消失。因此上面这一组自己滚动（滚动条只在真的放不下时出现），
-      // 下面这一组常驻，钉底可见。`sidebarFooterAlwaysFits` 守住这个不变量。
-      ScrollView(.vertical) {
+      // 「关于」会直接消失。因此上面这一组自己滚动，下面这一组常驻，钉底可见。
+      // `sidebarFooterAlwaysFits` 守住这个不变量。
+      //
+      // 滚动条必须藏起来（`showsIndicators: false`），**不要**用 `.scrollIndicators(.automatic)`：
+      // macOS 上的 `.automatic` 是「内容放不下就常驻一条 overlay 轨道」，不像 iOS 会自动收起——
+      // 而这条 32pt 窄栏本来就常年放不下（额度页那档），于是侧栏上会永远压着一根灰色滑块，
+      // 还会盖住栏与详情区之间的缝隙，看起来像画错了。窄栏滚动靠图标本身与选中滑块提示即可。
+      ScrollView(.vertical, showsIndicators: false) {
         VStack(alignment: .center, spacing: NotchMenuMetrics.sidebarItemSpacing) {
           ForEach(NotchMenuSection.sidebarSections) { section in
             item(for: section)
           }
         }
       }
-      // 滚动条只在**真的放不下**时出现（额度页没有账号时这一组装不下）：放得下还画一条
-      // 轨道会让人以为下面还有内容。
-      .scrollIndicators(.automatic)
       .frame(maxHeight: .infinity)
 
       Rectangle()

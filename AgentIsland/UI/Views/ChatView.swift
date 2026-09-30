@@ -756,15 +756,15 @@ struct ChatView: View {
 /// 单独抽成 `nonisolated` 纯函数是为了可单测：这条判据此前只看条目数变化，于是
 /// **流式回复**（条目数不变、最后一条正文一直在长）在视口里会一点点漂走。
 nonisolated enum MessageAutoscroll {
-    /// - Parameters:
-    ///   - countChanged: 条目数变了（新消息进来）。
-    ///   - lastItemContentChanged: 末条正文变了（正在流式输出）。
-    static func shouldFollow(
-        isAutoscrollPaused: Bool, countChanged: Bool, lastItemContentChanged: Bool
-    ) -> Bool {
-        guard !isAutoscrollPaused else { return false }
-        return countChanged || lastItemContentChanged
-    }
+ /// - Parameters:
+ ///   - countChanged: 条目数变了（新消息进来）。
+ ///   - lastItemContentChanged: 末条正文变了（正在流式输出）。
+ static func shouldFollow(
+  isAutoscrollPaused: Bool, countChanged: Bool, lastItemContentChanged: Bool
+ ) -> Bool {
+  guard !isAutoscrollPaused else { return false }
+  return countChanged || lastItemContentChanged
+ }
 }
 
 /// 「回到最新」入口的形态。
@@ -772,17 +772,17 @@ nonisolated enum MessageAutoscroll {
 /// 判据只看 `isAutoscrollPaused`：上翻回看本身就该有一个回得去的入口，不能只在
 /// 恰好来了新消息时才出现。
 nonisolated enum LatestJumpIndicator: Equatable {
-    /// 停在底部：不需要入口。
-    case hidden
-    /// 上翻且没有新消息：只剩一枚箭头。
-    case chevronOnly
-    /// 上翻且有新消息：箭头 + 条数。
-    case count(Int)
+ /// 停在底部：不需要入口。
+ case hidden
+ /// 上翻且没有新消息：只剩一枚箭头。
+ case chevronOnly
+ /// 上翻且有新消息：箭头 + 条数。
+ case count(Int)
 
-    static func resolve(isAutoscrollPaused: Bool, newMessageCount: Int) -> LatestJumpIndicator {
-        guard isAutoscrollPaused else { return .hidden }
-        return newMessageCount > 0 ? .count(newMessageCount) : .chevronOnly
-    }
+ static func resolve(isAutoscrollPaused: Bool, newMessageCount: Int) -> LatestJumpIndicator {
+  guard isAutoscrollPaused else { return .hidden }
+  return newMessageCount > 0 ? .count(newMessageCount) : .chevronOnly
+ }
 }
 
 // MARK: - Message Item View
@@ -1289,23 +1289,23 @@ struct SubagentToolsList: View {
 /// 「Running…」。按 `status` 逐档取词后，用例可以钉住「完成 / 失败 / 中断都不是
 /// 运行中文案」这条不变量。
 nonisolated enum SubagentToolStatusText {
-    static func display(
-        for status: ToolStatus, name: String, input: [String: String]
-    ) -> ToolStatusDisplay {
-        switch status {
-        case .running:
-            return ToolStatusDisplay.running(for: name, input: input)
-        case .waitingForApproval:
-            return ToolStatusDisplay(
-                text: LocalizationManager.t("Waiting for approval..."), isRunning: true)
-        case .success:
-            return ToolStatusDisplay(text: LocalizationManager.t("Completed"), isRunning: false)
-        case .error:
-            return ToolStatusDisplay(text: LocalizationManager.t("Failed"), isRunning: false)
-        case .interrupted:
-            return ToolStatusDisplay(text: LocalizationManager.t("Interrupted"), isRunning: false)
-        }
-    }
+ static func display(
+  for status: ToolStatus, name: String, input: [String: String]
+ ) -> ToolStatusDisplay {
+  switch status {
+  case .running:
+   return ToolStatusDisplay.running(for: name, input: input)
+  case .waitingForApproval:
+   return ToolStatusDisplay(
+    text: LocalizationManager.t("Waiting for approval..."), isRunning: true)
+  case .success:
+   return ToolStatusDisplay(text: LocalizationManager.t("Completed"), isRunning: false)
+  case .error:
+   return ToolStatusDisplay(text: LocalizationManager.t("Failed"), isRunning: false)
+  case .interrupted:
+   return ToolStatusDisplay(text: LocalizationManager.t("Interrupted"), isRunning: false)
+  }
+ }
 }
 
 /// Single subagent tool row
@@ -1709,15 +1709,15 @@ struct ChatApprovalBar: View {
 /// 里层的 `ScrollView` 是灵活的，让面板自己分高度的话，它会分走一大块（把对话区挤小）
 /// 甚至留白。这里按估算的折行数给确定高度，超出上限才交给滚动。
 nonisolated enum ApprovalDetailLayout {
-    /// 11pt 等宽字的一行高度（pt）：系统行高约为字号的 1.2 倍，取 14 留一点余量，
-    /// 免得估算偏小把最后一行裁掉。
-    static let lineHeight: CGFloat = 14
+ /// 11pt 等宽字的一行高度（pt）：系统行高约为字号的 1.2 倍，取 14 留一点余量，
+ /// 免得估算偏小把最后一行裁掉。
+ static let lineHeight: CGFloat = 14
 
-    /// 块高 = 内容（估算）高，最多 `ToolOutputWindow.expandedMaxHeight`。
-    static func height(for text: String) -> CGFloat {
-        let lines = CGFloat(ToolOutputWindow.estimatedWrappedLineCount(of: text))
-        return min(lines * lineHeight, ToolOutputWindow.expandedMaxHeight)
-    }
+ /// 块高 = 内容（估算）高，最多 `ToolOutputWindow.expandedMaxHeight`。
+ static func height(for text: String) -> CGFloat {
+  let lines = CGFloat(ToolOutputWindow.estimatedWrappedLineCount(of: text))
+  return min(lines * lineHeight, ToolOutputWindow.expandedMaxHeight)
+ }
 }
 
 /// 审批输入块：把「要授权的东西」完整摊开，再挂一层原始入参 JSON。
@@ -1735,7 +1735,7 @@ private struct ApprovalDetailBlock: View {
 
  var body: some View {
   VStack(alignment: .leading, spacing: 4) {
-   ScrollView(.vertical) {
+   ScrollView(.vertical, showsIndicators: false) {
     Text(text)
      .appFont(11, design: .monospaced)
      .foregroundColor(AppPalette.secondaryText)
@@ -1746,7 +1746,7 @@ private struct ApprovalDetailBlock: View {
 
    if let rawInput {
     if showsRawInput {
-     ScrollView(.vertical) {
+     ScrollView(.vertical, showsIndicators: false) {
       Text(rawInput)
        .appFont(10, design: .monospaced)
        .foregroundColor(AppPalette.tertiaryText)
