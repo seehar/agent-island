@@ -73,6 +73,9 @@ struct GeneralSettingsPage: View {
                     // 单行开关行：版面表按 `toggleRowHeight` 计高（加副标题会多 6pt，
                     // 而通用页在最大 chrome 那一档已经没有余量，见 `NotchMenuMetrics`），
                     // 因此解释走提示而不是副标题。
+                    // 系统卡的最后一行：不画分隔线，否则发丝线会横穿卡片圆角底边
+                    // （同一页其它卡片的收尾行都是这么标的）。
+                    showsSeparator: false,
                     helpText: l10n.t(
                         "Move keyboard focus to the panel when it opens. Turn this off to keep typing in your editor while the notch is open."
                     ),
@@ -354,6 +357,9 @@ struct BehaviorSettingsPage: View {
 struct NotificationsSettingsPage: View {
     @ObservedObject private var l10n = LocalizationManager.shared
     @ObservedObject private var soundSelector = SoundSelector.shared
+    /// 安静时段那几点钟要按环境 locale 渲染（12/24 小时制是用户偏好），与统计页的
+    /// 时间戳走同一个环境值。
+    @Environment(\.locale) private var locale
 
     /// 音量是连续值（不是枚举档位），因此用滑杆行 + 偏好域里的 Double。
     @State private var volume = AppSettings.notificationVolume()
@@ -424,7 +430,8 @@ struct NotificationsSettingsPage: View {
             return l10n.t("Off")
         case .eveningToMorning, .nightToMorning, .midnightToMorning:
             guard let span = option.minutes else { return l10n.t("Off") }
-            return settingsTimeRangeLabel(startMinute: span.start, endMinute: span.end)
+            return settingsTimeRangeLabel(
+                startMinute: span.start, endMinute: span.end, locale: locale)
         }
     }
 
@@ -487,6 +494,14 @@ struct AboutSettingsPage: View {
                         source: .symbol(name: "keyboard", tint: AppPalette.accent)),
                     title: l10n.t("Keyboard Shortcuts"),
                     showsSeparator: false,
+                    trailing: {
+                        // 披露标记：这一行是**换页**（快捷键页不占侧栏位，只能从这里进），
+                        // 与同卡片里「打开网页」「就地翻转」的几行不是同一类动作。
+                        // 样式与「标记动态」入口行一致。
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(AppPalette.tertiaryText)
+                    },
                     action: { viewModel.openShortcutsSettings() }
                 )
             }
@@ -522,7 +537,7 @@ struct AboutSettingsPage: View {
                 .foregroundColor(AppPalette.primaryText)
 
             Text(l10n.t("Version %@", appVersion))
-                .font(.system(size: 11))
+                .font(.system(size: AppTypeScale.footnote))
                 .foregroundColor(AppPalette.tertiaryText)
         }
         .frame(maxWidth: .infinity)

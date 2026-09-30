@@ -183,11 +183,7 @@ final class ShortcutController: ObservableObject {
         case .summon:
             performSummon(viewModel: viewModel)
         case .dismiss:
-            switch viewModel.contentType {
-            case .chat: viewModel.exitChat()
-            case .menu: viewModel.exitMenu()
-            case .instances: viewModel.notchClose()
-            }
+            dismiss(viewModel: viewModel)
         case .openSettings:
             viewModel.toggleMenu()
         case .toggleStatistics:
@@ -213,6 +209,24 @@ final class ShortcutController: ObservableObject {
             guard let target = approvalTarget(viewModel: viewModel) else { return }
             // 提问按「跳过」处理：折成 deny 即本轮取消，与卡片上的跳过同一语义。
             sessionMonitor?.denyPermission(key: target.sessionKey, reason: nil)
+        }
+    }
+
+    /// 返回/收起：**先收起展开的选项列表**，收掉了就停在这一层，再谈面上的逐层返回。
+    ///
+    /// 优先级为什么在「退出当前面」之上：面板里的展开块只有鼠标两条收起路径（行内点按、
+    /// 点箭头），Esc 是键盘上唯一碰得到它的按键。若这里直接按面退出，展开的列表会连同整页
+    /// 一起消失——用户被一次按键带出设置页，还得重新进页面、重新展开。
+    ///
+    /// 非私有：`ShortcutResolverTests` 直接驱动这一处处置（Esc 的完整链路要真实窗口与
+    /// 按键事件，太重）。
+    func dismiss(viewModel: NotchViewModel) {
+        guard !PickerExpansion.collapseCurrent() else { return }
+
+        switch viewModel.contentType {
+        case .chat: viewModel.exitChat()
+        case .menu: viewModel.exitMenu()
+        case .instances: viewModel.notchClose()
         }
     }
 

@@ -54,6 +54,26 @@ enum PickerExpansion {
         guard let expanded = current, expanded === picker else { return }
         current = nil
     }
+
+    /// 收起当前展开的选项列表，返回「这次是否真的收起了一个」。
+    ///
+    /// 存在的理由：`ShortcutController` 的 Esc（返回/收起）必须先走这一步。展开块在界面上
+    /// 只有鼠标两条收起路径（行内点按、点箭头），键盘上再无别路；Esc 若按面的层级直接退出，
+    /// 用户会连整页一起被带出设置页——想「只收起这张列表」就得重新进页面、重新展开。
+    /// 因此收起成功的这一次按键到此为止，页面的逐层返回留到下一次。
+    ///
+    /// 返回值 false 有两层含义：本来就没有展开块，或者登记还在、其实已经收起（有的路径
+    /// 直接改 `isPickerExpanded`，不走登记处）——后者顺手把陈旧登记清掉。
+    static func collapseCurrent() -> Bool {
+        guard let picker = current else { return false }
+        guard picker.isPickerExpanded else {
+            current = nil
+            return false
+        }
+        picker.isPickerExpanded = false
+        current = nil
+        return true
+    }
 }
 
 // MARK: - 参与互斥的选择器

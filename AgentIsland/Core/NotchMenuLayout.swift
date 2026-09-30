@@ -77,19 +77,24 @@ nonisolated enum NotchMenuMetrics {
 
     // MARK: - 行的几何
 
-    /// 行左侧图标块的边长与圆角。
+    /// 行左侧图标块的边长与圆角。圆角取全应用档位（`AppRadius`），不再各写一个数。
     static let badgeSize: CGFloat = 22
-    static let badgeRadius: CGFloat = 6
+    static let badgeRadius: CGFloat = AppRadius.control
     /// 图标块与标题之间的间距。
     static let badgeGap: CGFloat = 10
+    /// 行内小按钮（± 微调、返回箭头这类，见 `SettingsStepperRow`）的**命中区**下限。
+    ///
+    /// 画出来的方块是 20pt，命中区外扩到这一档：20pt 见方在光标下太容易落空，macOS 的
+    /// 舒适下限是 28pt。`optionRowHeight` 是 32，因此这个下限顶不高选项行。
+    static let compactHitTarget: CGFloat = 28
     /// 行的左右内边距。
     static let rowHorizontalPadding: CGFloat = 12
     /// 行的上下内边距：单行行高 = 图标块 22 + 9×2 = 40。
     static let rowVerticalPadding: CGFloat = 9
     /// 标题与副标题之间的间距。
     static let titleSpacing: CGFloat = 1
-    /// 卡片圆角。
-    static let cardRadius: CGFloat = 10
+    /// 卡片圆角（同上：取 `AppRadius` 的卡片档）。
+    static let cardRadius: CGFloat = AppRadius.card
     /// 分隔线、展开选项块的左侧缩进：与标题列对齐。
     static var separatorInset: CGFloat { rowHorizontalPadding + badgeSize + badgeGap }
     /// 选项行自己的左右内边距；选项块向左退回这么多，文字就落在标题列上。
@@ -185,14 +190,14 @@ nonisolated enum NotchMenuMetrics {
     /// 「监控的智能体」卡片里最多同时显示多少行：其余行在卡内滚动
     /// （与音效选择器的 `maxVisibleOptions` 同一套做法）。
     ///
-    /// 取值与高度预算绑定：agent 页内容高 = 92（页眉/分段控件等固定开销）
+    /// 取值与高度预算绑定：agent 页内容高 = 58（页内固定开销：容器内边距 + 页眉 + 间距）
     /// + 20（卡标题）+ **48（「标记动态」入口行）** + 40（动作条：全部启用/全部关闭）
     /// + 行数×48 + 20（脚注）+ 12（组间距）+ 20 + 120（工具调用保护卡）。
-    /// 4 行时是 **564**（92+20+48+40+192+20+12+20+120）——与加入口行之前逐项同高：
+    /// 4 行时是 **530**（58+20+48+40+192+20+12+20+120）——与加入口行之前逐项同高：
     /// 入口行的 48 正是从可见行数里挪出来的（5 → 4，卡片仍渲染全部行、只是要滚动）。
-    /// 加最大的单个展开 106 后在 chrome ≤ 50 时仍 ≤ 728（720），只有 chrome 76
-    /// （胶囊高度自定义到最大）那一档被夹取（746）—— 与改造前登记的 `agents@76`
-    /// 同一档，夹取组合没有增加。
+    /// 该页最高的**单个**展开（Agent 行内的目录编辑器 106）加进去、chrome 取可达的最大
+    /// 76 时是 712，仍在 728 之内——余量 16，是全页最紧的一档，因此**再给这一页加行、
+    /// 或把某个档位加宽到 4 档，都要先按 `maxPanelHeight` 的加法重核**。
     static let visibleAgentRows = 4
 
     /// 「标记动态」页：每行铺几个角色、一格多高、画廊窗口最多几行。
@@ -237,11 +242,11 @@ nonisolated enum NotchMenuMetrics {
     /// 卡内滚动；行数是**运行时**才知道的（用户增删账号），因此这里只登记上限，真实增量
     /// 由 `NewAPIAccountPageState.runtimeHeight` 算出来。
     ///
-    /// 取值与高度预算绑定：额度页静态内容 252（页内固定 92 + 账号卡的头/动作条 20+40 +
+    /// 取值与高度预算绑定：额度页静态内容 218（页内固定 58 + 账号卡的头/动作条 20+40 +
     /// 组间距 12 + 详情卡的头/**一行**/脚注 20+48+20）、该页最高的运行时增量
     /// `max(账号窗口 5 行 240 + 可选行 2 行 96, 编辑态 240)` = 336 ⇒ 最大 chrome 76 下
-    /// 664 ≤ 728（余量 64，见 `NotchMenuMetricsTests`）。取 6 会变成 712、余量 16：
-    /// 仍然装得下，但窗口再高就没有意义了（一次看 5 个账号已经超出常见用法）。
+    /// 630 ≤ 728（余量 98，见 `NotchMenuMetricsTests`）。取 6 会变成 678：仍然装得下，
+    /// 但窗口再高就没有意义了（一次看 5 个账号已经超出常见用法）。
     static let visibleAccountRows = 5
 
     /// 详情卡里的**静态基准行数**：只有「凭据」一行——它是配置摘要与编辑入口，任何账号都画。
@@ -268,26 +273,26 @@ nonisolated enum NotchMenuMetrics {
     /// 判据可核算：**每页都要满足「内容高 + 该页最高的单个展开 + chrome ≤ 728」**。
     /// chrome = `max(24, 胶囊高度) + 12`，可达区间是 **28…76**：外接屏自动档
     /// （菜单栏 24/25）→ 36/37；内置刘海 32 → 44；`notch` 档在没有内置刘海的屏上 38 → 50；
-    /// 胶囊高度自定义 16…64 → 28…76。因此「装得下」是按页给阈值的——允许的最大 chrome
-    /// （= 728 − 内容高 − 该页最高单个展开）：通用 **76**、行为 **110**、通知 **194**、
-    /// 智能体 **58**、统计 **59**（内容高 669）、**额度 140**、关于 343、快捷键 104。
-    /// 通用页加过「接管键盘焦点」（单行开关 42）之后，它在 chrome 76 那一档**刚好**落到
-    /// 728：此时余量为 0，再加任何一行都会让 `general@76` 变成被夹取的组合——那种情况下
-    /// 需要显式登记进 `NotchMenuMetricsTests.clampedPairs`，并接受该档下页内滚动。
-    /// 本次将通知相关的 3 行从行为页搬到独立通知页，行为页另加 2 个会话开关；
-    /// 因为移出 3×40 再加 2×48，行为页内容净减 24pt，最高单展开仍是 138pt。
-    /// 已知会被夹取的组合：chrome ≥ 59 时的智能体页（670 + chrome = 746@76）、以及
-    /// chrome ≥ 60 时的统计页（669 + chrome = 745@76），都由页内滚动接管（滚动条是隐藏的）。
-    /// 两处都必须显式登记进 `NotchMenuMetricsTests.clampedPairs`。通知页有独立预算，
-    /// 不再挤进行为页。
-    /// 通知页最高展开是音效列表的可见行数（`SoundSelector.maxVisibleOptions`＝6）＝202；
+    /// 胶囊高度自定义 16…64 → 28…76。
+    /// 侧栏化之后每页少掉 34pt 的固定开销，逐页的「内容高 + 该页最高单个展开」在 chrome
+    /// 取可达最大值 76 时的合计：通用 480 + 138 = 694、行为 446 + 138 = 660、
+    /// 通知 298 + 202 = 576、智能体 530 + 106 = 712、统计 635 + 0 = 711、
+    /// 额度 218 + 336 = 630、关于 391 + 0 = 467、快捷键 590 + 0 = 666、
+    /// 标记动态 387 + 0 = 463 —— **全部 ≤ 728，因此当前没有任何被夹取的组合**
+    /// （`NotchMenuMetricsTests.clampedPairs` 为空）。余量最小的是智能体页（712，16pt）。
+    /// 改任何一页的行数、档位数或某个选择器的可见选项数，都要按这条加法重核一遍：
+    /// `NotchMenuMetricsTests` 有一条表驱动的用例钉着它（chrome 取可达集合），某个组合
+    /// 一旦越上限，它就必须显式登记进 `clampedPairs`（用例会先失败），并接受该档下页内
+    /// 滚动（滚动条是隐藏的）。
+    /// 展开块是**互斥**的（同一时刻只有一个，见 `PickerExpansion`），因此这条判据只需要按
+    /// 「该页最高的单个展开」核对：同时展开多个会把高度叠加到上限之外，那样选项列表会落到
+    /// 隐藏滚动条的视口之外，用户只看到箭头翻转。
+    /// 通知页的最高展开是音效列表的可见行数（`SoundSelector.maxVisibleOptions` ＝ 6）＝ 202；
     /// 它的档位总数是动态的（内置 14 + 用户自带若干），超出的在列表里滚动，面板高度不变。
-    /// 改任何一页的行数、档位数或某个选择器的可见选项数，都要重核这些阈值——
-    /// `NotchMenuMetricsTests` 有一条表驱动的用例钉着它（chrome 取可达集合）。
-    /// 展开块是**互斥**的（同一时刻只有一个，见 `PickerExpansion`），因此上面这条判据
-    /// 只需要按「该页最高的单个展开」核对：同时展开多个会把高度叠加到上限之外，
-    /// 那样选项列表会落到隐藏滚动条的视口之外，用户只看到箭头翻转。
-    /// 页内滚动只兜住上面登记的两种夹取组合（各自的溢出量都不到一行选项）。
+    /// 环境相关的例外：通用页的最高展开里含屏幕选择器，它的可见行数是**可用的屏幕数 + 1**、
+    /// 不封顶。3 块屏以内（可见行数 ≤ 4）这一页的最高展开由 `NotchHeightSelector.visibleOptions`
+    /// （4 档 = 138）决定；4 块屏时可见行数 5 → 170（合计 726，仍在上限内）；
+    /// 5 块屏起 202 会把这一页顶过上限，由页内滚动接管。
     static let maxPanelHeight: CGFloat = 728
 
     // MARK: - 推导
@@ -338,6 +343,15 @@ nonisolated enum NotchMenuMetrics {
     }
 
     // MARK: - 分组表
+
+    /// 快捷键页「面板内」那一组的行数：**从动作枚举推出来**，不写死数字。
+    ///
+    /// 设置页的行也是同一个筛选（`ShortcutsSettingsPage.panelActions`），新加一个面板内动作
+    /// 时两边一起长；写死的话新动作会落到解析式之外——页面上被裁掉最后一行（面板按行表
+    /// 撑高，行表少了就画不下）。
+    static var shortcutPanelRowCount: Int {
+        ShortcutAction.allCases.filter { $0.scope == .panel }.count
+    }
 
     /// 一个分组在版面里的描述：有没有分组标题、卡内各行的行高、有没有页脚。
     /// 页面按同样的顺序摆分组，高度因此可以直接相加。
@@ -407,8 +421,12 @@ nonisolated enum NotchMenuMetrics {
             return [
                 // 全局：唤出/收起 + 脚注槽（注册失败的提示）
                 Block(rows: [rowHeight], hasFootnote: true),
-                // 面板内：十条动作 + 脚注槽（输入框规则 / 录制被拒的原因）
-                Block(rows: Array(repeating: rowHeight, count: 10), hasFootnote: true),
+                // 面板内：每条动作一行（行数由 `shortcutPanelRowCount` 从动作枚举推出）+
+                // 脚注槽（输入框规则 / 录制被拒的原因）
+                Block(
+                    rows: Array(repeating: rowHeight, count: shortcutPanelRowCount),
+                    hasFootnote: true
+                ),
             ]
         case .statistics:
             // 统计页是整页读数：高度由 UsageStatsMetrics.sectionHeight 给出（与页面实际

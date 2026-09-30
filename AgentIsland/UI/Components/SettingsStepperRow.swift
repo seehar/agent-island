@@ -24,7 +24,7 @@ struct SettingsStepperRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(label)
-                .font(.system(size: 12))
+                .font(.system(size: AppTypeScale.option))
                 .foregroundColor(
                     isSelected ? AppPalette.primaryText : AppPalette.secondaryText)
 
@@ -38,7 +38,7 @@ struct SettingsStepperRow: View {
             )
 
             Text(settingsLengthLabel(value))
-                .font(.system(size: 11).monospacedDigit())
+                .font(.system(size: AppTypeScale.footnote).monospacedDigit())
                 .foregroundColor(AppPalette.secondaryText)
                 .frame(width: 44)
 
@@ -84,12 +84,24 @@ private struct StepperButton: View {
             Image(systemName: systemName)
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(
-                    Color.white.opacity(isEnabled ? (isHovered ? 1.0 : 0.75) : 0.25)
+                    isEnabled
+                        ? (isHovered ? Color.white : AppPalette.hoverForeground)
+                        : AppPalette.subtleText
                 )
                 .frame(width: 20, height: 20)
                 .background(
                     RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous)
-                        .fill(Color.white.opacity(isHovered && isEnabled ? 0.16 : 0.08))
+                        // 悬停底取滑块 token（同值 0.16）；静止底保持 0.08——`AppPalette` 里
+                        // 同值的只有 `separator`，而按 token 文档它只画线、不当底色用。
+                        .fill(
+                            isHovered && isEnabled
+                                ? AppPalette.segmentedThumb : Color.white.opacity(0.08))
+                )
+                // 命中区扩到 28×28（`NotchMenuMetrics.compactHitTarget`）：画出来的方块仍是
+                // 20，但 20pt 见方的 ± 在光标下太容易落空（macOS 的舒适下限是 28）。
+                .frame(
+                    width: NotchMenuMetrics.compactHitTarget,
+                    height: NotchMenuMetrics.compactHitTarget
                 )
                 .contentShape(Rectangle())
         }

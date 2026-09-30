@@ -100,7 +100,7 @@ struct ShortcutResetButton: View {
             bindings.resetToDefaults()
         } label: {
             Text(l10n.t("Restore Defaults"))
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: AppTypeScale.footnote, weight: .medium))
                 .foregroundColor(AppPalette.secondaryText)
                 .lineLimit(1)
                 .padding(.horizontal, 8)

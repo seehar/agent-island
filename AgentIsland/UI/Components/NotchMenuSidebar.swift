@@ -35,6 +35,8 @@ struct NotchMenuSidebar: View {
   @ObservedObject private var l10n = LocalizationManager.shared
   @State private var hoveredSection: NotchMenuSection?
   @Namespace private var thumb
+  /// 「减弱动态效果」是系统级无障碍偏好：勾了就把换页的滑动换掉（见 `AppMotion`）。
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     VStack(alignment: .center, spacing: NotchMenuMetrics.sidebarItemSpacing) {
@@ -43,15 +45,18 @@ struct NotchMenuSidebar: View {
       // 分两条是因为**侧栏必须能放进最矮的一页**：额度页在没有账号时内容高只有 218pt
       // （`NotchMenuMetrics.contentHeight`），扣掉容器上下内边距只剩 238pt，而 6 个
       // 一级分组按 40pt 行高要 312pt。卡片外层是 `clipShape` 的，超出就会被裁掉——
-      // 「关于」会直接消失。因此上面这一组自己滚动（放得下时是惰性的，不显示滚动条），
+      // 「关于」会直接消失。因此上面这一组自己滚动（滚动条只在真的放不下时出现），
       // 下面这一组常驻，钉底可见。`sidebarFooterAlwaysFits` 守住这个不变量。
-      ScrollView(.vertical, showsIndicators: false) {
+      ScrollView(.vertical) {
         VStack(alignment: .center, spacing: NotchMenuMetrics.sidebarItemSpacing) {
           ForEach(NotchMenuSection.sidebarSections) { section in
             item(for: section)
           }
         }
       }
+      // 滚动条只在**真的放不下**时出现（额度页没有账号时这一组装不下）：放得下还画一条
+      // 轨道会让人以为下面还有内容。
+      .scrollIndicators(.automatic)
       .frame(maxHeight: .infinity)
 
       Rectangle()
@@ -85,7 +90,7 @@ struct NotchMenuSidebar: View {
     return Button {
       // 动画挂在点击上：选中标记滑动与面板高度的变化（`openedSize` 随分组变）同帧，
       // 不再像分段栏那样靠外层的 `withAnimation` 兜底。
-      withAnimation(SettingsMotion.segment) {
+      withAnimation(AppMotion.pick(SettingsMotion.segment, reduceMotion: reduceMotion)) {
         selection = section
       }
     } label: {
@@ -128,13 +133,16 @@ struct NotchMenuSidebar: View {
       }
     }
     .accessibilityLabel(Text(section.title(l10n)))
+    // 侧栏只画图标（`sidebarWidth` 装不下文字），页名必须另有一个出口：悬停提示给出
+    // 这一页叫什么，取的与页眉同一份映射（`NotchMenuSection.title(_:)`）。
+    .help(section.title(l10n))
   }
 
   // MARK: - 表现
 
   private func foregroundColor(for section: NotchMenuSection) -> Color {
     if section == selection { return AppPalette.primaryText }
-    if hoveredSection == section { return Color.white.opacity(0.75) }
+    if hoveredSection == section { return AppPalette.hoverForeground }
     return AppPalette.secondaryText
   }
 }

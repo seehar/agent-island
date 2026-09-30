@@ -5,6 +5,7 @@
 //  按键解析（页面过滤、输入框守卫、冲突数据的确定性）与动作目标选择。
 //
 
+import CoreGraphics
 import Foundation
 import Testing
 
@@ -21,15 +22,19 @@ struct ShortcutResolverTests {
     @Test("动作目录与设置页行表同数：加动作必须同时改行表，否则页面会裁掉最后一行")
     func catalogShapeMatchesLayoutTable() {
         let panelActions = ShortcutAction.allCases.filter { $0.scope == .panel }
-        #expect(ShortcutAction.allCases.count == 11)
-        #expect(panelActions.count == 10)
+        let blocks = NotchMenuMetrics.blocks(for: .shortcuts)
+        #expect(blocks.count == 2)
 
-        let rows = NotchMenuMetrics.blocks(for: .shortcuts).reduce(0) { $0 + $1.rows.count }
+        // 两端各自独立地从动作枚举推出条数：行表用 `shortcutPanelRowCount`，页面用同一个
+        // 筛选（`ShortcutsSettingsPage.panelActions`）。写死数字的旧版会让新加的动作落到
+        // 解析式之外——面板按行表撑高，行表少了就在页面上被裁掉最后一行。
         #expect(
-            rows == ShortcutAction.allCases.count,
-            "行表 \(rows) 行 vs 动作 \(ShortcutAction.allCases.count) 条")
+            blocks[1].rows.count == panelActions.count,
+            "行表 \(blocks[1].rows.count) 行 vs 面板内动作 \(panelActions.count) 条")
+        #expect(NotchMenuMetrics.shortcutPanelRowCount == panelActions.count)
 
-        // 页面首行是全局那一条：它的作用域是全局，且不受输入框守卫限制之外的差别对待——这里只钉数量关系。
+        // 另一张卡只有全局那一条（目前唯一的全局动作就是唤出/收起）。
+        #expect(blocks[0].rows.count == ShortcutAction.allCases.count - panelActions.count)
         #expect(ShortcutAction.summon.scope == .global)
         #expect(panelActions.contains(.summon) == false)
     }
@@ -250,5 +255,74 @@ struct ShortcutTargetingTests {
     func approvalTargetIsNilWithoutPending() {
         let ordered = [idle(sessionId: "a"), idle(sessionId: "b")]
         #expect(ShortcutTargeting.approvalTarget(in: ordered, selected: nil) == nil)
+    }
+}
+
+@MainActor
+@Suite("返回/收起：展开块优先")
+struct ShortcutDismissTests {
+    /// 一个只有展开态的参与方：登记处只认 `PickerExpansionControlling`，不必是真正的选择器。
+    private final class FakePicker: PickerExpansionControlling {
+        var isPickerExpanded = false
+    }
+
+    private func makeModel() -> NotchViewModel {
+        NotchViewModel(
+            deviceNotchRect: CGRect(x: 0, y: 0, width: 300, height: 32),
+            screenRect: CGRect(x: 0, y: 0, width: 1920, height: 1080),
+            windowHeight: 750,
+            hasPhysicalNotch: false
+        )
+    }
+
+    @Test("Esc：先收起展开的选项列表，收掉了就不离开设置页")
+    func escapeCollapsesExpandedPickerBeforeLeavingThePage() {
+        // 登记处是全局共享状态：先清干净，起点才有意义。
+        while PickerExpansion.collapseCurrent() {}
+
+        let model = makeModel()
+        model.notchOpen(reason: .click)
+        model.contentType = .menu
+
+        let picker = FakePicker()
+        picker.isPickerExpanded = true
+        PickerExpansion.willExpand(picker)
+
+        ShortcutController.shared.dismiss(viewModel: model)
+
+        #expect(picker.isPickerExpanded == false, "Esc 应当先把展开的选项列表收起来")
+        #expect(model.contentType == .menu, "这一次按键不该把整页也带走")
+
+        // 展开块已经收起：下一次 Esc 才轮到面上的逐层返回。
+        ShortcutController.shared.dismiss(viewModel: model)
+        #expect(model.contentType == .instances)
+    }
+
+    @Test("没有展开块时 Esc 照旧逐层返回：设置页 → 会话列表")
+    func escapeWithoutExpansionLeavesThePage() {
+        while PickerExpansion.collapseCurrent() {}
+
+        let model = makeModel()
+        model.notchOpen(reason: .click)
+        model.contentType = .menu
+
+        ShortcutController.shared.dismiss(viewModel: model)
+        #expect(model.contentType == .instances)
+    }
+
+    @Test("登记陈旧（登记还在、其实已经收起）时不吞掉这一次 Esc")
+    func staleRegistrationDoesNotSwallowEscape() {
+        while PickerExpansion.collapseCurrent() {}
+
+        let model = makeModel()
+        model.notchOpen(reason: .click)
+        model.contentType = .menu
+
+        // 有的路径直接改 `isPickerExpanded`、不走登记处，登记因此可能是陈旧的。
+        let picker = FakePicker()
+        PickerExpansion.willExpand(picker)
+
+        ShortcutController.shared.dismiss(viewModel: model)
+        #expect(model.contentType == .instances, "收起态的选择器不该吃掉 Esc")
     }
 }

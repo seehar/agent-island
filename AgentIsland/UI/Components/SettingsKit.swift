@@ -56,8 +56,13 @@ struct SettingsSectionHeader: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: AppTypeScale.footnote, weight: .semibold))
             .foregroundColor(AppPalette.tertiaryText)
+            // 分组标题在高度预算是**定点** `sectionHeaderHeight`（14pt）：换行会把面板撑出
+            // 解析式，因此只留一行、长了省略（与脚注同一套处理）。
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .help(title)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, NotchMenuMetrics.rowHorizontalPadding)
     }
@@ -98,7 +103,7 @@ struct SettingsGroup<Content: View>: View {
                 // 长了就省略——「有脚注就多一行」会让面板高度与解析式脱钩。
                 // 完整内容一律写进 `.help`，用户仍能读全文。
                 Text(footnote)
-                    .font(.system(size: 11))
+                    .font(.system(size: AppTypeScale.footnote))
                     .foregroundColor(footnoteColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -161,7 +166,7 @@ struct SettingsBadge: View {
         switch source {
         case .symbol(let name, let iconTint):
             Image(systemName: name)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: AppTypeScale.footnote, weight: .semibold))
                 .foregroundColor(iconTint)
         case .agent(let kind):
             AgentLogo(agent: kind, size: 12)
@@ -203,13 +208,13 @@ struct SettingsRowLabel<Trailing: View>: View {
 
             VStack(alignment: .leading, spacing: NotchMenuMetrics.titleSpacing) {
                 Text(title)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: AppTypeScale.body, weight: .medium))
                     .foregroundColor(titleColor)
                     .lineLimit(1)
 
                 if let subtitle {
                     Text(subtitle)
-                        .font(.system(size: 11))
+                        .font(.system(size: AppTypeScale.footnote))
                         .foregroundColor(subtitleColor)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -233,13 +238,13 @@ struct SettingsDisclosureValue: View {
     var body: some View {
         HStack(spacing: 6) {
             Text(value)
-                .font(.system(size: 11))
+                .font(.system(size: AppTypeScale.footnote))
                 .foregroundColor(AppPalette.secondaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)
 
             Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: AppTypeScale.caption, weight: .semibold))
                 .foregroundColor(AppPalette.tertiaryText)
         }
     }
@@ -261,7 +266,7 @@ struct SettingsStatusValue: View {
             }
 
             Text(text)
-                .font(.system(size: 11))
+                .font(.system(size: AppTypeScale.footnote))
                 .foregroundColor(color)
                 .lineLimit(1)
         }
@@ -278,7 +283,6 @@ struct SettingsButtonRow<Trailing: View>: View {
     private let titleColor: Color
     private let subtitleColor: Color
     private let showsSeparator: Bool
-    private let isDimmed: Bool
     private let trailing: Trailing
     private let action: () -> Void
 
@@ -291,7 +295,6 @@ struct SettingsButtonRow<Trailing: View>: View {
         titleColor: Color = AppPalette.primaryText,
         subtitleColor: Color = AppPalette.secondaryText,
         showsSeparator: Bool = true,
-        isDimmed: Bool = false,
         @ViewBuilder trailing: () -> Trailing,
         action: @escaping () -> Void
     ) {
@@ -301,7 +304,6 @@ struct SettingsButtonRow<Trailing: View>: View {
         self.titleColor = titleColor
         self.subtitleColor = subtitleColor
         self.showsSeparator = showsSeparator
-        self.isDimmed = isDimmed
         self.trailing = trailing()
         self.action = action
     }
@@ -323,7 +325,6 @@ struct SettingsButtonRow<Trailing: View>: View {
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .settingsRowSeparator(showsSeparator)
-        .opacity(isDimmed ? 0.5 : 1)
     }
 }
 
@@ -361,6 +362,8 @@ struct SettingsToggleRow: View {
     private let helpText: String?
     private let onToggle: () -> Void
 
+    @State private var isHovered = false
+
     init(
         badge: SettingsBadge,
         title: String,
@@ -395,6 +398,11 @@ struct SettingsToggleRow: View {
                 .help(helpText ?? title)
                 .accessibilityLabel(Text(title))
         }
+        // 整行给一层悬停底色（开关本身仍是唯一的点击目标）：行与行之间「这一行是什么」
+        // 比「点到哪儿」更需要被指出来，设置面板里其它可点行也是同一套反馈。
+        .background(isHovered ? AppPalette.rowHover : Color.clear)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
         .settingsRowSeparator(showsSeparator)
     }
 }
@@ -409,6 +417,8 @@ struct SettingsSliderRow: View {
     let onChange: (Double) -> Void
     /// 拖动结束（松手）时回调：音量行用它试听一次。
     var onEditingEnded: (() -> Void)? = nil
+
+    @State private var isHovered = false
 
     var body: some View {
         SettingsRowLabel(badge: badge, title: title) {
@@ -433,12 +443,17 @@ struct SettingsSliderRow: View {
                 .accessibilityValue(Text(settingsPercentLabel(value)))
 
                 Text(settingsPercentLabel(value))
-                    .font(.system(size: 11, weight: .medium).monospacedDigit())
+                    .font(.system(size: AppTypeScale.footnote, weight: .medium).monospacedDigit())
                     .foregroundColor(AppPalette.secondaryText)
                     .frame(width: 36, alignment: .trailing)
             }
         }
         .frame(height: NotchMenuMetrics.rowHeight)
+        // 与开关行同一套悬停反馈：滑杆行的点击目标只有滑杆与标签，整行先亮起来告诉
+        // 用户「这一行正在你的光标下」。
+        .background(isHovered ? AppPalette.rowHover : Color.clear)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
         .settingsRowSeparator(showsSeparator)
     }
 }
@@ -514,7 +529,7 @@ struct SettingsOptionRow: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Text(label)
-                    .font(.system(size: 12))
+                    .font(.system(size: AppTypeScale.option))
                     .foregroundColor(
                         isSelected ? AppPalette.primaryText : AppPalette.secondaryText
                     )
@@ -522,7 +537,7 @@ struct SettingsOptionRow: View {
 
                 if let detail {
                     Text(detail)
-                        .font(.system(size: 11))
+                        .font(.system(size: AppTypeScale.footnote))
                         .foregroundColor(AppPalette.tertiaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -552,7 +567,7 @@ struct SettingsNotice: View {
 
     var body: some View {
         Text(message)
-            .font(.system(size: 11))
+            .font(.system(size: AppTypeScale.footnote))
             .foregroundColor(AppPalette.danger)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -593,10 +608,23 @@ func settingsSecondsLabel(_ seconds: TimeInterval) -> String {
     return "\(value) s"
 }
 
-/// 把安静时段预设写成 24 小时制范围（如 20:00–08:00）。数字/时间是值，不走本地化查表。
-func settingsTimeRangeLabel(startMinute: Int, endMinute: Int) -> String {
+/// 把安静时段预设写成时间范围（`20:00–08:00` / `8:00 PM–8:00 AM`）。数字与时间都是值，
+/// 不走本地化查表；但**钟点本身按环境 locale 渲染**——12/24 小时制是用户的系统偏好，
+/// 写死 `%02d:%02d` 会让用 12 小时制的人读到一对分不清上午下午的数字。
+///
+/// - Parameters:
+///   - startMinute: 起点（当天第几分钟）。
+///   - endMinute: 终点（当天第几分钟）。
+///   - locale: 渲染钟点用的 locale（视图环境里的 `\.locale`，与统计页的时间戳同源）。
+func settingsTimeRangeLabel(startMinute: Int, endMinute: Int, locale: Locale) -> String {
     func clock(_ minute: Int) -> String {
-        String(format: "%02d:%02d", minute / 60, minute % 60)
+        // 借「今天 + 这个钟点」交给 `Date.FormatStyle`：小时制、分隔符与上下午标记都由
+        // locale 决定，手写格式串等于把用户的系统偏好丢掉。
+        let date =
+            Calendar.current.date(
+                bySettingHour: minute / 60, minute: minute % 60, second: 0, of: Date())
+            ?? Date()
+        return date.formatted(Date.FormatStyle(locale: locale).hour().minute())
     }
     return "\(clock(startMinute))–\(clock(endMinute))"
 }

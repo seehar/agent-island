@@ -71,18 +71,22 @@ struct NotchMenuMetricsTests {
         #expect(blocks.first?.fixedHeight == UsageStatsMetrics.sectionHeight)
     }
 
-    @Test("统计分组：默认开销下确实在上限内，最高开销由夹取兜住")
+    @Test("统计分组：默认开销下确实在上限内，最高开销同样不触顶")
     func statisticsSectionFitsPanelCap() {
-        // 固定开销含胶囊高度（自定义最高 64 → 开销 76）。统计分组是整页内容，越上限就只能
-        // 靠页内滚动（见 `clampedPairs` 的 `statistics@76`）。这里钉住「默认开销下真的在
-        // 上限内」（`low < cap` 才有区分力）与「最高开销被夹到上限」（`high <= cap` 在夹取
-        // 下恒真，真正兜住它的是 `clampedPairs` 的登记）。
+        // 固定开销含胶囊高度（自定义最高 64 → 开销 76）。统计分组是整页内容：侧栏化之后
+        // 内容高 635（16 + 28 + 4 + 10 + `UsageStatsMetrics.sectionHeight` 577），
+        // chrome 76 下 711 < 728，因此这一档不再需要页内滚动兜底（`clampedPairs` 为空）。
+        // 两条断言都要有区分力：`low < cap` 钉「默认开销真的装得下」，
+        // `high < cap` 钉「最高开销也还在上限内」——退化成 `<=` 就失去意义了。
         let low = NotchMenuMetrics.panelHeight(
             for: .statistics, expandedPickerHeight: 0, chromeHeight: 42)
         let high = NotchMenuMetrics.panelHeight(
             for: .statistics, expandedPickerHeight: 0, chromeHeight: 76)
         #expect(low < NotchMenuMetrics.maxPanelHeight)
-        #expect(high <= NotchMenuMetrics.maxPanelHeight)
+        #expect(high < NotchMenuMetrics.maxPanelHeight)
+        #expect(
+            high == 76 + NotchMenuMetrics.contentHeight(for: .statistics),
+            "统计页能不夹取就得能被解析式算出来：内容 \(NotchMenuMetrics.contentHeight(for: .statistics)) + 76")
     }
 
     // MARK: - 侧栏
@@ -284,11 +288,13 @@ struct NotchMenuMetricsTests {
 
     /// 已知被夹取（超出上限、改由页内滚动接管）的组合。**新增组合必须显式登记在这里**，
     /// 否则测试失败——那正是「又加了一行/一档，最后一个档位落到可视区外」的信号。
-    /// 统计页在 `chromeHeight = 76` 也被夹取：脚注新增「不计入的 Agent」一行后
-    /// 整页 577 + 开销 76 = 745 > 728（默认开销 42 下 711，仍在上限内）。
-    /// 侧栏化之后每页少掉 34pt 固定开销，原来被夹取的两组（智能体 / 统计）都不再
-    /// 触顶，因此没有需要登记的夹取组合。**新增分组若顶到上限，必须登记到这里**，
-    /// 并接受该档下页内滚动（见 `NotchMenuLayout` 的上限注释）。
+    ///
+    /// 当前为空：侧栏化之后每页少掉 34pt 固定开销，逐页重算的最高组合在 chrome 取可达最大
+    /// 值 76 时是智能体页 530 + 106 + 76 = 712（余量 16，最紧的一档）、
+    /// 统计页 635 + 0 + 76 = 711，其余更宽松——没有任何组合触顶。
+    /// （旧注释里的 670/669 与 746/745 都是侧栏化**之前**的内容高。）
+    /// 新增分组、加行或加档位若顶到上限，必须登记到这里，并接受该档下页内滚动
+    /// （见 `NotchMenuLayout.maxPanelHeight` 的加法）。
     private static let clampedPairs: Set<String> = []
 
     @Test("额度分组：动作条 + 详情基准一行，账号个数与可选行不进静态表")
@@ -450,5 +456,16 @@ struct NotchMenuMetricsTests {
             NotchMenuMetrics.optionIndent
                 == NotchMenuMetrics.separatorInset - NotchMenuMetrics.optionHorizontalPadding)
         #expect(NotchMenuMetrics.optionIndent > 0)
+    }
+
+    @Test("行内小按钮的命中区不低于舒适下限，且顶不高选项行")
+    func compactHitTargetMeetsComfortFloor() {
+        // 20pt 见方的 ± 按钮在光标下太容易落空：`SettingsStepperRow` 把命中区外扩到这一档
+        // （画出来的方块仍是 20），因此它必须不小于 macOS 的舒适下限。
+        #expect(NotchMenuMetrics.compactHitTarget >= 28)
+        // 命中区要装得进选项行的高度，否则会把行顶高、让面板高度脱离解析式。
+        #expect(NotchMenuMetrics.compactHitTarget <= NotchMenuMetrics.optionRowHeight)
+        // 而且必须真的比画出来的东西大：跟图标块一样大就等于没外扩。
+        #expect(NotchMenuMetrics.compactHitTarget > NotchMenuMetrics.badgeSize)
     }
 }
