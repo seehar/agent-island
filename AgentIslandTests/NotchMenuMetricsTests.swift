@@ -132,6 +132,24 @@ struct NotchMenuMetricsTests {
         #expect(content >= 304, "画廊放不下：详情区只有 \(content)pt")
     }
 
+    @Test("侧栏不能宽成一个空槽")
+    func sidebarStaysProportionateToTheDetailColumn() {
+        // 初版侧栏给 44pt、条目底色 40pt，几乎占满整条栏，相对右侧几百点的详情区
+        // 就是一个过宽的空槽（实机截图就是这个观感）。这条钉住「侧栏只是图标栏，
+        // 不是第二列内容」：它占的宽度必须显著小于详情区，且自身要装得下图标。
+        let detail = NotchMenuMetrics.panelWidthMax - 16 - NotchMenuMetrics.sidebarWidth
+            - NotchMenuMetrics.sidebarItemSpacing
+        #expect(
+            NotchMenuMetrics.sidebarWidth * 4 <= detail,
+            "侧栏 \(NotchMenuMetrics.sidebarWidth)pt 相对详情区 \(detail)pt 太宽了")
+        // 图标两侧要留得下呼吸位，否则会顶到栏边。
+        #expect(
+            NotchMenuMetrics.sidebarWidth - NotchMenuMetrics.sidebarIconSize >= 8,
+            "\(NotchMenuMetrics.sidebarIconSize)pt 图标在 \(NotchMenuMetrics.sidebarWidth)pt 栏里太满")
+        // 分隔线不能比栏还宽。
+        #expect(NotchMenuMetrics.sidebarDividerLength < NotchMenuMetrics.sidebarWidth)
+    }
+
     @Test("每个分组的高度都等于行表重算的结果")
     func contentHeightMatchesBlockTable() {
         for section in NotchMenuSection.allCases {

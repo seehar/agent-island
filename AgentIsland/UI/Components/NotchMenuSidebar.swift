@@ -28,7 +28,7 @@ import SwiftUI
 ///
 /// 所以侧栏用与原分段栏同一套自绘原语（`AppPalette` + `SettingsCompactButtonStyle`
 /// + `matchedGeometryEffect`）竖着画：**只画图标不画文字**，详情区因此只被吃掉
-/// `sidebarWidth`（44pt），没有任何一页的已标定版面被牺牲。分组名由页眉承担——
+/// `sidebarWidth`（32pt），没有任何一页的已标定版面被牺牲。分组名由页眉承担——
 /// `pageHeader` 本来就在显示当前分组名，侧栏是第二处说明而不是唯一定位。
 struct NotchMenuSidebar: View {
   @Binding var selection: NotchMenuSection
@@ -90,10 +90,12 @@ struct NotchMenuSidebar: View {
       }
     } label: {
       Image(systemName: section.symbolName)
-        .font(.system(size: 15, weight: .medium))
+        .font(.system(size: NotchMenuMetrics.sidebarIconSize, weight: .medium))
         .foregroundColor(foregroundColor(for: section))
+        // 命中区与底色都铺满整条侧栏：选中/悬停读起来是「一整行」，而不是一个浮在
+        // 空槽里的小方块；命中区跟着一起变大，点得到。
         .frame(
-          width: NotchMenuMetrics.sidebarItemHeight,
+          width: NotchMenuMetrics.sidebarWidth,
           height: NotchMenuMetrics.sidebarItemHeight
         )
         .background {

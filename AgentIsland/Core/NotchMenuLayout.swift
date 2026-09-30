@@ -126,11 +126,21 @@ nonisolated enum NotchMenuMetrics {
     /// 页眉：返回按钮 + 页面标题。
     static let pageHeaderHeight: CGFloat = 28
     /// 侧栏宽度（纯图标栏，见 `NotchMenuSidebar`）。只画图标不画文字：详情区因此
-    /// 只被吃掉 44pt，统计页（以 464pt 标定）与标记动态画廊（硬下限 304pt）都排得下；
+    /// 只被吃掉这条宽度，统计页（以 464pt 标定）与标记动态画廊（硬下限 304pt）都排得下；
     /// 侧栏的标签由页眉承担——那里已经在显示当前分组名。
-    static let sidebarWidth: CGFloat = 44
-    /// 侧栏一个条目的边长。**复用 `rowHeight`**（与设置行同一档行高），不要写字面量。
+    ///
+    /// 宽度按**观感比例**定的，不是按整数凑的：初版给 44pt、条目底色 40pt，几乎占满
+    /// 整条栏，相对右侧几百点的详情区就成了一个过宽的空槽（实机截图就是这个观感）。
+    /// 32pt 配上 14pt 图标之后，左右两栏的疏密才在一个量级上。
+    static let sidebarWidth: CGFloat = 32
+    /// 侧栏一个条目的**行高**（纵向节奏）。**复用 `rowHeight`**（与设置行同一档行高），
+    /// 不要写字面量——侧栏的条目与右侧的设置行按同一节奏排，横向才对得齐。
+    ///
+    /// 条目宽度不另设：命中区与选中/悬停底色都铺满整条侧栏（`sidebarWidth`）。
     static let sidebarItemHeight: CGFloat = rowHeight
+    /// 侧栏图标尺寸。行高是 40（与设置行对齐），但图标本身按窄栏取 14，
+    /// 否则 15pt 的图标在 32pt 宽的栏里会顶到边。
+    static let sidebarIconSize: CGFloat = 14
     /// 侧栏条目之间的间距。
     static let sidebarItemSpacing: CGFloat = 4
     /// 侧栏内把「关于」与一级分组隔开的那条发丝线。
@@ -138,7 +148,7 @@ nonisolated enum NotchMenuMetrics {
     /// 是**横向**的：侧栏条目竖排，分隔两组就要横线。写成 1pt×20pt 的竖条会读成
     /// 一个杂散的小竖杠（实机截图就是这个效果），不是分隔线。长度比侧栏窄一点居中，
     /// 粗细与页面里其它分隔线（`AppPalette.separator`）一致。
-    static let sidebarDividerLength: CGFloat = 24
+    static let sidebarDividerLength: CGFloat = 20
     static let sidebarDividerThickness: CGFloat = 1
     /// 外层 VStack 的间距。
     static let rowSpacing: CGFloat = 4
