@@ -73,6 +73,8 @@ nonisolated enum AppSettings {
     static let notificationSound = "notificationSound"
     /// 提示音音量（0…1）。
     static let notificationVolume = "notificationVolume"
+    /// 角色动效速度档位（键名字面量只写在上面的 `mascotAnimationSpeedKey` 里）。
+    static let mascotAnimationSpeed = AppSettings.mascotAnimationSpeedKey
     static let claudeDirectoryName = "claudeDirectoryName"
     static let language = "language"
     /// 显式启用集合（新口径）：不在集合里就是「关」。
@@ -139,6 +141,51 @@ nonisolated enum AppSettings {
 
   static func setNotificationVolume(_ value: Double, defaults: UserDefaults = .standard) {
     defaults.set(min(max(value, 0), 1), forKey: Keys.notificationVolume)
+  }
+
+  // MARK: - 角色动效
+
+  /// 像素角色的动效速度档位：0 = 定格一帧（不建时钟），0.5 / 1 / 2 = 播放倍率。
+  ///
+  /// 键名 `mascotAnimationSpeed`。**缺键时取 1**：`double(forKey:)` 对缺失键返回 0，直接用会
+  /// 把角色静默定格（「角色不动了」是最难查的一类故障）；读出时再夹一次档位，偏好域里可能
+  /// 是手改过的连续值（0.3 这种谁也不认识的速度）。
+  ///
+  /// 档位是**全局**的：头部标记、画廊、「标记动态」的入口缩略图都读它，不只作用在动画页。
+  static var mascotAnimationSpeed: Double {
+    get { mascotAnimationSpeed(defaults: defaults) }
+    set { setMascotAnimationSpeed(newValue, defaults: defaults) }
+  }
+
+  /// 读取入口（`defaults:` 便于用临时偏好域单测，与本文件其余偏好同一约定）。
+  ///
+  /// 用 `NSNumber` 取值而不是 `as? Double`：这个键是**跨切片共用**的，视图里可能以 `Int`
+  /// （或 `@AppStorage<Double>` 之外的窄类型）写入——那种存储下 `as? Double` 会静默失败、
+  /// 直接退回默认档 1，表现成「档位设置了没反应」。
+  static func mascotAnimationSpeed(defaults: UserDefaults = .standard) -> Double {
+    guard let stored = defaults.object(forKey: Keys.mascotAnimationSpeed) as? NSNumber else {
+      return 1
+    }
+    return clampedMascotAnimationSpeed(stored.doubleValue)
+  }
+
+  /// 写入入口：先夹档位再落盘，偏好域里因此不会出现非法档位。
+  static func setMascotAnimationSpeed(_ value: Double, defaults: UserDefaults = .standard) {
+    defaults.set(clampedMascotAnimationSpeed(value), forKey: Keys.mascotAnimationSpeed)
+  }
+
+  /// 合法档位（顺序即界面顺序）。
+  static let mascotAnimationSpeedTiers: [Double] = [0, 0.5, 1, 2]
+
+  /// 角色动效速度档位在偏好域里的键名。
+  ///
+  /// 单独公开一份字面量：视图里的 `@AppStorage` 只吃字符串键（`Keys` 是私有的），而同一个
+  /// 键在两处各写一遍字面量迟早会写岔——键名因此只在这一个地方出现，`Keys` 反过来引用它。
+  static let mascotAnimationSpeedKey = "mascotAnimationSpeed"
+
+  /// 把任意值夹到合法档位：取**最接近**的一档（并列时取更小的一档，结果确定）。
+  static func clampedMascotAnimationSpeed(_ value: Double) -> Double {
+    mascotAnimationSpeedTiers.min { abs($0 - value) < abs($1 - value) } ?? 1
   }
 
   // MARK: - Language

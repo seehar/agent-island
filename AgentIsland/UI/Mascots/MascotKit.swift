@@ -5,9 +5,17 @@
 //  角色共用的绘制工具：SVG 单位的坐标映射、绕轴心旋转的部件、睡眠时飘的 Z、取色。
 //
 //  坐标口径（这是整套角色看起来「像一套」的关键）：每一枚角色都在**同一套 SVG 单位**上作画
-//  （`MascotSprite`），按 `min(宽比, 高比)` 等比缩放并居中。一套场景自带一个视口
-//  （`svgWidth` / `svgHeight` / `svgTop`）：视口只决定这一套场景里角色的位置与大小，
-//  同一个 `svgWidth = 16` 的视口在各枚角色之间是同一个口径——角色因此不会「有的胖有的瘦」。
+//  （`MascotSprite`），按全应用共用的**参照跨度**（`MascotSprite.referenceSpan`）缩放。
+//  一套场景自带一个视口（`svgWidth` / `svgHeight` / `svgTop`）：视口只决定这一套场景里
+//  角色的位置与大小，同一个视口在各枚角色之间是同一个口径——角色因此不会「有的胖有的瘦」。
+//
+//  三套场景之间的**大小与基线**也必须一致：单位边长不按各场景自己的视口算（那样同一只角色
+//  在打盹 / 干活 / 起跳之间会换三个大小，26pt 舞台上从 1.53pt 变到 1.73pt，看起来像换了
+//  一只角色），纵向位置则按同一个参照方框换算——脚踩在同一条基线上，切状态时不会突然
+//  变大或上浮。视口本身（坐标常量）仍是各场景自己的，不参与这件事。
+//
+//  画布坐标一律吸附到**整设备像素**（`MascotPixelGrid`）：块边长按参照跨度算出来多半是小数，
+//  不吸附的话每个像素块都落在半像素上、整只角色都是抗锯齿的糊边，不像像素画。
 //
 //  角色自己的画法（有哪些部件、什么颜色、怎么动）写在各自文件里。
 //
@@ -19,37 +27,86 @@
 import AppKit
 import SwiftUI
 
-/// 角色的绘制坐标系：把一套 SVG 单位的「场景视口」映射到画布，按 `min(宽比, 高比)` 等比缩放并居中。
+/// 像素块吸附到的**设备像素网格**。
+///
+/// 为什么是一个进程内的值：`MascotSprite` 由各角色的绘制代码在 `Canvas` 的闭包里直接构造
+/// （调用点不在本层），而「一个点等于多少设备像素」只存在于渲染环境里。视图层
+/// （`AgentMascot`）在求值时把环境的 `displayScale` 写进来，绘制时读——于是同一份坐标常量
+/// 在 1× 与 2× 屏上都落在整设备像素上。
+///
+/// 默认 2：本机（arm64 MacBook）与离屏渲染（`ImageRenderer`、探针、单测）都没有窗口环境值
+/// 时的取值。猜错的后果只是「少吸附半像素」，不会画错内容。
+enum MascotPixelGrid {
+    /// 设备像素 / 点（2× 屏是 1 点 = 2 设备像素）。
+    static var scale: CGFloat = 2
+
+    /// 一个设备像素在点坐标里的边长。
+    static var pixel: CGFloat { 1 / scale }
+
+    /// 把点坐标吸到**最近**的整设备像素上。
+    static func snap(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
+}
+
+/// 角色的绘制坐标系：把一套 SVG 单位的「场景视口」映射到画布。
 struct MascotSprite {
     /// 缩放后的视口左上角在画布上的位置。
     let origin: CGPoint
-    /// 一个 SVG 单位在画布上的边长。
+    /// 一个 SVG 单位在画布上的边长（三套场景取同一个值，见 `referenceSpan`）。
     let block: CGFloat
     /// 视口上边缘对应的 SVG 纵坐标：内容里比它小的 y 会被画到视口上边缘之外（被 `clipped()` 裁掉）。
     let svgTop: CGFloat
 
+    /// 全应用共用的参照跨度（SVG 单位）：同一只角色在各套场景里取同一个单位边长。
+    ///
+    /// 各场景的视口是**各自**的（趴姿 17×7、打字 16×11、起跳 15×12……），按视口自己的
+    /// `min(宽比, 高比)` 适配就会拿到三个不同的单位边长——同一只角色在打盹、干活、待审批
+    /// 之间仿佛换了大小。取各场景视口跨度的上界（现有最宽的一档 17）当参照，单位边长在三套
+    /// 场景里就始终一致。将来某套场景的视口比参照还大时退回按它自己适配（见 `init`）：
+    /// 宁可这只角色大一点，也不要被 `clipped()` 裁掉外面的部件。
+    static let referenceSpan: CGFloat = 17
+
+    /// 参照方框下边缘的 SVG 纵坐标：各场景的视口下沿（`svgTop + svgHeight`）都落在它之上
+    /// （现有取值是 16…18），角色因此落在同一张 SVG→画布映射上——脚踩在同一条基线上。
+    static let referenceBottom: CGFloat = 18
+
     init(_ canvas: CGSize, svgWidth: CGFloat = 15, svgHeight: CGFloat = 10, svgTop: CGFloat = 6) {
-        block = min(canvas.width / svgWidth, canvas.height / svgHeight)
+        block = min(canvas.width, canvas.height) / max(Self.referenceSpan, svgWidth, svgHeight)
+        // 横向：视口自己居中（角色的左右重心不随场景改变）。
+        // 纵向：把参照方框（边长 `referenceSpan`、下边缘 `referenceBottom`）放在画布正中，
+        // 各场景的视口按自己的 `svgTop` 落进这张映射——于是「同一个 SVG 纵坐标」在每套场景里
+        // 都落在画布的同一个点上。
+        let referenceTop = Self.referenceBottom - Self.referenceSpan
         origin = CGPoint(
             x: (canvas.width - svgWidth * block) / 2,
-            y: (canvas.height - svgHeight * block) / 2)
+            y: (canvas.height - Self.referenceSpan * block) / 2 + (svgTop - referenceTop) * block)
         self.svgTop = svgTop
     }
 
     /// SVG 矩形 → 画布矩形。`dx` / `dy` 是**SVG 单位**的局部位移（角色的局部动作——起跳、
     /// 抬手、眨眼时的纵向压缩都靠它，而不是改坐标常量）。
+    ///
+    /// 四条边都吸到整设备像素：只吸边、**不吸块边长本身**。把块边长取整是不行的——22pt 的
+    /// 入口缩略图上它落在 2 与 3 设备像素之间，取 2 得缩水 23%、取 3 得溢出 16%（边角被
+    /// `clipped()` 裁掉）；吸边则整只角色的尺寸不变，块宽在相邻整像素之间取值（26pt 舞台上
+    /// 约 16 块里才有一块宽 1 设备像素），肉眼是均匀的。
     func r(
         _ x: CGFloat, _ y: CGFloat, _ width: CGFloat, _ height: CGFloat,
         dx: CGFloat = 0, dy: CGFloat = 0
     ) -> CGRect {
-        CGRect(
-            x: origin.x + (x + dx) * block,
-            y: origin.y + (y - svgTop + dy) * block,
-            width: width * block,
-            height: height * block)
+        let leading = MascotPixelGrid.snap(origin.x + (x + dx) * block)
+        let top = MascotPixelGrid.snap(origin.y + (y - svgTop + dy) * block)
+        // 至少一个设备像素：细部件（0.7 单位的键帽那种）在极小舞台上会被吸成 0 宽而整个消失。
+        let trailing = max(
+            MascotPixelGrid.snap(origin.x + (x + dx + width) * block),
+            leading + MascotPixelGrid.pixel)
+        let bottom = max(
+            MascotPixelGrid.snap(origin.y + (y - svgTop + dy + height) * block),
+            top + MascotPixelGrid.pixel)
+        return CGRect(x: leading, y: top, width: trailing - leading, height: bottom - top)
     }
 
-    /// 网格点 → 画布点（旋转后的顶点、连线用）。
+    /// 网格点 → 画布点（旋转后的顶点、连线用）。**不吸附**：绕轴心旋转的部件本来就不是
+    /// 轴对齐的像素块（举钳、挥臂那几处），把顶点吸到网格上只会把形状压变形。
     func point(_ x: CGFloat, _ y: CGFloat, dx: CGFloat = 0, dy: CGFloat = 0) -> CGPoint {
         CGPoint(
             x: origin.x + (x + dx) * block,
@@ -136,7 +193,7 @@ enum MascotDraw {
         // 每往右一枚抬多少：把算出来的余量对半分给两段抬升；余量为负就压平（rise = 0）。
         let rise = min(edge * 0.6, max(0, (bodyTopY - glyph - 2 * floatRise) / 2))
         // 最低那枚贴着身体顶边（留一点缝），整条斜梯若会顶出画布上缘就整体下移。`zGlyph` 会把
-        // 落点对齐到整点像素（最多往上蹭半像素），所以留 0.5pt 的余量。
+        // 落点吸到整设备像素（最多往上蹭半个设备像素），所以留 0.5pt 的余量。
         let lowest = bodyTopY - glyph / 2 - edge * 0.3
         let shift = max(0, 0.5 - (lowest - 2 * rise - glyph / 2 - floatRise))
         // 要下移超过一个块边长，说明头顶本来就没有位置：这一档不画 Z（姿态本身就说明了在睡）。
@@ -200,18 +257,22 @@ enum MascotDraw {
     }
 
     /// 一枚像素 Z 的外接矩形：`zGlyph` 与上面的布局单测共用，两者因此不会各算一套。
+    ///
+    /// 落点与角色部件同一套吸附（`MascotPixelGrid.snap`）：块是方的，落在半像素上会被抗锯齿
+    /// 糊掉，看起来就不像像素画了。`edge` 本身是整数点（见 `zLadder`），所以三块字形内部
+    /// 仍落在网格上。
     static func zGlyphRect(center: CGPoint, edge: CGFloat) -> CGRect {
         CGRect(
-            x: (center.x - edge * 1.5).rounded(),
-            y: (center.y - edge * 1.5).rounded(),
+            x: MascotPixelGrid.snap(center.x - edge * 1.5),
+            y: MascotPixelGrid.snap(center.y - edge * 1.5),
             width: edge * 3,
             height: edge * 3)
     }
 
     /// 一枚像素 Z：三块宽的顶边、中间一块的对角、三块宽的底边。`center` 是它的中心。
     ///
-    /// 落点按整点像素对齐（`rounded()`，见 `zGlyphRect`）：块是方的，落在半像素上会被抗锯齿
-    /// 糊掉，看起来就不像像素画了。
+    /// 落点按整设备像素对齐（`MascotPixelGrid.snap`，见 `zGlyphRect`）：块是方的，落在半像素上
+    /// 会被抗锯齿糊掉，看起来就不像像素画了。
     static func zGlyph(
         _ context: inout GraphicsContext, center: CGPoint, edge: CGFloat, color: Color
     ) {

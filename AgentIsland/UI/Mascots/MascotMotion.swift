@@ -65,11 +65,17 @@ enum MascotMotion {
         Int((t / beat).rounded(.down))
     }
 
-    /// 心跳脉冲：短促地跳到 1 再慢慢落回 0。
+    /// 心跳脉冲：短促地跳到 1 再慢慢落回 0（一个周期里其余时间是平的 0）。
+    ///
+    /// 上升段用 `easeInOut` 而不是带回弹的 `easeOutBack`：周期边界（p 由 1 回到 0）上，
+    /// 平的那一段斜率是 0，而 `easeOutBack` 在起点是**陡起**（斜率 ≈39/周期，
+    /// 这是它「有回弹」的来源）——值连续、斜率不连续，一个周期一次肉眼可辨的顿挫。
+    /// `easeInOut` 在两端斜率都是 0，与平段接得上（与 `breathe` 的收尾同一口径），
+    /// 幅度与两个分段点（0.12 / 0.55）都没动，只是「起跳的那一下」变成了平滑的涌起。
     static func pulse(_ t: CGFloat, period: CGFloat = 0.9) -> CGFloat {
         let p = (t.truncatingRemainder(dividingBy: period)) / period
         switch p {
-        case ..<0.12: return easeOutBack(p / 0.12)
+        case ..<0.12: return easeInOut(p / 0.12)
         case ..<0.55: return 1 - easeInOut((p - 0.12) / 0.43)
         default: return 0
         }
@@ -77,13 +83,27 @@ enum MascotMotion {
 
     /// 自然的眨眼：1 = 睁满，0 = 闭合。间隔不规则（2.4–5.6s），约六分之一是连眨两下
     /// ——这是小尺寸角色上最像「活着」的信号。
+    ///
+    /// 时长取 0.30s，比「真人眨眼」的 0.14s 长一倍：空闲档的帧预算是 8fps
+    /// （`AgentMascotStatus.frameInterval == 0.125`），而看得出闭上的那一段只占时长的一半
+    /// （`0.5 × duration`）。0.14s 时这一段只有 0.07s，不到一个帧间隔——按 18 枚角色的
+    /// seed 逐次核对，144 次眨眼只有 24 次能采到一帧闭眼（约 17%），其余一闪而过甚至整段
+    /// 落在两帧之间，等于这个「活着」的信号被帧预算吃掉了。0.30s 时这一段是 0.15s、跨过
+    /// 一个帧间隔，144/144 次都能采到（代价是 0 帧：帧率与耗电都不变）。
+    ///
+    /// 反方向的「拉长空闲帧间隔省电」不能选：帧网格一粗，窗口反而整个落在两帧之间，
+    /// 眨眼会从「偶尔采到」变成「经常看不到」。
+    ///
+    /// 窗口起点保持在 `[0.6, 3.0)`（`0.15 + 0.6 × hash` 的取值域）、连眨的第二段也不越过
+    /// 3.52s，因此既不跨 4s 的循环边界（循环点上两条分支都是常数 1，C1 连续），也仍在
+    /// 三个场景的静止档代表时刻（0 / 0.35 / 0.45s）之后——那三个时刻必须睁着眼。
     static func blink(_ t: CGFloat, seed: UInt64 = 0) -> CGFloat {
         let slotLength: CGFloat = 4.0
         let slot = Int((t / slotLength).rounded(.down))
         let start = slotLength * (0.15 + 0.6 * hash01(slot, seed: seed))
         let local = t - CGFloat(slot) * slotLength
 
-        let duration: CGFloat = 0.14
+        let duration: CGFloat = 0.30
         func lid(_ dt: CGFloat) -> CGFloat {
             guard dt >= 0, dt < duration else { return 1 }
             let p = dt / duration
@@ -155,12 +175,6 @@ enum MascotMotion {
     static func easeInOut(_ p: CGFloat) -> CGFloat {
         let c = min(max(p, 0), 1)
         return c < 0.5 ? 2 * c * c : 1 - pow(-2 * c + 2, 2) / 2
-    }
-
-    /// 带回弹的缓出：起跳 / 落地用，比线性更有力气。
-    static func easeOutBack(_ p: CGFloat, overshoot: CGFloat = 1.70158) -> CGFloat {
-        let c = min(max(p, 0), 1) - 1
-        return 1 + (overshoot + 1) * c * c * c + overshoot * c * c
     }
 
     // MARK: - 待审批的起跳幅度

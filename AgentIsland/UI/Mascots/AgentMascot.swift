@@ -27,6 +27,13 @@
 //  离屏定帧探针与单测都取这一帧，因此这不是审美问题而是契约。「静止」档位另取
 //  各场景的代表时刻（见 `AgentMascotStatus.stillInstant`）。
 //
+//  三种「不建时钟」的情形（都画代表帧，都不是空白帧，也都不随墙上时钟走）：
+//    · 调用方给了 `frozenTime`（画廊、探针、单测）——以它为准，与用户偏好无关；
+//    · 系统「减弱动态效果」开着（`accessibilityReduceMotion`）；
+//    · 动效速度档位是 0 档（`AppSettings.mascotAnimationSpeed`）。
+//  其余档位（0.5 / 1 / 2）**缩放时间轴**：`t` 与帧间隔一起按倍率换算，动画是真的变慢 /
+//  变快，而不是只改变采样密度。
+//
 
 import SwiftUI
 
@@ -100,9 +107,28 @@ struct AgentMascot: View {
     /// 定格时刻（秒）：给值时只画这一帧，不建时钟。
     var frozenTime: Double? = nil
 
+    /// 系统「减弱动态效果」偏好：开着时按定格帧画，不建时钟（见 `frozenInstant`）。
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// 画布的点→设备像素比：绘制层的坐标吸附要用它（见 `MascotPixelGrid`）。
+    /// `Canvas` 的绘制闭包读不到环境值，所以只能在这一层交给绘制层。
+    @Environment(\.displayScale) private var displayScale
+
+    /// 动效速度档位：`@AppStorage` 而不是直接读 `AppSettings`——偏好改了要立刻重绘
+    /// （UserDefaults 不是可观察对象），而且每个调用点都不必各自转发这个值。
+    @AppStorage(AppSettings.mascotAnimationSpeedKey) private var animationSpeed: Double = 1
+
     var body: some View {
-        AgentMascotFrames(agent: agent, size: size, status: status, frozenTime: frozenTime)
+        let _ = (MascotPixelGrid.scale = displayScale)
+        AgentMascotFrames(
+            agent: agent, size: size, status: status,
+            frozenTime: Self.frozenInstant(
+                status: status, explicit: frozenTime, reduceMotion: reduceMotion, speed: speed),
+            speed: speed)
     }
+
+    /// 档位夹到 0 / 0.5 / 1 / 2（偏好域里可能是手改过的连续值）。
+    private var speed: Double { AppSettings.clampedMascotAnimationSpeed(animationSpeed) }
 }
 
 // MARK: - 时钟 + 路由
@@ -112,14 +138,19 @@ private struct AgentMascotFrames: View {
     let size: CGFloat
     let status: AgentMascotStatus
     let frozenTime: Double?
+    /// 播放倍率（调用方已保证大于 0：0 档在 `AgentMascot` 里就定帧了）。
+    let speed: Double
 
     var body: some View {
         if let frozenTime {
             frame(at: frozenTime, status: status)
         } else {
-            TimelineView(.periodic(from: MascotMotion.epoch, by: status.frameInterval)) {
-                context in
-                frame(at: context.date.timeIntervalSince(MascotMotion.epoch), status: status)
+            TimelineView(
+                .periodic(from: MascotMotion.epoch, by: status.frameInterval / speed)
+            ) { context in
+                frame(
+                    at: context.date.timeIntervalSince(MascotMotion.epoch) * speed,
+                    status: status)
             }
         }
     }
@@ -176,6 +207,25 @@ private struct AgentMascotFrames: View {
 // MARK: - 起跳截顶入参（单测读）
 
 extension AgentMascot {
+    /// 不建时钟时要画的那一帧；`nil` 表示照常走时钟（三种情形的清单见本文件头部）。
+    ///
+    /// 口径集中在这一处（视图与单测读同一个函数）：
+    ///  · **显式给的定帧优先**——画廊、探针与单测要的就是那一帧，不该被用户的偏好改写；
+    ///  · 否则「减弱动态」或 0 档都取该场景的**代表帧**（`stillInstant`）：静止档看到的是
+    ///    「有人在里头」那一帧，不是空白，也不是随机的一帧；时间点固定，不随墙上时钟走。
+    ///
+    /// - Parameters:
+    ///   - status: 该角色当前的活动状态。
+    ///   - explicit: 调用方显式给的定帧时刻（`AgentMascot.frozenTime`）。
+    ///   - reduceMotion: 系统的「减弱动态效果」偏好。
+    ///   - speed: 已夹到 0 / 0.5 / 1 / 2 的播放倍率。
+    static func frozenInstant(
+        status: AgentMascotStatus, explicit: Double?, reduceMotion: Bool, speed: Double
+    ) -> Double? {
+        if let explicit { return explicit }
+        return (reduceMotion || speed == 0) ? status.stillInstant : nil
+    }
+
     /// 该 Agent 的起跳截顶入参：`AgentMascotRenderTests` 用它断言「顶点不会把身体抛出视口」。
     ///
     /// 与 `AgentMascotFrames.character(...)` 同构，**新增 Agent 时两处一起补**（都是穷举 switch，

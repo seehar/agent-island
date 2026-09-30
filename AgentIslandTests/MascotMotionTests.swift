@@ -136,6 +136,98 @@ struct MascotMotionTests {
         }
     }
 
+    @Test("周期曲线在循环边界上值连续、斜率也连续（C1）")
+    func periodicCurvesMeetSmoothlyAtTheLoopPoint() {
+        // 判据用**单侧差分**：各条周期曲线在边界附近都是平的（平的 0 或平的 1），因此两侧
+        // 斜率都该是 0。`pulse` 曾在上升段用带回弹的缓出——值连续、斜率从 0 跳到 ≈39/周期，
+        // 一个周期一次肉眼可辨的顿挫；这条用例就是钉住它的（改回去会当场红）。
+        //
+        // 这条判据只管**循环边界**（一期回到下一期的那一点）。窗口自身的起止处（眨眼开始
+        // 闭眼、小动作与睡眠 Z 的淡入）斜率是故意陡的——那是一个「起手」，不是循环接缝，
+        // 不在这里断言。
+        let curves: [(name: String, value: (CGFloat) -> CGFloat, period: CGFloat)] = [
+            ("breathe(4.2)", { MascotMotion.breathe($0, period: 4.2) }, 4.2),
+            ("breathe(4.5)", { MascotMotion.breathe($0, period: 4.5) }, 4.5),
+            ("blink", { MascotMotion.blink($0, seed: 7) }, 4.0),
+            ("quirk", { MascotMotion.quirk($0, cycle: 6.0, seed: 42) }, 6.0),
+            ("pulse", { MascotMotion.pulse($0, period: 0.9) }, 0.9),
+        ]
+        let step: CGFloat = 0.00001
+        for curve in curves {
+            #expect(
+                curve.value(0) == curve.value(curve.period),
+                "\(curve.name) 在循环边界上值不连续")
+            let left = (curve.value(curve.period) - curve.value(curve.period - step)) / step
+            let right = (curve.value(step) - curve.value(0)) / step
+            #expect(abs(left) < 0.01, "\(curve.name) 在循环边界左侧斜率 \(left)（不是平的）")
+            #expect(
+                abs(right) < 0.01,
+                "\(curve.name) 在循环边界右侧斜率 \(right)——值连续但斜率跳变")
+        }
+    }
+
+    @Test("眨眼不早于 0.6s，且整个窗口留在自己的 4s 槽里")
+    func blinkWindowStaysInsideItsSlot() {
+        // 窗口起点 = `4 × (0.15 + 0.6 × hash)`，值域 [0.6, 3.0)：这是「静止档取 ≤0.45s 就一定
+        // 睁着眼」的算术依据（拉长眨眼时长只让窗口向后长，不影响这个下界）；窗口尾（含连眨的
+        // 第二段）不越过 3.52s，因此槽边界前后都是睁满的常数 1，循环点上值连续。
+        for agent in AgentKind.allCases {
+            let seed = MascotMotion.stableSeed(agent.rawValue)
+            for step in stride(from: 0.0, through: 0.595, by: 0.005) {
+                #expect(
+                    MascotMotion.blink(CGFloat(step), seed: seed) == 1,
+                    "\(agent.rawValue) 在 \(step)s 就眨眼了——静止档代表时刻会看到闭眼")
+            }
+            for slot in 0..<6 {
+                let boundary = CGFloat(slot) * 4.0
+                #expect(MascotMotion.blink(boundary - 0.001, seed: seed) == 1)
+                #expect(MascotMotion.blink(boundary, seed: seed) == 1)
+                #expect(MascotMotion.blink(boundary + 0.001, seed: seed) == 1)
+            }
+        }
+    }
+
+    @Test("每一次眨眼在空闲帧率下都看得见（否则这个「活着」的信号等于没有）")
+    func everyBlinkIsVisibleAtTheIdleFrameRate() {
+        // 0.14s 的窗口在 8fps 下只有半个帧间隔的「看得出闭上」段，实测 144 次眨眼只有 24 次能
+        // 被采到；时长拉长到 0.30s 后这一段跨过一个帧间隔，每一次都采得到。判据不写死时长：
+        // 先扫出每一段没睁满的时间片，再按**全局帧网格**（k × 0.125s）检查片内至少有一帧
+        // 半闭以下——窗口整个落在两帧之间时这条会红。
+        let interval = AgentMascotStatus.idle.frameInterval
+        let step = 0.005
+        for agent in AgentKind.allCases {
+            let seed = MascotMotion.stableSeed(agent.rawValue)
+            var windows: [(start: Double, end: Double)] = []
+            var start: Double? = nil
+            var end = 0.0
+            for tick in 0...Int(60.0 / step) {
+                let t = Double(tick) * step
+                if MascotMotion.blink(CGFloat(t), seed: seed) < 1 {
+                    if start == nil { start = t }
+                    end = t
+                } else if let windowStart = start {
+                    windows.append((start: windowStart, end: end))
+                    start = nil
+                }
+            }
+            #expect(windows.count >= 8, "\(agent.rawValue) 60 秒里只眨了 \(windows.count) 次")
+            for window in windows {
+                var visible = false
+                var tick = Int((window.start / interval).rounded(.up))
+                while Double(tick) * interval <= window.end {
+                    if MascotMotion.blink(CGFloat(Double(tick) * interval), seed: seed) <= 0.5 {
+                        visible = true
+                        break
+                    }
+                    tick += 1
+                }
+                #expect(
+                    visible,
+                    "\(agent.rawValue) 有一次眨眼（\(window.start)s 起）在空闲帧率下完全看不见")
+            }
+        }
+    }
+
     @Test("会话阶段到活动状态的映射")
     func statusMapsFromPhase() {
         #expect(AgentMascotStatus(.processing) == .working)
