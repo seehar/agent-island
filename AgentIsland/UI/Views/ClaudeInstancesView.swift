@@ -378,6 +378,18 @@ struct InstanceRow: View {
                             .appFont(10, weight: .medium, design: .monospaced)
                             .foregroundColor(AppPalette.subtleText)
                     }
+
+                    // 相对时间戳：此前每一档密度都不显示「多近」，用户没法判断该先看哪一行。
+                    // 挂在标题行右端、字号比标题（13pt）小一档，因此不改变行高；数字用等宽，
+                    // 免得「1m → 2m」这类变化把标题推来推去。
+                    Spacer(minLength: 4)
+
+                    Text(session.lastActivity, format: .relative(presentation: .named))
+                        .appFont(AppTypeScale.caption)
+                        .monospacedDigit()
+                        .foregroundColor(AppPalette.subtleText)
+                        .lineLimit(1)
+                        .fixedSize()
                 }
 
                 if density.option.showsActivityLine {
@@ -440,12 +452,12 @@ struct InstanceRow: View {
             } else {
                 HStack(spacing: 8) {
                     // Chat icon - always show
-                    IconButton(icon: "bubble.left") {
+                    IconButton(icon: "bubble.left", label: l10n.t("Open Chat")) {
                         onChat()
                     }
 
                     // 聚焦终端：与「去终端」按钮同一判据（见上）
-                    IconButton(icon: "eye") {
+                    IconButton(icon: "eye", label: l10n.t("Focus Terminal")) {
                         onFocus()
                     }
                     .disabled(!canFocusTerminal)
@@ -453,7 +465,9 @@ struct InstanceRow: View {
 
                     // Archive button - only for idle or completed sessions
                     if session.phase == .idle || session.phase == .waitingForInput {
-                        IconButton(icon: "archivebox") {
+                        // 归档就是把这一行从列表里收走；catalog 里没有「归档」这一条，
+                        // 复用既有的 Hide（需要新键时另行上报，不擅自加键）。
+                        IconButton(icon: "archivebox", label: l10n.t("Hide")) {
                             onArchive()
                         }
                     }
@@ -486,8 +500,10 @@ struct InstanceRow: View {
         .background(
             RoundedRectangle(cornerRadius: AppRadius.panel)
                 .fill(
+                    // 选中底色用 `badgeTint`（强调色叠白），不是 `segmentedThumb`——
+                    // 后者是分段控件的**滑块**色，`AppTheme` 里写明了不要拿它当行底色。
                     isSelected
-                        ? AppPalette.segmentedThumb
+                        ? AppPalette.badgeTint
                         : (isHovered ? AppPalette.rowHover : Color.clear))
         )
         .onHover { isHovered = $0 }
@@ -532,6 +548,10 @@ struct InlineApprovalButtons: View {
     let onReject: () -> Void
     @ObservedObject private var l10n = LocalizationManager.shared
 
+    /// 系统的「减弱动态效果」偏好：入场弹性经 `AppMotion` 换曲线；错峰的延迟保留，
+    /// 因为放行按钮的命中区门禁跟的是「已显示」这个状态（见 body 末尾）。
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     @State private var showChatButton = false
     @State private var showDenyButton = false
     @State private var showAllowButton = false
@@ -539,7 +559,7 @@ struct InlineApprovalButtons: View {
     var body: some View {
         HStack(spacing: 6) {
             // Chat button
-            IconButton(icon: "bubble.left") {
+            IconButton(icon: "bubble.left", label: l10n.t("Open Chat")) {
                 onChat()
             }
             .opacity(showChatButton ? 1 : 0)
@@ -557,6 +577,8 @@ struct InlineApprovalButtons: View {
             .controlSize(.small)
             .opacity(showDenyButton ? 1 : 0)
             .scaleEffect(showDenyButton ? 1 : 0.8)
+            // 与放行按钮同一条不变量：看不见的按钮不能接点击。
+            .allowsHitTesting(showDenyButton)
 
             Button {
                 onApprove()
@@ -570,15 +592,30 @@ struct InlineApprovalButtons: View {
             .controlSize(.small)
             .opacity(showAllowButton ? 1 : 0)
             .scaleEffect(showAllowButton ? 1 : 0.8)
+            // `opacity(0)` 不参与命中测试：行内这一枚淡入只要 100ms 上下，不加这一行，
+            // 用户「点一下行」就可能在这段时间里顺手批准掉一次权限请求。
+            .allowsHitTesting(showAllowButton)
         }
         .onAppear {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.0)) {
+            withAnimation(
+                AppMotion.pick(
+                    .spring(response: 0.3, dampingFraction: 0.7), reduceMotion: reduceMotion
+                ).delay(0.0)
+            ) {
                 showChatButton = true
             }
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.05)) {
+            withAnimation(
+                AppMotion.pick(
+                    .spring(response: 0.3, dampingFraction: 0.7), reduceMotion: reduceMotion
+                ).delay(0.05)
+            ) {
                 showDenyButton = true
             }
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.1)) {
+            withAnimation(
+                AppMotion.pick(
+                    .spring(response: 0.3, dampingFraction: 0.7), reduceMotion: reduceMotion
+                ).delay(0.1)
+            ) {
                 showAllowButton = true
             }
         }
@@ -589,6 +626,9 @@ struct InlineApprovalButtons: View {
 
 struct IconButton: View {
     let icon: String
+    /// 无障碍名称（本地化文案由调用点给出）：图标按钮对 VoiceOver 只能报出 SF Symbol
+    /// 名（「bubble left」「archivebox」），必须显式给名。
+    let label: String
     let action: () -> Void
 
     @State private var isHovered = false
@@ -610,6 +650,7 @@ struct IconButton: View {
             SessionPressFeedbackStyle(shape: RoundedRectangle(cornerRadius: AppRadius.control))
         )
         .onHover { isHovered = $0 }
+        .accessibilityLabel(Text(label))
     }
 }
 

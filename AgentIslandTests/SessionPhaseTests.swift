@@ -131,4 +131,74 @@ struct SessionPhaseTests {
         #expect(first != other)
         #expect(SessionPhase.waitingForApproval(first) == SessionPhase.waitingForApproval(same))
     }
+
+    @Test("审批详情给完整路径与整条命令，摘要仍保持紧凑")
+    func detailedInputKeepsFullPathAndCommand() {
+        // Write/Edit/Read：摘要是文件名（列表行只有一行宽），详情是完整路径。
+        let write = PermissionContext(
+            toolUseId: "t1", toolName: "Write",
+            toolInput: [
+                "file_path": AnyCodable(
+                    "/Users/me/work/agent-island/AgentIsland/Models/SessionPhase.swift")
+            ],
+            receivedAt: Date())
+        #expect(write.formattedInput == "SessionPhase.swift")
+        #expect(
+            write.detailedInput
+                == "/Users/me/work/agent-island/AgentIsland/Models/SessionPhase.swift")
+
+        // Bash：摘要截到 100 字再补省略号，详情一字不少——审批是要看清整条命令。
+        let longCommand = "git commit -m \"" + String(repeating: "x", count: 200) + "\""
+        let bash = PermissionContext(
+            toolUseId: "t2", toolName: "Bash",
+            toolInput: ["command": AnyCodable(longCommand)], receivedAt: Date())
+        #expect(bash.formattedInput?.count == 103)  // 100 字 + "..."
+        #expect(bash.formattedInput?.hasSuffix("...") == true)
+        #expect(bash.detailedInput == longCommand)
+    }
+
+    @Test("多行命令的每一行都留在详情里")
+    func detailedInputKeepsMultilineCommand() {
+        let command = "set -e\nmake gate\n./scripts/build-and-install.sh"
+        let bash = PermissionContext(
+            toolUseId: "t3", toolName: "Bash",
+            toolInput: ["command": AnyCodable(command)], receivedAt: Date())
+
+        #expect(bash.detailedInput == command)
+        #expect(bash.detailedInput?.components(separatedBy: "\n").count == 3)
+    }
+
+    @Test("没有入参时不产生摘要、详情与原始 JSON")
+    func missingToolInputHasNoDetail() {
+        let ctx = PermissionContext(
+            toolUseId: "t4", toolName: "Bash", toolInput: nil, receivedAt: Date())
+
+        #expect(ctx.formattedInput == nil)
+        #expect(ctx.detailedInput == nil)
+        #expect(ctx.rawInputJSON == nil)
+    }
+
+    @Test("原始入参 JSON 的键按字典序输出，逐字核对时每次长得一样")
+    func rawInputJSONIsSorted() {
+        let ctx = PermissionContext(
+            toolUseId: "t5", toolName: "Edit",
+            toolInput: [
+                "new_string": AnyCodable("let b = 2"),
+                "file_path": AnyCodable("/tmp/a.swift"),
+                "old_string": AnyCodable("let a = 1"),
+            ], receivedAt: Date())
+
+        let json = ctx.rawInputJSON ?? ""
+        let keys = ["file_path", "new_string", "old_string"]
+        for key in keys {
+            #expect(json.contains("\"\(key)\""))
+        }
+        #expect(json.contains("/tmp/a.swift"))
+
+        // 出现顺序必须与字典序一致（JSONEncoder 的 `.sortedKeys`）：字典本身的顺序
+        // 不稳定，少了排序这份 JSON 每次展开都长得不一样，没法逐字核对。
+        let positions = keys.compactMap { json.range(of: "\"\($0)\"")?.lowerBound }
+        #expect(positions.count == keys.count)
+        #expect(positions == positions.sorted())
+    }
 }
