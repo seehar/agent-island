@@ -552,13 +552,9 @@ struct InlineApprovalButtons: View {
                     .appFont(11, weight: .medium)
                     .lineLimit(1)
                     .fixedSize()
-                    .foregroundColor(AppPalette.secondaryText)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(Color.white.opacity(0.1))
-                    .clipShape(Capsule())
             }
-            .buttonStyle(SessionPressFeedbackStyle(shape: Capsule()))
+            .buttonStyle(.bordered)
+            .controlSize(.small)
             .opacity(showDenyButton ? 1 : 0)
             .scaleEffect(showDenyButton ? 1 : 0.8)
 
@@ -569,13 +565,9 @@ struct InlineApprovalButtons: View {
                     .appFont(11, weight: .medium)
                     .lineLimit(1)
                     .fixedSize()
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(Color.white.opacity(0.9))
-                    .clipShape(Capsule())
             }
-            .buttonStyle(SessionPressFeedbackStyle(shape: Capsule()))
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
             .opacity(showAllowButton ? 1 : 0)
             .scaleEffect(showAllowButton ? 1 : 0.8)
         }
@@ -664,17 +656,11 @@ struct AnswerButton: View {
         } label: {
             HStack(spacing: 3) {
                 Image(systemName: "questionmark.bubble")
-                    .appFont(9, weight: .medium)
                 Text(l10n.t("Answer"))
-                    .appFont(11, weight: .medium)
             }
-            .foregroundColor(.black)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(Color.white.opacity(0.95))
-            .clipShape(Capsule())
         }
-        .buttonStyle(SessionPressFeedbackStyle(shape: Capsule()))
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
     }
 }
 
@@ -689,23 +675,16 @@ struct TerminalButton: View {
 
     var body: some View {
         Button {
-            if isEnabled {
-                onTap()
-            }
+            onTap()
         } label: {
             HStack(spacing: 3) {
                 Image(systemName: "terminal")
-                    .appFont(9, weight: .medium)
                 Text(l10n.t("Terminal"))
-                    .appFont(11, weight: .medium)
             }
-            .foregroundColor(isEnabled ? .black : AppPalette.tertiaryText)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(isEnabled ? Color.white.opacity(0.95) : Color.white.opacity(0.1))
-            .clipShape(Capsule())
         }
-        .buttonStyle(SessionPressFeedbackStyle(shape: Capsule()))
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(!isEnabled)
         .help(helpText ?? l10n.t("Focus Terminal"))
     }
 }

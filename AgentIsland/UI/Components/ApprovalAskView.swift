@@ -329,26 +329,20 @@ struct ApprovalAskView: View {
             } label: {
                 Text(l10n.t("Skip"))
                     .appFont(13, weight: .medium)
-                    .foregroundColor(.white.opacity(0.7))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color.white.opacity(0.1))
-                    .clipShape(Capsule())
+                    .lineLimit(1)
+                    .fixedSize()
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.bordered)
 
             Button {
                 submit()
             } label: {
                 Text(l10n.t("Submit"))
                     .appFont(13, weight: .medium)
-                    .foregroundColor(canSubmit ? .black : .white.opacity(0.4))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color.white.opacity(canSubmit ? 0.95 : 0.1))
-                    .clipShape(Capsule())
+                    .lineLimit(1)
+                    .fixedSize()
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderedProminent)
             .disabled(!canSubmit)
         }
     }

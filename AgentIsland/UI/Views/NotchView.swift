@@ -204,14 +204,16 @@ struct NotchView: View {
        : cornerRadiusInsets.closed.bottom
      )
      .padding([.horizontal, .bottom], viewModel.status == .opened ? 12 : 0)
-     .background(.black)
-     .clipShape(currentNotchShape)
-     .overlay(alignment: .top) {
-      Rectangle()
-       .fill(.black)
-       .frame(height: 1)
-       .padding(.horizontal, topCornerRadius)
+     .background {
+      // 展开态才换材质：关闭态胶囊整体落在真实刘海的物理黑像素区（或菜单栏）上，
+      // 换材质会在挖孔边缘留出可见的错位亮边，判据见 `NotchPanelSurface`。
+      if viewModel.status == .opened {
+       Color.clear.notchPanelSurface(shape: currentNotchShape)
+      } else {
+       Color.black
+      }
      }
+     .clipShape(currentNotchShape)
      .shadow(
       color: (viewModel.status == .opened || isHovering) ? .black.opacity(0.7) : .clear,
       radius: 6
@@ -403,9 +405,11 @@ struct NotchView: View {
      .fill(.clear)
      .frame(width: closedNotchSize.width - 20)
    } else {
-    // Closed with activity: black spacer (with optional bounce)
+    // Closed with activity: spacer (with optional bounce)
+    // 透明占位：这一块画成黑色只是因为**关闭态背景**是黑的，它的作用是把左右
+    // 两侧撑开。跟着背景一起换成 clear，与上面「无活动」分支同源。
     Rectangle()
-     .fill(.black)
+     .fill(.clear)
      .frame(width: closedNotchSize.width - cornerRadiusInsets.closed.top + (isBouncing ? 16 : 0))
    }
 

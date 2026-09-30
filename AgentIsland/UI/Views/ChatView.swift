@@ -1498,13 +1498,10 @@ struct ChatApprovalBar: View {
    } label: {
     Text(l10n.t("Deny"))
      .appFont(13, weight: .medium)
-     .foregroundColor(.white.opacity(0.7))
-     .padding(.horizontal, 16)
-     .padding(.vertical, 8)
-     .background(Color.white.opacity(0.1))
-     .clipShape(Capsule())
+     .lineLimit(1)
+     .fixedSize()
    }
-   .buttonStyle(.plain)
+   .buttonStyle(.bordered)
    .opacity(showDenyButton ? 1 : 0)
    .scaleEffect(showDenyButton ? 1 : 0.8)
 
@@ -1514,13 +1511,10 @@ struct ChatApprovalBar: View {
    } label: {
     Text(l10n.t("Allow"))
      .appFont(13, weight: .medium)
-     .foregroundColor(.black)
-     .padding(.horizontal, 16)
-     .padding(.vertical, 8)
-     .background(Color.white.opacity(0.95))
-     .clipShape(Capsule())
+     .lineLimit(1)
+     .fixedSize()
    }
-   .buttonStyle(.plain)
+   .buttonStyle(.borderedProminent)
    .opacity(showAllowButton ? 1 : 0)
    .scaleEffect(showAllowButton ? 1 : 0.8)
   }
