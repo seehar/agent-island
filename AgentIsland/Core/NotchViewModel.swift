@@ -49,7 +49,7 @@ class NotchViewModel: ObservableObject {
     @Published var contentType: NotchContentType = .instances
     /// 设置面板当前所在的分组。设置项按分组分页，面板只按当前分组撑高。
     ///
-    /// 顺带记住上一次待过的**分段页**分组：统计与额度都不占分段位（是「看数据」与
+    /// 顺带记住上一次待过的**设置页**分组：统计与额度不是设置分组（是「看数据」与
     /// 「看额度」的页），用户从它们用齿轮回到设置时应当回到原来的位置（见 `toggleMenu()`）。
     @Published var menuSection: NotchMenuSection = .general {
         didSet {
@@ -208,7 +208,7 @@ class NotchViewModel: ObservableObject {
             return 0
         case .statistics:
             // 统计页的时间范围控件在设置页的页眉行里（见 `StatsRangePicker`）：它的展开块
-            // 是插在分段条与滚动区之间的固定块，挤占页内滚动视口而不撑高面板，因此增量是 0。
+            // 是插在页眉与滚动区之间的固定块，挤占页内滚动视口而不撑高面板，因此增量是 0。
             return 0
         case .quota:
             // 额度页的运行时增量有两段：账号列表窗口（行数 = min(账号数, 上限)）与
@@ -539,14 +539,14 @@ class NotchViewModel: ObservableObject {
         menuSection = .agents
     }
 
-    /// 直接跳到「快捷键」页。关于页那一行入口用它（快捷键页不占分段位，
+    /// 直接跳到「快捷键」页。关于页那一行入口用它（快捷键页不占侧栏位，
     /// 没有其它常驻入口）。
     func openShortcutsSettings() {
         contentType = .menu
         menuSection = .shortcuts
     }
 
-    /// 直接跳到「标记动态」页。「监控的智能体」卡片第一行那个入口行用它（这一页也不占分段位）。
+    /// 直接跳到「标记动态」页。「监控的智能体」卡片第一行那个入口行用它（这一页也不占侧栏位）。
     func openAnimationsSettings() {
         contentType = .menu
         menuSection = .animations

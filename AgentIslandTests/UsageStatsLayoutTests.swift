@@ -507,10 +507,10 @@ struct UsageStatsLayoutTests {
     #expect(other.menuSection == .agents)
   }
 
-  /// 额度页之外，设置页给的那一段固定开销（上下内边距 + 页眉 + 分段条 + 顶部间距）。
+  /// 额度页之外，设置页给的那一段固定开销（上下内边距 + 页眉 + 顶部间距）。
+  /// 分组切换是竖向侧栏，不占垂直固定开销。
   private var quotaPageChrome: CGFloat {
     NotchMenuMetrics.listPaddingHeight + NotchMenuMetrics.pageHeaderHeight
-      + NotchMenuMetrics.rowSpacing + NotchMenuMetrics.tabBarHeight
       + NotchMenuMetrics.rowSpacing + NotchMenuMetrics.contentTopGap
   }
 

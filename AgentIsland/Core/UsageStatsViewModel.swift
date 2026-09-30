@@ -20,7 +20,7 @@ final class UsageStatsViewModel: ObservableObject {
     @Published private(set) var window: StatsWindow = .preset(.today)
     /// 当前窗口的快照；没有数据时就是 `.empty`。
     @Published var snapshot: UsageStatsSnapshot = .empty
-    /// 页眉控件上的范围选择器是否展开。展开时设置页在分段条与滚动区之间插入选择块，
+    /// 页眉控件上的范围选择器是否展开。展开时设置页在页眉与滚动区之间插入选择块，
     /// 滚动视口因此收缩（它不参与面板高度，见 `NotchMenuView`）。
     @Published private(set) var isRangePickerExpanded = false
     /// 月历是否展开：点「自定义…」后为真；选中预设档或落定范围后为假。

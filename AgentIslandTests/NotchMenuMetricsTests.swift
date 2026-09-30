@@ -15,12 +15,11 @@ import Testing
 
 @Suite("设置面板高度公式")
 struct NotchMenuMetricsTests {
-    /// 独立按常量重算内容高度：页眉 + 分段控件 + 各分组（标题 + 行或固定高块 + 页脚）
-    /// + 组间距。
+    /// 独立按常量重算内容高度：页眉 + 各分组（标题 + 行或固定高块 + 页脚）+ 组间距。
+    /// 分组切换已经是竖向侧栏，不占垂直固定开销。
     private func derivedContentHeight(_ section: NotchMenuSection) -> CGFloat {
         var height =
             NotchMenuMetrics.listPaddingHeight + NotchMenuMetrics.pageHeaderHeight
-            + NotchMenuMetrics.rowSpacing + NotchMenuMetrics.tabBarHeight
             + NotchMenuMetrics.rowSpacing + NotchMenuMetrics.contentTopGap
 
         let blocks = NotchMenuMetrics.blocks(for: section)
@@ -84,6 +83,53 @@ struct NotchMenuMetricsTests {
             for: .statistics, expandedPickerHeight: 0, chromeHeight: 76)
         #expect(low < NotchMenuMetrics.maxPanelHeight)
         #expect(high <= NotchMenuMetrics.maxPanelHeight)
+    }
+
+    // MARK: - 侧栏
+
+    @Test("侧栏条目把一级分组分完，且互不重叠")
+    func sidebarSectionsPartitionTopLevelGroups() {
+        let sidebar = NotchMenuSection.sidebarSections + NotchMenuSection.sidebarFooterSections
+        #expect(Set(sidebar).count == sidebar.count, "同一个分组在侧栏里出现了两次")
+        // 不占侧栏位的两页（快捷键 / 标记动态）各有页内入口行，其余必须都在侧栏里。
+        let hidden: Set<NotchMenuSection> = [.shortcuts, .animations]
+        let missing = Set(NotchMenuSection.allCases)
+            .subtracting(hidden)
+            .subtracting(sidebar)
+        #expect(missing.isEmpty, "这些分组既不在侧栏也没有页内入口：\(missing.map(\.rawValue))")
+    }
+
+    @Test("侧栏底部常驻项在最矮的一页也放得下")
+    func sidebarFooterAlwaysFits() {
+        // 额度页在没有账号时内容高只有 218pt，扣掉容器上下内边距只剩 238pt——放不下
+        // 6 个一级分组（312pt）。因此上面那组滚动、下面这组钉底；这里守住「钉底这组
+        // 在任何一页都放得下」，否则「关于」会在被裁掉的卡片里消失，用户再也回不去。
+        let needed = CGFloat(NotchMenuSection.sidebarFooterSections.count)
+            * (NotchMenuMetrics.sidebarItemHeight + NotchMenuMetrics.sidebarItemSpacing)
+            + NotchMenuMetrics.sidebarDividerHeight + NotchMenuMetrics.sidebarItemSpacing
+        let shortest = NotchMenuSection.allCases.min {
+            NotchMenuMetrics.contentHeight(for: $0) < NotchMenuMetrics.contentHeight(for: $1)
+        }!
+        for chrome in [CGFloat(36), NotchMenuMetrics.maxPanelHeight] {
+            let available = NotchMenuMetrics.panelHeight(
+                for: shortest, expandedPickerHeight: 0, chromeHeight: chrome)
+                - NotchMenuMetrics.listPaddingHeight
+            #expect(
+                needed <= available,
+                "钉底项需要 \(needed)pt，但 \(shortest.rawValue) 页在 chrome=\(chrome) 时只有 \(available)pt")
+        }
+    }
+
+    @Test("侧栏不吃掉统计页与标记动态页的版面")
+    func sidebarKeepsCalibratedPageWidths() {
+        let content = NotchMenuMetrics.panelWidthMax - 16 - NotchMenuMetrics.sidebarWidth
+            - NotchMenuMetrics.sidebarItemSpacing
+        // 统计页以 panelWidthMax − 16 为标定基准；紧凑档（0.88）已经贴到 422.4。
+        // 侧栏后详情区仍要不低于紧凑档的标定宽度，否则趋势图绘图区会被新裁。
+        let compactCalibrated = NotchMenuMetrics.panelWidthMax * 0.88 - 16
+        #expect(content >= compactCalibrated, "统计页详情区 \(content)pt 窄于紧凑档标定的 \(compactCalibrated)pt")
+        // 标记动态页的画廊是硬下限 304pt。
+        #expect(content >= 304, "画廊放不下：详情区只有 \(content)pt")
     }
 
     @Test("每个分组的高度都等于行表重算的结果")
@@ -210,7 +256,10 @@ struct NotchMenuMetricsTests {
     /// 否则测试失败——那正是「又加了一行/一档，最后一个档位落到可视区外」的信号。
     /// 统计页在 `chromeHeight = 76` 也被夹取：脚注新增「不计入的 Agent」一行后
     /// 整页 577 + 开销 76 = 745 > 728（默认开销 42 下 711，仍在上限内）。
-    private static let clampedPairs: Set<String> = ["agents@76", "statistics@76"]
+    /// 侧栏化之后每页少掉 34pt 固定开销，原来被夹取的两组（智能体 / 统计）都不再
+    /// 触顶，因此没有需要登记的夹取组合。**新增分组若顶到上限，必须登记到这里**，
+    /// 并接受该档下页内滚动（见 `NotchMenuLayout` 的上限注释）。
+    private static let clampedPairs: Set<String> = []
 
     @Test("额度分组：动作条 + 详情基准一行，账号个数与可选行不进静态表")
     func quotaSectionHasActionRowAndDetailRows() {

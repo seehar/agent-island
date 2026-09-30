@@ -78,7 +78,7 @@ nonisolated enum UsageStatsMetrics {
     /// 选择器块的总高：卡片内边距 + 两行芯片 + 间距 + 分隔线 + 间距 + 月历 + 读数行。
     ///
     /// 它**不参与面板高度**（统计分组是固定 `sectionHeight` 的整块），
-    /// 而是作为固定块插在分段条与滚动区之间挤占视口；`UsageStatsLayoutTests` 用它守住
+    /// 而是作为固定块插在页眉与滚动区之间挤占视口；`UsageStatsLayoutTests` 用它守住
     /// 「展开后滚动视口仍不小于 200pt」。
     static var rangePickerHeight: CGFloat {
         2 * rangePickerVerticalPadding

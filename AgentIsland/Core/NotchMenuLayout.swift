@@ -24,24 +24,28 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
     case agents
     /// 用量统计：token、会话与工具调用的汇总读数（只读页，不是配置）。
     case statistics
-    /// New API 额度：账户余额与当前 Key 额度的读数 + 取数配置（只读页，不是分段位）。
+    /// New API 额度：账户余额与当前 Key 额度的读数 + 取数配置（只读页）。
     case quota
     /// 版本与更新、GitHub、退出。
     case about
-    /// 键盘快捷键：全局一条 + 面板内数条，可逐条录制。**不占分段位**——分段条
-    /// 放不下第六段（实测见 `NotchMenuTabBar`），入口在「关于」页。
+    /// 键盘快捷键：全局一条 + 面板内数条，可逐条录制。**不占侧栏位**——侧栏只放
+    /// 一级分组，这一页的入口在「关于」页。
     case shortcuts
     /// 标记动态：把各 Agent 的运行时**像素角色**一次铺开预览（空闲 / 处理中 / 待审批）。
-    /// 同样是**不占分段位**的页，入口是「监控的智能体」卡片的第一行。
+    /// 同样**不占侧栏位**的页，入口是「监控的智能体」卡片的第一行。
     case animations
 
     var id: String { rawValue }
 
-    /// 分段栏的 5 个入口。统计页保留为 `NotchMenuSection`（高度表与页眉图表按钮需要它），
-    /// 但不占分段位：图表按钮已经是它的单一、显眼入口。
-    static let tabSections: [NotchMenuSection] = [
-        .general, .behavior, .notifications, .agents, .about,
+    /// 侧栏的 6 个入口（显示序即这个序）。统计页保留为 `NotchMenuSection`
+    /// （高度表与页眉图表按钮需要它），这里进侧栏是因为竖向放得下；页眉的图表按钮
+    /// 仍然保留——它是从会话列表直达统计的快路径。
+    static let sidebarSections: [NotchMenuSection] = [
+        .general, .behavior, .notifications, .agents, .statistics, .quota,
     ]
+
+    /// 钉在侧栏底部的入口（与「关于」这类收尾项一组）。
+    static let sidebarFooterSections: [NotchMenuSection] = [.about]
 
     /// 分段控件的图标；只表达分组含义，具体设置行各自用自己的图标。
     var symbolName: String {
@@ -121,8 +125,17 @@ nonisolated enum NotchMenuMetrics {
     static let footnoteGap: CGFloat = 6
     /// 页眉：返回按钮 + 页面标题。
     static let pageHeaderHeight: CGFloat = 28
-    /// 分段控件（分组切换）的高度。
-    static let tabBarHeight: CGFloat = 30
+    /// 侧栏宽度（纯图标栏，见 `NotchMenuSidebar`）。只画图标不画文字：详情区因此
+    /// 只被吃掉 44pt，统计页（以 464pt 标定）与标记动态画廊（硬下限 304pt）都排得下；
+    /// 侧栏的标签由页眉承担——那里已经在显示当前分组名。
+    static let sidebarWidth: CGFloat = 44
+    /// 侧栏一个条目的边长。**复用 `rowHeight`**（与设置行同一档行高），不要写字面量。
+    static let sidebarItemHeight: CGFloat = rowHeight
+    /// 侧栏条目之间的间距。
+    static let sidebarItemSpacing: CGFloat = 4
+    /// 侧栏内部分隔线（把「关于」与一级分组隔开）的宽度与高度。
+    static let sidebarDividerWidth: CGFloat = 1
+    static let sidebarDividerHeight: CGFloat = 20
     /// 外层 VStack 的间距。
     static let rowSpacing: CGFloat = 4
     /// 容器上下内边距（8 + 8）。
@@ -279,12 +292,14 @@ nonisolated enum NotchMenuMetrics {
         min(chromeHeight + contentHeight(for: section) + expandedPickerHeight, maxPanelHeight)
     }
 
-    /// 当前分组的内容高度：页眉 + 分段控件 + 各分组（标题 + 卡片 + 页脚）+ 组间距。
+    /// 当前分组的内容高度：页眉 + 各分组（标题 + 卡片 + 页脚）+ 组间距。
     /// 分组内容按行累加；`fixedHeight` 的块（统计页）按它自己的高度算——两者不同时出现。
+    ///
+    /// 分组切换从横排分段控件变成竖排侧栏之后，**每页少掉 34pt 的固定开销**
+    /// （`tabBarHeight` 30 + 一次 `rowSpacing`）：侧栏是横向的，垂直方向零成本。
     static func contentHeight(for section: NotchMenuSection) -> CGFloat {
         var height =
-            listPaddingHeight + pageHeaderHeight + rowSpacing + tabBarHeight + rowSpacing
-            + contentTopGap
+            listPaddingHeight + pageHeaderHeight + rowSpacing + contentTopGap
 
         let blocks = blocks(for: section)
         for (index, block) in blocks.enumerated() {

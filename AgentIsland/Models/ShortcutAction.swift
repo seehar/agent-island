@@ -44,7 +44,7 @@ nonisolated enum ShortcutAction: String, CaseIterable, Identifiable, Sendable {
         case chat
         /// 设置面板（非统计分组）。
         case settings
-        /// 统计页（设置面板的一个分组，但不占分段位）。
+        /// 统计页（设置面板里的一级分组，入口在侧栏）。
         case statistics
     }
 

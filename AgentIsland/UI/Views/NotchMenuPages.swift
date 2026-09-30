@@ -450,7 +450,7 @@ struct NotificationsSettingsPage: View {
 /// 「关于」页：应用标识、版本与更新、GitHub、键盘快捷键、退出。
 struct AboutSettingsPage: View {
     @ObservedObject var updateManager: UpdateManager
-    /// 「键盘快捷键」那一行的跳转入口（快捷键页不占分段位，只能从这里进）。
+    /// 「键盘快捷键」那一行的跳转入口（快捷键页不占侧栏位，只能从这里进）。
     @ObservedObject var viewModel: NotchViewModel
     @ObservedObject private var l10n = LocalizationManager.shared
 
