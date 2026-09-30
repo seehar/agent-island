@@ -1,5 +1,5 @@
 // agent-island-opencode-plugin.js —— 由 AgentIsland 安装的 OpenCode 插件
-// agent-island-opencode-plugin-version: 3
+// agent-island-opencode-plugin-version: 4
 //
 // ⚠️ 本文件由 AgentIsland 管理，勿手改：应用每次「安装集成」都会用内置副本整份覆盖。
 //
@@ -15,7 +15,9 @@
 //     （与 Claude 链路的 fail-open 一致）；
 //   - 提问事件（`question.asked`）：同构的阻塞询问，上行带 `ask` 载荷（问题与选项），
 //     刘海作答后回写 POST /question/{id}/reply（用户放弃 → /question/{id}/reject）。
-// 版本 3（本次）：新增交互提问（opencode 的 `question` 工具）的远程作答。此前它只被
+// 版本 4（本次）：上报 Paseo 托管终端身份（`PASEO_TERMINAL_ID` / `PASEO_HOOK_CLI`），
+// 使在 Paseo（「我的机器」）终端里跑的 opencode 也能从刘海发消息 / 中断。
+// 版本 3：新增交互提问（opencode 的 `question` 工具）的远程作答。此前它只被
 // 报成「一条看不懂的待批」——刘海显示成批准/拒绝，而那两个按钮对提问毫无意义。
 // 版本 2：新增远程审批。此前只上报状态，批准只能在终端里完成。
 
@@ -67,6 +69,17 @@ let reportedSessionId;
 let tty;
 let pid;
 
+/**
+ * Paseo（`@getpaseo/server`）托管终端的身份：它给每个终端注入 `PASEO_TERMINAL_ID`，并把该
+ * 终端可用的 CLI 绝对路径放进 `PASEO_HOOK_CLI`（`terminal-manager.js` 的 activityEnv）。
+ * 有这两个值，刘海就能在**不经 tmux** 的前提下把消息写进本会话的 pty：
+ * `paseo terminal send-keys <id> --literal <文本>` + 回车。
+ *
+ * 进程启动时求值一次：Paseo 的注入是环境变量，进程生命周期内不变。
+ */
+const paseoTerminalId = (process.env.PASEO_TERMINAL_ID || "").trim() || undefined;
+const paseoCliPath = (process.env.PASEO_HOOK_CLI || "").trim() || undefined;
+
 /** 由插件工厂注入的工作目录，用作上报的 cwd。 */
 let pluginCwd;
 
@@ -114,6 +127,8 @@ function send(payload) {
     cwd: payload.cwd || process.cwd(),
     pid,
     tty,
+    paseo_terminal_id: paseoTerminalId,
+    paseo_cli_path: paseoCliPath,
     agent: AGENT,
     ...payload,
   };
@@ -246,6 +261,8 @@ function approvalPayload(fields, sessionId, cwd) {
     cwd,
     pid,
     tty,
+    paseo_terminal_id: paseoTerminalId,
+    paseo_cli_path: paseoCliPath,
     agent: AGENT,
     expects_response: true,
     tool: fields && fields.tool,
@@ -328,6 +345,8 @@ function askPayload(fields, sessionId, cwd) {
     cwd,
     pid,
     tty,
+    paseo_terminal_id: paseoTerminalId,
+    paseo_cli_path: paseoCliPath,
     agent: AGENT,
     expects_response: true,
     tool: TOOL_QUESTION,

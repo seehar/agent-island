@@ -34,7 +34,8 @@ nonisolated enum AgentIntegrationInstaller {
 
   /// 当前应用期望的 OpenCode 插件版本：改插件时必须同步 +1。
   /// 3 = 新增交互提问（`question`）的远程作答。
-  static let openCodePluginVersion = 3
+  /// 4 = 上报 Paseo 托管终端身份（`PASEO_TERMINAL_ID` / `PASEO_HOOK_CLI`）。
+  static let openCodePluginVersion = 4
 
   /// 6 = 闸门不可用（含「该 Agent 已被关闭」）改走降级档，而不是把服务端关闭读成拒绝。
   /// 7 = 上报 Paseo 托管终端身份（`PASEO_TERMINAL_ID` / `PASEO_HOOK_CLI`），
