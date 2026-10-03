@@ -581,8 +581,10 @@ class NotchViewModel: ObservableObject {
     /// 内容面在设置面板里、且不在统计与额度分组。头部齿轮按钮据此显示 xmark——
     /// 它与 `isShowingStatistics`、`isShowingQuota` 正好把「在设置里」分完，
     /// 三个按钮任何时刻最多一个显示 xmark。
+    /// 判据与「这个面显不显示侧栏」同源（`NotchMenuSection.isDashboard`）：读数面
+    /// 不显示侧栏、也不点亮齿轮。
     var isShowingSettings: Bool {
-        contentType == .menu && menuSection != .statistics && menuSection != .quota
+        contentType == .menu && !NotchMenuSection.isDashboard(menuSection)
     }
 
     /// 图表按钮：进统计页；已经在统计页时退回会话列表。

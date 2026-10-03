@@ -71,110 +71,233 @@ struct NotchMenuMetricsTests {
         #expect(blocks.first?.fixedHeight == UsageStatsMetrics.sectionHeight)
     }
 
-    @Test("统计分组：上限压到 640 后在所有 chrome 档都被夹取，页内滚动接管")
-    func statisticsSectionIsClampedAtTheCap() {
-        // 上限 728 时统计页是 635 + 76 = 711，最紧的一档之一；降到 640 之后它在**每一个**
-        // chrome 档都被夹取（最小的 36 也已经是 671）。这是有意的取舍：面板不再一路胀高，
-        // 代价是统计页要滚动才能看全趋势图。
-        let low = NotchMenuMetrics.panelHeight(
-            for: .statistics, expandedPickerHeight: 0, chromeHeight: 42)
-        let high = NotchMenuMetrics.panelHeight(
-            for: .statistics, expandedPickerHeight: 0, chromeHeight: 76)
-        #expect(low == NotchMenuMetrics.maxPanelHeight)
-        #expect(high == NotchMenuMetrics.maxPanelHeight)
-        // 夹取之后仍要能说清「本来该多高」——否则这一档会退化成一个没有来由的数字。
+    @Test("读数面不套设置上限：整块内容一次看全，只受窗口高度约束")
+    func dashboardsAreNotClampedByTheSettingsCap() {
+        // 统计页在设置上限（640）下**每个** chrome 档都会被切掉一截（内容 635 + 开销 ≥ 671），
+        // 而它现在不是设置导航里的一页（`NotchMenuSection.isDashboard`）：上限换成
+        // `maxDashboardHeight`，整页一次看全——这正是把读数面移出设置导航的理由之一。
+        for chrome in Self.reachableChrome {
+            let height = NotchMenuMetrics.panelHeight(
+                for: .statistics, expandedPickerHeight: 0, chromeHeight: chrome)
+            #expect(height == chrome + NotchMenuMetrics.contentHeight(for: .statistics))
+        }
+        #expect(NotchMenuMetrics.heightCap(for: .statistics) == NotchMenuMetrics.maxDashboardHeight)
+        #expect(NotchMenuMetrics.heightCap(for: .quota) == NotchMenuMetrics.maxDashboardHeight)
+        // 设置面仍套 640：两档不能塌成一个数（否则「面板不随内容胀高」那条取舍就没了）。
+        #expect(NotchMenuMetrics.heightCap(for: .general) == NotchMenuMetrics.maxPanelHeight)
+        #expect(NotchMenuMetrics.heightCap(for: .agents) == NotchMenuMetrics.maxPanelHeight)
+        // 而且读数面上限必须真的更宽，否则它又被切了。
+        #expect(NotchMenuMetrics.maxDashboardHeight > NotchMenuMetrics.maxPanelHeight)
+
+        // 上限要够用：统计页在可达的最大开销下、额度页在最坏运行时组合下都装得下。
+        let widestChrome = Self.reachableChrome.max()!
         #expect(
-            NotchMenuMetrics.contentHeight(for: .statistics) + 76 > NotchMenuMetrics.maxPanelHeight,
-            "统计页不再越界，说明上限或内容高改了，clampedPairs 里的登记要一起更新")
+            NotchMenuMetrics.panelHeight(
+                for: .statistics, expandedPickerHeight: 0, chromeHeight: widestChrome)
+                <= NotchMenuMetrics.maxDashboardHeight)
+        #expect(
+            NotchMenuMetrics.panelHeight(
+                for: .quota, expandedPickerHeight: NewAPIAccountPageState.worstRuntimeHeight,
+                chromeHeight: widestChrome)
+                <= NotchMenuMetrics.maxDashboardHeight)
     }
 
     // MARK: - 侧栏
 
-    @Test("侧栏条目把一级分组分完，且互不重叠")
-    func sidebarSectionsPartitionTopLevelGroups() {
+    @Test("侧栏只放配置页：读数面与两页子页都不占侧栏位")
+    func sidebarSectionsPartitionConfigurationPages() {
         let sidebar = NotchMenuSection.sidebarSections + NotchMenuSection.sidebarFooterSections
         #expect(Set(sidebar).count == sidebar.count, "同一个分组在侧栏里出现了两次")
-        // 不占侧栏位的两页（快捷键 / 标记动态）各有页内入口行，其余必须都在侧栏里。
-        let hidden: Set<NotchMenuSection> = [.shortcuts, .animations]
-        let missing = Set(NotchMenuSection.allCases)
-            .subtracting(hidden)
-            .subtracting(sidebar)
-        #expect(missing.isEmpty, "这些分组既不在侧栏也没有页内入口：\(missing.map(\.rawValue))")
+        #expect(NotchMenuSection.sidebarSections == [.general, .behavior, .notifications, .agents])
+        #expect(NotchMenuSection.sidebarFooterSections == [.about])
+
+        // 每个分组要么自己就是侧栏项，要么在 `railSelection` 里有一个归属（子页 → 父页）；
+        // 没有归属的那种面**不显示侧栏**，必须是读数面。
+        for section in NotchMenuSection.allCases {
+            switch NotchMenuSection.railSelection(for: section) {
+            case let rail?:
+                #expect(
+                    sidebar.contains(rail),
+                    "\(section.rawValue) 点亮的 \(rail.rawValue) 不在侧栏里")
+            case nil:
+                #expect(
+                    NotchMenuSection.isDashboard(section),
+                    "\(section.rawValue) 既不在侧栏、也没有侧栏归属，又不算读数面")
+            }
+        }
+
+        // 两页子页点亮**父页**（macOS 侧栏的惯例：推到子页时父项仍高亮）；
+        // 读数面返回 nil（不显示侧栏）。
+        #expect(NotchMenuSection.railSelection(for: .shortcuts) == .about)
+        #expect(NotchMenuSection.railSelection(for: .animations) == .agents)
+        #expect(NotchMenuSection.railSelection(for: .statistics) == nil)
+        #expect(NotchMenuSection.railSelection(for: .quota) == nil)
+        #expect(NotchMenuSection.railSelection(for: .general) == .general)
     }
 
-    @Test("侧栏底部常驻项在最矮的一页也放得下")
-    func sidebarFooterAlwaysFits() {
-        // 额度页在没有账号时内容高只有 218pt，扣掉容器上下内边距只剩 238pt——放不下
-        // 6 个一级分组（312pt）。因此上面那组滚动、下面这组钉底；这里守住「钉底这组
-        // 在任何一页都放得下」，否则「关于」会在被裁掉的卡片里消失，用户再也回不去。
-        let needed =
-            CGFloat(NotchMenuSection.sidebarFooterSections.count)
-            * (NotchMenuMetrics.sidebarItemHeight + NotchMenuMetrics.sidebarItemSpacing)
-            + NotchMenuMetrics.sidebarDividerThickness + NotchMenuMetrics.sidebarItemSpacing
-        let shortest = NotchMenuSection.allCases.min {
+    @Test("整条侧栏在最矮的设置面也放得下（不再需要滚动）")
+    func sidebarFitsShortestSettingsPage() {
+        // 侧栏不再套 `ScrollView`（见 `NotchMenuSidebar`）：4 个配置页 + 钉底的「关于」
+        // 必须自己装得下，否则「关于」会被卡片圆角裁掉、用户回不去。判据取**最矮的设置面**
+        // （读数面不显示侧栏）与最小可达开销，两档（带标签 / 图标）都核。
+        let settingsFaces = NotchMenuSection.allCases.filter {
+            NotchMenuSection.railSelection(for: $0) != nil
+        }
+        let shortest = settingsFaces.min {
             NotchMenuMetrics.contentHeight(for: $0) < NotchMenuMetrics.contentHeight(for: $1)
         }!
-        for chrome in [CGFloat(36), NotchMenuMetrics.maxPanelHeight] {
-            let available =
-                NotchMenuMetrics.panelHeight(
-                    for: shortest, expandedPickerHeight: 0, chromeHeight: chrome)
-                - NotchMenuMetrics.listPaddingHeight
-            #expect(
-                needed <= available,
-                "钉底项需要 \(needed)pt，但 \(shortest.rawValue) 页在 chrome=\(chrome) 时只有 \(available)pt")
+        let rowCount =
+            NotchMenuSection.sidebarSections.count + NotchMenuSection.sidebarFooterSections.count
+
+        for showsLabels in [true, false] {
+            // 整条栏的实际高度：条目表 + 每个子视图之间的间距（4 项 + Spacer + 分隔线 +
+            // 「关于」⇒ 6 个间隙）+ 分隔线自身 + 栏自己的上下内边距。
+            let needed =
+                CGFloat(rowCount)
+                * (NotchMenuMetrics.sidebarItemHeight(showsLabels: showsLabels)
+                    + NotchMenuMetrics.sidebarItemSpacing)
+                + NotchMenuMetrics.sidebarDividerThickness + NotchMenuMetrics.sidebarItemSpacing
+                + 2 * NotchMenuMetrics.sidebarVerticalPadding
+            for chrome in [CGFloat(36), NotchMenuMetrics.maxPanelHeight] {
+                let available =
+                    NotchMenuMetrics.panelHeight(
+                        for: shortest, expandedPickerHeight: 0, chromeHeight: chrome)
+                    - NotchMenuMetrics.listPaddingHeight
+                #expect(
+                    needed <= available,
+                    "侧栏（\(showsLabels ? "标签" : "图标")档）需要 \(needed)pt，但 \(shortest.rawValue) 页在 chrome=\(chrome) 时只有 \(available)pt"
+                )
+            }
         }
     }
 
-    @Test("侧栏不吃掉统计页与标记动态页的版面")
-    func sidebarKeepsCalibratedPageWidths() {
-        // 详情区宽度 = 面板宽度预算 − 容器左右内边距 − 窄轨 − 栏间距。四项都取常量：
-        // 此前这里写的是 `- 16 - sidebarItemSpacing`，与实际版面的「4×2 + 12」数值恰好相等
-        // 才没暴露——改任一档都会静默失配。
-        let content =
-            NotchMenuMetrics.panelWidthMax
-            - 2 * NotchMenuMetrics.panelContentPadding
-            - NotchMenuMetrics.sidebarWidth
-            - NotchMenuMetrics.sidebarContentSpacing
-        // 统计页以 panelWidthMax − 16 为标定基准；紧凑档（0.88）已经贴到 422.4。
-        // 侧栏后详情区仍要不低于紧凑档的标定宽度，否则趋势图绘图区会被新裁。
-        let compactCalibrated = NotchMenuMetrics.panelWidthMax * 0.88 - 16
-        #expect(content >= compactCalibrated, "统计页详情区 \(content)pt 窄于紧凑档标定的 \(compactCalibrated)pt")
-        // 标记动态页的画廊是硬下限 304pt。
-        #expect(content >= 304, "画廊放不下：详情区只有 \(content)pt")
+    @Test("侧栏档位判据在每一档可达面板宽下都守住画廊硬下限")
+    func sidebarLabelCriterionKeepsGalleryFloorAtEveryPanelWidth() {
+        // `sidebarShowsLabels` 的唯一职责：**带标签时详情列仍 ≥ 画廊硬下限**。因此按可达的
+        // 面板宽扫一遍（三种尺寸档 × 宽屏/窄屏，后者让 `min(screenRect.width * 0.4, …)` 生效），
+        // 而不是把推导式抄一遍——抄定义是恒真断言，正是它漏掉过一次 24pt 的建模误差
+        // （内容层还要减卡片侧内边距 `panelCardSideInset`，见 `contentAreaWidth`）。
+        let screens: [(name: String, width: CGFloat)] = [
+            ("wide screen", 1920), ("narrow screen", 1147),
+        ]
+        for screen in screens {
+            for size in PanelSize.allCases {
+                let panelWidth = min(
+                    min(screen.width * 0.4, NotchMenuMetrics.panelWidthMax) * size.scale,
+                    screen.width - 40)
+                let contentWidth = NotchMenuMetrics.contentAreaWidth(inPanelWidth: panelWidth)
+                let detail = NotchMenuMetrics.settingsDetailWidth(inContentWidth: contentWidth)
+                #expect(
+                    detail >= NotchMenuMetrics.minDetailWidth,
+                    "\(screen.name) · \(size.rawValue)：详情列 \(detail)pt < 画廊硬下限 \(NotchMenuMetrics.minDetailWidth)pt"
+                )
+            }
+        }
+
+        // 实测的出厂几何钉在这儿：改 `panelWidthMax` / `panelCardSideInset` /
+        // `panelContentPadding` / 画廊列数时都会失败，逼你按上面那条链重算。
+        // 内容区 = 面板宽 480 − 卡片侧内边距 2×12 − 容器内边距 2×4 = 448；
+        // 设置详情列 = 448 − 带标签侧栏 113 − 栏间距 12 = 323；画廊硬下限 = 6×44 + 5×8 = 304。
+        #expect(NotchMenuMetrics.contentAreaWidth == 448)
+        #expect(NotchMenuMetrics.settingsDetailWidth == 323)
+        #expect(NotchMenuMetrics.minDetailWidth == 304)
     }
 
-    @Test("侧栏不能宽成一个空槽")
-    func sidebarStaysProportionateToTheDetailColumn() {
-        // 初版侧栏给 44pt、条目底色 40pt，几乎占满整条栏，相对右侧几百点的详情区
-        // 就是一个过宽的空槽（实机截图就是这个观感）。这条钉住「侧栏只是图标栏，
-        // 不是第二列内容」：它占的宽度必须显著小于详情区，且自身要装得下图标。
-        let detail =
-            NotchMenuMetrics.panelWidthMax
-            - 2 * NotchMenuMetrics.panelContentPadding
-            - NotchMenuMetrics.sidebarWidth
-            - NotchMenuMetrics.sidebarContentSpacing
+    @Test("侧栏宽度按最长页面名推出，且每个语言都排得下")
+    func sidebarWidthFitsEveryLocalizedLabel() {
+        // 带标签档存在的理由就是「不用逐个悬停去猜」：标签**必须**排得下。标签列宽是
+        // 解析式（栏宽 − 图标左留白 − 图标 − 间距 − 尾距），这里用与渲染同一把尺子
+        // 逐语言实测，并核对常量确实等于这条规则在真实 catalog 上的取值——翻译变长时
+        // 会在这里失败，提示重算 `sidebarLabeledWidth`。
+        let keys =
+            (NotchMenuSection.sidebarSections + NotchMenuSection.sidebarFooterSections)
+            .map(Self.titleKey(for:))
+        let font = NSFont.systemFont(ofSize: NotchMenuMetrics.sidebarLabelSize, weight: .medium)
+        let labelColumn =
+            NotchMenuMetrics.sidebarLabeledWidth - NotchMenuMetrics.sidebarIconLeading
+            - NotchMenuMetrics.sidebarIconSize - NotchMenuMetrics.sidebarIconLabelGap
+            - NotchMenuMetrics.sidebarLabelTrailing
+
+        var longest: (label: String, width: CGFloat) = ("", 0)
+        for code in AppLanguage.availableCodes {
+            for key in keys {
+                let text = LocalizationManager.t(key, languageCode: code)
+                // 译文缺失时 `localizedString` 会把键原样返回：映射漂了或 catalog 缺键
+                // 都会在这里暴露，而不是让下面的宽度判据量一个不存在的文案。
+                if code != "en" {
+                    #expect(text != key, "键「\(key)」在 \(code) 里没有译文")
+                }
+                let width = (text as NSString).size(withAttributes: [.font: font]).width
+                if width > longest.width { longest = (text, width) }
+                #expect(
+                    width <= labelColumn,
+                    "\(code) 的「\(text)」排不下：需要 \(width)pt，标签列只有 \(labelColumn)pt")
+            }
+        }
+
         #expect(
-            NotchMenuMetrics.sidebarWidth * 4 <= detail,
-            "侧栏 \(NotchMenuMetrics.sidebarWidth)pt 相对详情区 \(detail)pt 太宽了")
+            NotchMenuMetrics.sidebarLabeledWidth
+                == NotchMenuMetrics.sidebarWidth(forLabelWidth: longest.width),
+            "侧栏宽度 \(NotchMenuMetrics.sidebarLabeledWidth)pt 不是按最长标签「\(longest.label)」（\(longest.width)pt）推出的——改名 / 加分组 / 改字号后要重算 `sidebarLabeledWidth` 的入参"
+        )
+        // 带标签档必须真的比图标档宽，否则两档塌成一档、小屏判断失去意义。
+        #expect(NotchMenuMetrics.sidebarLabeledWidth > NotchMenuMetrics.sidebarIconWidth)
+    }
+
+    @Test("侧栏条目几何：两档的行高都装得下图标，分隔线不越过栏宽")
+    func sidebarItemGeometryFitsBothModes() {
+        // 图标档：方形瓦片（`sidebarItemBox` = 栏宽）在行高里居中，上下留白要宽过条目间距，
+        // 否则瓦片会贴到相邻条目上。
+        let iconPad =
+            (NotchMenuMetrics.sidebarItemHeight(showsLabels: false)
+                - NotchMenuMetrics.sidebarItemBox) / 2
+        #expect(iconPad >= NotchMenuMetrics.sidebarItemSpacing, "瓦片上下只留 \(iconPad)pt")
+        #expect(NotchMenuMetrics.sidebarItemBox >= NotchMenuMetrics.sidebarIconSize, "瓦片比图标还小")
+        #expect(
+            NotchMenuMetrics.sidebarItemBox
+                <= NotchMenuMetrics.sidebarItemHeight(showsLabels: false),
+            "底色 \(NotchMenuMetrics.sidebarItemBox)pt 比行高还高")
         // 图标两侧要留得下呼吸位，否则会顶到栏边。
         #expect(
-            NotchMenuMetrics.sidebarWidth - NotchMenuMetrics.sidebarIconSize >= 8,
-            "\(NotchMenuMetrics.sidebarIconSize)pt 图标在 \(NotchMenuMetrics.sidebarWidth)pt 栏里太满")
-        // 分隔线不能比栏还宽。
-        #expect(NotchMenuMetrics.sidebarDividerLength < NotchMenuMetrics.sidebarWidth)
-        // 选中/悬停底色是**正方形**瓦片（宽高共用 `sidebarItemBox`）：行高是 40
-        // （与设置行对齐），底色若铺满行高会读成一块竖长方（实机截图就是这个观感）。
-        // 正方形是结构保证的，能断言的是它装得下、且上下留白够。
+            NotchMenuMetrics.sidebarIconWidth - NotchMenuMetrics.sidebarIconSize >= 8,
+            "\(NotchMenuMetrics.sidebarIconSize)pt 图标在 \(NotchMenuMetrics.sidebarIconWidth)pt 栏里太满")
+
+        // 带标签档：行高要装得下图标 + 上下内缩，且不超过图标档（带标签的那一档更紧凑）。
+        let labeledHeight = NotchMenuMetrics.sidebarItemHeight(showsLabels: true)
         #expect(
-            NotchMenuMetrics.sidebarItemBox >= NotchMenuMetrics.sidebarIconSize,
-            "瓦片比图标还小")
+            labeledHeight
+                >= NotchMenuMetrics.sidebarIconSize + 2 * NotchMenuMetrics.sidebarThumbInset)
+        #expect(labeledHeight <= NotchMenuMetrics.sidebarItemHeight(showsLabels: false))
+
+        // 分隔线两档都不越过栏宽；带标签档下要够长，否则在 113pt 宽的栏里读成一根小竖杠
+        // （那个观感是实机截图报过的缺陷）。
+        for showsLabels in [true, false] {
+            let railWidth =
+                showsLabels
+                ? NotchMenuMetrics.sidebarLabeledWidth : NotchMenuMetrics.sidebarIconWidth
+            let length = NotchMenuMetrics.sidebarDividerLength(showsLabels: showsLabels)
+            #expect(length < railWidth, "分隔线 \(length)pt 越过了 \(railWidth)pt 的栏")
+        }
         #expect(
-            NotchMenuMetrics.sidebarItemBox <= NotchMenuMetrics.sidebarItemHeight,
-            "底色 \(NotchMenuMetrics.sidebarItemBox)pt 比行高 \(NotchMenuMetrics.sidebarItemHeight)pt 还高"
-        )
-        // 上下留白要够，否则瓦片会贴到相邻条目上。
-        let pad = (NotchMenuMetrics.sidebarItemHeight - NotchMenuMetrics.sidebarItemBox) / 2
-        #expect(pad >= NotchMenuMetrics.sidebarItemSpacing, "瓦片上下只留 \(pad)pt，比条目间距还窄")
+            NotchMenuMetrics.sidebarDividerLength(showsLabels: true)
+                >= 2 * NotchMenuMetrics.sidebarIconWidth,
+            "带标签档的分隔线太短，读不成一条分组线")
+    }
+
+    /// 侧栏标签的本地化键（= 英文源文案）。与 `NotchMenuSection.title(_:)` 是同一份映射，
+    /// 但那一个只按当前语言解析，这里要逐语言实测。
+    private static func titleKey(for section: NotchMenuSection) -> String {
+        switch section {
+        case .general: return "General"
+        case .behavior: return "Behavior"
+        case .notifications: return "Notifications"
+        case .agents: return "Agents"
+        case .about: return "About"
+        case .statistics: return "Statistics"
+        case .quota: return "Quota"
+        case .shortcuts: return "Keyboard Shortcuts"
+        case .animations: return "Animations"
+        }
     }
 
     @Test("每个分组的高度都等于行表重算的结果")
@@ -300,15 +423,18 @@ struct NotchMenuMetricsTests {
     /// 已知被夹取（超出上限、改由页内滚动接管）的组合。**新增组合必须显式登记在这里**，
     /// 否则测试失败——那正是「又加了一行/一档，最后一个档位落到可视区外」的信号。
     ///
-    /// 上限从 728 降到 640 之后，下列组合**会被夹取**，该档下由页内滚动接管（滚动条隐藏）：
+    /// 上限从 728 降到 640 之后，下列**设置面**的组合会被夹取，该档下由页内滚动接管
+    /// （滚动条隐藏）：
     ///
     /// - `general@{36,37,44,50,76}`：通用页内容 480 + 最高单个展开 138（刘海高度 4 档）
     ///   ＝ 618，最小的 chrome 36 就已经是 654。因此**通用页在所有 chrome 档下展开选择器
     ///   都会被切掉十几 pt**——这是把上限压到 640 的直接代价。
     /// - `agents@{36,37,44,50,76}`：530 + 106 ＝ 636，同样在最小 chrome 就越界。
-    /// - `statistics@{36,37,44,50,76}`：635 + 0 ＝ 635，最小 chrome 也是 663。统计页在
-    ///   任何 chrome 档下都需要滚动才能看全趋势图。
     /// - `behavior@{76}`（660）与 `shortcuts@{76}`（666）：只在胶囊高度自定义到最大时触顶。
+    ///
+    /// **读数面（统计 / 额度）不在这个表里**：它们不套 640，改用 `maxDashboardHeight`
+    /// （见 `dashboardsAreNotClampedByTheSettingsCap`）——统计页 635 + 76 = 711 也装得下，
+    /// 因此读数面在任何 chrome 档下都不会被切。
     ///
     /// 新增分组、加行或加档位若顶到上限，必须登记到这里（见 `NotchMenuLayout.maxPanelHeight`
     /// 的加法）。
@@ -316,7 +442,6 @@ struct NotchMenuMetricsTests {
         "general@36", "general@37", "general@44", "general@50", "general@76",
         "behavior@76",
         "agents@36", "agents@37", "agents@44", "agents@50", "agents@76",
-        "statistics@36", "statistics@37", "statistics@44", "statistics@50", "statistics@76",
         "shortcuts@76",
     ]
 
@@ -369,7 +494,8 @@ struct NotchMenuMetricsTests {
         let height = NotchMenuMetrics.panelHeight(
             for: .quota, expandedPickerHeight: tallest, chromeHeight: 76)
         #expect(height == 76 + NotchMenuMetrics.contentHeight(for: .quota) + tallest)
-        #expect(height <= NotchMenuMetrics.maxPanelHeight)
+        // 额度页是读数面：判据用读数面上限（设置面的 640 会把它切掉）。
+        #expect(height <= NotchMenuMetrics.heightCap(for: .quota))
     }
 
     @MainActor
@@ -428,18 +554,19 @@ struct NotchMenuMetricsTests {
 
             for chrome in Self.reachableChrome {
                 let key = "\(section.rawValue)@\(Int(chrome))"
+                let cap = NotchMenuMetrics.heightCap(for: section)
                 let height = NotchMenuMetrics.panelHeight(
                     for: section, expandedPickerHeight: expanded, chromeHeight: chrome)
 
                 if Self.clampedPairs.contains(key) {
                     #expect(
-                        height == NotchMenuMetrics.maxPanelHeight,
-                        "\(key) 应当被夹到上限（内容 \(content) + 展开 \(expanded) + 开销 \(chrome)）")
+                        height == cap,
+                        "\(key) 应当被夹到上限 \(cap)（内容 \(content) + 展开 \(expanded) + 开销 \(chrome)）")
                 } else {
                     #expect(
                         height == chrome + content + expanded,
                         "\(key) 的最高单个展开被夹取：内容 \(content) + 展开 \(expanded) + 开销 \(chrome)")
-                    #expect(height <= NotchMenuMetrics.maxPanelHeight)
+                    #expect(height <= cap)
                 }
             }
         }

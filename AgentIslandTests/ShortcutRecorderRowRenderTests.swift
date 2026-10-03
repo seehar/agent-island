@@ -13,8 +13,9 @@ import Testing
 
 @Suite("快捷键行渲染")
 struct ShortcutRecorderRowRenderTests {
-    /// 行宽取设置页的内容宽（面板 480 − 左右内边距 16）。
-    private let rowWidth: CGFloat = 464
+    /// 行宽取设置页的**详情列**宽（内容区 448 − 带标签侧栏 113 − 栏间距 12 = 323pt）——
+    /// 快捷键页在设置面板里，行拿到的就是这一份宽。
+    private let rowWidth: CGFloat = NotchMenuMetrics.settingsDetailWidth
 
     /// 渲染一次，返回右半行的墨迹列数（连通簇数量）：按键块与清空按钮是两个分离的簇。
     ///

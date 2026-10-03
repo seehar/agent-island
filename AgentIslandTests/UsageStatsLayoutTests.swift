@@ -26,15 +26,23 @@ struct UsageStatsLayoutTests {
   /// 面板底部内边距（与 `NotchView` 给面板留的间距一致）。
   private let bottomPadding: CGFloat = 12
 
-  /// 统计分组在默认固定开销下的面板高度（固定开销 = 头部行 + 面板底部内边距）。
+  /// 统计页在默认固定开销下的面板高度（固定开销 = 头部行 + 面板底部内边距）。
+  /// 它是**读数面**：上限是 `maxDashboardHeight`（不是设置面的 640），因此任何可达开销下
+  /// 都是解析值、不会被夹取。
   private var statisticsPanelHeight: CGFloat {
     NotchMenuMetrics.panelHeight(
       for: .statistics, expandedPickerHeight: 0,
       chromeHeight: max(24, notchHeight) + bottomPadding)
   }
 
-  @Test("统计分组的面板连同底部内边距一起装得进窗口")
+  @Test("统计页整页装得进窗口：解析高 == 内容 + 开销，且没被上限夹取")
   func panelFitsWindow() {
+    #expect(
+      statisticsPanelHeight
+        == max(24, notchHeight) + bottomPadding + NotchMenuMetrics.contentHeight(for: .statistics),
+      "读数面被夹取了：整页会有一部分掉到隐藏滚动条的视口外")
+    #expect(statisticsPanelHeight <= NotchMenuMetrics.maxDashboardHeight)
+    // 面板之下还要留出 `NotchView` 的底部内边距，整体仍要在宿主窗口里。
     #expect(statisticsPanelHeight + bottomPadding <= windowHeight)
   }
 
@@ -224,12 +232,12 @@ struct UsageStatsLayoutTests {
   @Test("统计页在紧凑档面板宽度内不被裁切（曲线图不能按最宽档写死宽度）")
   @MainActor
   func statisticsPageFitsCompactWidth() {
-    // 面板宽 = min(screenRect.width * 0.4, panelWidthMax) × 面板尺寸档，内容宽再减列表内边距：
-    // 紧凑档下是 480 × 0.88 − 16 = 406.4pt。页面里只要有**按最宽档推出来的固定宽度**，
-    // 整页就会比容器宽、被居中裁掉两侧（实测曲线图的固定绘图区宽度 380 → 整页 464，
-    // 紧凑档左右各裁 15.5pt：「Total tokens」标签的墨迹左缘从 12 掉到 0）。
-    let compactContentWidth =
-      NotchMenuMetrics.panelWidthMax * PanelSize.compact.scale - NotchMenuMetrics.listPaddingHeight
+    // 面板宽 = min(screenRect.width * 0.4, panelWidthMax) × 面板尺寸档，内容区再减容器的左右
+    // 内边距（统计页是读数面、不显示侧栏，因此不再减侧栏）：紧凑档下是 480 × 0.88 − 2×(12 + 4) = 390.4pt。
+    // 页面里只要有**按最宽档推出来的固定宽度**，整页就会比容器宽、被居中裁掉两侧（实测曲线图
+    // 的固定绘图区宽度 380 → 整页 464，「Total tokens」标签的墨迹左缘从 12 掉到 0）。
+    let compactContentWidth = NotchMenuMetrics.contentAreaWidth(
+      inPanelWidth: NotchMenuMetrics.panelWidthMax * PanelSize.compact.scale)
 
     let viewModel = UsageStatsViewModel()
     viewModel.snapshot = statisticsFixtureSnapshot()
@@ -342,7 +350,7 @@ struct UsageStatsLayoutTests {
   /// 芯片格宽：页内容宽减去设置页的内边距与卡片内边距，再按列数与列间距四等分。
   private func chipWidth(panelWidth: CGFloat) -> CGFloat {
     let gridWidth =
-      panelWidth - NotchMenuMetrics.listPaddingHeight
+      panelWidth - 2 * NotchMenuMetrics.panelContentPadding
       - 2 * NotchMenuMetrics.rowHorizontalPadding
     let columns = CGFloat(UsageStatsMetrics.rangeChipColumns)
     return (gridWidth - UsageStatsMetrics.rangeChipSpacing * (columns - 1)) / columns
@@ -454,7 +462,8 @@ struct UsageStatsLayoutTests {
     for panel in panels {
       // 可用宽 = 面板内容宽 − 脚注自己的左右内边距（脚注是整页里最靠外的一行）。
       let available =
-        panel.width - NotchMenuMetrics.listPaddingHeight - 2 * NotchMenuMetrics.rowHorizontalPadding
+        panel.width - 2 * NotchMenuMetrics.panelContentPadding
+        - 2 * NotchMenuMetrics.rowHorizontalPadding
       for code in ["en", "zh-Hans"] {
         let bundle = LocalizationManager.bundle(for: code)
         let names = nameKeys.map { bundle.localizedString(forKey: $0, value: nil, table: nil) }
@@ -524,7 +533,7 @@ struct UsageStatsLayoutTests {
     NewAPIAccountPageState.shared.setOptionalDetailRowCount(0)
     let defaults = try #require(UserDefaults(suiteName: "quota-layout-\(UUID().uuidString)"))
 
-    let contentWidth = NotchMenuMetrics.panelWidthMax - NotchMenuMetrics.listPaddingHeight
+    let contentWidth = NotchMenuMetrics.contentAreaWidth
     let view = QuotaSettingsPage(viewModel: NewAPIBalanceViewModel(defaults: defaults))
       .frame(width: contentWidth)
     let measured = NSHostingView(rootView: view).fittingSize.height
@@ -556,7 +565,7 @@ struct UsageStatsLayoutTests {
       NewAPIAccountPageState.shared.setAccountCount(1)
     }
 
-    let contentWidth = NotchMenuMetrics.panelWidthMax - NotchMenuMetrics.listPaddingHeight
+    let contentWidth = NotchMenuMetrics.contentAreaWidth
     let view = QuotaSettingsPage(viewModel: model).frame(width: contentWidth)
     let measured = NSHostingView(rootView: view).fittingSize.height
 
@@ -583,10 +592,10 @@ struct UsageStatsLayoutTests {
         - NotchMenuMetrics.badgeSize - NotchMenuMetrics.badgeGap
     }
     let standard = rowAvailableWidth(
-      contentWidth: NotchMenuMetrics.panelWidthMax - NotchMenuMetrics.listPaddingHeight)
+      contentWidth: NotchMenuMetrics.contentAreaWidth)
     let compact = rowAvailableWidth(
-      contentWidth: NotchMenuMetrics.panelWidthMax * PanelSize.compact.scale
-        - NotchMenuMetrics.listPaddingHeight)
+      contentWidth: NotchMenuMetrics.contentAreaWidth(
+        inPanelWidth: NotchMenuMetrics.panelWidthMax * PanelSize.compact.scale))
 
     // 账号名 / 服务器地址两行的理想上限就是 `credentialFields` 里的 246：标准档下它必须
     // 原样保住——标准档的排版与改造前逐点一致。
@@ -632,7 +641,7 @@ struct UsageStatsLayoutTests {
   @Test("额度页详情卡：拿不到数据的行不画，真实排版 = 解析式")
   @MainActor
   func quotaPageDetailRowsFollowData() async throws {
-    let contentWidth = NotchMenuMetrics.panelWidthMax - NotchMenuMetrics.listPaddingHeight
+    let contentWidth = NotchMenuMetrics.contentAreaWidth
 
     struct Scenario {
       let name: String

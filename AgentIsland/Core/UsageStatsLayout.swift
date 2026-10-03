@@ -6,10 +6,11 @@
 //  token（`NotchMenuMetrics` 的行几何、`AppPalette`、`AppRadius`），视图里不散落
 //  魔法数。
 //
-//  统计页是设置面板的一个分组（`NotchMenuSection.statistics`），因此这里给的是
-//  「内容高」而不是「面板高」：面板高由 `NotchMenuMetrics` 按分组算出来，滚动由
-//  设置页的滚动接管（页面自己不再套一层 ScrollView）。时间范围控件在设置页的**页眉
-//  行**里（见 `StatsRangePicker`），它的展开块挤占页内滚动视口而不是撑高面板。
+//  统计页是**读数面**（`NotchMenuSection.statistics`）：不占侧栏位、不显示侧栏，
+//  整块内容占满面板宽度。这里给的是「内容高」而不是「面板高」：面板高由
+//  `NotchMenuMetrics` 按分组算出来（读数面不套设置面的 640 上限，见 `maxDashboardHeight`），
+//  滚动由内容面的 ScrollView 接管（页面自己不再套一层）。时间范围控件在**页眉行**里
+//  （见 `StatsRangePicker`），它的展开块挤占页内滚动视口而不是撑高面板。
 //
 
 import CoreGraphics
@@ -18,29 +19,28 @@ import CoreGraphics
 ///
 /// 高度是**固定值**而不是由内容撑出来的：面板高由 `NotchMenuMetrics` 的解析式给出
 /// （`chromeHeight + contentHeight(for: .statistics)`，含这里的 `sectionHeight`），
-/// 数据多少不改变面板高度；放不下的部分由设置页的滚动接管（见 `UsageStatsView`）。
+/// 数据多少不改变面板高度；上限是读数面的 `maxDashboardHeight`（730）而不是设置面的
+/// 640，因此在任何可达的固定开销下整页都看得全（实测见 `UsageStatsLayoutTests`）。
 nonisolated enum UsageStatsMetrics {
     // MARK: - 版面
 
-    /// 统计页的内容高度（含脚注）。与「面板 + 分组页眉 + 分段控件」的固定开销相加后，
-    /// 默认开销（42）下仍在 `NotchMenuMetrics.maxPanelHeight` 之内（实测见
-    /// `UsageStatsLayoutTests`）；胶囊高度自定义到最高（开销 76）时越过上限，由页内滚动接管。
+    /// 统计页的内容高度（含脚注）。与面板的固定开销（42…76）相加后仍在读数面上限
+    /// `NotchMenuMetrics.maxDashboardHeight`（730）之内：76 + 635 = 711。
     /// 560 → 577 是因为脚注新增了「不计入的 Agent」那一行
     /// （`UsageStatsView.excludedAgentsNote`，文案压成一行、最窄档也排得下）。
     /// 一行 = 10pt 字体 + `footnoteLineSpacing`(5) + 行高余量（实测 17）。
-    /// 代价：`chromeHeight = 76`（胶囊高度自定义到最高）时统计页越过 `maxPanelHeight`，
-    /// 与其他超出上限的分组一样由页内滚动接管（见 `NotchMenuMetricsTests.clampedPairs`）。
     static let sectionHeight: CGFloat = 577
-    /// 页面内容宽度：**面板宽上限**减去设置页的左右内边距（统计页与设置行左右对齐，
-    /// 自己不再加内边距）。工具榜两列、芯片网格、月历与图例行都要在这个宽度内排下。
+    /// 页面内容宽度（标准档）：面板宽预算减去卡片侧内边距与容器内边距
+    /// （`NotchMenuMetrics.contentAreaWidth` = 448）。统计页是读数面、不显示侧栏，
+    /// 拿到的就是这一份整宽；工具榜两列、芯片网格、月历与图例行都要在这个宽度内排下。
     ///
-    /// 它是**最宽档**的判据，**不能当固定宽度用**：实际面板宽是
+    /// 它是**标准档**的判据，**不能当固定宽度用**：实际面板宽是
     /// `min(screenRect.width * 0.4, panelWidthMax) × 面板尺寸档`（见 `NotchViewModel.openedSize`），
-    /// 紧凑档（422.4）与窄屏都会比它窄。按这个宽度写死尺寸会把整页撑破面板、再被左右裁掉
+    /// 紧凑档（390.4）与窄屏都会比它窄。按这个宽度写死尺寸会把整页撑破面板、再被左右裁掉
     /// ——曾经就是曲线图的绘图区宽度（实测紧凑档左右各裁 15.5pt，见 `UsageTrendChart`；
     /// 回归用例见 `UsageStatsLayoutTests` 的「统计页在紧凑档面板宽度内也排得下」）。
     static var contentWidth: CGFloat {
-        NotchMenuMetrics.panelWidthMax - NotchMenuMetrics.listPaddingHeight
+        NotchMenuMetrics.contentAreaWidth
     }
 
     // MARK: - 页面容器

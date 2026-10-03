@@ -37,15 +37,43 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
 
     var id: String { rawValue }
 
-    /// 侧栏的 6 个入口（显示序即这个序）。统计页保留为 `NotchMenuSection`
-    /// （高度表与页眉图表按钮需要它），这里进侧栏是因为竖向放得下；页眉的图表按钮
-    /// 仍然保留——它是从会话列表直达统计的快路径。
+    /// 侧栏的 4 个入口（显示序即这个序）：**只放配置页**。
+    ///
+    /// 统计与额度是**读数**（仪表盘），不是配置：它们不占侧栏位、也不显示侧栏，
+    /// 而是占满整宽的一条独立内容面，入口是面板头部的图表 / 额度按钮
+    /// （`NotchViewModel.toggleStatistics` / `toggleQuota`）。这么做解掉两个结构问题：
+    /// ① 侧栏本来要滚动（6 项 250pt 高过最矮一页的可用高度，当前页那项会被挤到视口外）；
+    /// ② 统计页套在设置上限（640）下每个 chrome 档都会被切掉一截（内容 635 + 开销）。
     static let sidebarSections: [NotchMenuSection] = [
-        .general, .behavior, .notifications, .agents, .statistics, .quota,
+        .general, .behavior, .notifications, .agents,
     ]
 
     /// 钉在侧栏底部的入口（与「关于」这类收尾项一组）。
     static let sidebarFooterSections: [NotchMenuSection] = [.about]
+
+    /// 读数面（统计 / 额度）：不占侧栏位、不显示侧栏，整块内容占满面板宽度，
+    /// 且不套设置面的高度上限（见 `NotchMenuMetrics.heightCap(for:)`）。
+    static func isDashboard(_ section: NotchMenuSection) -> Bool {
+        section == .statistics || section == .quota
+    }
+
+    /// 该分组在侧栏里该点亮哪一项；nil = 这个面**不显示侧栏**。
+    ///
+    /// 不占侧栏位的两页（快捷键 / 标记动态）保留侧栏并点亮它的**父页**——与 macOS
+    /// 侧栏「推到子页时父项仍高亮」一致，比「一列里没有任何一项选中」更好读。
+    /// 写成穷举 switch 而不是查表：新加分组时编译器会逼你在这里做一次决定。
+    static func railSelection(for section: NotchMenuSection) -> NotchMenuSection? {
+        switch section {
+        case .general, .behavior, .notifications, .agents, .about:
+            return section
+        // 入口是「关于」页那一行（`AboutSettingsPage` 的「Keyboard Shortcuts」）。
+        case .shortcuts: return .about
+        // 入口是「监控的智能体」卡片的第一行（那一行就是「标记动态」入口）。
+        case .animations: return .agents
+        // 读数面不显示侧栏（见 `isDashboard`）。
+        case .statistics, .quota: return nil
+        }
+    }
 
     /// 分段控件的图标；只表达分组含义，具体设置行各自用自己的图标。
     var symbolName: String {
@@ -147,43 +175,126 @@ nonisolated enum NotchMenuMetrics {
     static let footnoteGap: CGFloat = 6
     /// 页眉：返回按钮 + 页面标题。
     static let pageHeaderHeight: CGFloat = 28
-    /// 侧栏宽度（纯图标栏，见 `NotchMenuSidebar`）。只画图标不画文字：详情区因此
-    /// 只被吃掉这条宽度，统计页（以 464pt 标定）与标记动态画廊（硬下限 304pt）都排得下；
-    /// 侧栏的标签由页眉承担——那里已经在显示当前分组名。
+    // MARK: - 侧栏（设置导航）
+
+    /// 纯图标档的侧栏宽度（老形态，见 `NotchMenuSidebar`）。内容宽装不下带标签的宽档时
+    /// 退回这一档——紧凑档（面板宽 ×0.88 − 卡片侧内边距 24 − 容器内边距 8）的内容宽只有 390.4pt。
+    static let sidebarIconWidth: CGFloat = 32
+
+    /// 带标签档的侧栏宽度：由「最长页面名」的实测宽推出（见 `sidebarWidth(forLabelWidth:)`）。
     ///
-    /// 宽度按**观感比例**定的，不是按整数凑的：初版给 44pt、条目底色 40pt，几乎占满
-    /// 整条栏，相对右侧几百点的详情区就成了一个过宽的空槽（实机截图就是这个观感）。
-    /// 32pt 配上 14pt 图标之后，左右两栏的疏密才在一个量级上。
-    static let sidebarWidth: CGFloat = 32
-    /// 侧栏一个条目的**行高**（纵向节奏）。**复用 `rowHeight`**（与设置行同一档行高），
-    /// 不要写字面量——侧栏的条目与右侧的设置行按同一节奏排，横向才对得齐。
-    ///
-    static let sidebarItemHeight: CGFloat = rowHeight
-    /// 条目上那块选中/悬停底色的边长——**正方形**。
-    ///
-    /// 命中区铺满整条栏（`sidebarWidth` × 行高，点得到），但底色取 `sidebarWidth` 见方、
-    /// 在行高里居中：铺满 40 高会读成一块竖长方，而不是一个图标瓦片（实机截图就是
-    /// 这个观感）。上下各留 4pt——比条目间距（2pt）宽，瓦片与瓦片之间仍有呼吸。
-    static let sidebarItemBox: CGFloat = sidebarWidth
-    /// 侧栏图标尺寸。行高是 40（与设置行对齐），但图标本身按窄栏取 14，
-    /// 否则 15pt 的图标在 32pt 宽的栏里会顶到边。
+    /// 入参是 `Notifications`（当前最长的页面名）在 `sidebarLabelSize` 下的排版宽 68.55pt。
+    /// **en 是源语言、标签也最长**（zh-Hans 最长只有 43.74pt），因此按它取上界即可；
+    /// 「两种语言各自都排得下」由 `NotchMenuMetricsTests.sidebarWidthFitsEveryLocalizedLabel`
+    /// 按 catalog 逐条实测——改名或加分组后那条用例会失败，提示重算这里。
+    static var sidebarLabeledWidth: CGFloat {
+        sidebarWidth(forLabelWidth: 68.55)
+    }
+
+    /// 由「最长标签的实测宽」推出侧栏宽度：图标前留白 + 图标 + 间距 + 标签 + 尾距，
+    /// 夹在可读区间里（`sidebarLabeledWidthMin`…`sidebarLabeledWidthMax`）。
+    static func sidebarWidth(forLabelWidth labelWidth: CGFloat) -> CGFloat {
+        let needed =
+            sidebarIconLeading + sidebarIconSize + sidebarIconLabelGap + labelWidth
+            + sidebarLabelTrailing
+        return min(sidebarLabeledWidthMax, max(sidebarLabeledWidthMin, needed.rounded(.up)))
+    }
+
+    /// 带标签档的宽度区间。下限让短标签（zh-Hans）下的栏不至于窄成一个图标槽；
+    /// 上限防止某个语言的长标签把详情列吃掉——超上限就截断（`.lineLimit(1)`），
+    /// 并让上面那条实测用例失败。
+    static let sidebarLabeledWidthMin: CGFloat = 84
+    static let sidebarLabeledWidthMax: CGFloat = 116
+
+    /// 侧栏图标尺寸（两档共用）。
     static let sidebarIconSize: CGFloat = 14
-    /// 侧栏条目之间的间距。取 2pt：瓦片只有 32pt 见方、行高 40pt，4pt 的缝在窄栏里
-    /// 读成「散开的一列图标」，收到 2pt 才连成一条轨。**这是纵向间距**，栏与详情之间的
-    /// 横向间距是另一档（`sidebarContentSpacing`），不要混用。
+    /// 侧栏行内几何（带标签档）：图标左缘留白 / 图标与标签的间距 / 标签右缘尾距。
+    static let sidebarIconLeading: CGFloat = 10
+    static let sidebarIconLabelGap: CGFloat = 8
+    static let sidebarLabelTrailing: CGFloat = 12
+    /// 侧栏标签字号。宽度是用与渲染同一把尺子（`NSFont.systemFont(ofSize:weight:.medium)`）
+    /// 量的，见 `sidebarLabeledWidth`。
+    static let sidebarLabelSize: CGFloat = AppTypeScale.footnote
+
+    /// 侧栏一个条目的行高。带标签档取 30（macOS 侧栏的节奏）；图标档沿用设置行行高
+    /// （`rowHeight` = 40，方形瓦片在 40 高的行里居中）。
+    static func sidebarItemHeight(showsLabels: Bool) -> CGFloat {
+        showsLabels ? sidebarLabeledItemHeight : rowHeight
+    }
+    static let sidebarLabeledItemHeight: CGFloat = 30
+    /// 选中/悬停底色相对条目的内缩：带标签档是一条整行的圆角矩形，图标档是方形瓦片。
+    static let sidebarThumbInset: CGFloat = 2
+    /// 图标档的方形瓦片边长（= 图标栏宽）。铺满行高（40）会读成一块竖长方，而不是
+    /// 一个图标瓦片（实机截图就是这个观感）。
+    static let sidebarItemBox: CGFloat = sidebarIconWidth
+
+    /// 侧栏条目之间的间距（**纵向**）。取 2pt：条目之间只有一条细缝，才连成一条轨；
+    /// 栏与详情之间的横向间距是另一档（`sidebarContentSpacing`），不要混用。
     static let sidebarItemSpacing: CGFloat = 2
+    /// 侧栏自身的上下内边距（`NotchMenuSidebar` 的 `.padding(.vertical, …)`）。
+    /// 它是侧栏高度账的一项：条目表 + 分隔线 + 这一圈才是整条栏占的高度。
+    static let sidebarVerticalPadding: CGFloat = 2
     /// 面板内容容器的左右内边距（`NotchMenuView`）。
     ///
-    /// 与 `sidebarContentSpacing` 成对使用：两者合计决定「窄轨到详情」的总留白，
+    /// 与 `sidebarContentSpacing` 成对使用：两者合计决定「侧栏到详情」的总留白，
     /// 调一个要同时看另一个，否则详情列宽度会变。
     static let panelContentPadding: CGFloat = 4
     /// 侧栏内把「关于」与一级分组隔开的那条发丝线。
     ///
     /// 是**横向**的：侧栏条目竖排，分隔两组就要横线。写成 1pt×20pt 的竖条会读成
-    /// 一个杂散的小竖杠（实机截图就是这个效果），不是分隔线。长度比侧栏窄一点居中，
+    /// 一个杂散的小竖杠（实机截图就是这个效果），不是分隔线。长度在栏内缩进一格，
     /// 粗细与页面里其它分隔线（`AppPalette.separator`）一致。
-    static let sidebarDividerLength: CGFloat = 20
+    static func sidebarDividerLength(showsLabels: Bool) -> CGFloat {
+        showsLabels ? sidebarLabeledWidth - 2 * sidebarIconLeading : sidebarIconWidth - 12
+    }
     static let sidebarDividerThickness: CGFloat = 1
+
+    /// 内容区宽度：面板宽预算减去**卡片侧内边距**与容器的左右内边距。
+    ///
+    /// 两圈都要减，顺序与 `NotchView` 的排版一致：`contentView` 先把内容层收成
+    /// `notchSize.width - 2 × panelCardSideInset`（见那个 `.frame(width:)`），
+    /// `NotchMenuView` 再在它内部留 `panelContentPadding`。**只减后者会高估 24pt**，
+    /// 而 24pt 正好把「侧栏带不带标签」的判据推到详情列低于画廊硬下限的一侧。
+    static func contentAreaWidth(inPanelWidth panelWidth: CGFloat) -> CGFloat {
+        panelWidth - 2 * (panelCardSideInset + panelContentPadding)
+    }
+
+    /// 标准档（`panelWidthMax`）下的内容区宽度：读数面（统计 / 额度）不显示侧栏，
+    /// 占的就是这一份宽（480 − 2×(12 + 4) = 448）。
+    static var contentAreaWidth: CGFloat { contentAreaWidth(inPanelWidth: panelWidthMax) }
+
+    /// 详情列的宽度下限：由「标记动态」页的画廊推出——每格至少要装得下一个角色
+    /// （`animationGalleryMascotSize`）加列间距，否则画廊会把角色裁掉。
+    static var minDetailWidth: CGFloat {
+        CGFloat(animationGalleryColumns) * animationGalleryMascotSize
+            + CGFloat(animationGalleryColumns - 1) * animationGalleryColumnSpacing
+    }
+
+    /// 侧栏在当前内容宽下是否带标签：判据是「带上标签之后详情列仍不低于画廊硬下限」。
+    ///
+    /// 标准档内容宽 448pt：113 + 12 + 304 = 429 ≤ 448 ⇒ 带标签（详情列 323pt）。
+    /// 紧凑档 390.4pt（480 × 0.88 − 2×(12 + 4)）装不下 ⇒ 退回图标档（详情列 346.4pt）。
+    /// 屏幕更窄（`min(screenRect.width * 0.4, panelWidthMax)` 生效）时同样退回图标档，
+    /// 因此画廊的硬下限在任何档位下都守得住。
+    static func sidebarShowsLabels(inContentWidth contentWidth: CGFloat) -> Bool {
+        sidebarLabeledWidth + sidebarContentSpacing + minDetailWidth <= contentWidth
+    }
+
+    /// 侧栏在当前内容宽下的宽度（带标签档 / 图标档）。
+    static func sidebarWidth(inContentWidth contentWidth: CGFloat) -> CGFloat {
+        sidebarShowsLabels(inContentWidth: contentWidth) ? sidebarLabeledWidth : sidebarIconWidth
+    }
+
+    /// 设置详情列的宽度：内容区减去侧栏与栏间距。
+    static func settingsDetailWidth(inContentWidth contentWidth: CGFloat) -> CGFloat {
+        contentWidth - sidebarWidth(inContentWidth: contentWidth) - sidebarContentSpacing
+    }
+
+    /// 标准档下的设置详情列宽度。
+    static var settingsDetailWidth: CGFloat {
+        settingsDetailWidth(inContentWidth: contentAreaWidth)
+    }
+
     /// 外层 VStack 的间距。
     static let rowSpacing: CGFloat = 4
     /// 容器上下内边距（8 + 8）。
@@ -220,8 +331,10 @@ nonisolated enum NotchMenuMetrics {
     /// 4 行时是 **530**（58+20+48+40+192+20+12+20+120）——与加入口行之前逐项同高：
     /// 入口行的 48 正是从可见行数里挪出来的（5 → 4，卡片仍渲染全部行、只是要滚动）。
     /// 该页最高的**单个**展开（Agent 行内的目录编辑器 106）加进去、chrome 取可达的最大
-    /// 76 时是 712，仍在 728 之内——余量 16，是全页最紧的一档，因此**再给这一页加行、
-    /// 或把某个档位加宽到 4 档，都要先按 `maxPanelHeight` 的加法重核**。
+    /// 76 时是 712 —— **越过设置面的 640 上限**（其余页里只有通用页也这样），因此它在
+    /// 任何 chrome 档下都会夹取、由页内滚动接管（登记在 `NotchMenuMetricsTests` 的
+    /// `clampedPairs`）。**再给这一页加行、或把某个档位加宽到 4 档，都要先按
+    /// `maxPanelHeight` 的加法重核**。
     static let visibleAgentRows = 4
 
     /// 「标记动态」页：每行铺几个角色、一格多高、画廊窗口最多几行。
@@ -269,7 +382,8 @@ nonisolated enum NotchMenuMetrics {
     /// 取值与高度预算绑定：额度页静态内容 218（页内固定 58 + 账号卡的头/动作条 20+40 +
     /// 组间距 12 + 详情卡的头/**一行**/脚注 20+48+20）、该页最高的运行时增量
     /// `max(账号窗口 5 行 240 + 可选行 2 行 96, 编辑态 240)` = 336 ⇒ 最大 chrome 76 下
-    /// 630 ≤ 728（余量 98，见 `NotchMenuMetricsTests`）。取 6 会变成 678：仍然装得下，
+    /// 630 ≤ 730（读数面上限 `maxDashboardHeight`，余量 100，见 `NotchMenuMetricsTests`）。
+    /// 取 6 会变成 678：仍然装得下，
     /// 但窗口再高就没有意义了（一次看 5 个账号已经超出常见用法）。
     static let visibleAccountRows = 5
 
@@ -292,23 +406,24 @@ nonisolated enum NotchMenuMetrics {
         CGFloat(NewAPIAccountField.allCases.count) * twoLineRowHeight
     }
 
-    /// 面板高度上限：分组内容超出时由页内滚动接管，面板不再继续变长。
+    /// 设置面的面板高度上限：分组内容超出时由页内滚动接管，面板不再继续变长。
     ///
     /// 上限取 **640**，不是「够装下所有页」的那个数。它原先是 728（≈ 1080p 屏高的 67%），
     /// 观感上就是面板一路往上长、把菜单栏下面的大半屏吃掉；640 让最高的一档也只占约六成，
-    /// 超出的部分在页内滚动（滚动条隐藏）。**这是有意的取舍**：统计页与智能体页因此会开始
+    /// 超出的部分在页内滚动（滚动条隐藏）。**这是有意的取舍**：智能体页因此会开始
     /// 滚动，换来的是面板不再随内容胀大。
     ///
-    /// 判据可核算：**每页都要满足「内容高 + 该页最高的单个展开 + chrome ≤ 640」**。
-    /// chrome = `max(24, 胶囊高度) + 12`，可达区间是 **28…76**：外接屏自动档
+    /// 判据可核算：**每个设置面都要满足「内容高 + 该页最高的单个展开 + chrome ≤ 640」**。
+    /// chrome = `max(24, 胶囊高度) + 12`，可达区间是 **36…76**（`max(24, …)` 先把
+    /// 胶囊高度抬到 24，所以下限是 36 而不是 16 + 12）：外接屏自动档
     /// （菜单栏 24/25）→ 36/37；内置刘海 32 → 44；`notch` 档在没有内置刘海的屏上 38 → 50；
-    /// 胶囊高度自定义 16…64 → 28…76。
+    /// 胶囊高度自定义 16…64 → 36…76。
     /// 侧栏化之后每页少掉 34pt 的固定开销，逐页的「内容高 + 该页最高单个展开」是：通用
     /// 480 + 138 = 618、行为 446 + 138 = 584、通知 298 + 202 = 500、智能体 530 + 106 = 636、
-    /// 统计 635 + 0 = 635、额度 218 + 336 = 554、关于 391 + 0 = 391、快捷键 590 + 0 = 590、
-    /// 标记动态 387 + 0 = 387。**即使再减去最小的 chrome 28，只有智能体（664）与统计（663）
-    /// 会触顶**，其余页面在任何 chrome 档下都装得下；被夹取的组合逐条登记在
-    /// `NotchMenuMetricsTests.clampedPairs`（表驱动用例会先失败，逼你登记）。
+    /// 关于 391 + 0 = 391、快捷键 590 + 0 = 590、标记动态 387 + 0 = 387。**即使再减去最小的
+    /// chrome 36，只有智能体（672）会触顶**，其余页面在任何 chrome 档下都装得下；被夹取的
+    /// 组合逐条登记在 `NotchMenuMetricsTests.clampedPairs`（表驱动用例会先失败，逼你登记）。
+    /// **读数面（统计 / 额度）不套这个上限**，见 `maxDashboardHeight`。
     /// 改任何一页的行数、档位数或某个选择器的可见选项数，都要按这条加法重核一遍。
     /// 展开块是**互斥**的（同一时刻只有一个，见 `PickerExpansion`），因此这条判据只需要按
     /// 「该页最高的单个展开」核对：同时展开多个会把高度叠加到上限之外，那样选项列表会落到
@@ -321,11 +436,26 @@ nonisolated enum NotchMenuMetrics {
     /// 由页内滚动接管。
     static let maxPanelHeight: CGFloat = 640
 
+    /// 读数面（统计 / 额度）的高度上限。它们不是设置导航里的一页（见
+    /// `NotchMenuSection.isDashboard`），整块内容要一次看全，因此**不套** `maxPanelHeight`：
+    /// 套上之后统计页在**每一个** chrome 档都会被切掉一截（内容 635 + 开销 ≥ 671 > 640），
+    /// 而它底部正是新加的那行口径脚注——用户在隐藏滚动条的视口里根本看不到「下面还有」。
+    ///
+    /// 上限只由宿主窗口给出：`NotchWindowController` 的窗口高 750pt，减去与
+    /// `scaledPanelHeight` 同源的 20pt 余量（`NotchView` 还要在面板下方留 12pt）。
+    /// 实测：统计页在可达的最大开销 76 下是 711pt，仍在其内；额度页最坏组合 630pt。
+    static let maxDashboardHeight: CGFloat = 730
+
     // MARK: - 推导
 
     /// 展开的选择器需要多出来的高度。
     static func pickerOptionsHeight(visibleOptions: Int) -> CGFloat {
         CGFloat(visibleOptions) * optionRowHeight + optionListPadding
+    }
+
+    /// 该分组的面板高度上限：设置面 640（不随内容胀高）、读数面 730（整块一次看全）。
+    static func heightCap(for section: NotchMenuSection) -> CGFloat {
+        NotchMenuSection.isDashboard(section) ? maxDashboardHeight : maxPanelHeight
     }
 
     /// 面板总高度：菜单之外的固定开销 + 当前分组内容 + 该分组里展开的选择器增量。
@@ -339,7 +469,9 @@ nonisolated enum NotchMenuMetrics {
         expandedPickerHeight: CGFloat,
         chromeHeight: CGFloat
     ) -> CGFloat {
-        min(chromeHeight + contentHeight(for: section) + expandedPickerHeight, maxPanelHeight)
+        min(
+            chromeHeight + contentHeight(for: section) + expandedPickerHeight,
+            heightCap(for: section))
     }
 
     /// 当前分组的内容高度：页眉 + 各分组（标题 + 卡片 + 页脚）+ 组间距。

@@ -8,7 +8,7 @@
 //  网格线、刻度与悬停读数都从同一份峰值推出，三处不会各算一套。
 //
 //  绘图区宽度取**可用宽度**（不是由面板宽上限推出的常量）：面板在紧凑档、或在窄屏上被
-//  `screenRect.width * 0.4` 卡住时会比上限窄，按上限推宽度会把整页撑到 464pt、落进窄面板
+//  `screenRect.width * 0.4` 卡住时会比上限窄，按上限推宽度会把整页撑到 448pt、落进窄面板
 //  后被左右各裁一刀（实测紧凑档裁 15.5pt，见 `UsageStatsLayoutTests` 的整页宽度用例）。
 //
 
@@ -228,7 +228,8 @@ struct UsageTrendChart: View {
     }
 
     /// 悬停：竖十字线 + 每一路在桶上的圆点。
-    private func drawHover(context: inout GraphicsContext, geometry: UsageChartGeometry, index: Int) {
+    private func drawHover(context: inout GraphicsContext, geometry: UsageChartGeometry, index: Int)
+    {
         let x = geometry.x(index: index, count: points.count)
 
         var crosshair = Path()

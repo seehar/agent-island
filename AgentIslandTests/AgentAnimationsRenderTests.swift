@@ -15,8 +15,10 @@ import Testing
 
 @Suite("标记动态页渲染")
 struct AgentAnimationsRenderTests {
-    /// 面板内容宽（面板 480 − 左右内边距 16）。
-    private let contentWidth: CGFloat = 464
+    /// 设置**详情列**的宽度（标准档）：内容区减去带标签的侧栏与栏间距——「标记动态」页
+    /// 是设置面（从「智能体」卡片第一行进入），因此画廊拿到的就是这一份宽
+    /// （硬下限 `NotchMenuMetrics.minDetailWidth`，见 `NotchMenuMetricsTests`）。
+    private let contentWidth: CGFloat = NotchMenuMetrics.settingsDetailWidth
 
     @MainActor
     @Test("渲染出的高度等于版面表给出的内容高，且真的画出了东西")

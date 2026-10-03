@@ -89,7 +89,8 @@ final class NewAPIAccountPageState: ObservableObject {
     /// 最坏情况下的运行时增量（读数态满窗口 + 可选行全在 vs 编辑态）。
     ///
     /// 生产代码里两段是**互斥**的（编辑态折叠列表、也不画可选行），因此高度守卫用例按
-    /// 这个值核对「内容 + 该页最高的单个展开 + chrome ≤ 728」（见 `NotchMenuMetricsTests`）。
+    /// 这个值核对「内容 + 该页最高的单个展开 + chrome ≤ `maxDashboardHeight`」
+    /// （见 `NotchMenuMetricsTests`）。
     nonisolated static var worstRuntimeHeight: CGFloat {
         max(
             Self.accountListHeight(rows: NotchMenuMetrics.visibleAccountRows)

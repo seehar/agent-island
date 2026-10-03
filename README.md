@@ -27,7 +27,7 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
 - **Hover** — it expands into one live list across every agent you run.
 - **Approval** — a tool call that needs permission opens the panel with Allow / Deny, and your answer travels back to the agent.
 
-- **Stats** — the panel's **Statistics** page: tokens, sessions and tool calls, per agent, for today, this week, this month or all time. The header's chart button jumps straight to it (Statistics is not one of the five tabs).
+- **Stats** — the panel's **Statistics** page: tokens, sessions and tool calls, per agent, for today, this week, this month or all time. The header's chart button jumps straight to it — it is a dashboard face of its own, not one of the settings pages in the rail.
 
 <table>
   <tr>
@@ -152,16 +152,18 @@ Already monitoring these agents? The next launch rewrites their extension to the
 
 ![Settings → Agents](docs/images/notch-settings.png)
 
+The rail on the left carries the **four configuration pages** (General, Behavior, Notifications, Agents) with **About** pinned at the bottom; on a narrow panel (the compact size) it falls back to icons only. **Statistics** and **Quota** are not in that rail — they are dashboard faces of their own, reached from the chart and card buttons in the panel header, and they take the full panel width.
+
 |Page|What's in it|
 |---|---|
 |**General**|Language, screen, notch height/width, content text size, panel size · launch at login, accessibility status, and keyboard-focus behavior on open.|
 |**Behavior**|Hover expand, idle capsule · ended-session retention, row density, click action (Focus Terminal falls back to chat without tmux/yabai), both status-check and session-scan intervals · subagent details in chat, hide idle sessions.|
-|**Agents**|Enable/disable and integration state for each agent; per-agent config root; tool-call guard scope and offline behavior. The first row is the entry to **Animations**. The agent list scrolls within its card.|
-|**Animations**|Every agent's pixel mascot side by side, with an activity picker (idle / working / needs approval) and a preview speed (still / 0.5× / 1× / 2×). Reached from the first row of the **Agents** card (it takes no tab slot).|
 |**Notifications**|Notification sound (clicking a sound plays it), volume, quiet hours, sound scope (ready only / ready and approvals), completion badge. The list also carries your own sounds from `~/Library/Sounds`. Quiet hours silences the sound only — the notch still shows everything.|
-|**Statistics**|Token, session and tool-call totals, trends, per-agent/model breakdown, date range and full rescan. Reached from the chart button in the panel header.|
-|**Quota**|A running balance per New API account — every account you add gets its own row; the server URL, API key, and optional access token / user ID are edited per account behind **Edit Credentials** in the action row (the list collapses to the account being edited). The card below the list shows the selected account's identity (whose token it is, its group), its key balance, and the instance address and version. Amounts follow the instance's own currency setting (e.g. `$350.27`, from its `quota_per_unit`), not raw quota units. Reached from the card button in the panel header (it takes no tab slot); it fetches only while the page is open.|
-|**About**|Version, check for updates, automatic update checks, star on GitHub, quit.|
+|**Agents**|Enable/disable and integration state for each agent; per-agent config root; tool-call guard scope and offline behavior. The first row is the entry to **Animations**. The agent list scrolls within its card.|
+|**Animations**|Every agent's pixel mascot side by side, with an activity picker (idle / working / needs approval) and a preview speed (still / 0.5× / 1× / 2×). Reached from the first row of the **Agents** card (the rail keeps Agents highlighted).|
+|**Statistics**|Token, session and tool-call totals, trends, per-agent/model breakdown, date range and full rescan. Reached from the chart button in the panel header; the whole page is visible without scrolling.|
+|**Quota**|A running balance per New API account — every account you add gets its own row; the server URL, API key, and optional access token / user ID are edited per account behind **Edit Credentials** in the action row (the list collapses to the account being edited). The card below the list shows the selected account's identity (whose token it is, its group), its key balance, and the instance address and version. Amounts follow the instance's own currency setting (e.g. `$350.27`, from its `quota_per_unit`), not raw quota units. Reached from the card button in the panel header; it fetches only while the page is open.|
+|**About**|Version, check for updates, automatic update checks, star on GitHub, keyboard shortcuts, quit.|
 
 Single-clicking a session row follows the *click action* above; double-click always opens its chat.
 
@@ -192,7 +194,7 @@ Every state change goes through a single entry point (`SessionStore.process(_:)`
 
 - Agents talk to the app over a local Unix socket; the app opens no ports of its own.
 - There is no analytics and no telemetry: the only counters the app keeps are the local usage aggregates described above, computed on your machine.
-- Two network calls exist, both read-only: the Sparkle update check against this repository's appcast on GitHub Pages, and — after you fill in a server under **Settings → Quota** — while that page is open, per account, a few GETs to *your own* New API instance (`/api/usage/token/` with the `sk-` key; `/api/user/self`, `/api/token/` and `/api/user/self/groups` with the access token — a slot without its credential is never called), plus one credential-free GET of `/api/status` per distinct server for the instance's quota unit and version. The token list and group ratio are optional extras: an instance too old to serve them simply doesn't show that part. Nothing else is sent anywhere, and nothing is polled in the background.
+- Two network calls exist, both read-only: the Sparkle update check against this repository's appcast on GitHub Pages, and — after you fill in a server in the panel's **Quota** page (the card button in the panel header) — while that page is open, per account, a few GETs to *your own* New API instance (`/api/usage/token/` with the `sk-` key; `/api/user/self`, `/api/token/` and `/api/user/self/groups` with the access token — a slot without its credential is never called), plus one credential-free GET of `/api/status` per distinct server for the instance's quota unit and version. The token list and group ratio are optional extras: an instance too old to serve them simply doesn't show that part. Nothing else is sent anywhere, and nothing is polled in the background.
 - The app reads the session records your agents already write; it never modifies them.
 - Usage stats are aggregate counters kept in the app's own store; session records are only read, never rewritten.
 

@@ -36,14 +36,19 @@ struct AgentSettingsLayoutTests {
   /// 渲染结果的落点：`/tmp`（探针产物不入库）。
   private let probeDirectory = URL(fileURLWithPath: "/tmp/agents-page-probe", isDirectory: true)
 
-  /// 标准档面板的内容宽：面板宽上限减设置页的横向内边距（`NotchMenuView` 左右各 8）。
+  /// 标准档**设置详情列**的宽度：内容区（面板宽上限 − 容器左右内边距）减去带标签的
+  /// 侧栏与栏间距（`NotchMenuMetrics.settingsDetailWidth`）。面板宽与缩放是在
+  /// `NotchViewModel.openedSize` 里乘起来后再减的，这里取标准档（×1）。
   private var standardContentWidth: CGFloat {
-    NotchMenuMetrics.panelWidthMax - NotchMenuMetrics.listPaddingHeight
+    NotchMenuMetrics.settingsDetailWidth
   }
 
-  /// 紧凑档面板的内容宽：面板宽按档位缩放后再减同一份内边距（480 × 0.88 − 16 = 406.4）。
+  /// 紧凑档的详情列宽度：紧凑档的内容宽装不下带标签的侧栏，侧栏因此退回图标档
+  /// （判据见 `sidebarShowsLabels`），详情列与侧栏化之前同宽。
   private var compactContentWidth: CGFloat {
-    NotchMenuMetrics.panelWidthMax * PanelSize.compact.scale - NotchMenuMetrics.listPaddingHeight
+    NotchMenuMetrics.settingsDetailWidth(
+      inContentWidth: NotchMenuMetrics.contentAreaWidth(
+        inPanelWidth: NotchMenuMetrics.panelWidthMax * PanelSize.compact.scale))
   }
 
   /// 卡片第一行（批量动作条）在页面里的 y 带。
@@ -51,7 +56,8 @@ struct AgentSettingsLayoutTests {
   /// 页面顶部是分组标题行 + 它与卡片之间的间距（`SettingsGroup` 的排版），卡片第一行是
   /// 「标记动态」入口行，动作条在它下面，行高由版面表钉成 `rowHeight`。
   private var bulkActionsBand: ClosedRange<CGFloat> {
-    let top = NotchMenuMetrics.sectionHeaderHeight + NotchMenuMetrics.sectionHeaderGap
+    let top =
+      NotchMenuMetrics.sectionHeaderHeight + NotchMenuMetrics.sectionHeaderGap
       + NotchMenuMetrics.twoLineRowHeight
     return top...(top + NotchMenuMetrics.rowHeight)
   }
@@ -70,7 +76,8 @@ struct AgentSettingsLayoutTests {
       #expect(ink.pixels > 0, "\(panel.name) 档没有量到墨迹：离屏渲染可能失效了")
       #expect(
         abs(ink.left - NotchMenuMetrics.rowHorizontalPadding) <= 1,
-        "\(panel.name) 档（内容宽 \(panel.width)pt）左上角墨迹左缘 \(ink.left)pt ≠ 页内边距 \(NotchMenuMetrics.rowHorizontalPadding)pt")
+        "\(panel.name) 档（内容宽 \(panel.width)pt）左上角墨迹左缘 \(ink.left)pt ≠ 页内边距 \(NotchMenuMetrics.rowHorizontalPadding)pt"
+      )
     }
   }
 
@@ -81,7 +88,8 @@ struct AgentSettingsLayoutTests {
   func directoryExpansionGrowsPageByEditorHeight() {
     withExpandedKind(nil) {
       let collapsed = pageSize(width: standardContentWidth)
-      let collapsedInk = inkBox(of: NSHostingViewProbe.raster(agentsPage(width: standardContentWidth)))
+      let collapsedInk = inkBox(
+        of: NSHostingViewProbe.raster(agentsPage(width: standardContentWidth)))
 
       withExpandedKind(.codex) {
         let editorHeight = AgentDirSelector.shared.expandedPickerHeight
@@ -97,7 +105,8 @@ struct AgentSettingsLayoutTests {
         // 编辑器高度与版面表同源：`AgentDirSelector.visibleOptions` 就是卡片窗口按它撑高的行数。
         #expect(
           editorHeight
-            == NotchMenuMetrics.pickerOptionsHeight(visibleOptions: AgentDirSelector.visibleOptions))
+            == NotchMenuMetrics.pickerOptionsHeight(visibleOptions: AgentDirSelector.visibleOptions)
+        )
         #expect(collapsedInk.pixels > 0 && expandedInk.pixels > 0, "没有量到墨迹：离屏渲染可能失效了")
         #expect(expanded.width == collapsed.width, "展开不该改变页面宽度")
         // 页面高度：卡片可视窗口按编辑器高度撑高，整页因此长高同一份（同步通道，不受
@@ -144,8 +153,10 @@ struct AgentSettingsLayoutTests {
     var report: [String] = []
     report.append("# 智能体设置页离屏渲染取证（AgentSettingsLayoutTests 产出）")
     report.append("# 生成时间 \(ISO8601DateFormatter().string(from: Date()))")
-    report.append("# 内容宽：标准档 \(standardContentWidth)pt，紧凑档 \(compactContentWidth)pt"
-      + "（= 面板宽上限 \(NotchMenuMetrics.panelWidthMax) × 紧凑档缩放 \(PanelSize.compact.scale) − 面板内边距 \(NotchMenuMetrics.listPaddingHeight)）")
+    report.append(
+      "# 详情列宽：标准档 \(standardContentWidth)pt（内容区 \(NotchMenuMetrics.contentAreaWidth)pt − 带标签侧栏 \(NotchMenuMetrics.sidebarLabeledWidth)pt − 栏间距 \(NotchMenuMetrics.sidebarContentSpacing)pt），"
+        + "紧凑档 \(compactContentWidth)pt（面板宽上限 \(NotchMenuMetrics.panelWidthMax) × 紧凑档缩放 \(PanelSize.compact.scale) 后内容宽装不下带标签侧栏，退回图标档 \(NotchMenuMetrics.sidebarIconWidth)pt）"
+    )
     report.append("# 页内边距 rowHorizontalPadding = \(NotchMenuMetrics.rowHorizontalPadding)pt")
 
     report.append("")
@@ -179,10 +190,14 @@ struct AgentSettingsLayoutTests {
         "- expandedPickerHeight = \(editorHeight)pt"
           + "（卡片窗口按它撑高；`AgentDirSelector.visibleOptions` = \(AgentDirSelector.visibleOptions) 行）")
     }
-    report.append("- 收起：页面 \(collapsedPage)，墨迹高 \(collapsedInk.height)（\(collapsedInk.top)…\(collapsedInk.bottom)）")
-    report.append("- 展开：页面 \(expandedPage)，墨迹高 \(expandedInk.height)（\(expandedInk.top)…\(expandedInk.bottom)）")
     report.append(
-      "- 增量：页面 \(expandedPage.height - collapsedPage.height)pt，墨迹 \(expandedInk.height - collapsedInk.height)pt")
+      "- 收起：页面 \(collapsedPage)，墨迹高 \(collapsedInk.height)（\(collapsedInk.top)…\(collapsedInk.bottom)）"
+    )
+    report.append(
+      "- 展开：页面 \(expandedPage)，墨迹高 \(expandedInk.height)（\(expandedInk.top)…\(expandedInk.bottom)）")
+    report.append(
+      "- 增量：页面 \(expandedPage.height - collapsedPage.height)pt，墨迹 \(expandedInk.height - collapsedInk.height)pt"
+    )
 
     report.append("")
     report.append("## 判据 3：动作条那一行的墨迹簇（左/右各一枚按钮）")
@@ -211,7 +226,8 @@ struct AgentSettingsLayoutTests {
         // 新鲜度自检：另一条通道（`ImageRenderer`）也画页面外框与顶部文字，两者的
         // 左上角墨迹必须落在同一处——`cacheDisplay` 给出陈旧图层快照时这条会失败，
         // 而不是把一张空白图写成「人工核对的证据」。
-        let reference = inkBox(of: ImageRendererProbe.raster(agentsPage(width: standardContentWidth)))
+        let reference = inkBox(
+          of: ImageRendererProbe.raster(agentsPage(width: standardContentWidth)))
         #expect(
           abs(reference.left - ink.left) <= 1.5,
           "\(state) 的 cacheDisplay 墨迹左缘 \(ink.left) 与 ImageRenderer 的 \(reference.left) 对不上")
@@ -231,8 +247,10 @@ struct AgentSettingsLayoutTests {
     report.append("- 墨迹右缘 ≈ 页面右缘：卡片 0.06 叠白描边与行分隔线 0.08 叠白在同一列相交处")
     report.append("  亮度约 (47,47,47)（合计 141 > 判据阈值 120），是这两条线的交点，不是内容越界。")
     report.append("- 墨迹下缘：页面最下方那张卡片（审批闸门）的最后一行。")
-    report.append("- 滚动窗口按 visibleAgentRows = \(NotchMenuMetrics.visibleAgentRows) 行封顶："
-      + "收起态窗口里是 \(NotchMenuMetrics.visibleAgentRows) 行（共 \(AgentKind.allCases.count) 行，其余在卡内滚动）。")
+    report.append(
+      "- 滚动窗口按 visibleAgentRows = \(NotchMenuMetrics.visibleAgentRows) 行封顶："
+        + "收起态窗口里是 \(NotchMenuMetrics.visibleAgentRows) 行（共 \(AgentKind.allCases.count) 行，其余在卡内滚动）。"
+    )
 
     print(
       "智能体页判据：左缘 标准 \(leftInk["standard"] ?? -1)pt / 紧凑 \(leftInk["compact"] ?? -1)pt"
@@ -384,7 +402,10 @@ func inkBox(of image: CGImage?) -> InkBox {
   guard let image else { return InkBox() }
   let (width, height, hasInk) = inkMask(image)
   var box = InkBox(pixels: 0)
-  var minX = width, maxX = -1, minY = height, maxY = -1
+  var minX = width
+  var maxX = -1
+  var minY = height
+  var maxY = -1
   for y in 0..<height {
     for x in 0..<width where hasInk(x, y) {
       box.pixels += 1

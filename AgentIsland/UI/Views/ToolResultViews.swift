@@ -639,7 +639,7 @@ nonisolated enum ToolOutputWindow {
     /// 高度的一半，展开后仍看得见上下文。
     static let expandedMaxHeight: CGFloat = 240
 
-    /// 折行估算用的每行字符数：对话面内容宽约 464pt（480pt 面板减两侧外边距），
+    /// 折行估算用的每行字符数：对话面内容宽约 456pt（480pt 面板减卡片侧内边距 24），
     /// 11pt 等宽字每字符约 6.6pt → 一行约 70 个字符；取 64 留一点保守余量。
     static let estimatedCharactersPerLine = 64
 

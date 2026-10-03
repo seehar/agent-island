@@ -299,7 +299,7 @@ struct NotchView: View {
    // Main content only when opened
    if viewModel.status == .opened {
     contentView
-     .frame(width: notchSize.width - 24)  // Fixed width to prevent reflow
+     .frame(width: notchSize.width - 2 * openedCardSideInset)  // Fixed width to prevent reflow
      .transition(
       .asymmetric(
        insertion: .scale(scale: 0.8, anchor: .top)
@@ -661,7 +661,7 @@ struct NotchView: View {
     .environment(\.appTextScale, textSizeSelector.scale)
    }
   }
-  .frame(width: notchSize.width - 24)  // Fixed width to prevent text reflow
+  .frame(width: notchSize.width - 2 * openedCardSideInset)  // Fixed width to prevent text reflow
  }
 
  // MARK: - Event Handlers

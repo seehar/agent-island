@@ -37,12 +37,22 @@ struct NotchPanelFaceTests {
     #expect(model.contentType == .instances)
     #expect(model.openedSize.height == 320)
 
-    // 切到统计分组：高度立刻跟着换过去，不需要收起再展开。上限 640 之后统计页在所有
-    // chrome 档都被夹取，所以这里是「被夹到上限」而不是解析值——夹取本身由
-    // `NotchMenuMetricsTests` 的 `clampedPairs` 钉着，这里只钉「切分组即换高」。
+    // 切到统计页：高度立刻跟着换过去，不需要收起再展开。它现在是**读数面**——不套
+    // 设置面的 640 上限，高度就是解析值（固定开销 + 内容高），整页一次看全。
+    // 夹具的 deviceNotchRect 高 32 ⇒ 固定开销 max(24, 32) + 12 = 44。
     model.toggleStatistics()
     #expect(model.isShowingStatistics)
-    #expect(model.openedSize.height == NotchMenuMetrics.maxPanelHeight)
+    #expect(NotchMenuSection.railSelection(for: .statistics) == nil, "读数面不显示侧栏")
+    #expect(
+      model.openedSize.height
+        == max(24, 32) + 12 + NotchMenuMetrics.contentHeight(for: .statistics))
+
+    // 齿轮按钮：从读数面回到上一次待过的设置分组——那一页有侧栏（设置面与读数面由
+    // 同一份映射决定，`railSelection`）。
+    model.toggleMenu()
+    #expect(model.isShowingSettings)
+    #expect(NotchMenuSection.railSelection(for: model.menuSection) != nil)
+    #expect(model.openedSize.height <= NotchMenuMetrics.maxPanelHeight)
 
     // 收起：回到会话列表（既定行为——面板关掉不保留设置面，见 NotchPanelClickTests）。
     model.notchClose()
