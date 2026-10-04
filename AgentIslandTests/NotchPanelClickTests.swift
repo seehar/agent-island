@@ -162,24 +162,41 @@ struct NotchPanelClickTests {
             // 内容故意比卡片宽 30pt（生产里那两层内边距就是把子树撑成这样的）：卡片必须把
             // 它裁在声明尺寸里——背景画到声明之外正是「看得见、点上去没反应」的来源。
             let painted = paintedCardBox(size: size, contentOverflow: 30)
-            #expect(painted.width > 0, "没量到卡片墨迹：离屏渲染可能失效了")
+            #expect(painted.box.width > 0, "没量到卡片墨迹：离屏渲染可能失效了")
+            // 判据是**位置感知**的：声明矩形之外的墨迹必须一个像素都没有——那正是
+            // 「看得见、点上去没反应」的来源。不拿「包围盒宽度差」判越界：一侧外溢会被
+            // 另一侧的内缩抵消，而材质在形状左右两端本来就各留 1pt 近白（见下一条）。
+            // 消融实测（把 `clipShape` 去掉）：越界墨迹 1920…160080 像素，这条立刻红。
             #expect(
-                abs(painted.width - size.width) <= 1,
-                "画出来的宽度 \(painted.width) ≠ 声明宽度 \(size.width)")
+                painted.outsideInk == 0,
+                "声明矩形之外还有 \(painted.outsideInk) 个墨迹像素（声明 \(size)）：卡片外的墨迹就是「看得见、点上去没反应」")
+            // 也不许明显缩水，否则量到的包围盒就不是这张卡片了。宽度下界的 −2 是**实测**的：
+            // 卡片底换成系统材质后（`NotchPanelSurface`），材质在形状左右两端各留 1pt 近白
+            // （边缘高光），包围盒因此比声明窄 2pt，与渲染 scale 无关（1× 与 2× 都是 2px；
+            // 黑底时代是 0）。高度不受影响。
             #expect(
-                abs(painted.height - size.height) <= 1,
-                "画出来的高度 \(painted.height) ≠ 声明高度 \(size.height)")
+                painted.box.width >= size.width - 2,
+                "画出来的宽度 \(painted.box.width) 比声明的 \(size.width) 窄太多")
+            #expect(
+                abs(painted.box.height - size.height) <= 1,
+                "画出来的高度 \(painted.box.height) ≠ 声明高度 \(size.height)")
             // 判据用的矩形与它同尺寸在 `NotchGeometryTests` 里钉住（两者都取自
             // `NotchGeometry` 的卡片矩形，因此「画出来的 == 判据」由这两条传递成立）。
         }
     }
 
-    /// 离屏渲染一张卡片（白底），返回卡片墨迹的包围盒（pt）。
+    /// 离屏渲染一张卡片（白底），返回卡片墨迹的包围盒（pt）与**声明矩形之外**的墨迹像素数。
     ///
     /// 覆盖 `NotchCard` 的**唯一**职责：把画出来的那一块定死成声明尺寸（背景在固定 frame
     /// 之内、溢出交给 `clipShape`）。
+    ///
+    /// 越界判据按**布局真值**算声明矩形（水平居中 + 顶距 `contentOverflow + 20`），与墨迹的
+    /// 包围盒无关——用包围盒宽度差判越界会被「一侧外溢、另一侧内缩」互相抵消。
+    /// `renderer.scale = 1`，因此画布像素与 pt 是 1:1。
     @MainActor
-    private func paintedCardBox(size: CGSize, contentOverflow: CGFloat) -> CGRect {
+    private func paintedCardBox(
+        size: CGSize, contentOverflow: CGFloat
+    ) -> (box: CGRect, outsideInk: Int) {
         let canvas = CGSize(
             width: size.width + 2 * contentOverflow + 40,
             height: size.height + 2 * contentOverflow + 40)
@@ -189,8 +206,7 @@ struct NotchPanelClickTests {
                 size: size,
                 shape: NotchShape(
                     topCornerRadius: AppRadius.panelClosedTop,
-                    bottomCornerRadius: AppRadius.panelClosedBottom),
-                isOpened: false
+                    bottomCornerRadius: AppRadius.panelClosedBottom)
             ) {
                 Color.red.frame(width: size.width + 2 * contentOverflow, height: size.height)
             }
@@ -200,7 +216,7 @@ struct NotchPanelClickTests {
 
         let renderer = ImageRenderer(content: view)
         renderer.scale = 1
-        guard let image = renderer.cgImage else { return .zero }
+        guard let image = renderer.cgImage else { return (.zero, -1) }
         let width = image.width
         let height = image.height
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
@@ -209,28 +225,38 @@ struct NotchPanelClickTests {
                 data: &pixels, width: width, height: height, bitsPerComponent: 8,
                 bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        else { return .zero }
+        else { return (.zero, -1) }
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
 
+        // 声明矩形（布局真值）：`ZStack(alignment: .top)` 把卡片水平居中、顶距是那层 padding。
+        let declared = CGRect(
+            x: (canvas.width - size.width) / 2,
+            y: contentOverflow + 20,
+            width: size.width,
+            height: size.height)
         var minX = width
         var minY = height
         var maxX = -1
         var maxY = -1
+        var outsideInk = 0
         for y in 0..<height {
             for x in 0..<width {
                 let offset = (y * width + x) * 4
                 guard !(pixels[offset] > 240 && pixels[offset + 1] > 240 && pixels[offset + 2] > 240)
                 else { continue }
+                if !declared.contains(CGPoint(x: x, y: y)) { outsideInk += 1 }
                 minX = min(minX, x)
                 maxX = max(maxX, x)
                 minY = min(minY, y)
                 maxY = max(maxY, y)
             }
         }
-        guard maxX >= 0 else { return .zero }
-        return CGRect(
-            x: CGFloat(minX), y: CGFloat(minY), width: CGFloat(maxX - minX + 1),
-            height: CGFloat(maxY - minY + 1))
+        guard maxX >= 0 else { return (.zero, outsideInk) }
+        return (
+            CGRect(
+                x: CGFloat(minX), y: CGFloat(minY), width: CGFloat(maxX - minX + 1),
+                height: CGFloat(maxY - minY + 1)),
+            outsideInk)
     }
 }
 

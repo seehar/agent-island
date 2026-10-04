@@ -193,7 +193,7 @@ struct NotchView: View {
     // 卡片：画出来的那一块由 `cardSize` 定死（命中判定与「点卡片外收起」同源）。内边距留在
     // 框**之内**——原先那套「两层 padding + maxWidth/maxHeight 夹」只约束布局尺寸、不裁剪
     // 溢出，背景因此画到比声明宽 19pt 的一块上，而判据按声明值算。
-    NotchCard(size: cardSize, shape: currentNotchShape, isOpened: viewModel.status == .opened) {
+    NotchCard(size: cardSize, shape: currentNotchShape) {
      notchLayout
       .frame(
        maxWidth: viewModel.status == .opened ? notchSize.width : nil,
@@ -860,27 +860,21 @@ struct NotchView: View {
 /// 命中区与行为判据按声明值算——那条 19pt 的边上「看得见卡片、点上去没反应」。内边距因此
 /// 留在框**之内**，外溢的部分交给 `clipShape`（内容在设计上装得下，裁到的只是多余的边）。
 ///
-/// - Note: 关闭态保持纯黑：胶囊整体落在真实刘海的物理黑像素区（或菜单栏）上，
-///   换材质会在挖孔边缘留出可见的错位亮边（判据见 `NotchPanelSurface`）。
+/// - Note: 关闭态与展开态**共用同一块材质**（`NotchPanelSurface`）：无刘海的屏上胶囊
+///   整块飘在菜单栏上，纯黑会读成一条贴死的黑边；有物理刘海的屏上，挖孔那段背后本就是
+///   黑像素、材质在它上面只剩压暗后的近黑，而两耳取的是菜单栏底色——两处的亮度差因此
+///   随背景色而定（深色菜单栏下实测剖面：两耳 11.8、挖孔中段 8.0；纯黑时代两者都是 0）。
 struct NotchCard<Content: View>: View {
  /// 卡片尺寸（与 `NotchGeometry` 的卡片矩形同源）。
  let size: CGSize
  /// 卡片形状（两套角的分工见 `NotchShape`）。
  let shape: NotchShape
- /// 展开态才换材质。
- let isOpened: Bool
  @ViewBuilder var content: Content
 
  var body: some View {
   content
    .frame(width: size.width, height: size.height, alignment: .top)
-   .background {
-    if isOpened {
-     Color.clear.notchPanelSurface(shape: shape)
-    } else {
-     Color.black
-    }
-   }
+   .background { Color.clear.notchPanelSurface(shape: shape) }
    .clipShape(shape)
  }
 }
