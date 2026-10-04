@@ -9,7 +9,8 @@
 # 判据（任何一步不达标就地 exit 非 0，不要只看日志）：
 #   步骤 1  check-localization.py --strict：0 错误、0 警告
 #   步骤 2  编译出现 ** BUILD SUCCEEDED **，且 ": error:" / ": warning:" 诊断数为 0
-#   步骤 3  --with-tests 时追加 xcodebuild test（Debug，只跑 AgentIslandTests）：** TEST SUCCEEDED **
+#   步骤 3  --with-tests 时追加测试（Debug，独立派生目录，build-for-testing +
+#           test-without-building，只跑 AgentIslandTests）：** TEST SUCCEEDED **
 #
 # 用法：
 #   ./scripts/gate.sh                # Release 编译 + 本地化守卫（默认）
@@ -43,6 +44,7 @@ GATE_DIR="${GATE_DIR%/}/agent-island-gate"
 GUARD_LOG="$GATE_DIR/localization.log"
 BUILD_LOG="$GATE_DIR/build.log"
 TEST_LOG="$GATE_DIR/test.log"
+TEST_BUILD_LOG="$GATE_DIR/test-build.log"
 
 mkdir -p "$GATE_DIR"
 
@@ -119,23 +121,66 @@ if [ "$WITH_TESTS" = true ]; then
         echo "提示: scheme 里没有 test action（还没挂测试目标 AgentIslandTests），跳过 xcodebuild test。"
         echo "      等测试目标接进 scheme 后重跑 --with-tests 即可，本脚本不用改。"
     else
+        # 测试用**独立**派生目录，并拆成 build-for-testing + test-without-building：
+        # 与 Release 构建共用同一个派生目录、且用一次 `test` 动作（同一次调用里既编译又
+        # 跑）时，本机实测会稳定卡在 "The test runner timed out while preparing to run
+        # tests."（连续三次，各等 ~340 s，测试一个都没开跑）。拆开、换目录后同一批
+        # 用例 42 s 跑完（645 通过 0 失败）。判据不变，仍看 ** TEST SUCCEEDED **。
+        TEST_DERIVED="$GATE_DIR/tests"
+        mkdir -p "$TEST_DERIVED"
         set +e
         xcodebuild -project "$PROJECT" \
             -scheme AgentIsland \
             -configuration Debug \
-            -derivedDataPath "$GATE_DIR" \
+            -derivedDataPath "$TEST_DERIVED" \
             CODE_SIGNING_ALLOWED=NO \
-            test -only-testing:AgentIslandTests > "$TEST_LOG" 2>&1
-        TEST_EXIT=$?
+            build-for-testing > "$TEST_BUILD_LOG" 2>&1
+        TEST_BUILD_EXIT=$?
+        if [ "$TEST_BUILD_EXIT" -eq 0 ]; then
+            xcodebuild -project "$PROJECT" \
+                -scheme AgentIsland \
+                -configuration Debug \
+                -derivedDataPath "$TEST_DERIVED" \
+                CODE_SIGNING_ALLOWED=NO \
+                test-without-building -only-testing:AgentIslandTests > "$TEST_LOG" 2>&1
+            TEST_EXIT=$?
+        else
+            TEST_EXIT=$TEST_BUILD_EXIT
+            cp "$TEST_BUILD_LOG" "$TEST_LOG"
+        fi
         set -e
 
-        if [ "$TEST_EXIT" -ne 0 ] || ! grep -qF '** TEST SUCCEEDED **' "$TEST_LOG"; then
-            echo "ERROR: 门禁未通过 —— 测试未成功（退出码 ${TEST_EXIT}）"
+        # 判据：退出码 + **xcresult 摘要**（`swift-testing` 在 `test-without-building`
+        # 下不再往日志尾部打 `** TEST SUCCEEDED **`，摘要文件才是权威判据）；
+        # 日志里出现 `** TEST SUCCEEDED **` 时也认（兼容旧的单次 `test` 动作）。
+        XCRESULT=$(ls -dt "$TEST_DERIVED"/Logs/Test/*.xcresult 2>/dev/null | head -1 || true)
+        TEST_SUMMARY=""
+        if [ -n "${XCRESULT:-}" ]; then
+            TEST_SUMMARY=$(python3 -c '
+import json, subprocess, sys
+out = subprocess.run(
+    ["xcrun", "xcresulttool", "get", "test-results", "summary", "--path", sys.argv[1]],
+    capture_output=True, text=True).stdout
+try:
+    d = json.loads(out)
+    print("%s passed=%s failed=%s" % (d.get("result", "?"), d.get("passedTests", 0),
+                                      d.get("failedTests", 0)))
+except Exception:
+    print("")
+' "$XCRESULT" 2>/dev/null || true)
+        fi
+
+        TEST_PASSED=false
+        case "${TEST_SUMMARY:-}" in Passed*) TEST_PASSED=true ;; esac
+        if grep -qF '** TEST SUCCEEDED **' "$TEST_LOG"; then TEST_PASSED=true; fi
+
+        if [ "$TEST_EXIT" -ne 0 ] || [ "$TEST_PASSED" != true ]; then
+            echo "ERROR: 门禁未通过 —— 测试未成功（退出码 ${TEST_EXIT}，摘要 ${TEST_SUMMARY:-无}）"
             tail -40 "$TEST_LOG"
             echo "--- 完整日志：$TEST_LOG ---"
             exit 1
         fi
-        echo "测试通过（完整日志：${TEST_LOG}）"
+        echo "测试通过（${TEST_SUMMARY:-日志判据}；完整日志：${TEST_LOG}）"
     fi
     echo ""
 fi
