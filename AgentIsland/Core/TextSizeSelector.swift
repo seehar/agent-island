@@ -62,12 +62,6 @@ final class TextSizeSelector: ObservableObject {
     /// 当前档位对应的字号比例。
     var scale: CGFloat { option.scale }
 
-    /// 展开时面板需要多出来的高度。
-    var expandedPickerHeight: CGFloat {
-        guard isPickerExpanded else { return 0 }
-        return NotchMenuMetrics.pickerOptionsHeight(visibleOptions: TextSizeOption.allCases.count)
-    }
-
     // MARK: - 修改
 
     /// 选择新档位并持久化。

@@ -156,12 +156,29 @@ nonisolated enum NotchMenuMetrics {
     static let twoLineRowHeight: CGFloat = 48
     /// 单行开关行：开关控件 24 比图标块 22 高，行高因此比普通行多 2。
     static let toggleRowHeight: CGFloat = 42
-    /// 展开的选择器选项行（含微调行）。
+    /// 展开的选择器里的一行选项（含微调行）。**它不再参与面板高度**：选项列表画在
+    /// 浮层里（见 `SettingsPickerOverlay`），高度只由浮层自己夹。
     static let optionRowHeight: CGFloat = 32
-    /// 选项列表的上下留白：选项块总高 = 选项数 × 行高 + 这个值。
+    /// 选项列表的上下留白。
     static let optionListPadding: CGFloat = 10
     static let optionListTopPadding: CGFloat = 4
     static let optionListBottomPadding: CGFloat = 6
+
+    // MARK: - 展开的选择器浮层
+
+    /// 浮层宿主与行之间约定的坐标空间名：`NotchMenuView` 在滚动视口上定义这个空间，
+    /// `SettingsPickerRow` 在 `background` 里按它取自己的矩形。两处必须同名。
+    static let pickerOverlaySpace = "settings-picker-overlay"
+
+    /// 浮层与它所属那行之间的间距。
+    static let pickerOverlayGap: CGFloat = 4
+    /// 浮层的左右留白：贴齐内容列两端，但留出与卡片同样的呼吸位。
+    static let pickerOverlayHorizontalInset: CGFloat = rowHorizontalPadding
+    /// 浮层的高度上限：取当前最长的可见选项表（音效 6 行 = 202pt）。更高的列表在被夹住的
+    /// 卡片里自己滚动，**与面板高度无关**。
+    static var pickerOverlayMaxHeight: CGFloat {
+        pickerOptionsHeight(visibleOptions: SoundSelector.maxVisibleOptions)
+    }
 
     // MARK: - 分组与页眉
 
@@ -418,22 +435,17 @@ nonisolated enum NotchMenuMetrics {
     /// 胶囊高度抬到 24，所以下限是 36 而不是 16 + 12）：外接屏自动档
     /// （菜单栏 24/25）→ 36/37；内置刘海 32 → 44；`notch` 档在没有内置刘海的屏上 38 → 50；
     /// 胶囊高度自定义 16…64 → 36…76。
-    /// 侧栏化之后每页少掉 34pt 的固定开销，逐页的「内容高 + 该页最高单个展开」是：通用
-    /// 480 + 138 = 618、行为 446 + 138 = 584、通知 298 + 202 = 500、智能体 530 + 106 = 636、
-    /// 关于 391 + 0 = 391、快捷键 590 + 0 = 590、标记动态 387 + 0 = 387。**即使再减去最小的
-    /// chrome 36，只有智能体（672）会触顶**，其余页面在任何 chrome 档下都装得下；被夹取的
-    /// 组合逐条登记在 `NotchMenuMetricsTests.clampedPairs`（表驱动用例会先失败，逼你登记）。
+    /// 侧栏化之后每页少掉 34pt 的固定开销，**值选择器又全部改成浮层**（见
+    /// `SettingsPickerOverlay`）之后，逐页的「内容高 + 该页最高单个展开」是：通用 480 + 0、
+    /// 行为 446 + 0、通知 298 + 0、智能体 530 +（行内目录编辑器 106）、关于 391 + 0、
+    /// 快捷键 590 + 0、标记动态 387 + 0。**只有智能体页（672）会触顶**（快捷键页只在
+    /// chrome 76 时 666 触顶），其余页面在任何 chrome 档下都装得下；被夹取的组合逐条登记在
+    /// `NotchMenuMetricsTests.clampedPairs`（表驱动用例会先失败，逼你登记）。
     /// **读数面（统计 / 额度）不套这个上限**，见 `maxDashboardHeight`。
-    /// 改任何一页的行数、档位数或某个选择器的可见选项数，都要按这条加法重核一遍。
-    /// 展开块是**互斥**的（同一时刻只有一个，见 `PickerExpansion`），因此这条判据只需要按
-    /// 「该页最高的单个展开」核对：同时展开多个会把高度叠加到上限之外，那样选项列表会落到
-    /// 隐藏滚动条的视口之外，用户只看到箭头翻转。
-    /// 通知页的最高展开是音效列表的可见行数（`SoundSelector.maxVisibleOptions` ＝ 6）＝ 202；
-    /// 它的档位总数是动态的（内置 14 + 用户自带若干），超出的在列表里滚动，面板高度不变。
-    /// 环境相关的例外：通用页的最高展开里含屏幕选择器，它的可见行数是**可用的屏幕数 + 1**、
-    /// 不封顶。3 块屏以内（可见行数 ≤ 4）这一页的最高展开由 `NotchHeightSelector.visibleOptions`
-    /// （4 档 = 138）决定；4 块屏时可见行数 5 → 170（合计 648，chrome ≥ 8 即触顶），
-    /// 由页内滚动接管。
+    /// 改任何一页的行数或把某一行从浮层改回就地展开，都要按这条加法重核一遍。
+    /// 还就地展开的只有两处编辑器（智能体页的目录编辑器、额度页的凭据表单）与快捷键页的
+    /// 录制行；**值选择器不再参与这条判据**——它们的列表画在浮层里，浮层不改变页面高度，
+    /// 高度只由 `pickerOverlayMaxHeight` 自己夹（超出的在浮层里滚动）。
     static let maxPanelHeight: CGFloat = 640
 
     /// 读数面（统计 / 额度）的高度上限。它们不是设置导航里的一页（见

@@ -458,8 +458,8 @@ struct SettingsSliderRow: View {
     }
 }
 
-/// 可展开的设置行：主行显示当前取值，展开后把选项插在同一张卡片里，
-/// 选项因此属于这一行，而不是另起一张卡片。
+/// 可展开的设置行：主行显示当前取值，展开后由**页面级浮层**把选项列表画在内容之上
+/// （见 `SettingsPickerOverlay`）——选项因此既属于这一行，又不会改变面板高度。
 struct SettingsPickerRow<Options: View>: View {
     private let badge: SettingsBadge
     private let title: String
@@ -490,27 +490,31 @@ struct SettingsPickerRow<Options: View>: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Button(action: onToggle) {
-                SettingsRowLabel(badge: badge, title: title) {
-                    SettingsDisclosureValue(value: value, isExpanded: isExpanded)
-                }
-                .background(isHovered ? AppPalette.rowHover : Color.clear)
+        Button(action: onToggle) {
+            SettingsRowLabel(badge: badge, title: title) {
+                SettingsDisclosureValue(value: value, isExpanded: isExpanded)
             }
-            .buttonStyle(SettingsRowButtonStyle())
-            .contentShape(Rectangle())
-            .onHover { isHovered = $0 }
-
+            .background(isHovered ? AppPalette.rowHover : Color.clear)
+        }
+        .buttonStyle(SettingsRowButtonStyle())
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .settingsRowSeparator(showsSeparator)
+        // 展开的选项列表**不插进卡片流里**（那会改变面板高度：设置面只有 640 的余量，
+        // 见 `SettingsPickerOverlay` 的开头）。这里只把「行矩形 + 列表」上报给页面级宿主。
+        // 矩形在 `background` 的 `GeometryReader` 里读：它不参与行的布局，行高不受影响。
+        .background {
             if isExpanded {
-                VStack(spacing: 0) {
-                    options
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: SettingsPickerOverlayKey.self,
+                        value: SettingsPickerOverlayPayload(
+                            anchor: proxy.frame(in: .named(NotchMenuMetrics.pickerOverlaySpace)),
+                            identity: title,
+                            content: AnyView(options)))
                 }
-                .padding(.top, NotchMenuMetrics.optionListTopPadding)
-                .padding(.bottom, NotchMenuMetrics.optionListBottomPadding)
-                .padding(.leading, NotchMenuMetrics.optionIndent)
             }
         }
-        .settingsRowSeparator(showsSeparator)
     }
 }
 

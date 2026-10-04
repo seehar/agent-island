@@ -96,13 +96,6 @@ class ScreenSelector: ObservableObject {
         return screenID(of: screen) == screenID(of: selected)
     }
 
-    /// Extra height needed when picker is expanded
-    var expandedPickerHeight: CGFloat {
-        guard isPickerExpanded else { return 0 }
-        // 选项行数：自动 + 每块屏幕
-        return NotchMenuMetrics.pickerOptionsHeight(visibleOptions: availableScreens.count + 1)
-    }
-
     // MARK: - Private Methods
 
     private func screenID(of screen: NSScreen) -> CGDirectDisplayID? {

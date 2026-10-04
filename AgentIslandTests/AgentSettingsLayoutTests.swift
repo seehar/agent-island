@@ -423,6 +423,42 @@ func inkBox(of image: CGImage?) -> InkBox {
   return box
 }
 
+/// 给定矩形（pt）内的**平均亮度**（r+g+b 的均值，0…765）。
+///
+/// `inkBox`/`inkClusters` 只判「有没有墨迹」（阈值 120），量不出「这一块被压暗了」——
+/// 而选择器浮层要证明的正是后一件事：它的实色底必须盖住下面的内容（见
+/// `SettingsPickerOverlayTests`）。
+func meanLuminance(of image: CGImage?, in rect: CGRect) -> CGFloat {
+  guard let image else { return -1 }
+  let width = image.width
+  let height = image.height
+  var pixels = [UInt8](repeating: 0, count: width * height * 4)
+  guard
+    let context = CGContext(
+      data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+      space: CGColorSpaceCreateDeviceRGB(),
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+  else { return -1 }
+  context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+  let minX = max(0, Int(rect.minX * 2))
+  let maxX = min(width - 1, Int(rect.maxX * 2))
+  let minY = max(0, Int(rect.minY * 2))
+  let maxY = min(height - 1, Int(rect.maxY * 2))
+  guard minX <= maxX, minY <= maxY else { return -1 }
+
+  var sum = 0
+  var count = 0
+  for y in minY...maxY {
+    for x in minX...maxX {
+      let offset = (y * width + x) * 4
+      sum += Int(pixels[offset]) + Int(pixels[offset + 1]) + Int(pixels[offset + 2])
+      count += 1
+    }
+  }
+  return count == 0 ? -1 : CGFloat(sum) / CGFloat(count)
+}
+
 /// 指定 y 带内按列切出的墨迹簇（pt 区间）。
 func inkClusters(of image: CGImage?, in band: ClosedRange<CGFloat>) -> [ClosedRange<CGFloat>] {
   guard let image else { return [] }

@@ -127,12 +127,6 @@ final class EnumPreference<Option: PreferenceOption>: ObservableObject {
         PreferenceStore.write(newOption, defaults: defaults)
     }
 
-    /// 展开时面板需要多出来的高度：选择行 + 微调行都由行自己定位，
-    /// 这里只按档位数量给出选项块的解析高度。
-    var expandedPickerHeight: CGFloat {
-        guard isPickerExpanded else { return 0 }
-        return NotchMenuMetrics.pickerOptionsHeight(visibleOptions: Option.allCases.count)
-    }
 }
 
 // MARK: - 悬停展开

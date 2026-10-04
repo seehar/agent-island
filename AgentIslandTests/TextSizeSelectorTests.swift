@@ -51,15 +51,4 @@ struct TextSizeSelectorTests {
         #expect(TextSizeOption.standard.scale == 1)
     }
 
-    @Test("展开高度按选项数计入面板，收起时为 0")
-    func expandedHeightTracksPickerState() throws {
-        let selector = TextSizeSelector(defaults: try makeDefaults())
-        #expect(selector.expandedPickerHeight == 0)
-
-        selector.isPickerExpanded = true
-        #expect(
-            selector.expandedPickerHeight
-                == NotchMenuMetrics.pickerOptionsHeight(
-                    visibleOptions: TextSizeOption.allCases.count))
-    }
 }

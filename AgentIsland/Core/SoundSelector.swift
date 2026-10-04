@@ -30,11 +30,4 @@ class SoundSelector: ObservableObject {
 
     // MARK: - Public API
 
-    /// Extra height needed when picker is expanded (capped for scrolling)
-    var expandedPickerHeight: CGFloat {
-        guard isPickerExpanded else { return 0 }
-        // 固定按「可见档位数」算，不看总档位数：面板高度必须可解析，
-        // 而用户音效有几个是运行时才知道的（超出的在列表里滚动）。
-        return NotchMenuMetrics.pickerOptionsHeight(visibleOptions: Self.maxVisibleOptions)
-    }
 }

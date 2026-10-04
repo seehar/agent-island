@@ -100,18 +100,6 @@ struct NotchWidthSelectorTests {
         #expect(selector.customWidth == NotchWidthSelector.maximumWidth)
     }
 
-    @Test("展开高度按选项数计入面板，收起时为 0")
-    func expandedHeightTracksPickerState() throws {
-        let selector = NotchWidthSelector(defaults: try makeDefaults())
-        #expect(selector.expandedPickerHeight == 0)
-
-        selector.isPickerExpanded = true
-        // 「自动」一个选项 + 一行微调
-        #expect(
-            selector.expandedPickerHeight == NotchMenuMetrics.pickerOptionsHeight(visibleOptions: 2)
-        )
-    }
-
     @Test("标称宽度只加长胶囊中间那段：胶囊宽度随它 1:1 增长，两侧耳位完全不参与")
     func nominalWidthOnlyLengthensTheMiddleSection() {
         // 「计数避开相机挖孔」只由耳宽决定（推导见 `NotchClosedMetrics` 文件头）：把胶囊调宽

@@ -4,12 +4,15 @@
 //
 //  设置面板里「展开块」的互斥：同一时刻只保留一个展开的选择器。
 //
-//  面板高度是按「内容 + 该页最高的**单个**展开 + chrome ≤ 该面上限」核对的
-//  （见 `NotchMenuMetrics.heightCap(for:)`：设置面 640、读数面 730），
-//  多个展开块叠加会把面板直接顶到上限、内容落进隐藏滚动条的页内滚动里——用户只看到箭头
-//  翻转，选项列表跑到视口外。因此这里把展开做成互斥：打开一个就收起上一个。
+//  值选择的选项列表是浮层（见 `SettingsPickerOverlay`），因此互斥不再是为了面板高度，
+//  而是三条实打实的交互需要：
+//  **① 打开一个就收起上一个**（面板那么小，两张浮层互相压着没法读）；
+//  **② Esc 先收浮层、再逐层返回**（`ShortcutController` 调 `collapseCurrent()`，
+//  返回 true 表示这一次按键到此为止）；
+//  **③ 离开面板 / 换页时收干净**（`NotchMenuView` 的 onChange），否则回来时那张浮层
+//  没有主人——它的行还没挂载。
 //
-//  登记处**只记住当前展开的那一个**，不逐个列出选择器：列清单会与高度表漂移，
+//  登记处**只记住当前展开的那一个**，不逐个列出选择器：列清单会与浮层的实际来源漂移，
 //  而弱引用登记天然只关心「现在谁开着」。
 //
 
@@ -65,6 +68,7 @@ enum PickerExpansion {
     ///
     /// 返回值 false 有两层含义：本来就没有展开块，或者登记还在、其实已经收起（有的路径
     /// 直接改 `isPickerExpanded`，不走登记处）——后者顺手把陈旧登记清掉。
+    @discardableResult
     static func collapseCurrent() -> Bool {
         guard let picker = current else { return false }
         guard picker.isPickerExpanded else {

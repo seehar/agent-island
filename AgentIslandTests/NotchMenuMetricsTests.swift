@@ -426,11 +426,13 @@ struct NotchMenuMetricsTests {
     /// 上限从 728 降到 640 之后，下列**设置面**的组合会被夹取，该档下由页内滚动接管
     /// （滚动条隐藏）：
     ///
-    /// - `general@{36,37,44,50,76}`：通用页内容 480 + 最高单个展开 138（刘海高度 4 档）
-    ///   ＝ 618，最小的 chrome 36 就已经是 654。因此**通用页在所有 chrome 档下展开选择器
-    ///   都会被切掉十几 pt**——这是把上限压到 640 的直接代价。
-    /// - `agents@{36,37,44,50,76}`：530 + 106 ＝ 636，同样在最小 chrome 就越界。
-    /// - `behavior@{76}`（660）与 `shortcuts@{76}`（666）：只在胶囊高度自定义到最大时触顶。
+    /// - `agents@{36,37,44,50,76}`：内容 530 + 行内目录编辑器 106 ＝ 636，最小 chrome 36
+    ///   就已经是 672——**智能体页展开目录编辑器时会被切掉十几到几十 pt**（这是还留着就地
+    ///   展开的代价：那一行是编辑器，不是值选择器）。
+    /// - `shortcuts@{76}`（590 + 76 = 666）：只在胶囊高度自定义到最大时触顶。
+    ///
+    /// **通用 / 行为 / 通知三页不在表里**：它们的值选择器改成浮层之后不再参与高度
+    /// （480 / 446 / 298 加最大的 chrome 76 也分别是 556 / 522 / 374），任何 chrome 档都装得下。
     ///
     /// **读数面（统计 / 额度）不在这个表里**：它们不套 640，改用 `maxDashboardHeight`
     /// （见 `dashboardsAreNotClampedByTheSettingsCap`）——统计页 635 + 76 = 711 也装得下，
@@ -439,8 +441,6 @@ struct NotchMenuMetricsTests {
     /// 新增分组、加行或加档位若顶到上限，必须登记到这里（见 `NotchMenuLayout.maxPanelHeight`
     /// 的加法）。
     private static let clampedPairs: Set<String> = [
-        "general@36", "general@37", "general@44", "general@50", "general@76",
-        "behavior@76",
         "agents@36", "agents@37", "agents@44", "agents@50", "agents@76",
         "shortcuts@76",
     ]
@@ -504,37 +504,14 @@ struct NotchMenuMetricsTests {
         // 每页最高的**单个**展开全部从真实来源推导（枚举的 allCases、选择器自己的
         // `visibleOptions`），不写死数字：枚举加一档、屏幕数变多都会在这里体现出来。
         let tallestExpansion: [NotchMenuSection: CGFloat] = [
-            .general: NotchMenuMetrics.pickerOptionsHeight(
-                visibleOptions: max(
-                    AppLanguage.allCases.count,
-                    NSScreen.screens.count + 1,  // 自动 + 每块屏幕
-                    NotchHeightSelector.visibleOptions,
-                    NotchWidthSelector.visibleOptions,
-                    TextSizeOption.allCases.count,
-                    PanelSize.allCases.count)),
-            .behavior: NotchMenuMetrics.pickerOptionsHeight(
-                visibleOptions: max(
-                    HoverExpand.allCases.count,
-                    IdleNotchVisibility.allCases.count,
-                    SessionRetention.allCases.count,
-                    SessionRowDensity.allCases.count,
-                    SessionRowClickAction.allCases.count,
-                    RefreshCadence.allCases.count)),
-            // 音效列表的档位总数是动态的（内置 + 用户自带），可见行数才是常量。
-            .notifications: max(
-                NotchMenuMetrics.pickerOptionsHeight(
-                    visibleOptions: SoundSelector.maxVisibleOptions),
-                NotchMenuMetrics.pickerOptionsHeight(
-                    visibleOptions: max(
-                        QuietHours.allCases.count,
-                        NotificationScope.allCases.count,
-                        CompletionBadge.allCases.count))),
+            // 通用 / 行为 / 通知三页的选择器都是**浮层**展示（见 `SettingsPickerOverlay`），
+            // 因此它们对面板高度的贡献恒为 0——这三页在任何 chrome 档下都不再被夹取。
+            .general: 0,
+            .behavior: 0,
+            .notifications: 0,
+            // 智能体页只剩行内的目录编辑器还就地展开（三个保护档位走浮层、「标记动态」是换页）。
             .agents: NotchMenuMetrics.pickerOptionsHeight(
-                visibleOptions: max(
-                    AgentDirSelector.visibleOptions,
-                    ApprovalAskScope.allCases.count,
-                    ApprovalDegradation.allCases.count,
-                    ApprovalAutoExpand.allCases.count)),
+                visibleOptions: AgentDirSelector.visibleOptions),
             // 额度页的运行时增量有两段（账号列表窗口 / 「编辑凭据」态），生产代码里互斥
             // （编辑态折叠列表），因此「最高的单个展开」取两段里较大的那一段。
             .quota: NewAPIAccountPageState.worstRuntimeHeight,
@@ -570,16 +547,6 @@ struct NotchMenuMetricsTests {
                 }
             }
         }
-    }
-
-    @Test("音效选择器展开后仍装得进通知页的预算")
-    func soundPickerFitsNotificationsBudget() {
-        let expanded = NotchMenuMetrics.pickerOptionsHeight(
-            visibleOptions: SoundSelector.maxVisibleOptions)
-        let height = NotchMenuMetrics.panelHeight(
-            for: .notifications, expandedPickerHeight: expanded, chromeHeight: 44)
-        #expect(height == 44 + NotchMenuMetrics.contentHeight(for: .notifications) + expanded)
-        #expect(height <= NotchMenuMetrics.maxPanelHeight)
     }
 
     @Test("选项块高度随选项数线性增长，空列表只留内边距")

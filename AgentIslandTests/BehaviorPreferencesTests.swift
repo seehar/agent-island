@@ -55,39 +55,17 @@ struct BehaviorPreferencesTests {
         try roundTrip(QuietHours.self)
     }
 
-    @Test("选择器：选择后落盘，展开高度按档位数算")
-    func selectorPersistsAndReportsHeight() throws {
+    @Test("选择器：选择后落盘")
+    func selectorPersistsSelection() throws {
         let defaults = try makeDefaults()
         let selector = EnumPreference<PanelSize>(defaults: defaults)
         #expect(selector.option == .standard)
-        #expect(selector.expandedPickerHeight == 0)
 
         selector.select(.wide)
 
+        // 新实例读到同一个偏好域 ⇒ 选择确实落盘了（展开态是视图状态，不落盘、也不参与
+        // 面板高度：值选择器一律走浮层，见 `SettingsPickerOverlay`）。
         #expect(EnumPreference<PanelSize>(defaults: defaults).option == .wide)
-        selector.isPickerExpanded = true
-        #expect(
-            selector.expandedPickerHeight
-                == NotchMenuMetrics.pickerOptionsHeight(visibleOptions: PanelSize.allCases.count))
-    }
-
-    @Test("行为页的每个选择器都不超过 4 档（面板高度的硬约束）")
-    func pickerOptionCountsStayWithinPanelBudget() {
-        let counts = [
-            HoverExpand.allCases.count,
-            CompletionBadge.allCases.count,
-            PanelSize.allCases.count,
-            IdleNotchVisibility.allCases.count,
-            SessionRetention.allCases.count,
-            SessionRowDensity.allCases.count,
-            RefreshCadence.allCases.count,
-            NotificationScope.allCases.count,
-            SessionRowClickAction.allCases.count,
-            ApprovalAutoExpand.allCases.count,
-            ApprovalAskScope.allCases.count,
-            QuietHours.allCases.count,
-        ]
-        #expect(counts.allSatisfy { $0 <= 4 })
     }
 
     // MARK: - 档位语义

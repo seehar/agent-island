@@ -81,6 +81,10 @@ struct NotchMenuView: View {
                     .frame(maxWidth: .infinity, alignment: .top)
             }
             .frame(maxWidth: .infinity)
+            // 展开的选择器列表画在**滚动视口之上**的一层浮层里（不参与布局，因此不影响
+            // 面板高度）。这一层还负责定义行取矩形用的坐标空间——浮层因此能跳出卡片的
+            // 圆角裁切，贴着那一行摆放（见 `SettingsPickerOverlay`）。
+            .settingsPickerOverlay()
         }
     }
 
