@@ -43,9 +43,13 @@ nonisolated enum FileSessionScanner {
     func visit(_ directory: URL, level: Int) {
       guard level <= depth.upperBound, visited < entryBudget else { return }
       guard
+        // `.contentModificationDateKey` 与 `.isDirectoryKey` 一并预取：本函数每层
+        // 目录（根与子目录共用这一处枚举）只做一次目录元数据读取，之后下面的
+        // `isDirectory` 判定与 `modificationDate(of:)` 都从 URL 的预取缓存取，
+        // 不再各自 stat 一次（每个条目因此少一次 syscall）。
         let entries = try? fm.contentsOfDirectory(
           at: directory,
-          includingPropertiesForKeys: [.isDirectoryKey],
+          includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
           options: .skipsHiddenFiles
         )
       else { return }

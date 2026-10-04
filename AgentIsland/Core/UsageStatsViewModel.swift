@@ -43,6 +43,9 @@ final class UsageStatsViewModel: ObservableObject {
     private var requestSequence = 0
     /// 是否正显示在面板上（决定要不要跟着索引通知自动重取）。
     private var isActive = false
+    /// 页面可见性令牌：每次 `onAppear` 递增，`onDisappear` 只在令牌没被后来的 appear
+    /// 顶掉时才写「不可见」（理由见 `onDisappear`）。
+    private var visibilityGeneration = 0
 
     init(indexer: UsageStatsIndexer = .shared) {
         self.indexer = indexer
@@ -63,15 +66,32 @@ final class UsageStatsViewModel: ObservableObject {
     /// 因此这里可能先拿到 `isIndexing` 为真的快照。
     func onAppear() {
         isActive = true
+        visibilityGeneration += 1
+        let generation = visibilityGeneration
         Task {
+            // 页面可见 = 数字要跟得上 ⇒ 兜底轮次回到快档（60 s）；不可见时降到 10 min。
+            await indexer.setUIVisible(true)
             await indexer.refreshNow()
+            // 这一次 appear 期间已经又走过一轮离开/回来时不重取：下面那个 disappear
+            // 会因为生成号过期而跳过，「可见」这个状态由最后那次 appear 负责。
+            guard generation == visibilityGeneration else { return }
             reload()
         }
     }
 
-    /// 离开统计页：停掉随索引通知的自动重取（下次进来会重新取一次）。
+    /// 离开统计页：停掉随索引通知的自动重取（下次进来会重新取一次），
+    /// 并让索引用回慢档兜底（见 `UsageStatsIndexer.sweepIntervalSeconds(uiVisible:)`）。
     func onDisappear() {
         isActive = false
+        let generation = visibilityGeneration
+        Task {
+            // 面板内容切换带 `.opacity` 过渡，被移除的页面会在树上多留一会儿，`onDisappear`
+            // 因此可能**晚于**下一次 `onAppear` 到达（同一热键连按两下的开关路径 ~150ms 内
+            // 就够）。没有这个生成号，两个 Task 落到 actor 上的顺序不受控，最终会把「页面
+            // 明明可见」写成不可见 —— 索引停在 10 分钟慢档，而这里没有别的补扫来源。
+            guard generation == visibilityGeneration else { return }
+            await indexer.setUIVisible(false)
+        }
     }
 
     /// 手动触发一次「重新统计」：让索引器把每个 Agent 的历史记录从头重读一遍并

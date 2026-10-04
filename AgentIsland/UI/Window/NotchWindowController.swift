@@ -121,17 +121,25 @@ class NotchWindowController: NSWindowController {
             }
             .store(in: &cancellables)
 
-        // 指针位置（**未节流**）驱动「窗口收不收鼠标事件」。视图模型那条流节流 50ms，
-        // 用它做这个判据会让「刚进卡片就点」的第一下被判在卡外而丢掉。
+        // 指针位置驱动「窗口收不收鼠标事件」。事件层已把这条流压成**边界事件**：指针跨进 /
+        // 跨出视图模型写过去的兴趣区（展开态就是卡片矩形）时才发布一次（见
+        // `EventMonitors.interestRect`），因此这里不必节流——订阅者关心的本来就只有
+        // 「跨边界」这一件事，而卡内的高频移动曾经每次都白算一遍窗口属性。
+        //
+        // 关闭态与指针无关（窗口恒 `ignoresMouseEvents = true`，由上面的状态订阅负责），
+        // 先挡掉：面板没开时不必跟着每一次跨界白算 `shouldIgnore`。
         EventMonitors.shared.mouseLocation
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.updateMouseAcceptance() }
+            .sink { [weak self] _ in
+                guard let self, self.viewModel.status == .opened else { return }
+                self.updateMouseAcceptance()
+            }
             .store(in: &cancellables)
 
         // 模态窗口（NSAlert / NSOpenPanel）结束后重算一次：`withNotchPanelYielded` 期间窗口
         // 被设成「让开鼠标」，它记下的快照在展开态已经不等于当前该有的值（该不该接收是随
-        // 指针变化的），原样写回会让面板重新吞掉屏顶 750pt 的滚轮/手势，而且只靠「指针动一下」
-        // 才自愈（关闭模态那一次点击只产生 leftMouseDown，位置流不订阅它）。
+        // 指针变化的），原样写回会让面板重新吞掉屏顶 750pt 的滚轮/手势，而且只靠「指针跨一次
+        // 边界」才自愈（关闭模态那一次点击只产生 leftMouseDown，位置流不订阅它）。
         NotificationCenter.default.publisher(for: .notchPanelYieldEnded)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.updateMouseAcceptance() }
@@ -208,7 +216,7 @@ class NotchWindowController: NSWindowController {
             isHiddenForFullScreen
             || viewModel.status != .opened
             || !viewModel.isScreenPointInPanel(NSEvent.mouseLocation)
-        // 指针每移动一次都会走到这里（未节流），值没变就别写窗口属性。
+        // 指针跨一次边界（或面板状态 / 全屏守卫变化）时都会走到这里，值没变就别写窗口属性。
         guard window.ignoresMouseEvents != shouldIgnore else { return }
         window.ignoresMouseEvents = shouldIgnore
     }

@@ -399,8 +399,14 @@ actor UsageStatsIndexer {
   private static let logger = Logger(
     subsystem: "com.celestial.AgentIsland", category: "UsageStats")
 
-  /// 周期增量扫描间隔（秒）。
-  private static let sweepIntervalSeconds: UInt64 = 60
+  /// 兜底扫描间隔（秒）：统计页可见时按这一档（用户在看，数字要跟得上）。
+  static let visibleSweepIntervalSeconds: TimeInterval = 60
+  /// 兜底扫描间隔（秒）：统计页不可见时按这一档。此时索引是没人看的纯背景成本，而每轮
+  /// 都要把记录根整棵枚举一遍（本机 6.2k 个源、枚举 0.25~0.76 s）再扫一遍 OpenCode 库
+  /// （3.4 GB，2.3~2.5 s），所以频率降一个数量级。
+  static let hiddenSweepIntervalSeconds: TimeInterval = 600
+  /// 排程检查的间隔（秒）：这次唤醒只做几次时间比较，本身几乎不耗 CPU。
+  private static let scheduleTickSeconds: UInt64 = 5
   /// 打开统计页触发的立即扫描的节流窗口（秒）。
   private static let refreshThrottleSeconds: TimeInterval = 30
   /// 「索引有更新」通知的最小间隔（秒）：见 `notifyProgress()`。
@@ -415,7 +421,9 @@ actor UsageStatsIndexer {
   private let scanRootsOverride: UsageScanRoots?
   private var readerStore: UsageStatsStore?
   private var passTask: Task<Void, Never>?
-  private var periodicTask: Task<Void, Never>?
+  private var scheduleTask: Task<Void, Never>?
+  /// 统计页是否可见：只决定兜底轮次的间隔。
+  private var uiVisible = false
   private var pendingRefresh = false
   /// 下一轮扫描是否按「重新统计」的语义跑（见 `rebuildNow()`）。
   private var rebuildRequested = false
@@ -455,24 +463,24 @@ actor UsageStatsIndexer {
 
   // MARK: - 生命周期
 
-  /// 启动索引：立即跑一轮，然后每 60 秒一轮增量。重复调用无副作用。
+  /// 启动索引：立即跑一轮，之后每 `sweepIntervalSeconds(uiVisible:)` 一轮增量。
+  /// 重复调用无副作用。
   func start() {
-    guard periodicTask == nil else { return }
+    guard scheduleTask == nil else { return }
     runPass()
 
-    let interval = Self.sweepIntervalSeconds
-    periodicTask = Task { [weak self] in
+    scheduleTask = Task { [weak self] in
       while !Task.isCancelled {
-        try? await Task.sleep(nanoseconds: interval * 1_000_000_000)
+        try? await Task.sleep(nanoseconds: Self.scheduleTickSeconds * 1_000_000_000)
         guard !Task.isCancelled else { break }
-        await self?.runPass()
+        await self?.scheduledTick()
       }
     }
   }
 
   func stop() {
-    periodicTask?.cancel()
-    periodicTask = nil
+    scheduleTask?.cancel()
+    scheduleTask = nil
     passTask?.cancel()
     passTask = nil
     isIndexing = false
@@ -480,6 +488,42 @@ actor UsageStatsIndexer {
     // 做一次全量重算。
     pendingRefresh = false
     rebuildRequested = false
+  }
+
+  // MARK: - 排程
+
+  /// 兜底扫描间隔（按统计页是否可见取档）。
+  nonisolated static func sweepIntervalSeconds(uiVisible: Bool) -> TimeInterval {
+    uiVisible ? visibleSweepIntervalSeconds : hiddenSweepIntervalSeconds
+  }
+
+  /// 现在该不该跑兜底轮：还没跑过，或距上一轮结束已过当前档位的间隔。
+  ///
+  /// **不做「记录一变就补一轮」**：统计页是索引结果的唯一消费者，页面不可见时追着每次
+  /// 写入跑，只会把「后台成本」重新拉回「Agent 一直在写记录就一直在扫」——那正是这次要
+  /// 收掉的东西。页面打开时的新鲜度由 `refreshNow()`（立刻跑一轮）+ 可见档 60 s 兜底负责。
+  nonisolated static func shouldRunPass(
+    secondsSinceLastPass: TimeInterval?, uiVisible: Bool
+  ) -> Bool {
+    guard let secondsSinceLastPass else { return true }
+    return secondsSinceLastPass >= sweepIntervalSeconds(uiVisible: uiVisible)
+  }
+
+  /// 排程检查：每 `scheduleTickSeconds` 醒一次，判断要不要跑一轮。
+  /// 一轮正在跑时直接返回——它跑完时 `finishPass` 会自己处理 `pendingRefresh`。
+  private func scheduledTick() {
+    guard passTask == nil else { return }
+    let now = Date()
+    let shouldRun = Self.shouldRunPass(
+      secondsSinceLastPass: lastPassFinishedAt.map { now.timeIntervalSince($0) },
+      uiVisible: uiVisible)
+    guard shouldRun else { return }
+    runPass()
+  }
+
+  /// 统计页是否可见：只影响兜底轮次的间隔（页面打开时的立即刷新走 `refreshNow()`）。
+  func setUIVisible(_ visible: Bool) {
+    uiVisible = visible
   }
 
   /// 请求立即扫描一次（打开统计页时用）；30 秒内的重复请求只发一次通知。

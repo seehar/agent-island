@@ -59,7 +59,14 @@ struct NotchPanelState {
 class NotchViewModel: ObservableObject {
     // MARK: - Published State
 
-    @Published var status: NotchStatus = .closed
+    @Published var status: NotchStatus = .closed {
+        didSet {
+            // 状态换了 = 指针兴趣区换了（关闭 / popping 态是胶囊、展开态是卡片），重写一次。
+            // 写在 didSet 里：读到的是新状态下的矩形（见 `updatePointerInterest`）。
+            guard oldValue != status else { return }
+            updatePointerInterest()
+        }
+    }
     @Published var openReason: NotchOpenReason = .unknown
     @Published var contentType: NotchContentType = .instances {
         didSet {
@@ -70,6 +77,9 @@ class NotchViewModel: ObservableObject {
             if oldValue == .menu, contentType != .menu {
                 PickerExpansion.collapseCurrent()
             }
+            // 内容面换了 = `openedSize` 换了（会话列表 / 设置面板 / 对话三种尺寸不同）
+            // ⇒ 卡片矩形跟着变。
+            updatePointerInterest()
         }
     }
     /// 设置面板当前所在的分组。设置项按分组分页，面板只按当前分组撑高。
@@ -84,6 +94,8 @@ class NotchViewModel: ObservableObject {
             }
             // 换页也收起浮层：上一页那一行已经卸载，它的列表不该跟着新页面出现。
             PickerExpansion.collapseCurrent()
+            // 分组换了 = 设置面板的高度换了（面板按当前分组的行数撑高）⇒ 卡片矩形跟着变。
+            updatePointerInterest()
         }
     }
 
@@ -135,6 +147,9 @@ class NotchViewModel: ObservableObject {
     /// 换一个关闭态胶囊矩形（宽度跟着屏幕走，高度跟着高度设置走）。
     func updateDeviceNotchRect(_ rect: CGRect) {
         deviceNotchRect = rect
+        // 它进 `panelChromeHeight`（设置面板的高度）也决定关闭态胶囊的摆位，两个兴趣区
+        // 都可能跟着变（见 `updatePointerInterest`）。
+        updatePointerInterest()
     }
 
     /// 关闭态胶囊**画出来的**尺寸，由视图在布局变化时发布（见 `updateClosedCapsuleSize`）。
@@ -149,11 +164,18 @@ class NotchViewModel: ObservableObject {
     func updateClosedCapsuleSize(_ size: CGSize) {
         guard size != closedCapsuleSize else { return }
         closedCapsuleSize = size
+        // 关闭态的兴趣区就是这个胶囊，而胶囊宽度跟着计数文案走、随时会变。
+        updatePointerInterest()
+    }
+
+    /// 关闭态胶囊**矩形**（屏幕坐标）。命中判定与指针兴趣区共用这一份几何，不各算一套。
+    private var closedCapsuleScreenRect: CGRect {
+        geometry.closedCapsuleScreenRect(for: closedCapsuleSize)
     }
 
     /// 关闭态胶囊的命中判据（屏幕坐标）。见 `closedCapsuleSize` 的不变量。
     func isPointInClosedCapsule(_ point: CGPoint) -> Bool {
-        geometry.isPointInClosedCapsule(point, size: closedCapsuleSize)
+        closedCapsuleScreenRect.contains(point)
     }
 
     /// 卡片**画出来的那一块**：视图的 `NotchCard` 按它定死 frame，命中判定、点卡片外收起与
@@ -169,10 +191,35 @@ class NotchViewModel: ObservableObject {
         )
     }
 
+    /// 展开态卡片**矩形**（屏幕坐标）。命中判定与指针兴趣区共用这一份几何。
+    private var openedCardScreenRect: CGRect {
+        geometry.openedScreenRect(for: cardSize)
+    }
+
     /// 展开态卡片的命中判据（屏幕坐标）。见 `cardSize` 的不变量。
     func isPointInCard(_ point: CGPoint) -> Bool {
         guard status == .opened else { return false }
-        return geometry.isPointInOpenedPanel(point, size: cardSize)
+        return openedCardScreenRect.contains(point)
+    }
+
+    /// 指针兴趣区：关闭 / popping 态是关闭态胶囊、展开态是卡片——与
+    /// `isPointInClosedCapsule` / `isPointInCard` **取同一份矩形**（两处一旦各算一套，
+    /// 事件层的边界判据与行为判据就会互相错位：看得见的胶囊收不到悬停，或空处也在收
+    /// 边界事件）。事件层据此把位置流压成边界事件（见 `EventMonitors.interestRect`）。
+    private var pointerInterestRect: CGRect {
+        status == .opened ? openedCardScreenRect : closedCapsuleScreenRect
+    }
+
+    /// 把当前兴趣区写给事件层（幂等：值没变不写）。
+    ///
+    /// 凡是会动上面这两个矩形的地方都要写一次：状态、内容面、设置分组、设备胶囊矩形、
+    /// 关闭态胶囊尺寸，以及进 `openedSize` 的尺寸类选择器（面板尺寸档位、智能体页目录
+    /// 编辑器、额度页账号列表）。漏写一处，兴趣区就停在旧矩形上——面板长到指针底下时
+    /// 那一段既不收悬停也不收鼠标事件。
+    private func updatePointerInterest() {
+        let rect = pointerInterestRect
+        guard events.interestRect != rect else { return }
+        events.interestRect = rect
     }
 
     /// Dynamic opened size based on content type
@@ -291,6 +338,10 @@ class NotchViewModel: ObservableObject {
             earWidth: NotchClosedMetrics.minimumEarWidth(notchHeight: deviceNotchRect.height),
             showsEars: false)
         setupEventHandlers()
+        // 视图发布真实胶囊尺寸之前也要有一个兴趣区：先用上面这份铺底几何，否则那段时间
+        // 事件层没有边界，悬停展开整段失效（放在订阅之后：指针正停在胶囊上时这一次发布
+        // 要能被订阅者收到）。
+        updatePointerInterest()
         observeSelectors()
     }
 
@@ -301,6 +352,9 @@ class NotchViewModel: ObservableObject {
     /// 都有实打实的理由：
     /// - `PanelSizeSelector`：面板宽度按它的档位缩放（`openedSize.width`）；
     /// - 智能体页的行内目录编辑器、额度页的账号与「编辑凭据」态：就地展开，算进面板高度。
+    ///
+    /// 这三个来源同时是「指针兴趣区」的来源（都进 `openedSize`），因此除了重发布，还要各挂
+    /// 一条把新尺寸写给事件层的订阅（看方法末尾）。
     private func observeSelectors() {
         observe(PanelSizeSelector.shared)
 
@@ -312,6 +366,23 @@ class NotchViewModel: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
+        // 同一批来源再挂一条「重算兴趣区」的订阅：它们的通知都是**变更前**发出的
+        // （`objectWillChange` 与 `@Published` 的 `$x` 都是 willSet 语义），当场重算读到的
+        // 还是旧尺寸，`receive(on:)` 把这一跳推到值落定之后。三个来源都进 `openedSize`：
+        // 面板尺寸档位管宽，智能体页目录编辑器与额度页账号列表管高——兴趣区不跟着走，
+        // 面板长到指针底下时那一段就不收鼠标事件（看得见却点不到）。
+        PanelSizeSelector.shared.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updatePointerInterest() }
+            .store(in: &cancellables)
+        AgentDirSelector.shared.$expandedKind
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updatePointerInterest() }
+            .store(in: &cancellables)
+        NewAPIAccountPageState.shared.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updatePointerInterest() }
+            .store(in: &cancellables)
     }
 
     /// 订阅一个枚举偏好的任何变化（取值或展开态），让读到它的视图重算。
@@ -410,6 +481,7 @@ class NotchViewModel: ObservableObject {
     /// 与 `handleMouseDown(at:)` 的收起判据是同一个矩形：`NotchGeometry` 里
     /// `isPointInOpenedPanel` 与 `isPointOutsidePanel` 互为补集，两处都按当前的
     /// `geometry` + `openedSize` 现算、不缓存，因此不会出现「窗口判卡片外、这里判面板内」。
+    /// 这一处也走 `openedCardScreenRect`（与命中判据、指针兴趣区同一份矩形）。
     ///
     /// 还要合取 `status == .opened`：收起之后 `openedSize` 仍是上一次的展开尺寸，只看矩形
     /// 会把屏顶中央那一片都算成「卡片内」。窗口在关闭态本不该接收事件，但状态机里存在把它
@@ -417,7 +489,7 @@ class NotchViewModel: ObservableObject {
     /// 快照），那时按矩形判会让用户点在其他应用内容上的点击被静默吞掉。
     func isScreenPointInPanel(_ point: CGPoint) -> Bool {
         guard status == .opened else { return false }
-        return geometry.isPointInOpenedPanel(point, size: cardSize)
+        return openedCardScreenRect.contains(point)
     }
 
     /// 面板把一次「卡片外、被窗口吞掉」的点击转投给下层应用之后收起自己（幂等）。
