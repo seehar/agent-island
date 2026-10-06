@@ -74,6 +74,7 @@ struct AgentProviderTests {
       ClaudeFamilyAgentProvider(kind: .qoder, home: home),
       ClaudeFamilyAgentProvider(kind: .factory, home: home),
       ClaudeFamilyAgentProvider(kind: .codeBuddy, home: home),
+      ClaudeFamilyAgentProvider(kind: .workBuddy, home: home),
       KimiAgentProvider(home: home),
       ClineAgentProvider(home: home),
       GrokAgentProvider(home: home),
@@ -105,6 +106,7 @@ struct AgentProviderTests {
       (ClaudeFamilyAgentProvider(kind: .qoder, home: home), ".qoder"),
       (ClaudeFamilyAgentProvider(kind: .factory, home: home), ".factory"),
       (ClaudeFamilyAgentProvider(kind: .codeBuddy, home: home), ".codebuddy"),
+      (ClaudeFamilyAgentProvider(kind: .workBuddy, home: home), ".workbuddy"),
       (KimiAgentProvider(home: home), ".kimi-code"),
       (GrokAgentProvider(home: home), ".grok"),
       (
@@ -185,6 +187,53 @@ struct AgentProviderTests {
       #expect(found.map(\.sessionId) == [sessionId], "\(name) 发现不到会话")
       #expect(found.first?.cwd == cwd)
     }
+  }
+
+  @Test("WorkBuddy：配置根与记录根在 ~/.workbuddy，项目目录编码不带前导短横线")
+  func workBuddyUsesItsOwnConfigRootAndEncoding() throws {
+    let home = try tempHome()
+    defer { remove(home) }
+
+    // 这条判的是**自动检测**，而进程级偏好（用户在设置面板里给该 Agent 指定过目录）
+    // 优先级更高（环境变量 > 用户指定目录 > 自动检测）：先清掉可能存在的指定目录，
+    // 否则本机上只要有人给 WorkBuddy 指过目录，这条就会假红。
+    let strayOverride = AppSettings.agentRootOverride(.workBuddy)
+    AppSettings.setAgentRootOverride(.workBuddy, path: nil)
+    defer { AppSettings.setAgentRootOverride(.workBuddy, path: strayOverride) }
+
+    let cwd = "/Users/tester/work/demo"
+    let sessionId = "11111111-2222-3333-4444-555555555555"
+    let record = #"{"type":"user","sessionId":"\#(sessionId)","cwd":"\#(cwd)"}"#
+
+    // WorkBuddy 内嵌 CodeBuddy CLI，配置根由它自己钉死：`configRootName` 带 `default`
+    // （落到 `.codebuddy`），所以抄错不会报错，只会读到独立 CodeBuddy 的记录、写到它的配置。
+    let provider = ClaudeFamilyAgentProvider(kind: .workBuddy, home: home)
+    #expect(provider.paths() == nil, "缺 ~/.workbuddy 时不应给路径")
+
+    try write(
+      record,
+      to: home.appendingPathComponent(
+        ".workbuddy/projects/Users-tester-work-demo/\(sessionId).jsonl"))
+
+    let paths = try #require(provider.paths(), "建出 ~/.workbuddy 后应给路径")
+    #expect(paths.configDir.path == home.appendingPathComponent(".workbuddy").path)
+    #expect(paths.sessionsDir?.path == home.appendingPathComponent(".workbuddy/projects").path)
+
+    let file = try #require(provider.transcriptFile(sessionId: sessionId, cwd: cwd))
+    // 目录编码少一个前导短横线（本机实测 `~/.workbuddy/projects/Users-…`）：套用 Claude 的
+    // 编码（保留 `-`）会推到不存在的目录，会话从此永远发现不到，而路径本身不报错。
+    #expect(file.deletingLastPathComponent().lastPathComponent == "Users-tester-work-demo")
+    #expect(file.lastPathComponent == "\(sessionId).jsonl")
+    #expect(FileManager.default.fileExists(atPath: file.path), "记录的落点不对")
+    #expect(provider.isTranscriptFile(file.path))
+    #expect(provider.sessionId(fromTranscriptFile: file.path) == sessionId)
+    #expect(try provider.cwd(fromTranscriptFile: file.path) == cwd)
+
+    let source = try #require(
+      provider as? any AgentSessionDiscoverySource, "WorkBuddy 没有发现源实现")
+    let found = sessions(source)
+    #expect(found.map(\.sessionId) == [sessionId])
+    #expect(found.first?.cwd == cwd)
   }
 
   // MARK: - Codex / Grok（含环境变量覆盖）
@@ -532,6 +581,10 @@ struct AgentProviderTests {
       (
         ClaudeFamilyAgentProvider(kind: .codeBuddy, home: home),
         home.appendingPathComponent(".codebuddy/projects/Users-tester-work/s.jsonl").path
+      ),
+      (
+        ClaudeFamilyAgentProvider(kind: .workBuddy, home: home),
+        home.appendingPathComponent(".workbuddy/projects/Users-tester-work/s.jsonl").path
       ),
       (
         KimiAgentProvider(home: home),
@@ -1173,5 +1226,29 @@ struct AgentProcessMatchTests {
     for entry in cases {
       #expect(hit(entry.agent, entry.command), "\(entry.command) 应命中 \(entry.agent.rawValue)")
     }
+  }
+
+  @Test("WorkBuddy 的 Electron 主程序归 WorkBuddy，独立 codebuddy 仍归 CodeBuddy")
+  func workBuddyBundleVersusStandaloneCodeBuddy() {
+    // 实测：WorkBuddy 的主进程与它内嵌的 codebuddy CLI 进程 `ps comm` 完全相同，
+    // 因此只能按应用包路径认外壳（与 `.factory` / `.cursor` 的 IDE 主二进制同一口径）。
+    let bundle = "/Applications/WorkBuddy.app/Contents/MacOS/Electron"
+    #expect(hit(.workBuddy, bundle))
+    #expect(owner(of: bundle) == .workBuddy, "WorkBuddy 的主进程必须归它自己，否则会话拿不到 pid")
+    #expect(!hit(.codeBuddy, bundle), "独立 CodeBuddy 的判据不应认 WorkBuddy 的应用包")
+    // 判据先 lowercased 再比较（`ps` 给什么大小写都得认）。
+    #expect(hit(.workBuddy, "/applications/workbuddy.app/contents/macos/electron"))
+
+    // 辅助进程一律不命中：发现器要求「该 Agent 只有一个进程」才关联 pid，多认一个就整体失效。
+    #expect(
+      !hit(
+        .workBuddy,
+        "/Applications/WorkBuddy.app/Contents/Frameworks/WorkBuddy Helper.app/Contents/MacOS/WorkBuddy Helper"))
+
+    // WorkBuddy 的 `binaryName` 也是 codebuddy（它内嵌的就是那个 CLI），因此独立 CodeBuddy
+    // 的进程会被两者同时命中 —— 归属靠 `allCases` 顺序兜底（CodeBuddy 在前），不能被抢走。
+    let standalone = "/Users/tester/.local/bin/codebuddy"
+    #expect(hit(.codeBuddy, standalone))
+    #expect(owner(of: standalone) == .codeBuddy, "独立 codebuddy 被 WorkBuddy 抢走了")
   }
 }

@@ -6221,6 +6221,23 @@
       },
       "shouldTranslate" : false
     },
+    "WorkBuddy" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "WorkBuddy"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "WorkBuddy"
+          }
+        }
+      },
+      "shouldTranslate" : false
+    },
     "Enable All and Install" : {
       "localizations" : {
         "en" : {

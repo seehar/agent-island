@@ -179,6 +179,69 @@ struct AgentConfigInstallerTests {
         #expect(afterReinstall == afterFirstInstall)
     }
 
+    @Test("workbuddy：hooks 写进 ~/.workbuddy/settings.json，别人的键与条目逐字节保留；卸载只摘自己的")
+    func workBuddyInstallRoundTripKeepsForeignKeys() throws {
+        let home = try makeHome()
+        // WorkBuddy 自己的配置里还住着沙箱等键，以及别人写的事件条目；深合并只加我们的
+        // `hooks` 子键，其余必须原样留着。
+        let file = home.appendingPathComponent(".workbuddy/settings.json")
+        let originalText = #"{"sandbox":{"enabled":true},"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"/usr/local/bin/other-hook.sh","timeout":5}]}]}}"#
+        try write(originalText, to: file)
+        let originalObject = try JSONSerialization.jsonObject(with: Data(originalText.utf8))
+        let original = try #require(originalObject as? [String: Any])
+
+        // 独立 CodeBuddy 的同名配置：两者内嵌同一个 CLI，写串（`.codebuddy/settings.json`）
+        // 是最像的抄错，必须钉住「一个字节都不动」。
+        let codeBuddyFile = home.appendingPathComponent(".codebuddy/settings.json")
+        let codeBuddyOriginal = #"{"model":"deepseek","hooks":{}}"#
+        try write(codeBuddyOriginal, to: codeBuddyFile)
+
+        #expect(
+            AgentConfigInstaller.install(.workBuddy, home: home, interpreter: "/usr/bin/python3"))
+        #expect(AgentConfigInstaller.isInstalled(.workBuddy, home: home))
+
+        let installed = try json(file)
+        // 应用自己的键与别人的条目都在
+        let sandbox = try #require(installed["sandbox"] as? [String: Any])
+        #expect(sandbox["enabled"] as? Bool == true)
+        let preToolUse = eventEntries(installed, "hooks", "PreToolUse").flatMap(commands)
+        #expect(preToolUse.first == "/usr/local/bin/other-hook.sh")
+        // 我们的命令指向共享脚本，`--source` 必须是 WorkBuddy 自己的 rawValue
+        // （写错会让实时事件被归到别的 Agent 名下）。
+        let own = try #require(ownCommands(installed, "hooks", "PreToolUse").first)
+        #expect(own.contains(AgentHookScript.shellPath(home: home)))
+        #expect(own.contains("--source workbuddy"))
+        #expect(own.contains("/usr/bin/python3"))
+        // 只有 Claude fork 的基础事件集：WorkBuddy 不回传决定，因此没有 PermissionRequest。
+        #expect(eventEntries(installed, "hooks", "PermissionRequest").isEmpty)
+        // 备份是安装前那一版
+        let backup = file.appendingPathExtension("agent-island-backup")
+        #expect(try Data(contentsOf: backup) == Data(originalText.utf8))
+        // 重复安装字节相同（幂等）
+        let afterFirstInstall = try Data(contentsOf: file)
+        #expect(
+            AgentConfigInstaller.install(.workBuddy, home: home, interpreter: "/usr/bin/python3"))
+        #expect(try Data(contentsOf: file) == afterFirstInstall)
+        #expect(
+            try Data(contentsOf: codeBuddyFile) == Data(codeBuddyOriginal.utf8),
+            "WorkBuddy 的安装动了独立 CodeBuddy 的配置")
+
+        AgentConfigInstaller.uninstall(.workBuddy, home: home)
+        #expect(!AgentConfigInstaller.isInstalled(.workBuddy, home: home))
+
+        let uninstalled = try json(file)
+        #expect(uninstalled["sandbox"] != nil)
+        #expect(
+            eventEntries(uninstalled, "hooks", "PreToolUse").flatMap(commands)
+                == ["/usr/local/bin/other-hook.sh"])
+        // 除排版外内容与原始一模一样（只摘了自己的条目、没多摘也没少摘）
+        #expect(try canonical(uninstalled) == canonical(original))
+        #expect(FileManager.default.fileExists(atPath: file.path), "配置文件本身不能被删")
+        #expect(
+            try Data(contentsOf: codeBuddyFile) == Data(codeBuddyOriginal.utf8),
+            "WorkBuddy 的卸载动了独立 CodeBuddy 的配置")
+    }
+
     @Test("未闭合的 JSON：返回 false，一个字节都不写，也不留备份")
     func malformedJSONIsLeftUntouched() throws {
         let home = try makeHome()

@@ -22,6 +22,7 @@ nonisolated enum AgentRegistry {
         .qoder: ClaudeFamilyAgentProvider(kind: .qoder),
         .factory: ClaudeFamilyAgentProvider(kind: .factory),
         .codeBuddy: ClaudeFamilyAgentProvider(kind: .codeBuddy),
+        .workBuddy: ClaudeFamilyAgentProvider(kind: .workBuddy),
         .kimi: KimiAgentProvider(),
         .cline: ClineAgentProvider(),
         .grok: GrokAgentProvider(),

@@ -312,6 +312,8 @@ enum AgentDiscoverySources {
       return ClaudeFamilyAgentProvider(kind: .factory)
     case .codeBuddy:
       return ClaudeFamilyAgentProvider(kind: .codeBuddy)
+    case .workBuddy:
+      return ClaudeFamilyAgentProvider(kind: .workBuddy)
     case .kimi:
       return KimiAgentProvider()
     case .cline:

@@ -9,7 +9,7 @@ AgentIsland Hook（多来源）
 对象。`--source` 缺省 `claude`：已安装的老 hook 配置是 `python3 <path>`（不带任何参数），
 那条路径必须与改造前逐字一致。来源取值与 `AgentKind.rawValue` 相同（claude / omp / pi /
 opencode / codex / gemini / cursor / copilot / qoder / droid / codebuddy / kimi / cline /
-grok / trae / traecli / hermes）；本脚本只服务「配置文件型」来源，omp/pi/opencode 走各自的扩展与插件。
+grok / trae / traecli / hermes / workbuddy）；本脚本只服务「配置文件型」来源，omp/pi/opencode 走各自的扩展与插件。
 
 归一表（原生事件名 → 应用侧事件名）拷贝自 CodeIsland 的
 `Sources/CodeIslandCore/EventNormalizer.swift`，字段别名拷贝自它的
@@ -39,7 +39,7 @@ ASK_TOOL_NAME = "AskUserQuestion"
 # 来源缺省值：老配置不带参数，按 Claude 处理。
 DEFAULT_SOURCE = "claude"
 # Claude 家族（与 `AgentKind.isClaudeFamily` 一致）：同一套 hook 契约 + `AskUserQuestion`。
-CLAUDE_FAMILY = ("claude", "qoder", "droid", "codebuddy")
+CLAUDE_FAMILY = ("claude", "qoder", "droid", "codebuddy", "workbuddy")
 # Gemini CLI 的决定形状与 Claude 不同（`{"decision":"allow"}`）。
 GEMINI_SOURCE = "gemini"
 # Cline：hook 必须**立刻**输出 `{"cancel":false}`，转发在后台完成（不等决定）。
@@ -218,6 +218,9 @@ SOURCE_BINARIES = {
     "qoder": ("qodercli", "qoderclicn"),
     "droid": ("droid",),
     "codebuddy": ("codebuddy",),
+    # WorkBuddy 内嵌 CodeBuddy CLI：会话进程的 argv 里含 `…/cli/bin/codebuddy`，
+    # `process_binary_names` 从 argv 认出 `codebuddy` 即可解析出祖先 pid。
+    "workbuddy": ("codebuddy",),
     "codex": ("codex",),
     "gemini": ("gemini",),
     "cursor": ("cursor-agent",),

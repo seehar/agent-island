@@ -280,6 +280,19 @@ nonisolated extension AgentKind {
                 ],
                 verdict: .claudeEnvelope
             )
+        case .workBuddy:
+            // 与 CodeBuddy 逐字一致（`format: .claude` 的 settings.json hooks 键），
+            // 只把配置路径换成它钉死的 `~/.workbuddy/settings.json`
+            // （bundle 的 `settingsManager.get("hooks")` user 作用域即该文件）。
+            // 沙箱与插件键由 WorkBuddy 自己维护，深合并只加我们的 `hooks` 子键。
+            return AgentHookSpec(
+                format: .claude,
+                configPath: ".workbuddy/settings.json",
+                rootEnvVar: nil,
+                configKey: "hooks",
+                events: Self.claudeFamilyEvents,
+                verdict: .none
+            )
         case .hermes:
             // Hermes（Nous Research）：`config.yaml` 的顶层 `hooks:` 是**映射**（事件名 →
             // 条目列表），条目 `{command, timeout}` 里 timeout 的单位是秒。配置根走

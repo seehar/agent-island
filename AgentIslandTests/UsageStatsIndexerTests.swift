@@ -468,6 +468,53 @@ struct UsageStatsIndexerTests {
     #expect(!rebuilt.models.isEmpty)
   }
 
+  @Test("WorkBuddy：源发现按 Claude fork 布局，端到端照样入桶（工具 + token + 版本闸门）")
+  func workBuddyRowsAreIndexedLikeCodeBuddy() throws {
+    let root = try tempRoot()
+    let workBuddyRoot = root.appendingPathComponent("workbuddy")
+    let file = workBuddyRoot.appendingPathComponent("Users-tester-work-demo/sess-wb.jsonl")
+    let sourcePath = AgentProviderRoot.canonical(file).path
+    // input 1000 含 400 缓存命中 ⇒ 非缓存输入 600；总量 1050 = 600 + 50 + 400。
+    let line =
+      codeBuddyLine(date: todayBase, input: 1_000, output: 50, cacheRead: 400, tools: ["Bash"])
+      + "\n"
+    try write(line, to: file)
+    let size = UInt64(line.utf8.count)
+
+    let store = try makeStore(in: root)
+    // 源发现必须认 `<根>/<分桶>/<会话 id>.jsonl`（`describe` 漏了 `.workBuddy` 这条分支，
+    // 会话 id / 子代理归属都可能落错，最坏一条记录都进不来）。
+    let discovered = TranscriptUsageScanner.sources(for: .workBuddy, roots: [workBuddyRoot])
+    #expect(discovered.count == 1)
+    #expect(discovered.first?.agent == .workBuddy)
+    #expect(discovered.first?.sessionId == "sess-wb")
+    #expect(discovered.first?.isSubagentFile == false)
+
+    // 造「改版前的进度行」：文件已读到底、`cursor` 里没有解析器版本。没有版本闸门，
+    // 增量扫描会判定「没有变化」而永远跳过它（CodeBuddy 的工具与 token 就这么漏过）。
+    try execSQL(
+      """
+      INSERT INTO indexed_source (source_id, agent, size_bytes, read_offset, mtime, cursor, updated_at)
+      VALUES ('\(sourcePath)', 'workbuddy', \(size), \(size), 0, NULL, 0);
+      """,
+      at: root.appendingPathComponent("usage.sqlite"))
+
+    pass(store).ingest(sources: discovered)
+
+    let snapshot = try store.snapshot(
+      window: .preset(.today), calendar: calendar, now: Date(), isIndexing: false)
+    let workBuddy = try #require(snapshot.agents.first { $0.agent == .workBuddy })
+    #expect(workBuddy.totals.input == 600)
+    #expect(workBuddy.totals.output == 50)
+    #expect(workBuddy.totals.cacheRead == 400)
+    #expect(workBuddy.totals.total == 1_050)
+    #expect(workBuddy.totals.sessions == 1)
+    #expect(workBuddy.totals.calls == 1)
+    #expect(snapshot.tools.contains { $0.name == "bash" && $0.calls == 1 })
+    // 重放后进度行带上了版本：下一轮回到增量语义。
+    #expect(try store.sourceRecords()[sourcePath]?.state.cursor != nil)
+  }
+
   @Test("CodeBuddy：顶层 function_call 行同时产工具调用与 token，旧的 EOF 进度会重放一次")
   func codeBuddyRowsAreIndexedAndStaleProgressReplays() throws {
     let root = try tempRoot()

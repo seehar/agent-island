@@ -2,7 +2,7 @@
 //  ClaudeFamilyTranscriptSchema.swift
 //  AgentIsland
 //
-//  Claude Code 系（Qoder / Factory / CodeBuddy）的记录解析。
+//  Claude Code 系（Qoder / Factory / CodeBuddy；WorkBuddy 复用 CodeBuddy 方言）的记录解析。
 //
 //  Qoder 与 Factory 的记录格式与 Claude 完全一致（同一份 hook 契约派生），因此
 //  这里不抄第二份解析逻辑：把 `ClaudeTranscriptSchema` 的记录翻译以组合方式复用，
@@ -49,7 +49,8 @@ nonisolated final class ClaudeFamilyTranscriptSchema: JSONLTranscriptSchema {
 
 /// CodeBuddy 的记录解析。
 ///
-/// 记录外壳（本机实测 `~/.codebuddy/projects/<编码 cwd>/<会话 id>.jsonl`）：
+/// 记录外壳（本机实测 `~/.codebuddy/projects/<编码 cwd>/<会话 id>.jsonl`；
+/// WorkBuddy 内嵌同一 CLI，记录落在 `~/.workbuddy/projects/…`，格式逐字一致）：
 /// ```
 /// {"id":"c98224eb-…","timestamp":1782725749544,"type":"message","role":"user",
 ///  "content":[{"type":"input_text","text":"…"}],"providerData":{"skipRun":true},
@@ -59,7 +60,16 @@ nonisolated final class ClaudeFamilyTranscriptSchema: JSONLTranscriptSchema {
 /// 角色写在顶层 `role`（不在 `message` 里）、内容块类型是 `input_text`/`output_text`。
 /// 另外还有 `file-history-snapshot` 这类没有对话内容的行，直接忽略。
 nonisolated final class CodeBuddyTranscriptSchema: JSONLTranscriptSchema {
-    override var agent: AgentKind { .codeBuddy }
+    /// 本 schema 服务的 Agent（`.codeBuddy` 或 `.workBuddy`）：两者记录格式逐字一致，
+    /// 只有记录位置不同（`~/.codebuddy` 与 `~/.workbuddy`）。
+    private let kind: AgentKind
+
+    init(kind: AgentKind = .codeBuddy) {
+        self.kind = kind
+        super.init()
+    }
+
+    override var agent: AgentKind { kind }
 
     // MARK: - 记录翻译
 

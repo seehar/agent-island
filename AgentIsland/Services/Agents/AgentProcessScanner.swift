@@ -156,6 +156,12 @@ final class AgentProcessScanner: @unchecked Sendable {
       // `/factory.app/contents/macos/electron`（同样只认主二进制，理由同 `.trae`）。
       return command.contains("/droid")
         || command.lowercased().contains("/factory.app/contents/macos/electron")
+    case .workBuddy:
+      // WorkBuddy 内嵌 CodeBuddy CLI，但进程外壳是它自己的 Electron 主程序
+      // （实测 comm = `/Applications/WorkBuddy.app/Contents/MacOS/Electron`），既不含
+      // `/codebuddy` 也不是 `codebuddy`，通用判据认不到；只能按应用包路径认
+      // （同 `.factory` / `.cursor` 的 IDE 主二进制口径，先 lowercased 再比）。
+      return command.lowercased().contains("/workbuddy.app/contents/macos/")
     case .codex, .gemini, .copilot, .codeBuddy, .grok, .traeCli, .deepSeekHarness:
       // 这几个 CLI 以真实可执行文件运行，`ps` 的 `comm` 就是它的启动路径：
       // 名字完整时上面的快路径已命中，这里再认「路径里含 /<二进制名>」。

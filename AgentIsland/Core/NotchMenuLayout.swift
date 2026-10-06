@@ -357,8 +357,12 @@ nonisolated enum NotchMenuMetrics {
     /// 「标记动态」页：每行铺几个角色、一格多高、画廊窗口最多几行。
     ///
     /// 与 `visibleAgentRows` 同一套做法——渲染全部 Agent，只把画廊窗口高度封顶，
-    /// 超出的在画廊里滚动。列数 × 窗口行数刚好装下当前的 18 个 Agent（6 × 3），
+    /// 超出的在画廊里滚动。列数 × 窗口行数刚好装下当前的 19 个 Agent（6 × 4；
+    /// 第 19 个是内嵌 CodeBuddy CLI 的 `.workBuddy`），
     /// 因此默认一屏就能看全所有角色；新增 Agent 只会在画廊里多一行可滚动内容。
+    /// 高度账（4 行）：画廊内容高 = 4×68（格高）+ 3×8（行距）+ 9（留白）= 305，
+    /// `animationsSectionHeight` = 2×40 + 305 = 385，该页内容高 = 385 + 78 = 463，
+    /// 加可达的最大 chrome 76 是 **539 ≤ 640**（`maxPanelHeight`），仍一屏看全、不夹取。
     static let animationGalleryColumns = 6
     /// 列间距。
     static let animationGalleryColumnSpacing: CGFloat = 8
@@ -371,7 +375,7 @@ nonisolated enum NotchMenuMetrics {
         animationGalleryMarkTileHeight + animationGalleryTileTextHeight
     }
     static let animationGalleryRowSpacing: CGFloat = 8
-    static let animationGalleryMaxVisibleRows = 3
+    static let animationGalleryMaxVisibleRows = 4
 
     /// 画廊窗口的内容高：行数超过窗口时只算窗口那几行（渲染全部、窗口封顶）。
     ///
@@ -566,7 +570,7 @@ nonisolated enum NotchMenuMetrics {
                 // 监控的智能体：**入口行**（标记动态：轮播角色缩略图 + 标题 + 副标题）
                 // + 动作条（全部启用并安装 / 全部关闭并卸载）+ 每个 Agent 一行
                 // （标题 + 集成状态；行内可展开该 Agent 的目录编辑器）+ 一行脚注。
-                // 受支持的 Agent 会随接入面扩大而增加（现在 18 个），整张卡片按
+                // 受支持的 Agent 会随接入面扩大而增加（现在 19 个），整张卡片按
                 // `visibleAgentRows` 封顶、超出的在卡内滚动——否则这一页会把面板
                 // 撑到上限之外，用户得滚很久才能摸到下面的保护档位。
                 Block(

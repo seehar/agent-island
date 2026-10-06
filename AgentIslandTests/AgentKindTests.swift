@@ -75,10 +75,32 @@ struct AgentKindTests {
     func hookSpecCoversConfigFileAgentsOnly() {
         let expected: Set<AgentKind> = [
             .codex, .gemini, .cursor, .copilot, .qoder, .factory, .codeBuddy, .kimi, .cline,
-            .grok, .trae, .traeCli, .hermes,
+            .grok, .trae, .traeCli, .hermes, .workBuddy,
         ]
         let actual = Set(AgentKind.allCases.filter { $0.hookSpec != nil })
         #expect(actual == expected)
+    }
+
+    @Test("WorkBuddy 的 hook 写在 ~/.workbuddy/settings.json：形状与 CodeBuddy 逐字相同、不扩审批")
+    func workBuddyHookSpecIsClaudeFormatAtItsOwnRoot() throws {
+        // WorkBuddy 内嵌 CodeBuddy CLI，但配置根由它自己钉死（`~/.workbuddy`）。抄错成
+        // `.codebuddy/settings.json` 不会编译报错，只会把 hook 写进独立 CodeBuddy 的配置里，
+        // 两边的集成同时失效；这条用例把「写在哪」钉住。
+        let spec = try #require(AgentKind.workBuddy.hookSpec, "WorkBuddy 应走配置文件型集成")
+        #expect(spec.format == .claude)
+        #expect(spec.configPath == ".workbuddy/settings.json")
+        #expect(spec.rootEnvVar == nil)
+        #expect(spec.configKey == "hooks")
+        // 存在性闸门：没装 WorkBuddy 的机器上不许凭空造出 ~/.workbuddy。
+        #expect(spec.requiresExistingRoot)
+
+        // 事件表与它的姊妹（独立 CodeBuddy）逐字相同：本次只加接入面，不扩审批范围。
+        let sibling = try #require(AgentKind.codeBuddy.hookSpec)
+        #expect(spec.events == sibling.events)
+        #expect(!spec.hasBlockingEvent)
+        #expect(spec.verdict == AgentVerdictProtocol.none)
+        #expect(!spec.events.contains { $0.name == "PermissionRequest" })
+        #expect(!AgentKind.workBuddy.approval.canDecideRemotely)
     }
 
     @Test("hookSpec 的事件表可用：非空、不重名、阻塞事件预算足够且只有能回传决定的 Agent 才有")
@@ -121,7 +143,10 @@ struct AgentKindTests {
         for kind in [AgentKind.codex, .qoder, .traeCli] {
             #expect(kind.hookSpec?.verdict == .claudeEnvelope, "\(kind.rawValue) 不回写 allow/deny")
         }
-        for kind in [AgentKind.cursor, .copilot, .kimi, .cline, .trae, .factory, .codeBuddy, .hermes] {
+        for kind in [
+            AgentKind.cursor, .copilot, .kimi, .cline, .trae, .factory, .codeBuddy, .hermes,
+            .workBuddy,
+        ] {
             // 显式写出类型：`.none` 在可选比较里会被推断成 `Optional.none`（编译器会警告）。
             #expect(
                 kind.hookSpec?.verdict == AgentVerdictProtocol.none,
@@ -140,7 +165,7 @@ struct AgentKindTests {
 
     @Test("Claude 系（含 fork）的派生工具名与交互工具名一致，且各 Agent 之间不互相污染")
     func claudeFamilySharesToolVocabulary() {
-        let family: Set<AgentKind> = [.claudeCode, .qoder, .factory, .codeBuddy]
+        let family: Set<AgentKind> = [.claudeCode, .qoder, .factory, .codeBuddy, .workBuddy]
         for kind in AgentKind.allCases {
             if family.contains(kind) {
                 #expect(kind.isClaudeFamily)

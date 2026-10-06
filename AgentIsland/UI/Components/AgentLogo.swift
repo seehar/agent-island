@@ -63,6 +63,9 @@ struct Glyph: View {
             AgentMarkView(geometry: .factory, color: color, size: size)
         case .codeBuddy:
             AgentMarkView(geometry: .codeBuddy, color: color, size: size)
+        case .workBuddy:
+            // 复用 CodeBuddy 的标记几何（WorkBuddy 内嵌同一 CLI，无独立官方标记）。
+            AgentMarkView(geometry: .codeBuddy, color: color, size: size)
         case .kimi:
             AgentMarkView(geometry: .kimi, color: color, size: size)
         case .cline:

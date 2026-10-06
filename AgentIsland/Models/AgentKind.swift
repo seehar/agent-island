@@ -60,6 +60,10 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
     /// Hermes Agent（Nous Research，`hermes`）：hook 写在 `~/.hermes/config.yaml`
     /// 的 `hooks:` 映射里；会话记录不在文件树而在 SQLite（`~/.hermes/state.db`）。
     case hermes = "hermes"
+    /// WorkBuddy（腾讯桌面 AI 应用，`workbuddy`）：内嵌 CodeBuddy CLI，记录与 hook
+    /// 格式沿用 CodeBuddy 方言，但配置根钉在 `~/.workbuddy`（bundle 里
+    /// `resolveWorkbuddyConfigDir() = WORKBUDDY_CONFIG_DIR || CODEBUDDY_CONFIG_DIR || ~/.workbuddy`）。
+    case workBuddy = "workbuddy"
 
     var id: String { rawValue }
 
@@ -86,6 +90,7 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
         case .traeCli: return LocalizationManager.t("Trae CLI")
         case .deepSeekHarness: return LocalizationManager.t("DeepSeek Harness")
         case .hermes: return LocalizationManager.t("Hermes")
+        case .workBuddy: return LocalizationManager.t("WorkBuddy")
         }
     }
 
@@ -110,6 +115,7 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
         case .traeCli: return LocalizationManager.t("Trae CLI")
         case .deepSeekHarness: return LocalizationManager.t("DSH")
         case .hermes: return LocalizationManager.t("Hermes")
+        case .workBuddy: return LocalizationManager.t("WorkBuddy")
         }
     }
 
@@ -134,6 +140,7 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
         case .traeCli: return "traecli"
         case .deepSeekHarness: return "dsh"
         case .hermes: return "hermes"
+        case .workBuddy: return "codebuddy"
         }
     }
 
@@ -145,7 +152,7 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
     /// omp/pi 的闸门扩展、opencode 的插件、Gemini 的 `BeforeTool`、Codex 的
     /// `PermissionRequest`、TraeCli 的 `permission_request`。其余工具的事件表里
     /// 没有可回写决定的审批事件（Cursor / Copilot / Trae / Cline / Kimi / Factory /
-    /// CodeBuddy / Grok / DSH / Hermes），刘海只显示状态。
+    /// CodeBuddy / WorkBuddy / Grok / DSH / Hermes），刘海只显示状态。
     ///
     /// Hermes 的 `pre_tool_call` 只有**否决**通道（回 `{"decision":"block"}` 即拒绝，
     /// 放行等于什么都不输出，见其 `agent/shell_hooks.py`），没有「批准并代为执行」的
@@ -162,7 +169,7 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
             return .init(
                 canDecideRemotely: true, waitsForDecision: true, requestEvent: "ToolApproval")
         case .factory, .codeBuddy, .cursor, .copilot, .kimi, .cline, .grok, .trae,
-            .deepSeekHarness, .hermes:
+            .deepSeekHarness, .hermes, .workBuddy:
             return .init(
                 canDecideRemotely: false, waitsForDecision: false, requestEvent: "")
         }
@@ -181,11 +188,11 @@ nonisolated enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiabl
     }
 
     /// Claude 系（Claude Code 及其 fork）：同一条 hook 契约 + 同一套 JSONL 记录格式。
-    /// Qoder / Factory / CodeBuddy 都从 Claude Code 派生，事件名、记录字段与
-    /// `AskUserQuestion` 工具名都一致。
+    /// Qoder / Factory / CodeBuddy（WorkBuddy 内嵌同一 CLI）都从 Claude Code 派生，
+    /// 事件名、记录字段与 `AskUserQuestion` 工具名都一致。
     var isClaudeFamily: Bool {
         switch self {
-        case .claudeCode, .qoder, .factory, .codeBuddy: return true
+        case .claudeCode, .qoder, .factory, .codeBuddy, .workBuddy: return true
         default: return false
         }
     }

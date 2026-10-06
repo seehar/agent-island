@@ -186,6 +186,9 @@ private struct AgentMascotFrames: View {
             FactoryMascot(status: status, t: t, size: size)
         case .codeBuddy:
             CodeBuddyMascot(status: status, t: t, size: size)
+        case .workBuddy:
+            // WorkBuddy 内嵌 CodeBuddy CLI，共用同一枚像素角色（与 Pi/omp 同一先例）。
+            CodeBuddyMascot(status: status, t: t, size: size)
         case .kimi:
             KimiMascot(status: status, t: t, size: size)
         case .cline:
@@ -241,7 +244,7 @@ extension AgentMascot {
         case .copilot: return CopilotMascot.alertSpec
         case .qoder: return QoderMascot.alertSpec
         case .factory: return FactoryMascot.alertSpec
-        case .codeBuddy: return CodeBuddyMascot.alertSpec
+        case .codeBuddy, .workBuddy: return CodeBuddyMascot.alertSpec
         case .kimi: return KimiMascot.alertSpec
         case .cline: return ClineMascot.alertSpec
         case .grok: return GrokMascot.alertSpec

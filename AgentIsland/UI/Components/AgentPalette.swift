@@ -8,10 +8,10 @@
 //  CodeIsland 的 cli-icons/*.png 取到同一批品牌资产），每条都注明出处与最近邻的
 //  ΔE2000，便于日后对照更新。
 //
-//  一个必须说清的事实：18 个品牌里有 7 个是蓝/紫（omp / pi / codex / gemini /
-//  codeBuddy / kimi / dsh）、2 个是绿（qoder / trae / traeCli）、5 个是黑白单色的
-//  中性灰（opencode / cursor / copilot / cline / grok）、3 个是橙/金（claude /
-//  factory / hermes），因此**不可能两两都拉开到 ΔE ≥ 12**。本表的取舍是：品牌色优先（能取到品牌色的
+//  一个必须说清的事实：19 个品牌里有 7 个是蓝/紫（omp / pi / codex / gemini /
+//  codeBuddy / kimi / dsh）、4 个是绿/青（qoder / trae / traeCli / workBuddy）、
+//  5 个是黑白单色的中性灰（opencode / cursor / copilot / cline / grok）、3 个是
+//  橙/金（claude / factory / hermes），因此**不可能两两都拉开到 ΔE ≥ 12**。本表的取舍是：品牌色优先（能取到品牌色的
 //  就用品牌色），单色品牌取一组按明度展开的中性灰（它们本来没有彩色可言，明度是
 //  唯一可用的区分维度），最终最小 ΔE 约 7。标记之间主要靠形状与 shortName 区分，
 //  颜色只是辅助；改这里时请连带重算 ΔE，不要把两个相近色的 ΔE 压得更小。
@@ -96,6 +96,11 @@ extension AgentKind {
             // 本品牌更深的 goldenrod #DAA520 反而只有 ΔE 7.2，更糟，故不采用。
             // （品牌色最近邻：Cline ΔE 30）
             return Color(red: 1.0, green: 0.843, blue: 0.0)
+        case .workBuddy:
+            // WorkBuddy 图标（/Applications/WorkBuddy.app/Contents/Resources/icon.icns）
+            // 的青色主色 #0CC8A4（取自图标墨迹主体）。与最近邻 Trae 的薄荷绿 ΔE 16、
+            // Qoder 的绿 ΔE 17（均高于 12 门槛），与它们在绿/青档共存、靠形状区分。
+            return Color(red: 0.047, green: 0.784, blue: 0.643)
         }
     }
 }

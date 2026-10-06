@@ -261,6 +261,28 @@ struct AgentTranscriptSchemaTests {
         #expect(fixture.state.toolResults["t9"]?.content == "ok")
     }
 
+    @Test("WorkBuddy：沿用 CodeBuddy 方言解析自己的记录，且 schema 自报本家")
+    func workBuddyReusesCodeBuddyEnvelope() throws {
+        // WorkBuddy 内嵌 CodeBuddy CLI，记录格式与独立 CodeBuddy 逐字一致；但 schema 必须自报
+        // `.workBuddy`（认错会把会话挂到别的 Agent 名下、用量记到别人头上）。
+        var fixture = try SchemaFixture.jsonl(agent: .workBuddy, contents: codeBuddyLines)
+        defer { fixture.cleanup() }
+
+        #expect(fixture.schema.agent == .workBuddy)
+        let result = fixture.read()
+        // 用户气泡 + 助手气泡；`<system-reminder>` 注入行与 `file-history-snapshot` 不算。
+        #expect(result.newMessages.count == 2)
+        #expect(result.newMessages.first?.role == .user)
+        #expect(result.newMessages.last?.role == .assistant)
+        #expect(fixture.state.firstUserMessage == "帮我加个按钮")
+        #expect(result.activity.contains(.promptSubmitted(text: "帮我加个按钮")))
+        #expect(
+            result.activity.contains(
+                .toolStarted(id: "t9", name: "Edit", input: ["file_path": "/tmp/cb/App.vue"])))
+        #expect(result.activity.contains(.toolFinished(id: "t9", name: "Edit", isError: false)))
+        #expect(fixture.state.toolResults["t9"]?.content == "ok")
+    }
+
     // MARK: Codex
 
     @Test("Codex：同一条消息写两遍只产出一次，工具与终态事件齐全")
@@ -713,6 +735,55 @@ struct AgentTranscriptUsageScannerTests {
         #expect(calls.calls == 1)
         // 没有 usage 的调用不建 token 桶：模型榜里不该出现「全零」的桶。
         #expect(callRead.deltas.allSatisfy { $0.tool != "" })
+    }
+
+    @Test("WorkBuddy：工具行与 token 行的口径与 CodeBuddy 同源，进度行带解析器版本")
+    func workBuddyCountsCodeBuddyToolsAndTokens() throws {
+        // 一行 `function_call`（带 usage）产工具调用 + token；助手行只产 token；
+        // 不带 usage 的 `function_call` 只产工具行（不能建「模型非空、token 全零」的桶）。
+        let call =
+            #"{"id":"w1","timestamp":1790151484553,"type":"function_call","name":"Bash","callId":"call_1","arguments":{"command":"ls"},"sessionId":"s1","providerData":{"model":"deepseek-v4-flash"},"message":{"usage":{"input_tokens":1000,"output_tokens":50,"cache_read_input_tokens":400}}}"#
+        let assistant =
+            #"{"id":"w2","timestamp":1790151484600,"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}],"sessionId":"s1","providerData":{"model":"deepseek-v4-flash"},"message":{"usage":{"input_tokens":500,"output_tokens":10,"cache_read_input_tokens":100}}}"#
+        let bareCall =
+            #"{"id":"w3","timestamp":1790151484700,"type":"function_call","name":"Read","callId":"call_2","arguments":{},"sessionId":"s1"}"#
+        let scratch = try fixtureFile(call + "\n" + bareCall + "\n" + assistant + "\n")
+        defer { try? FileManager.default.removeItem(at: scratch.directory) }
+
+        let source = UsageSourceFile(path: scratch.file.path, agent: .workBuddy, sessionId: "s1")
+        let first = TranscriptUsageScanner.read(source: source, previous: nil, calendar: calendar)
+
+        let calls = try #require(
+            first.deltas.first { $0.tool == "bash" && $0.calls == 1 },
+            "WorkBuddy 的 function_call 行被行级标记漏掉了")
+        // 工具榜只按工具名拆，不按模型拆。
+        #expect(calls.model == "")
+        #expect(calls.input == 0 && calls.output == 0 && calls.cacheRead == 0)
+        #expect(
+            first.deltas.contains { $0.tool == "read" && $0.calls == 1 },
+            "不带 usage 的 function_call 也必须是工具行")
+
+        let tokens = try #require(
+            first.deltas.first { $0.tool == "" && $0.model == "deepseek-v4-flash" },
+            "WorkBuddy 的 token 行（message.usage）被行级标记漏掉了")
+        // 同一会话同一模型的 token 行合并进一个桶，两条带 usage 的行都必须算进去：
+        // function_call 1000−400=600 + 助手行 500−100=400 ⇒ 输入 1000。
+        #expect(tokens.input == 1_000, "只算到了一条带 usage 的行")
+        #expect(tokens.cacheRead == 500)
+        #expect(tokens.output == 60)
+        #expect(tokens.records == 2)
+        // 不带 usage 的调用不建 token 桶：只有上面那一个 token 桶（多余的空桶会污染模型榜）。
+        #expect(first.deltas.filter { $0.tool == "" }.count == 1)
+
+        // 解析规则与 CodeBuddy 同源：进度行必须带 `cb-v2`，否则旧进度会因「文件已读到底」
+        // 永远跳过这些行（CodeBuddy 的工具与 token 就是这么漏掉的）。
+        #expect(first.state.cursor?.hasPrefix("cb-v2") == true)
+        var stale = first.state
+        stale.cursor = nil
+        let replay = TranscriptUsageScanner.read(
+            source: source, previous: stale, calendar: calendar)
+        #expect(replay.needsReplace, "解析规则变过时必须整源重放")
+        #expect(replay.deltas.contains { $0.tool == "bash" && $0.calls == 1 })
     }
 
     @Test("无法核对 token 字段的 Agent（Gemini / Kimi / Grok）一条用量都不产出")

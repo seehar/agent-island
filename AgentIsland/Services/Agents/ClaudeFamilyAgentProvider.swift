@@ -2,8 +2,9 @@
 //  ClaudeFamilyAgentProvider.swift
 //  AgentIsland
 //
-//  Claude Code fork（Qoder / Factory / CodeBuddy）共用的 Provider：记录格式与
-//  事件契约都沿用 Claude Code，差别只在配置根、记录根与项目目录编码。
+//  Claude Code fork（Qoder / Factory / CodeBuddy，以及内嵌 CodeBuddy CLI 的
+//  WorkBuddy）共用的 Provider：记录格式与事件契约都沿用 Claude Code，差别只在
+//  配置根、记录根与项目目录编码。
 //
 //  事实来源：CodeIsland `Sources/CodeIsland/AppState.swift` 的 `findFlatStoreSessions`
 //  调用点 —— qoder → `~/.qoder/projects`（`claudeProjectDirEncoded`）、
@@ -45,7 +46,8 @@ nonisolated struct ClaudeFamilyAgentProvider: AgentProvider {
         switch kind {
         case .qoder: return ".qoder"
         case .factory: return ".factory"
-        // 其余只可能是 CodeBuddy：本 Provider 只服务 Claude fork。
+        case .workBuddy: return ".workbuddy"
+        // 其余只可能是 CodeBuddy：本 Provider 只服务 Claude fork（含内嵌它的 WorkBuddy）。
         default: return ".codebuddy"
         }
     }
@@ -109,10 +111,11 @@ nonisolated struct ClaudeFamilyAgentProvider: AgentProvider {
 
     /// 项目目录名。Claude 把 `/` 与 `.` 都换成 `-`；CodeBuddy 的编码再少一个前导
     /// 短横线（CodeIsland 的 `appProjectDirEncoded`，本机 `~/.codebuddy/projects`
-    /// 实测无前导 `-`）。
+    /// 实测无前导 `-`）；WorkBuddy 沿用内嵌 CLI 的同一套编码（实测
+    /// `~/.workbuddy/projects/Users-seehar-WorkBuddy-Claw` 同样无前导 `-`）。
     private func projectDirectoryName(for cwd: String) -> String {
         let encoded = ClaudeAgentProvider.encodeProjectDirectory(cwd)
-        guard kind == .codeBuddy else { return encoded }
+        guard kind == .codeBuddy || kind == .workBuddy else { return encoded }
         return encoded.hasPrefix("-") ? String(encoded.dropFirst()) : encoded
     }
 

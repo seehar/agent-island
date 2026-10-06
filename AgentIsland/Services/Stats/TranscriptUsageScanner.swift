@@ -104,8 +104,9 @@ nonisolated enum TranscriptUsageScanner {
     let file = url.lastPathComponent
 
     switch agent {
-    case .claudeCode, .qoder, .factory, .codeBuddy:
-      // Claude 系（含 Qoder / Factory / CodeBuddy 这类 fork）的布局一致：
+    case .claudeCode, .qoder, .factory, .codeBuddy, .workBuddy:
+      // Claude 系（含 Qoder / Factory / CodeBuddy、以及内嵌 CodeBuddy 的 WorkBuddy
+      // 这类 fork）的布局一致：
       // 根会话是 `<根>/<分桶>/<会话 id>.jsonl`，子代理另存为
       // `…/<会话 id>/subagents/agent-<id>.jsonl`（或旧版扁平的 `agent-<id>.jsonl`）。
       // fork 是否也有子代理目录未经验证：只有真出现 `subagents` 组件时才会命中。
@@ -262,7 +263,7 @@ nonisolated enum TranscriptUsageScanner {
   /// `cx-v2|<模型>`，旧行（只有模型名、或干脆没有）都会触发一次整源重放。
   private static func parserVersion(for agent: AgentKind) -> String? {
     switch agent {
-    case .codeBuddy: return ParserVersion.codeBuddy.rawValue
+    case .codeBuddy, .workBuddy: return ParserVersion.codeBuddy.rawValue
     case .codex: return ParserVersion.codexModelAndTools.rawValue
     default: return nil
     }
@@ -328,7 +329,7 @@ nonisolated enum TranscriptUsageScanner {
     case .claudeCode, .qoder, .factory:
       // Claude 系：用量在 `message.usage`，工具调用在 `message.content[].tool_use`。
       return [Array("\"usage\"".utf8), Array("\"tool_use\"".utf8)]
-    case .codeBuddy:
+    case .codeBuddy, .workBuddy:
       // 工具调用与 token 都在 **顶层信封**上（本机实测）：一次调用是一行
       // `type:"function_call"`（`name` / `callId` 在顶层），token 挂在它的
       // `message.usage` 上（`input_tokens` / `output_tokens` / `cache_read_input_tokens`）。
@@ -492,7 +493,7 @@ nonisolated enum TranscriptUsageScanner {
       record.tools = toolNames(in: message, blockType: "tool_use")
       return record
 
-    case .codeBuddy:
+    case .codeBuddy, .workBuddy:
       // 两类行（本机实测，毫秒 epoch 时间戳）：
       //   · `type == "function_call"`：一次工具调用（顶层 `name`），并且**同时是 token 行**
       //     —— `message.usage` 是这次调用的增量（`input_tokens` 含缓存命中，要减去
