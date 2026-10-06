@@ -123,7 +123,7 @@ struct MascotMotionTests {
 
     @Test("静止档的代表时刻必须让每个角色都睁着眼")
     func stillInstantsKeepEveryAgentAwake() {
-        // 眨眼相位由 seed 决定，18 枚各不相同：代表时刻一旦落进某一枚的眨眼窗口，它在
+        // 眨眼相位由 seed 决定，19 枚各不相同：代表时刻一旦落进某一枚的眨眼窗口，它在
         // 「静止」档就会以闭着眼的样子出现（实测 t=1.5 正中 gemini 的眨眼窗口）。
         // 各 seed 的首次眨眼都从 t ≥ 0.6 才开始，所以代表时刻必须落在它之前。
         for status in [AgentMascotStatus.idle, .working, .alert] {

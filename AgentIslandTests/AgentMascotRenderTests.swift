@@ -2,7 +2,7 @@
 //  AgentMascotRenderTests.swift
 //  AgentIslandTests
 //
-//  18 枚像素角色的渲染判据。角色是 Canvas 上按 SVG 单位手绘的拼合图形，最容易出的事故是
+//  19 枚像素角色的渲染判据。角色是 Canvas 上按 SVG 单位手绘的拼合图形，最容易出的事故是
 //  「某一枚在某个场景里什么都没画出来」（少写一块、坐标画到了视口外、场景分支写错），
 //  而这类事故**编译与本地化守卫都抓不到**——只有把每个 Agent 的每个场景都真的渲染一遍才看得见。
 //
@@ -247,7 +247,7 @@ struct AgentMascotRenderTests {
 
     @Test("睡眠 Z 的提亮档：黑舞台上读得出来、不换色相、不被洗成灰")
     func sleepZTintStaysReadableAndOnHue() {
-        // 输入是各角色 `sleepZ` 实际会传的那几支：18 个品牌色（中性档的几个角色直接用它），
+        // 输入是各角色 `sleepZ` 实际会传的那几支：19 个品牌色（中性档的几个角色直接用它），
         // 外加三支与品牌色不同的角色机身色。判据是**值域**性质——具体谁配哪一支由接触表人工核对
         // （像素角色是手绘方块，颜色搭配没法用断言证明「像不像那个角色」）。
         let samples: [(name: String, color: Color)] =
@@ -364,7 +364,7 @@ struct AgentMascotRenderTests {
     ///
     /// 像素角色是手绘方块：编译、本地化与上面的像素判据只能证明「画了东西、三档互不相同」，
     /// 证明不了「像那个产品、像个人」。所以留一张可视图给改动者与复核者看。
-    @Test("写两张接触表到 /tmp（18 枚 × 3 场景，27pt 与 64pt，人工核对用）")
+    @Test("写两张接触表到 /tmp（19 枚 × 3 场景，27pt 与 64pt，人工核对用）")
     @MainActor
     func writesContactSheets() throws {
         let directory = probeDirectory

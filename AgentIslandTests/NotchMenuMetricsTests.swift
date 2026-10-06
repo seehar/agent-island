@@ -59,7 +59,7 @@ struct NotchMenuMetricsTests {
                 == CGFloat(rows) * NotchMenuMetrics.animationGalleryTileHeight
                 + CGFloat(rows - 1) * NotchMenuMetrics.animationGalleryRowSpacing
                 + NotchMenuMetrics.rowVerticalPadding,
-            "画廊窗口高还要算上网格下方那一条留白，否则 18 枚刚好装下时仍有一小段空内容可滚")
+            "画廊窗口高还要算上网格下方那一条留白，否则刚好装下一屏时仍有一小段空内容可滚")
     }
 
     @Test("统计分组是固定高的一整块，不按设置行算")

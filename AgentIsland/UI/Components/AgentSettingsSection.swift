@@ -454,7 +454,7 @@ private struct AgentSettingsRow: View {
     let onDirectoryChanged: () -> Void
 
     @ObservedObject private var l10n = LocalizationManager.shared
-    /// 行悬停：整行叠一层弱白，18 行逐个都点得到的行因此有「可点」的反馈。
+    /// 行悬停：整行叠一层弱白，19 行逐个都点得到的行因此有「可点」的反馈。
     @State private var isHovered = false
 
     var body: some View {

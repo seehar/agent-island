@@ -380,7 +380,7 @@ nonisolated enum NotchMenuMetrics {
     /// 画廊窗口的内容高：行数超过窗口时只算窗口那几行（渲染全部、窗口封顶）。
     ///
     /// 网格下方还有一份 `rowVerticalPadding` 的留白，它也算内容——不算进去的话，
-    /// 即使 18 枚刚好装下，窗口里仍有一小段空内容可滚、滚动条会为它亮起来。
+    /// 即使刚好装下一屏（6×4），窗口里仍有一小段空内容可滚、滚动条会为它亮起来。
     static var animationGalleryHeight: CGFloat {
         let rows = min(
             (AgentKind.allCases.count + animationGalleryColumns - 1) / animationGalleryColumns,
