@@ -1,6 +1,6 @@
 # AgentIsland（macOS 刘海 Agent 会话面板）
 
-> 一款 macOS 菜单栏应用（`LSUIElement`，无 Dock 图标）：把 18 个编码 Agent CLI —— Claude Code、Oh My Pi（`omp`）、Pi、OpenCode、Codex、Gemini CLI、Cursor、Copilot、Qoder、Factory（`droid`）、CodeBuddy、Kimi Code CLI、Cline、Grok CLI、Trae、Trae CLI、DeepSeek Harness（`dsh`）、Hermes（`hermes`）—— 的会话状态搬到 MacBook 刘海处的浮层里：实时状态、对话历史、用量统计，以及支持阻塞审批的工具在刘海上批准 / 拒绝 / 作答。
+> 一款 macOS 菜单栏应用（`LSUIElement`，无 Dock 图标）：把 19 个编码 Agent CLI —— Claude Code、Oh My Pi（`omp`）、Pi、OpenCode、Codex、Gemini CLI、Cursor、Copilot、Qoder、Factory（`droid`）、CodeBuddy、WorkBuddy（`workbuddy`）、Kimi Code CLI、Cline、Grok CLI、Trae、Trae CLI、DeepSeek Harness（`dsh`）、Hermes（`hermes`）—— 的会话状态搬到 MacBook 刘海处的浮层里：实时状态、对话历史、用量统计，以及支持阻塞审批的工具在刘海上批准 / 拒绝 / 作答。
 > 派生自 `engels74/claude-island`，已全量改名 AgentIsland（目录、target、scheme、bundle id、socket、集成文件名、偏好域）。
 
 - 语言/框架：Swift（工程 `SWIFT_VERSION = 5.0`，但已打开 Swift 6 并发语义：`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`、`SWIFT_APPROACHABLE_CONCURRENCY = YES`、`SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES`）
@@ -95,7 +95,7 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 1. `Models/AgentKind.swift` 加 case。`rawValue` **就是集成侧的 `--source`、也是 CodeIsland 的 source id**（两侧必须同一个字符串，否则事件会被算到别的 Agent 名下；且不能含冒号——`SessionKey` 按第一个冒号切分）。补 displayName / shortName / binaryName / approval / subagentToolNames / interactiveToolNames；`isClaudeFamily` 决定它是否复用 Claude 的 hook 契约与记录格式。
 2. `Services/Agents/AgentHooks.swift` 的 `hookSpec` 补一行：写入格式、配置路径（可带 `CODEX_HOME` / `GROK_HOME` 这类根目录环境变量）、事件表、决定回写协议。**没有配置文件型 hook 的工具填 nil**（Claude 走 hook 脚本、omp/pi 走扩展、opencode 走插件、DSH 由外部插件直接写 socket）。
 3. `Services/Agents/` 实现 `AgentProvider`（`paths()`、`transcriptFile`、`isTranscriptFile`、`sessionId(fromTranscriptFile:)`、`cwd(fromTranscriptFile:)`、`subagentTranscriptFiles`、`integrationStatus()`），**带可注入的 `home`**（用例要能指向临时目录），并在 `AgentRegistry.all` 注册（**home 必须过 `AgentProviderRoot.canonical`**，理由见已知坑）；同时补 `AgentProcessScanner.matches` 与 `AgentSessionScanner` 的发现源。
-4. `Services/Session/` 加记录解析实现：Claude 系 fork 直接复用 `ClaudeFamilyTranscriptSchema`；其它格式自己实现 `AgentTranscriptSchema`（追加式 JSONL 继承 `JSONLTranscriptSchema`，整文档 JSON 则用「文件指纹 + 已消费条数」做增量），并在 `AgentTranscriptSchemaRegistry` 注册；有 token 字段的再接 `TranscriptUsageScanner`。**记录不在文件树而在 SQLite 的（OpenCode、Hermes）**另走只读库通道：打开方式共用 `SQLiteReadOnlyConnection`（读写打开 + `PRAGMA query_only`，理由见其文件头），再各写一个 `…SessionStore`，JSONL 那套增量不适用。
+4. `Services/Session/` 加记录解析实现：Claude 系 fork 直接复用 `ClaudeFamilyTranscriptSchema`（CodeBuddy 方言由 `CodeBuddyTranscriptSchema(kind:)` 承载，WorkBuddy 复用同一份）；其它格式自己实现 `AgentTranscriptSchema`（追加式 JSONL 继承 `JSONLTranscriptSchema`，整文档 JSON 则用「文件指纹 + 已消费条数」做增量），并在 `AgentTranscriptSchemaRegistry` 注册；有 token 字段的再接 `TranscriptUsageScanner`。**记录不在文件树而在 SQLite 的（OpenCode、Hermes）**另走只读库通道：打开方式共用 `SQLiteReadOnlyConnection`（读写打开 + `PRAGMA query_only`，理由见其文件头），再各写一个 `…SessionStore`，JSONL 那套增量不适用。
 5. `Resources/agent-island-state.py` 的事件归一表补该工具的原生事件名（与 CodeIsland `EventNormalizer` 对齐；`scripts/verify-agent-hooks.sh` 是它的验证矩阵）。
 6. `UI/`：`AgentPalette` 补品牌色、`AgentMarks.swift` 补标记形状（`AgentLogo` 的 `Glyph` 是穷举 switch）、**`UI/Mascots/` 补一枚像素角色**（`AgentMascot` 的路由是穷举 switch，两处编译器都会提醒）；本地化补产品名与短名的 en/zh-Hans 键。
 7. 跑 `./scripts/gate.sh --with-tests`：`AgentIslandTests/AgentKindTests.swift` 是表完整性用例——漏填某一列、rawValue 重名、阻塞事件却不让回传决定，都会在那里红。
@@ -117,15 +117,15 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 
 ### 运行时像素角色（标记动态）
 
-- Agent 的「运行时标记」是**像素角色**（`UI/Mascots/`），不是品牌字形：18 个 Agent 各有一枚会打盹、会干活、会跳起来喊你的小人。品牌字形仍然在，但只当**静态身份标记**（`AgentLogo`：会话角标、设置行的 Agent 图标这类 10…12pt 的密集场合）。
-- 分工：`MascotMotion`（曲线语汇，全是时间的纯函数）+ `MascotKit`（`MascotSprite`：SVG 单位坐标映射；`MascotDraw.floatingZs`：睡眠 Z）+ `Mascots/<角色>.swift`（一枚角色的画法与三套场景）+ `AgentMascot`（状态、时钟、路由）。**运动是时间的纯函数**：同一 `t` 永远画出同一帧（定帧走 `frozenTime:` 显式传参，**不走环境变量**——环境值一旦没传到就会静默退回「按当前时刻现算」，那是随机画面的来源），所以能离屏定帧逐帧比对（`AgentMascotRenderTests` 会把 18 枚 × 3 场景逐个渲染，并在 `/tmp/agent-mascot-probe/` 落一张接触表供人工核对）。
+- Agent 的「运行时标记」是**像素角色**（`UI/Mascots/`），不是品牌字形：19 个 Agent 各有一枚会打盹、会干活、会跳起来喊你的小人（**CodeBuddy 与 WorkBuddy 共用同一枚**：`AgentMascot` 把 `.workBuddy` 路由到 `CodeBuddyMascot`，与 `Pi`/`Oh My Pi`、`Trae`/`Trae CLI` 同一先例）。品牌字形仍然在，但只当**静态身份标记**（`AgentLogo`：会话角标、设置行的 Agent 图标这类 10…12pt 的密集场合）。
+- 分工：`MascotMotion`（曲线语汇，全是时间的纯函数）+ `MascotKit`（`MascotSprite`：SVG 单位坐标映射；`MascotDraw.floatingZs`：睡眠 Z）+ `Mascots/<角色>.swift`（一枚角色的画法与三套场景）+ `AgentMascot`（状态、时钟、路由）。**运动是时间的纯函数**：同一 `t` 永远画出同一帧（定帧走 `frozenTime:` 显式传参，**不走环境变量**——环境值一旦没传到就会静默退回「按当前时刻现算」，那是随机画面的来源），所以能离屏定帧逐帧比对（`AgentMascotRenderTests` 会把 19 枚 × 3 场景逐个渲染，并在 `/tmp/agent-mascot-probe/` 落一张接触表供人工核对）。
 - **15 枚**角色的画法、配色与关键帧移植自 **CodeIsland**（MIT，见 `NOTICE.md`，源 `Sources/CodeIsland/*View.swift`）：坐标常量、场景视口（`svgWidth`/`svgHeight`/`svgTop`）与关键帧逐值保留。移植时改了四处：① 时间改为显式传参（`t`），删掉 `MascotTimeline` / `@State alive` / `.repeatForever`（非确定性动画会让定帧判据失效）；② 睡眠 Z 由 `Text("z")` 改为像素绘制（本仓禁止 `Text("…")` 字面量），锚点也从「画布中心」改成「身体顶边」（身体占画面中部的角色，旧锚点会把 Z 压在脸上）；③ 起跳幅度按视口截顶（见下条）；④ **运动曲线沿用本仓 `MascotMotion`，不是逐值移植**——`breathe` / `typingBeat` 的包络与上游同名函数只是语义相近，动效细节以本仓为准。
 - `PiMascot` 由 **Pi 与 Oh My Pi 共用**（上游 CodeIsland 也只有一枚 `PiView`）：画法一份、**配色是入参**（`PiMascot.Palette.pi` / `.ohMyPi`），omp 用它的品牌主色 #9B4DFF（与 `AgentPalette.brandColor`、刘海计数徽标同色），叶面取 omp.sh 同一条渐变里与紫**相邻**的粉端 #ED4ABF（青端与亮紫同屏会互相打架，淡紫又会糊进机身顶边的高光带）。改配色时别把整份画法抄成两份。
 - 另外两枚不属于上面这条：`GrokMascot` 只有**标记几何**来自上游（`GrokView` 是静态商标，上游明确要求不变形），三套场景与动效是本仓补的（只平移，不旋转/缩放）；`DeepSeekHarnessMascot` 整枚是本仓自绘（上游没有 dsh 的角色），沿用同一套口径。
 - 三套场景由会话相位选：**空闲 = 打盹**（趴下 / 摊平、呼吸、飘 Z）、**处理中 = 招牌动作**（打字 / 走 / 转）、**待审批 = 起跳 + 瞪眼 + 惊叹号**。周期统一为 3.5 秒、语义统一为「三跳、一跳比一跳矮、顶上惊叹号」——「有事等你」因此仍是统一的应用级信号（14 枚用同一张位移表，`Pi` / `Hermes` 沿用上游各自略有出入的表）；但**位移与影子画在各角色自己的画布里**（影子留在地上、不跟着身体跳），`AgentMascot` 不再施加公共位移或光晕。
 - **起跳幅度必须过截顶**：上游关键帧的顶点（Clawd 是 -10 个 SVG 单位）比它自己的视口还高——实拍顶点那一帧只剩腿、叹号与影子，身体整块被 `clipped()` 裁掉。每枚角色把入参写成 `static let alertSpec = MascotAlertSpec(maxRise:bodyTop:svgTop:overshoot:)`，`drawAlert` 用 `jumpY * alertSpec.riseFactor`（按「身体顶边到视口上边缘的距离 + 余量」**等比缩放整条曲线**，而不是逐个钳位——逐个钳位会把三跳压成一样高；视口在方形画布里没有纵向余量时 `overshoot` 必须取 0，如 `FactoryMascot`）。`AgentMascotRenderTests.alertApexKeepsTheBodyInFrame` 按 `alertSpec` 推导断言「顶点身体顶边不越出视口」（不用渲染比例：实测 12/16 枚在渲染比例判据下会漏）。
 - `t == 0` 必须是各场景最有代表性的一帧（离屏定帧探针与单测取这一帧）；「静止」档位另取各场景的代表时刻（`AgentMascotStatus.stillInstant`）：空闲 0、处理中 0.45、待审批 0.35（各角色自己的**惊觉**窗口：瞪眼 + 惊叹号满亮 + 刚离地——用户在「静止」档看到的必须是「有人在喊你」那一帧，而不是站着不动的平常样；取 0.35 而不是更晚，是因为多数角色的瞪眼窗口在 pct 0.15（t 0.525）就结束了）。三个时刻都必须早于各角色的首次眨眼（`blink` 的 start 落在 [0.6, 3.0)，由 `MascotMotionTests` 钉住）。
-- 「标记动态」页（`NotchMenuSection.animations`）把 18 枚角色一次铺开预览：状态选择 + 速度选择（静止 / 0.5× / 1× / 2×）+ 6×3 的画廊（整台画廊只跑一个时钟，每格按 `frozenTime:` 定帧）。这一页不占分段位（分段条放不下第六段），入口是「智能体」卡片的第一行（轮播角色缩略图 + 副标题 + chevron）。
+- 「标记动态」页（`NotchMenuSection.animations`）把 19 枚角色一次铺开预览：状态选择 + 速度选择（静止 / 0.5× / 1× / 2×）+ 6×4 的画廊（整台画廊只跑一个时钟，每格按 `frozenTime:` 定帧）。这一页不占分段位（分段条放不下第六段），入口是「智能体」卡片的第一行（轮播角色缩略图 + 副标题 + chevron）。
 
 ### 集成安装面（AgentIsland 唯一会写入的 Agent 侧文件）
 
@@ -139,6 +139,7 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 | Cursor | `~/.cursor/hooks.json` |
 | Copilot | `~/.copilot/hooks/agent-island.json` |
 | Qoder / Factory / CodeBuddy | `~/.qoder/settings.json` / `~/.factory/settings.json` / `~/.codebuddy/settings.json` 的 `hooks` 键 |
+| WorkBuddy | `~/.workbuddy/settings.json` 的 `hooks` 键（共用 `~/.agent-island/hooks/agent-island-state.py`） |
 | Kimi Code CLI | `~/.kimi-code/config.toml`（不存在则回退 `~/.kimi/config.toml`）的 `[[hooks]]` 块 |
 | Cline | `~/Documents/Cline/Hooks/<EventName>` 每事件一个可执行文件 |
 | Grok CLI | `$GROK_HOME/hooks/agent-island.json` |
@@ -168,13 +169,13 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 
 ### 各 Agent 接入的事实来源与证据等级
 
-新接入的 14 个 Agent 里，本机装着的有 Codex（`codex`）、Qoder（`qodercli`）与 Hermes
-（`hermes`，本机 v0.19.0），其余（Gemini / Cursor / Copilot / Factory / CodeBuddy / Kimi /
-Cline / Grok / Trae / Trae CLI / DSH）**没有本机样本**。所以这一块的证据分三档，动这些地方之前先认清自己手里是哪一档：
+新接入的 15 个 Agent 里，本机装着的有 Codex（`codex`）、Qoder（`qodercli`）、WorkBuddy
+（`workbuddy`，腾讯桌面应用内嵌 CodeBuddy CLI）与 Hermes（`hermes`，本机 v0.19.0），其余（Gemini /
+Cursor / Copilot / Factory / CodeBuddy / Kimi / Cline / Grok / Trae / Trae CLI / DSH）**没有本机样本**。所以这一块的证据分三档，动这些地方之前先认清自己手里是哪一档：
 
 | 档位 | 含义 | 涉及 |
 |---|---|---|
-| 本机实测 | 用真机记录与配置逐字核对过字段 | Codex（`~/.codex/sessions/**` 真记录 + `hooks.json` + `config.toml` 的 `[features] hooks`）、Qoder（真记录，Claude 格式，项目目录编码与 Claude 一致）、CodeBuddy（真记录，外壳不同且编码少一个前导短横线）、Hermes（`~/.hermes/config.yaml` 的现状、真记录 `~/.hermes/state.db` 的 `sessions`/`messages`/`session_model_usage`、上游 `agent/shell_hooks.py` 的授权与 stdin/stdout 契约） |
+| 本机实测 | 用真机记录与配置逐字核对过字段 | Codex（`~/.codex/sessions/**` 真记录 + `hooks.json` + `config.toml` 的 `[features] hooks`）、Qoder（真记录，Claude 格式，项目目录编码与 Claude 一致）、CodeBuddy / WorkBuddy（真记录，外壳不同且编码少一个前导短横线；WorkBuddy 另有真进程 `ps` 与 bundle 内 `PathUtils.getHomeDir` / `resolveWorkbuddyConfigDir` 佐证）、Hermes（`~/.hermes/config.yaml` 的现状、真记录 `~/.hermes/state.db` 的 `sessions`/`messages`/`session_model_usage`、上游 `agent/shell_hooks.py` 的授权与 stdin/stdout 契约） |
 | 上游源码 | 逐条照 CodeIsland 的实现与其行号，但本机无法复跑 | 各工具的配置路径/格式/事件表、Cursor 与 Copilot 的记录字段、Kimi 两代索引、Cline 的 VSCode 存储、Grok 的 `$GROK_HOME` 布局、Trae/Trae CLI 的布局 |
 | 合成载荷 | 只有矩阵脚本造的信封能证明 | 事件名归一与按工具回写的形状（`scripts/verify-agent-hooks.sh`，31 个 case / 337 条断言） |
 
@@ -187,6 +188,9 @@ Cline / Grok / Trae / Trae CLI / DSH）**没有本机样本**。所以这一块�
 5. DSH：记录是 zstd 压缩（系统无 zstd API，不解析），事件依赖外部 dsh 插件直接写 socket——本应用不装它的集成。
 6. Hermes 的 shell hook 要用户先在 `~/.hermes/shell-hooks-allowlist.json` 里授权才会执行（未授权时 `hermes hooks list` 逐条显示 ✗ not allowlisted，事件**静默不跑**——表现就是「装了但一条事件都没有」，与 Codex 没跑 `/hooks` 同类）。**授权是逐事件的**：`register_from_config` 对配置里的 8 条逐条走 `_prompt_and_record`，只批一部分就是半死状态（未批条目在非 TTY 下直接 `return False`、不写盘、只留一条 warning 日志）。**授权长期有效**：`_is_allowlisted` 只按 `(event, command)` 精确串比对、不看脚本 mtime，因此我们升级脚本后照跑，只有 `hermes hooks doctor` 会报「script modified since approval」并建议 revoke + 重新批准（2026-09-25 本机实测：8 条只批了 3 条 → `post_llm_call` / `on_session_start` / `on_session_end` / `on_session_reset` / `subagent_stop` 全丢；已批那 3 条经 `agent-island-state.py` 到 socket 的投递实测可用）。仍缺真机证据的是「跑一轮完整 Hermes 会话时这批事件确实上报」——本轮只取到了注册/授权与脚本投递两侧的证据。
 7. Hermes 的 `pre_llm_call` 与 `on_session_reset` 不在 CodeIsland 的 v1 事件表里（那一版只注册 6 个），但**上游有据**：两者都在 Hermes 自己的 hook 白名单 `VALID_HOOKS` 里（`hermes_cli/plugins.py:135`，`pre_llm_call` 见 `:144`、`on_session_reset` 见 `:163`，shell hook 与插件 hook 共用这张表，`_make_callback` 是通用的），因此注册它们不是猜测。真机核对时只需确认这两个事件在 CLI/gateway 两条路径上都确实被触发过。
+8. WorkBuddy 是否真的触发我们写进 `~/.workbuddy/settings.json` 的 `hooks`（该文件同时是它自己的配置，含 `sandbox` / `enabledPlugins`）：**已在本机验证前半段** —— 用 `--source workbuddy` 的信封调用装好的脚本，应用收到的信封让记录路径解析到 `~/.workbuddy/projects/<编码 cwd>/<会话 id>.jsonl`（provider 根与目录编码都对）、会话也照常登记；**仍待验证**的是 WorkBuddy 应用自己会不会执行这些 hook（装上集成后跑一轮会话看日志）。若被沙箱拦下，表现与 Codex 未跑 `/hooks`、Hermes 未授权同类 —— 「装了但一条事件都没有」。
+9. WorkBuddy 的 pid 归属是否被「主进程与内嵌 CLI 的 `comm` 完全相同」搅乱（实测两者都是 `/Applications/WorkBuddy.app/Contents/MacOS/Electron`）：按包路径认的进程判据会**同时命中 ≥2 个进程** → `soleProcess == nil`，会话拿不到 pid、只能按空闲超时回收（与 hermes / 无记录 Agent 同一条降级路径）。
+10. `~/.workbuddy/settings.json` 会不会被 WorkBuddy 应用整体重写（丢掉我们的 `hooks` 键）：装好集成后正常开关一次应用，`diff` 该文件确认写入方与内容。
 
 **首次启动的足迹**：Agent 默认关闭，因此**不会**有任何写入，直到用户在「智能体」页启用（单行或「全部启用并安装」）——那一刻才会为已启用的、且配置目录存在的工具写 hook 条目，每个被改写的文件旁留 `<文件名>.agent-island-backup`，写入动作是 notice 级日志。关掉某个 Agent 只摘它的条目，共用脚本保留。升级用户如果原本在监控 claude/omp/pi/opencode，迁移会保留它们（见上一节），那一次启动会照旧维护它们的集成。
 
@@ -211,6 +215,7 @@ Cline / Grok / Trae / Trae CLI / DSH）**没有本机样本**。所以这一块�
 - 单个 Agent 卸载**不要**删 `~/.agent-island/hooks/agent-island-state.py`：它是所有配置文件型 Agent 共用的脚本，删掉会让其余工具的配置指向不存在的文件。
 - 改 pi/omp 扩展（`agent-island-pi-extension*.ts.txt`）必须同步 +1 `AgentIntegrationInstaller.piFamilyExtensionVersion`（两个变体文件都要改），否则 `isInstalled` 认不出升级、界面继续显示「已安装」。**扩展是进程启动时求值一次的**：改完只有新起的 CLI 会加载，已在跑的会话（含 Paseo 终端里的）要重启才会带上新字段——症状是「代码改了但界面上没变化」。
 - **路径归一不是一个可选优化**：`FileManager` 的目录遍历返回的是 `realpath` 展开后的路径（macOS 下 `/var/…` → `/private/var/…`），而 `URL.resolvingSymlinksInPath()` / `standardizedFileURL` **不会**展开 `/var`、`/tmp`、`/etc` 这几个系统软链。provider 里 `hasPrefix(自己的根)` 的判定因此会与遍历结果对不上，记录被静默跳过（表现：工具在跑，面板里一个会话都没有）。统一走 `AgentProviderRoot.canonical`（POSIX `realpath`），用例夹具建目录后也要过它一次。
+- **记录文件的「首行很长」不是边角情况**：WorkBuddy / CodeBuddy 会把整段注入上下文写成第一条 user 消息（本机实测 WorkBuddy 首行 14 896 字节）。`TranscriptFileReader.firstRecordField` 因此只对**完整行**做判断、总读取量由 `headerReadBudgetBytes`（1 MiB）封顶。它曾经只读固定 8 KB 前缀、再把整段前缀按 UTF-8 解码切行 —— 长首行会被切成半个 JSON（或切在半个多字节字符上让整段解码失败），`cwd` 取不到，会话在发现器里**静默跳过**（面板里一条都没有）。改这个函数时别退回「按固定前缀截断再解析」。
 
 <delegation_rules>
 何时委托子代理 vs 直接处理：

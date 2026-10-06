@@ -3,7 +3,7 @@
   <h1 align="center">AgentIsland</h1>
   <p align="center">
     <b>Your coding agents, on the MacBook notch.</b><br>
-    Live session state, chat history, usage stats and tool approvals for 18 coding agents — Claude Code, Codex, Gemini CLI, Cursor, Copilot, Qoder, Factory, CodeBuddy, Kimi Code CLI, Cline, Grok CLI, Trae, Trae CLI, DeepSeek Harness, Hermes, Oh My Pi, Pi and OpenCode — one glance, no window switching.
+    Live session state, chat history, usage stats and tool approvals for 19 coding agents — Claude Code, Codex, Gemini CLI, Cursor, Copilot, Qoder, Factory, CodeBuddy, WorkBuddy, Kimi Code CLI, Cline, Grok CLI, Trae, Trae CLI, DeepSeek Harness, Hermes, Oh My Pi, Pi and OpenCode — one glance, no window switching.
     <br><br>
     <a href="https://github.com/seehar/agent-island/releases/latest"><img src="https://img.shields.io/github/v/release/seehar/agent-island?style=flat&color=0969da&label=release" alt="Release"></a>
     <a href="https://github.com/seehar/agent-island/releases"><img src="https://img.shields.io/github/downloads/seehar/agent-island/total?style=flat&color=0969da&label=downloads" alt="Downloads"></a>
@@ -42,19 +42,19 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
 
 ## Features
 
-**One list for every agent.** 18 CLIs side by side — Claude Code, Codex, Gemini CLI, Cursor, Copilot, Qoder, Factory, CodeBuddy, Kimi Code CLI, Cline, Grok CLI, Trae, Trae CLI, DeepSeek Harness, Hermes (`hermes`), Oh My Pi (`omp`), Pi and OpenCode — each with its own brand mark and badge. Turn off the agents you don't run and they disappear from the list entirely.
+**One list for every agent.** 19 CLIs side by side — Claude Code, Codex, Gemini CLI, Cursor, Copilot, Qoder, Factory, CodeBuddy, WorkBuddy (`workbuddy`), Kimi Code CLI, Cline, Grok CLI, Trae, Trae CLI, DeepSeek Harness, Hermes (`hermes`), Oh My Pi (`omp`), Pi and OpenCode — each with its own brand mark and badge. Turn off the agents you don't run and they disappear from the list entirely.
 
 **Subagents included.** Claude Code tool calls inside subagents, and `omp`/`pi` subagent runs, count towards the notch badge and are listed under the `task` card that spawned them.
 
 **Approvals on the notch.** Allow / Deny for every agent that can hand the decision back: Claude Code and its forks (Qoder), Codex, Gemini CLI and Trae CLI through their permission hooks, `omp`/`pi` through a blocking extension gate (opt-in), OpenCode through its plugin. The rest still show up and are approved in their own terminal. Calls classified as dangerous — `rm -rf /`, `sudo rm`, `mkfs`, `dd … of=/dev/…`, `curl … | sh`, reverse shells, `kill -9 1` — are flagged in red, and their fail-open path is never used.
 
-**Usage stats.** Coverage follows what each tool actually records. Token numbers come from the agents whose records carry a token field we could verify — Claude Code (and its forks Qoder / Factory), Oh My Pi, Pi, Codex, OpenCode, and Hermes (whose token totals include its subagent sessions, while session counts do not). Tool-call counts follow each agent's record format: Claude Code, its forks, Oh My Pi, Pi, Codex, Cursor, Copilot and Hermes. Gemini, Kimi, Cline, Grok, Trae, Trae CLI and DeepSeek Harness provide no checkable usage fields (or no readable records at all), so they do not appear on the stats page. The header's chart button opens a stats page: total tokens with input / output / cache read / cache write and hit rate, session and tool-call counts, for **Today / This Week / This Month / All** — split per agent, with a trend chart and a tool leaderboard. The numbers are indexed from the agents' own session records, so finished sessions still count.
+**Usage stats.** Coverage follows what each tool actually records. Token numbers come from the agents whose records carry a token field we could verify — Claude Code (and its forks Qoder / Factory / CodeBuddy / WorkBuddy), Oh My Pi, Pi, Codex, OpenCode, and Hermes (whose token totals include its subagent sessions, while session counts do not). Tool-call counts follow each agent's record format: Claude Code, its forks (Qoder / Factory / CodeBuddy / WorkBuddy), Oh My Pi, Pi, Codex, Cursor, Copilot and Hermes. Gemini, Kimi, Cline, Grok, Trae, Trae CLI and DeepSeek Harness provide no checkable usage fields (or no readable records at all), so they do not appear on the stats page. The header's chart button opens a stats page: total tokens with input / output / cache read / cache write and hit rate, session and tool-call counts, for **Today / This Week / This Month / All** — split per agent, with a trend chart and a tool leaderboard. The numbers are indexed from the agents' own session records, so finished sessions still count.
 
 **Chat history, rendered.** The full conversation with Markdown, tool call cards with their results, subagent runs inline, and the question when a tool is waiting for your input.
 
 ![The chat view: Markdown, tool calls and subagents](docs/images/notch-chat.png)
 
-**Works with or without the integration.** Sessions are discovered by reading each agent's own records — JSONL transcripts (Claude Code, Qoder, Factory, CodeBuddy, Codex, Gemini, Cursor, Copilot, Kimi, Cline, Grok), or the SQLite stores of OpenCode and Hermes — and status is inferred from the transcript. Trae, Trae CLI and DSH have no readable records and rely on their integration (DSH on the external [dsh-island](https://github.com/cdxiaodong/dsh-island) plugin). Installing the integration adds live events immediately, and on `omp`/`pi` it is what makes the approval gate possible.
+**Works with or without the integration.** Sessions are discovered by reading each agent's own records — JSONL transcripts (Claude Code, Qoder, Factory, CodeBuddy, WorkBuddy, Codex, Gemini, Cursor, Copilot, Kimi, Cline, Grok), or the SQLite stores of OpenCode and Hermes — and status is inferred from the transcript. Trae, Trae CLI and DSH have no readable records and rely on their integration (DSH on the external [dsh-island](https://github.com/cdxiaodong/dsh-island) plugin). Installing the integration adds live events immediately, and on `omp`/`pi` it is what makes the approval gate possible.
 
 **Small by design.** No Dock icon, no menu bar item, no daemon: a local Unix socket, one `NSPanel` on the notch, and your agents' own files.
 
@@ -81,6 +81,7 @@ The page lives in the panel's **Statistics** page (the chart button in the panel
 |**Qoder**|`~/.qoder/projects/**/*.jsonl`|`~/.qoder/settings.json`|yes — hook `PermissionRequest`|Claude-style subagent events|
 |**Factory** (`droid`)|`~/.factory/sessions/**/*.jsonl`|`~/.factory/settings.json`|—|Claude-style subagent events|
 |**CodeBuddy**|`~/.codebuddy/projects/**/*.jsonl`|`~/.codebuddy/settings.json`|—|Claude-style subagent events|
+|**WorkBuddy** (`workbuddy`)|`~/.workbuddy/projects/**/*.jsonl`|`~/.workbuddy/settings.json`|—|Claude-style subagent events|
 |**Kimi Code CLI**|`~/.kimi-code/sessions/**`|`~/.kimi-code/config.toml`|—|—|
 |**Cline**|VS Code global storage `saoudrizwan.claude-dev`|`~/Documents/Cline/Hooks/<EventName>` (one file per event)|—|—|
 |**Grok CLI**|`$GROK_HOME/sessions/<enc-cwd>/<id>/chat_history.jsonl`|`$GROK_HOME/hooks/agent-island.json`|—|—|
@@ -93,7 +94,7 @@ The page lives in the panel's **Statistics** page (the chart button in the panel
 >
 > **Hermes needs one manual step too**: Hermes only runs a shell hook the user has allowed, and consent is **per event** — the integration writes 8 entries, so a TTY run of `hermes` prompts once for each of them. Approve them all: an unapproved event is skipped silently (no error, no event), which looks exactly like "Hermes is not supported", while `hermes hooks list` (and `hermes hooks doctor`) reports each entry as ✓ allowed / ✗ not allowlisted. The record is keyed on the exact command string, so it survives our script updates; non-TTY runs (scripts, the gateway) never prompt and never record.
 >
-> **What "no" means per agent**: Cursor, Copilot, Trae, Cline, Kimi, Factory, CodeBuddy and Hermes have no blocking permission hook, so their approvals stay in their own terminal; Trae and Trae CLI write no readable session records (live events only), and DeepSeek Harness keeps its records zstd-compressed, so its history is not read (it needs the external dsh plugin to report events at all).
+> **What "no" means per agent**: Cursor, Copilot, Trae, Cline, Kimi, Factory, CodeBuddy, WorkBuddy and Hermes have no blocking permission hook, so their approvals stay in their own terminal; Trae and Trae CLI write no readable session records (live events only), and DeepSeek Harness keeps its records zstd-compressed, so its history is not read (it needs the external dsh plugin to report events at all).
 
 ## Install
 
@@ -131,7 +132,7 @@ AgentIsland only touches each agent's own integration surface: the shared hook s
 |Pi|`~/.pi/agent/extensions/agent-island-state.ts`|—|
 |OpenCode|`~/.config/opencode/plugins/agent-island-state.js`|—|
 |Codex|`~/.agent-island/hooks/agent-island-state.py` (shared)|`$CODEX_HOME/hooks.json` entries + `[features] hooks = true` in `$CODEX_HOME/config.toml`|
-|Gemini CLI / Cursor / Copilot / Qoder / Factory / CodeBuddy|`~/.agent-island/hooks/agent-island-state.py` (shared)|`~/.gemini/settings.json` / `~/.cursor/hooks.json` / `~/.copilot/hooks/agent-island.json` / `~/.qoder/settings.json` / `~/.factory/settings.json` / `~/.codebuddy/settings.json`|
+|Gemini CLI / Cursor / Copilot / Qoder / Factory / CodeBuddy / WorkBuddy|`~/.agent-island/hooks/agent-island-state.py` (shared)|`~/.gemini/settings.json` / `~/.cursor/hooks.json` / `~/.copilot/hooks/agent-island.json` / `~/.qoder/settings.json` / `~/.factory/settings.json` / `~/.codebuddy/settings.json` / `~/.workbuddy/settings.json`|
 |Kimi Code CLI|`~/.agent-island/hooks/agent-island-state.py` (shared)|`~/.kimi-code/config.toml` `[[hooks]]` blocks|
 |Cline|`~/.agent-island/hooks/agent-island-state.py` (shared)|`~/Documents/Cline/Hooks/<EventName>` files|
 |Grok CLI / Trae / Trae CLI|`~/.agent-island/hooks/agent-island-state.py` (shared)|`$GROK_HOME/hooks/agent-island.json` / `~/.trae/hooks.json` / `~/.trae/traecli.yaml`|
@@ -173,7 +174,7 @@ Single-clicking a session row follows the *click action* above; double-click alw
 
 ```mermaid
 flowchart LR
-  CLI["Agent CLIs<br/>claude · codex · gemini · cursor · copilot · qoder · droid · codebuddy · kimi · cline · grok · trae · traecli · dsh · hermes · omp · pi · opencode"]
+  CLI["Agent CLIs<br/>claude · codex · gemini · cursor · copilot · qoder · droid · codebuddy · workbuddy · kimi · cline · grok · trae · traecli · dsh · hermes · omp · pi · opencode"]
   INT["Integration<br/>hook · extension · plugin"]
   SOCK["/tmp/agent-island.sock"]
   APP["AgentIsland<br/>NSPanel on the notch"]
