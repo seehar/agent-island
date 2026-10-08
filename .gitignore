@@ -51,3 +51,9 @@ releases/
 
 # Xcode backup
 *.xcodeproj.backup/
+
+# 外部 Agent CLI 的会话产物：在本仓目录里跑过 WorkBuddy / CodeBuddy（本机实测产出
+# `.db/session/<会话名>/{plan,test-spec,acceptance}.md`）后会留下这个目录，不是本仓内容。
+# 锚定在仓库根、且只匹配目录——写 setup 脚本时别让它在子目录里误伤别的东西。
+/.db/
+
