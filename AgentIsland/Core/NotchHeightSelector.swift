@@ -106,6 +106,12 @@ final class NotchHeightSelector: ObservableObject {
     /// 面板高度按它算，预算核对（`NotchMenuMetricsTests`）也读它，不要再写数字。
     nonisolated static let visibleOptions = 4
 
+    /// 展开时面板需要多出来的高度。
+    var expandedPickerHeight: CGFloat {
+        guard isPickerExpanded else { return 0 }
+        return NotchMenuMetrics.pickerOptionsHeight(visibleOptions: Self.visibleOptions)
+    }
+
     // MARK: - 持久化
 
     private func loadPreferences() {

@@ -156,29 +156,12 @@ nonisolated enum NotchMenuMetrics {
     static let twoLineRowHeight: CGFloat = 48
     /// 单行开关行：开关控件 24 比图标块 22 高，行高因此比普通行多 2。
     static let toggleRowHeight: CGFloat = 42
-    /// 展开的选择器里的一行选项（含微调行）。**它不再参与面板高度**：选项列表画在
-    /// 浮层里（见 `SettingsPickerOverlay`），高度只由浮层自己夹。
+    /// 展开的选择器里的一行选项（含微调行）。
     static let optionRowHeight: CGFloat = 32
-    /// 选项列表的上下留白。
+    /// 选项列表的上下留白：选项块总高 = 选项数 × 行高 + 这个值。
     static let optionListPadding: CGFloat = 10
     static let optionListTopPadding: CGFloat = 4
     static let optionListBottomPadding: CGFloat = 6
-
-    // MARK: - 展开的选择器浮层
-
-    /// 浮层宿主与行之间约定的坐标空间名：`NotchMenuView` 在滚动视口上定义这个空间，
-    /// `SettingsPickerRow` 在 `background` 里按它取自己的矩形。两处必须同名。
-    static let pickerOverlaySpace = "settings-picker-overlay"
-
-    /// 浮层与它所属那行之间的间距。
-    static let pickerOverlayGap: CGFloat = 4
-    /// 浮层的左右留白：贴齐内容列两端，但留出与卡片同样的呼吸位。
-    static let pickerOverlayHorizontalInset: CGFloat = rowHorizontalPadding
-    /// 浮层的高度上限：取当前最长的可见选项表（音效 6 行 = 202pt）。更高的列表在被夹住的
-    /// 卡片里自己滚动，**与面板高度无关**。
-    static var pickerOverlayMaxHeight: CGFloat {
-        pickerOptionsHeight(visibleOptions: SoundSelector.maxVisibleOptions)
-    }
 
     // MARK: - 分组与页眉
 
@@ -427,29 +410,23 @@ nonisolated enum NotchMenuMetrics {
         CGFloat(NewAPIAccountField.allCases.count) * twoLineRowHeight
     }
 
-    /// 设置面的面板高度上限：分组内容超出时由页内滚动接管，面板不再继续变长。
+    /// 设置面的面板高度上限：**静态内容**超出时由页内滚动接管，面板不再继续变长。
     ///
-    /// 上限取 **640**，不是「够装下所有页」的那个数。它原先是 728（≈ 1080p 屏高的 67%），
-    /// 观感上就是面板一路往上长、把菜单栏下面的大半屏吃掉；640 让最高的一档也只占约六成，
-    /// 超出的部分在页内滚动（滚动条隐藏）。**这是有意的取舍**：智能体页因此会开始
-    /// 滚动，换来的是面板不再随内容胀大。
+    /// 上限取 **640**：它原先是 728，观感上就是面板一路往上长、把菜单栏下面的大半屏吃掉。
+    /// **这是有意的取舍**：智能体页因此会开始滚动，换来的是面板不再随内容胀大。
     ///
-    /// 判据可核算：**每个设置面都要满足「内容高 + 该页最高的单个展开 + chrome ≤ 640」**。
-    /// chrome = `max(24, 胶囊高度) + 12`，可达区间是 **36…76**（`max(24, …)` 先把
-    /// 胶囊高度抬到 24，所以下限是 36 而不是 16 + 12）：外接屏自动档
-    /// （菜单栏 24/25）→ 36/37；内置刘海 32 → 44；`notch` 档在没有内置刘海的屏上 38 → 50；
-    /// 胶囊高度自定义 16…64 → 36…76。
-    /// 侧栏化之后每页少掉 34pt 的固定开销，**值选择器又全部改成浮层**（见
-    /// `SettingsPickerOverlay`）之后，逐页的「内容高 + 该页最高单个展开」是：通用 480 + 0、
-    /// 行为 486 + 0、通知 298 + 0、智能体 530 +（行内目录编辑器 106）、关于 391 + 0、
-    /// 快捷键 590 + 0、标记动态 387 + 0。**只有智能体页（672）会触顶**（快捷键页只在
-    /// chrome 76 时 666 触顶），其余页面在任何 chrome 档下都装得下；被夹取的组合逐条登记在
-    /// `NotchMenuMetricsTests.clampedPairs`（表驱动用例会先失败，逼你登记）。
-    /// **读数面（统计 / 额度）不套这个上限**，见 `maxDashboardHeight`。
-    /// 改任何一页的行数或把某一行从浮层改回就地展开，都要按这条加法重核一遍。
-    /// 还就地展开的只有两处编辑器（智能体页的目录编辑器、额度页的凭据表单）与快捷键页的
-    /// 录制行；**值选择器不再参与这条判据**——它们的列表画在浮层里，浮层不改变页面高度，
-    /// 高度只由 `pickerOverlayMaxHeight` 自己夹（超出的在浮层里滚动）。
+    /// 这条上限**只约束静态内容**。就地展开的选择器是瞬时交互，它的增量加在夹取**之后**、
+    /// 只受窗口高度约束（`maxDashboardHeight` = 730）：展开时整份选项必须可见，否则最后一个
+    /// 档位会落到隐藏滚动条的视口之外——用户只看到箭头翻转（这正是它一度改成浮层的起因，
+    /// 那版的手感被判为「难用」，已按用户要求改回就地展开，见 `SettingsPickerRow`）。
+    ///
+    /// 逐页的「静态内容 + 该页最高单个展开」：通用 480 + 138、行为 486 + 138、通知 298 + 202、
+    /// 智能体 530 + 106、关于 391 + 0、快捷键 590 + 0、标记动态 387 + 0。chrome 可达 36…76。
+    /// 静态内容只有**快捷键页**在 chrome 76 时触顶（590 + 76 = 666 > 640）；加上展开后最高的
+    /// 组合是智能体页（530 + 106 + 76 = 712）与行为页（486 + 138 + 76 = 700），都在窗口上限
+    /// 730 以内——**任何一个选择器展开后整份选项都看得见**。被夹取的组合登记在
+    /// `NotchMenuMetricsTests.clampedPairs`。展开块是**互斥**的（见 `PickerExpansion`），
+    /// 因此按「该页最高的单个展开」核对即可。**读数面不套这个上限**，见 `maxDashboardHeight`。
     static let maxPanelHeight: CGFloat = 640
 
     /// 读数面（统计 / 额度）的高度上限。它们不是设置导航里的一页（见
@@ -469,25 +446,24 @@ nonisolated enum NotchMenuMetrics {
         CGFloat(visibleOptions) * optionRowHeight + optionListPadding
     }
 
-    /// 该分组的面板高度上限：设置面 640（不随内容胀高）、读数面 730（整块一次看全）。
+    /// 该分组的面板高度上限（**只约束静态内容**）：设置面 640、读数面 730。
+    /// 展开的选择器增量加在它之外，见 `panelHeight`。
     static func heightCap(for section: NotchMenuSection) -> CGFloat {
         NotchMenuSection.isDashboard(section) ? maxDashboardHeight : maxPanelHeight
     }
 
-    /// 面板总高度：菜单之外的固定开销 + 当前分组内容 + 该分组里展开的选择器增量。
+    /// 面板总高度：静态内容（受本面上限约束）+ 该分组里展开的选择器增量（受窗口高度约束）。
     ///
-    /// - Parameters:
-    ///   - section: 当前分组。
-    ///   - expandedPickerHeight: 当前分组里展开的选择器增量。
-    ///   - chromeHeight: 菜单之外的固定开销（头部行 + 面板底部内边距），由调用方给出。
+    /// 展开增量加在夹取**之后**：静态内容再长也不会把面板顶过 640，而用户正在选值时
+    /// 整份选项必须可见——把增量一起夹到 640 就会把最后一个档位切到隐藏滚动条的视口外。
     static func panelHeight(
         for section: NotchMenuSection,
         expandedPickerHeight: CGFloat,
         chromeHeight: CGFloat
     ) -> CGFloat {
-        min(
-            chromeHeight + contentHeight(for: section) + expandedPickerHeight,
-            heightCap(for: section))
+        let staticHeight = min(
+            chromeHeight + contentHeight(for: section), heightCap(for: section))
+        return min(staticHeight + expandedPickerHeight, maxDashboardHeight)
     }
 
     /// 当前分组的内容高度：页眉 + 各分组（标题 + 卡片 + 页脚）+ 组间距。

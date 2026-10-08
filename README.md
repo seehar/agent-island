@@ -153,7 +153,7 @@ Already monitoring these agents? The next launch rewrites their extension to the
 
 ![Settings → Agents](docs/images/notch-settings.png)
 
-Opening a picker shows its options as a floating card over the page — the panel itself does not change height when you open one, so nothing ever ends up below the fold.
+Opening a picker expands its options in place and the panel grows to fit them — the whole list stays visible, so nothing ever ends up below the fold.
 
 The rail on the left carries the **four configuration pages** (General, Behavior, Notifications, Agents) with **About** pinned at the bottom; on a narrow panel (the compact size) it falls back to icons only. **Statistics** and **Quota** are not in that rail — they are dashboard faces of their own, reached from the chart and card buttons in the panel header, and they take the full panel width.
 

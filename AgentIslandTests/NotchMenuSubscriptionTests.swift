@@ -2,23 +2,15 @@
 //  NotchMenuSubscriptionTests.swift
 //  AgentIslandTests
 //
-//  面板尺寸的**订阅**不变量（值选择器改成浮层之后）。
+//  面板尺寸的**订阅**不变量（值选择器就地展开）。
 //
 //  两条都要钉：
-//  1. **值选择器不许再影响面板高度**。它们画在浮层里（`SettingsPickerOverlay`），而改造前
-//     那批（通用页 480 + 138、智能体页 530 + 106）一展开就顶过 640 的设置上限，把最后一个
-//     档位切到隐藏滚动条的视口外。这条用例是那块账的回归锁：谁再把某个选择器加回高度账，
-//     「展开后高度不变」立刻失败。
-//  2. **还留在高度账里的东西必须被订阅**。面板内的点击不走 `handleMouseDown`（落在面板内会
-//     直接 return），只有订阅路径才会让 `openedSize` 重算；漏一个的症状是「展开那一行面板
-//     不长高、内容被下边缘裁掉」——版面表与高度公式本身都是对的，预算用例抓不到它
-//     （本仓历史上漏过三次）。
-//
-//  串行 + 自己建立前置：用例会改共享单例（`AgentDirSelector` / `NewAPIAccountPageState` /
-//  `PanelSizeSelector` 与各选择器的展开态），并行跑会互相改状态，量出来的高度就不是各自
-//  那条用例声明的那一份。
-//
-
+//  1. **每一个值选择器展开都要撑高面板、且都要被订阅**。面板内的点击不走
+//     `handleMouseDown`（落在面板内会直接 return），只有订阅路径才会让 `openedSize` 重算；
+//     漏一个的症状是「展开那一行面板不长高、内容被下边缘裁掉」——版面表与高度公式本身
+//     都是对的，预算用例抓不到它（本仓历史上漏过三次）。
+//  2. **展开增量不被夹掉**：`panelHeight` 把静态内容夹到本面上限之后再加展开增量，
+//     因此一个选择器展开时面板正好长高它那么多。
 import Combine
 import CoreGraphics
 import Testing
@@ -92,8 +84,8 @@ struct NotchMenuSubscriptionTests {
         ]
     }
 
-    @Test("值选择器不影响面板高度：该页的高度就是解析式，展开前后一模一样")
-    func valuePickersDoNotChangePanelHeight() {
+    @Test("值选择器就地展开：撑高面板，且每一个都被订阅")
+    func valuePickersGrowThePanelAndAreObserved() {
         let model = makeViewModel()
         model.contentType = .menu
         resetHeightContributors()
@@ -109,10 +101,14 @@ struct NotchMenuSubscriptionTests {
                 "「\(name)」所在的 \(section.rawValue) 页高度里还有展开项：内容 \(NotchMenuMetrics.contentHeight(for: section)) + 开销 \(chrome(model)) ≠ \(collapsed)"
             )
 
-            picker.isPickerExpanded = true
+            let count = republications(model) { picker.isPickerExpanded = true }
+            #expect(count > 0, "「\(name)」展开时没有重发布：漏了它的订阅")
             #expect(
-                model.openedSize.height == collapsed,
-                "「\(name)」展开后 \(section.rawValue) 页的面板变高了：值选择器必须走浮层，不能回到高度账里")
+                model.openedSize.height > collapsed,
+                "「\(name)」展开后 \(section.rawValue) 页的面板没有变高")
+            #expect(
+                model.openedSize.height <= NotchMenuMetrics.maxDashboardHeight,
+                "「\(name)」展开后越过了窗口上限")
 
             picker.isPickerExpanded = false
         }

@@ -52,13 +52,6 @@ nonisolated enum AppPalette {
     /// 浮层底色：面板、对话气泡底座这类大面积容器（原先散落在各处的叠白 0.05）。
     /// 比卡片更暗，不要用在卡片上，否则卡片与面板会失去层次。
     static let panelFill = Color.white.opacity(0.05)
-    /// 浮层底色（展开的选择器列表，见 `SettingsPickerOverlay`）。
-    ///
-    /// 与卡片那套「叠白」**不是一回事**：卡片靠叠白与背景融在一起，而浮层要**压过**它
-    /// 下面的行。这里是**实色**——实测 0.92 的透明度会把浮层盖住的那行脚注透上来，
-    /// 读成一片糊（离屏渲染逐行看得见）。配 `separator` 的 0.08 描边，两层之间一眼分得开。
-    static let overlayFill = Color.black
-
     /// 卡片内一行的悬停底色、按下时叠加的底色。只在行有悬停/按压反馈时用，
     /// 不要拿它当静态底色。
     static let rowHover = Color.white.opacity(0.06)

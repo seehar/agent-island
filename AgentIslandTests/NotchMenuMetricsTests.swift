@@ -399,21 +399,21 @@ struct NotchMenuMetricsTests {
                 chromeHeight: 44) == expected)
     }
 
-    @Test("超过上限时面板高度被夹住，正好等于上限时不被削")
-    func panelHeightIsClampedAtCap() {
+    @Test("静态内容被夹到本面上限，正好等于上限时不被削")
+    func panelHeightClampsStaticContent() {
         let cap = NotchMenuMetrics.maxPanelHeight
         let content = NotchMenuMetrics.contentHeight(for: .general)
 
         #expect(
             NotchMenuMetrics.panelHeight(
-                for: .general, expandedPickerHeight: cap, chromeHeight: 400) == cap)
+                for: .general, expandedPickerHeight: 0, chromeHeight: cap) == cap)
         #expect(
             NotchMenuMetrics.panelHeight(
-                for: .general, expandedPickerHeight: 1000, chromeHeight: 400) == cap)
+                for: .general, expandedPickerHeight: 0, chromeHeight: 1000) == cap)
         // 恰好等于上限：仍是这个值（没有被多减）
         #expect(
             NotchMenuMetrics.panelHeight(
-                for: .general, expandedPickerHeight: cap - 44 - content, chromeHeight: 44) == cap)
+                for: .general, expandedPickerHeight: 0, chromeHeight: cap - content) == cap)
     }
 
     /// 面板固定开销的可达集合（`chromeHeight = max(24, 胶囊高度) + 12`）：
@@ -421,28 +421,18 @@ struct NotchMenuMetricsTests {
     /// `notch` 档在没有内置刘海的屏上 38 → 50、胶囊高度自定义最高 64 → 76。
     private static let reachableChrome: [CGFloat] = [36, 37, 44, 50, 76]
 
-    /// 已知被夹取（超出上限、改由页内滚动接管）的组合。**新增组合必须显式登记在这里**，
-    /// 否则测试失败——那正是「又加了一行/一档，最后一个档位落到可视区外」的信号。
+    /// 静态内容本身就超过本面上限、改由页内滚动接管的组合。新增组合必须登记，
+    /// 否则测试失败——那是「又加了一行，面板装不下了」的信号。
     ///
-    /// 上限从 728 降到 640 之后，下列**设置面**的组合会被夹取，该档下由页内滚动接管
-    /// （滚动条隐藏）：
+    /// - shortcuts@76（590 + 76 = 666 > 640）：只在胶囊高度自定义到最大时触顶。
     ///
-    /// - `agents@{36,37,44,50,76}`：内容 530 + 行内目录编辑器 106 ＝ 636，最小 chrome 36
-    ///   就已经是 672——**智能体页展开目录编辑器时会被切掉十几到几十 pt**（这是还留着就地
-    ///   展开的代价：那一行是编辑器，不是值选择器）。
-    /// - `shortcuts@{76}`（590 + 76 = 666）：只在胶囊高度自定义到最大时触顶。
+    /// 值选择器的展开增量不在这张表里：panelHeight 把静态内容夹到本面上限之后，
+    /// 再加展开增量，只受窗口上限（maxDashboardHeight = 730）约束，因此任何一个选择器
+    /// 展开后整份选项都看得见，不会被 640 切掉。最高的组合是智能体页（530 + 106 + 76 = 712）
+    /// 与行为页（486 + 138 + 76 = 700），都在 730 以内。
     ///
-    /// **通用 / 行为 / 通知三页不在表里**：它们的值选择器改成浮层之后不再参与高度
-    /// （480 / 486 / 298 加最大的 chrome 76 也分别是 556 / 562 / 374），任何 chrome 档都装得下。
-    ///
-    /// **读数面（统计 / 额度）不在这个表里**：它们不套 640，改用 `maxDashboardHeight`
-    /// （见 `dashboardsAreNotClampedByTheSettingsCap`）——统计页 635 + 76 = 711 也装得下，
-    /// 因此读数面在任何 chrome 档下都不会被切。
-    ///
-    /// 新增分组、加行或加档位若顶到上限，必须登记到这里（见 `NotchMenuLayout.maxPanelHeight`
-    /// 的加法）。
+    /// 读数面（统计 / 额度）不在这个表里：它们不套 640，改用 maxDashboardHeight。
     private static let clampedPairs: Set<String> = [
-        "agents@36", "agents@37", "agents@44", "agents@50", "agents@76",
         "shortcuts@76",
     ]
 
@@ -502,49 +492,51 @@ struct NotchMenuMetricsTests {
     @MainActor
     @Test("每页「内容 + 该页最高的单个展开 + 固定开销」都不越过夹取上限")
     func everySectionFitsCapWithTallestSingleExpansion() {
-        // 每页最高的**单个**展开全部从真实来源推导（枚举的 allCases、选择器自己的
-        // `visibleOptions`），不写死数字：枚举加一档、屏幕数变多都会在这里体现出来。
-        let tallestExpansion: [NotchMenuSection: CGFloat] = [
-            // 通用 / 行为 / 通知三页的选择器都是**浮层**展示（见 `SettingsPickerOverlay`），
-            // 因此它们对面板高度的贡献恒为 0——这三页在任何 chrome 档下都不再被夹取。
-            .general: 0,
-            .behavior: 0,
-            .notifications: 0,
-            // 智能体页只剩行内的目录编辑器还就地展开（三个保护档位走浮层、「标记动态」是换页）。
-            .agents: NotchMenuMetrics.pickerOptionsHeight(
-                visibleOptions: AgentDirSelector.visibleOptions),
-            // 额度页的运行时增量有两段（账号列表窗口 / 「编辑凭据」态），生产代码里互斥
-            // （编辑态折叠列表），因此「最高的单个展开」取两段里较大的那一段。
-            .quota: NewAPIAccountPageState.worstRuntimeHeight,
-            // 统计页与关于页都没有「撑高面板的展开项」：统计页的范围选择器是页眉控件，
-            // 展开块占的是页内滚动视口（见 UsageStatsLayoutTests.rangePickerLeavesUsableViewport）。
-            .statistics: 0,
-            .about: 0,
-            // 快捷键页也没有撑高面板的展开项：录制行是行内的按键块，不展开。
-            .shortcuts: 0,
-            // 标记动态页同样没有撑高面板的展开项：状态选择是行内的分段控件。
-            .animations: 0,
+        // 每页最高的**单个**展开：档位数从真实枚举推出（不写死数字）。
+        let tallestCount: [NotchMenuSection: Int] = [
+            .general: max(AppLanguage.allCases.count, NotchHeightSelector.visibleOptions,
+                          NotchWidthSelector.visibleOptions, TextSizeOption.allCases.count,
+                          PanelSize.allCases.count),
+            .behavior: max(HoverExpand.allCases.count, IdleNotchVisibility.allCases.count,
+                           ClosedCapsuleLayout.allCases.count, SessionRetention.allCases.count,
+                           SessionRowDensity.allCases.count, SessionRowClickAction.allCases.count,
+                           RefreshCadence.allCases.count),
+            .notifications: max(SoundSelector.maxVisibleOptions, QuietHours.allCases.count,
+                                NotificationScope.allCases.count, CompletionBadge.allCases.count),
+            .agents: max(AgentDirSelector.visibleOptions, ApprovalAskScope.allCases.count,
+                         ApprovalDegradation.allCases.count, ApprovalAutoExpand.allCases.count),
+            .quota: 0, .statistics: 0, .about: 0, .shortcuts: 0, .animations: 0,
         ]
 
         for section in NotchMenuSection.allCases {
-            let expanded = tallestExpansion[section] ?? 0
+            let expanded =
+                section == .quota
+                ? NewAPIAccountPageState.worstRuntimeHeight
+                : NotchMenuMetrics.pickerOptionsHeight(visibleOptions: tallestCount[section] ?? 0)
             let content = NotchMenuMetrics.contentHeight(for: section)
 
             for chrome in Self.reachableChrome {
                 let key = "\(section.rawValue)@\(Int(chrome))"
                 let cap = NotchMenuMetrics.heightCap(for: section)
+                // 与 `NotchMenuMetrics.panelHeight` 同一笔账：静态内容先夹到本面上限，
+                // 展开增量再加在夹取之后、总量封在窗口上限。
+                let expected = min(
+                    min(chrome + content, cap) + expanded, NotchMenuMetrics.maxDashboardHeight)
                 let height = NotchMenuMetrics.panelHeight(
                     for: section, expandedPickerHeight: expanded, chromeHeight: chrome)
 
+                #expect(
+                    height == expected,
+                    "\(key) 高度不符合解析式：内容 \(content) + 展开 \(expanded) + 开销 \(chrome)")
+
                 if Self.clampedPairs.contains(key) {
                     #expect(
-                        height == cap,
-                        "\(key) 应当被夹到上限 \(cap)（内容 \(content) + 展开 \(expanded) + 开销 \(chrome)）")
+                        expected < chrome + content + expanded,
+                        "\(key) 登记为被夹取，但它其实装得下")
                 } else {
                     #expect(
-                        height == chrome + content + expanded,
+                        expected == chrome + content + expanded,
                         "\(key) 的最高单个展开被夹取：内容 \(content) + 展开 \(expanded) + 开销 \(chrome)")
-                    #expect(height <= cap)
                 }
             }
         }

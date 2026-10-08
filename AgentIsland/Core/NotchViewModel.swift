@@ -70,8 +70,8 @@ class NotchViewModel: ObservableObject {
     @Published var openReason: NotchOpenReason = .unknown
     @Published var contentType: NotchContentType = .instances {
         didSet {
-            // 离开设置面（收起面板 / 回会话列表 / 进对话）就收起展开的选择器浮层：浮层的
-            // 主人是那一行，行随页面卸载；状态留着会让下次进来凭空冒出一张没有主语的列表。
+            // 离开设置面（收起面板 / 回会话列表 / 进对话）就收起就地展开的选项列表：
+            // 列表的主人（那一行）随页面卸载；状态留着会让下次进来凭空冒出一列选项。
             // 放在状态拥有者这里、而不是视图的 onChange 上：面板收起时设置面板整块被卸载，
             // 视图收不到那一次变化。
             if oldValue == .menu, contentType != .menu {
@@ -92,7 +92,7 @@ class NotchViewModel: ObservableObject {
             if menuSection != .statistics && menuSection != .quota {
                 lastSettingsSection = menuSection
             }
-            // 换页也收起浮层：上一页那一行已经卸载，它的列表不该跟着新页面出现。
+            // 换页也收起展开的选项列表：上一页那一行已经卸载，它的列表不该跟着新页面出现。
             PickerExpansion.collapseCurrent()
             // 分组换了 = 设置面板的高度换了（面板按当前分组的行数撑高）⇒ 卡片矩形跟着变。
             updatePointerInterest()
@@ -121,6 +121,15 @@ class NotchViewModel: ObservableObject {
         guard keys != visibleSessionKeys else { return }
         visibleSessionKeys = keys
     }
+
+    // MARK: - Dependencies
+
+    private let screenSelector = ScreenSelector.shared
+    private let soundSelector = SoundSelector.shared
+    private let languageSelector = LanguageSelector.shared
+    private let heightSelector = NotchHeightSelector.shared
+    private let widthSelector = NotchWidthSelector.shared
+    private let textSizeSelector = TextSizeSelector.shared
 
     // MARK: - Geometry
 
@@ -213,9 +222,9 @@ class NotchViewModel: ObservableObject {
     /// 把当前兴趣区写给事件层（幂等：值没变不写）。
     ///
     /// 凡是会动上面这两个矩形的地方都要写一次：状态、内容面、设置分组、设备胶囊矩形、
-    /// 关闭态胶囊尺寸，以及进 `openedSize` 的尺寸类选择器（面板尺寸档位、智能体页目录
-    /// 编辑器、额度页账号列表）。漏写一处，兴趣区就停在旧矩形上——面板长到指针底下时
-    /// 那一段既不收悬停也不收鼠标事件。
+    /// 关闭态胶囊尺寸，以及所有进 `openedSize` 的选择器（面板尺寸档位、每一个就地展开
+    /// 的选择行、智能体页目录编辑器、额度页账号列表）。漏写一处，兴趣区就停在旧矩形上——
+    /// 面板长到指针底下时那一段既不收悬停也不收鼠标事件（看得见却点不到）。
     private func updatePointerInterest() {
         let rect = pointerInterestRect
         guard events.interestRect != rect else { return }
@@ -272,31 +281,45 @@ class NotchViewModel: ObservableObject {
         max(24, deviceNotchRect.height) + 12
     }
 
-    /// 当前分组里**就地展开**的内容带来的额外高度。
+    /// 当前分组里展开的选择器带来的额外高度。只有该分组自己的选择器算数，
+    /// 其它分组留着的展开态不会把面板撑高。
     ///
-    /// 只有两类内容还留在这一项：额度页的凭据表单与智能体页的行内目录编辑器（它们是编辑器，
-    /// 就地展开才看得清在改谁），以及智能体页的三个工具调用保护档位。
-    /// **所有的值选择器都改成浮层展示、恒为 0**（见 `SettingsPickerOverlay`）：那批曾让通用页
-    /// （480 + 138）与智能体页（530 + 106）在展开时越过 640 的设置上限、把最后一个档位切到
-    /// 隐藏滚动条的视口外。
-    /// 只有该分组自己的展开算数，其它分组留着的展开态不会把面板撑高。
+    /// 展开块是**互斥**的（同一时刻只有一个，见 `PickerExpansion`），因此这里按「相加」
+    /// 写不会叠加出多余高度；相加只是幂表的写法。
     private func expandedPickerHeight(for section: NotchMenuSection) -> CGFloat {
         switch section {
         case .general:
-            // 通用页的六个选择器（语言、屏幕、胶囊高度/宽度、内容字号、面板尺寸）都是浮层展示。
-            return 0
+            // 通用页有六个可展开的选择器：语言、屏幕、胶囊高度、胶囊宽度、内容字号、面板尺寸。
+            return languageSelector.expandedPickerHeight
+                + screenSelector.expandedPickerHeight
+                + heightSelector.expandedPickerHeight
+                + widthSelector.expandedPickerHeight
+                + textSizeSelector.expandedPickerHeight
+                + PanelSizeSelector.shared.expandedPickerHeight
         case .behavior:
-            // 行为页的六个选择器（刘海交互 + 会话列表偏好）同上。
-            return 0
+            // 刘海交互 + 会话列表偏好。
+            return [
+                HoverExpandSelector.shared.expandedPickerHeight,
+                IdleNotchVisibilitySelector.shared.expandedPickerHeight,
+                ClosedCapsuleLayoutSelector.shared.expandedPickerHeight,
+                SessionRetentionSelector.shared.expandedPickerHeight,
+                SessionRowDensitySelector.shared.expandedPickerHeight,
+                SessionRowClickActionSelector.shared.expandedPickerHeight,
+                RefreshCadenceSelector.shared.expandedPickerHeight,
+            ].reduce(0, +)
         case .notifications:
-            // 通知页的四个选择器同上——音效列表可见 6 行（202pt），但它是浮层里自己滚动的
-            // 列表，与这一页的高度无关。
-            return 0
+            // 通知：音效列表（点选即听）/ 安静时段 / 提示范围 / 完成提示。
+            return SoundSelector.shared.expandedPickerHeight
+                + QuietHoursSelector.shared.expandedPickerHeight
+                + NotificationScopeSelector.shared.expandedPickerHeight
+                + CompletionBadgeSelector.shared.expandedPickerHeight
         case .agents:
-            // 只剩**行内目录编辑器**（某个 Agent 的配置根）：它是编辑器、就地展开才看得清在改谁
-            // （同一时刻只开一个，展开高度是单份的）。三个保护档位（问什么 / 应用未运行时 /
-            // 待批自动展开）是值选择器，已改成浮层展示。
+            // 智能体页可展开的有：三个保护档位（问什么 / 应用未运行时 / 有待处理请求时自动展开）
+            // 与 **某个 Agent 行内的目录编辑器**（同一时刻只开一个，展开高度是单份的）。
             return AgentDirSelector.shared.expandedPickerHeight
+                + ApprovalDegradationSelector.shared.expandedPickerHeight
+                + ApprovalAskScopeSelector.shared.expandedPickerHeight
+                + ApprovalAutoExpandSelector.shared.expandedPickerHeight
         case .shortcuts:
             // 快捷键页没有可展开的选择器：录制行是行内的按键块，不撑高面板。
             return 0
@@ -350,18 +373,38 @@ class NotchViewModel: ObservableObject {
         observeSelectors()
     }
 
-    /// 让「会改变面板尺寸」的选择器在变化时重发布。
+    /// 让「会改变面板尺寸」的选择器在变化时：① 重发布、② 重算兴趣区。
     ///
-    /// **值选择器不在这里**：它们的展开态画在浮层里、不参与面板高度（见 `SettingsPickerOverlay`），
-    /// 取值本身由各自的行与视图订阅（`@ObservedObject`），因此不欠这份重发布。留下来的三类
-    /// 都有实打实的理由：
-    /// - `PanelSizeSelector`：面板宽度按它的档位缩放（`openedSize.width`）；
-    /// - 智能体页的行内目录编辑器、额度页的账号与「编辑凭据」态：就地展开，算进面板高度。
-    ///
-    /// 这三个来源同时是「指针兴趣区」的来源（都进 `openedSize`），因此除了重发布，还要各挂
-    /// 一条把新尺寸写给事件层的订阅（看方法末尾）。
+    /// **值选择器全都要在这里**：它们就地展开、算进面板高度（见 `expandedPickerHeight(for:)`）。
+    /// 面板内的点击不走 `handleMouseDown`（落在面板内直接 return），只有重发布才会让
+    /// `openedSize` 重算；而兴趣区（`updatePointerInterest`）不跟着走，展开后长出来的那一段
+    /// 就「看得见却点不到」。漏一个的症状正是「展开那一行面板不高、选项被下边缘裁掉」——
+    /// 版面表与高度公式都对，预算用例抓不到它（本仓历史上漏过三次）。
+    /// 新增可展开行时，这里与 `expandedPickerHeight(for:)` 必须同时改。
     private func observeSelectors() {
-        observe(PanelSizeSelector.shared)
+        // 自定义选择器：它们不是 `EnumPreference`，逐个别名接上。
+        observeSizeAffecting(screenSelector)
+        observeSizeAffecting(soundSelector)
+        observeSizeAffecting(languageSelector)
+        observeSizeAffecting(heightSelector)
+        observeSizeAffecting(widthSelector)
+        observeSizeAffecting(textSizeSelector)
+
+        // 枚举偏好：行为 / 通知 / 智能体页的选择行，以及面板尺寸档位（它管面板宽度）。
+        observeSizeAffecting(PanelSizeSelector.shared)
+        observeSizeAffecting(HoverExpandSelector.shared)
+        observeSizeAffecting(IdleNotchVisibilitySelector.shared)
+        observeSizeAffecting(ClosedCapsuleLayoutSelector.shared)
+        observeSizeAffecting(SessionRetentionSelector.shared)
+        observeSizeAffecting(SessionRowDensitySelector.shared)
+        observeSizeAffecting(SessionRowClickActionSelector.shared)
+        observeSizeAffecting(RefreshCadenceSelector.shared)
+        observeSizeAffecting(QuietHoursSelector.shared)
+        observeSizeAffecting(NotificationScopeSelector.shared)
+        observeSizeAffecting(CompletionBadgeSelector.shared)
+        observeSizeAffecting(ApprovalAskScopeSelector.shared)
+        observeSizeAffecting(ApprovalDegradationSelector.shared)
+        observeSizeAffecting(ApprovalAutoExpandSelector.shared)
 
         AgentDirSelector.shared.$expandedKind
             .sink { [weak self] _ in self?.objectWillChange.send() }
@@ -371,15 +414,6 @@ class NotchViewModel: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
-        // 同一批来源再挂一条「重算兴趣区」的订阅：它们的通知都是**变更前**发出的
-        // （`objectWillChange` 与 `@Published` 的 `$x` 都是 willSet 语义），当场重算读到的
-        // 还是旧尺寸，`receive(on:)` 把这一跳推到值落定之后。三个来源都进 `openedSize`：
-        // 面板尺寸档位管宽，智能体页目录编辑器与额度页账号列表管高——兴趣区不跟着走，
-        // 面板长到指针底下时那一段就不收鼠标事件（看得见却点不到）。
-        PanelSizeSelector.shared.objectWillChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.updatePointerInterest() }
-            .store(in: &cancellables)
         AgentDirSelector.shared.$expandedKind
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.updatePointerInterest() }
@@ -390,10 +424,18 @@ class NotchViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    /// 订阅一个枚举偏好的任何变化（取值或展开态），让读到它的视图重算。
-    private func observe<P: PreferenceOption>(_ selector: EnumPreference<P>) {
+    /// 订阅一个会改变面板尺寸的选择器（枚举偏好与自定义选择器都适用）：重发布让
+    /// `openedSize` 重算，兴趣区订阅把新矩形写给事件层。
+    ///
+    /// 兴趣区那一跳要 `receive(on:)` 推到值落定之后：`objectWillChange`（以及 `@Published`
+    /// 的 `$x`）是 willSet 语义，当场重算读到的还是旧尺寸。
+    private func observeSizeAffecting<S: ObservableObject>(_ selector: S) {
         selector.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        selector.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updatePointerInterest() }
             .store(in: &cancellables)
     }
 

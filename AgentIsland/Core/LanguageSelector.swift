@@ -17,4 +17,10 @@ class LanguageSelector: ObservableObject {
 
     private init() {}
 
+    /// 选择器展开时所需的额外高度。
+    var expandedPickerHeight: CGFloat {
+        guard isPickerExpanded else { return 0 }
+        return NotchMenuMetrics.pickerOptionsHeight(visibleOptions: AppLanguage.allCases.count)
+    }
+
 }
