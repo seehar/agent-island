@@ -367,14 +367,15 @@ struct NotchMenuMetricsTests {
                 + CGFloat(NotchMenuMetrics.visibleAgentRows) * NotchMenuMetrics.twoLineRowHeight)
     }
 
-    @Test("行为分组：刘海 2 行、会话 4 行 + 2 个开关；通知另成一页 5 行")
+    @Test("行为分组：刘海 3 行、会话 4 行 + 2 个开关；通知另成一页 5 行")
     func behaviorSectionRowsMatchRegroupedPages() {
         let behavior = NotchMenuMetrics.blocks(for: .behavior)
-        // 完成提示/音效/提示范围搬去通知页，会话组补上两个两行开关。
-        #expect(behavior.map(\.rows.count) == [2, 6])
+        // 完成提示/音效/提示范围搬去通知页，会话组补上两个两行开关；
+        // 刘海组补上「关闭态刘海」（关闭态胶囊允许占掉多少菜单栏）。
+        #expect(behavior.map(\.rows.count) == [3, 6])
         #expect(
-            behavior[0].rows == Array(repeating: NotchMenuMetrics.rowHeight, count: 2),
-            "刘海组：悬停展开 / 空闲可见性")
+            behavior[0].rows == Array(repeating: NotchMenuMetrics.rowHeight, count: 3),
+            "刘海组：悬停展开 / 空闲可见性 / 关闭态刘海")
         #expect(
             behavior[1].rows
                 == Array(repeating: NotchMenuMetrics.rowHeight, count: 4)
@@ -432,7 +433,7 @@ struct NotchMenuMetricsTests {
     /// - `shortcuts@{76}`（590 + 76 = 666）：只在胶囊高度自定义到最大时触顶。
     ///
     /// **通用 / 行为 / 通知三页不在表里**：它们的值选择器改成浮层之后不再参与高度
-    /// （480 / 446 / 298 加最大的 chrome 76 也分别是 556 / 522 / 374），任何 chrome 档都装得下。
+    /// （480 / 486 / 298 加最大的 chrome 76 也分别是 556 / 562 / 374），任何 chrome 档都装得下。
     ///
     /// **读数面（统计 / 额度）不在这个表里**：它们不套 640，改用 `maxDashboardHeight`
     /// （见 `dashboardsAreNotClampedByTheSettingsCap`）——统计页 635 + 76 = 711 也装得下，

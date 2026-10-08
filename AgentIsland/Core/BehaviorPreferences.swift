@@ -289,6 +289,59 @@ nonisolated enum IdleNotchVisibility: String, PreferenceOption {
     var hidesWhenIdle: Bool { self != .always }
 }
 
+// MARK: - 关闭态胶囊的占位
+
+/// 关闭态胶囊允许占掉多少菜单栏。
+///
+/// 刘海屏上相机挖孔**画不进去**（`safeAreaInsets.top` 就是 AppKit 给出的不可用区），
+/// 因此关闭态里任何想让人看见的东西都必须画在缺口两侧的菜单栏表面上，而那一段本来
+/// 属于 App 菜单与状态图标。三档就是这个取舍：占得越少，菜单栏越干净，关闭态的信息
+/// 也越少。
+///
+/// - `badgeOnly`（默认）：只有计数徽标落在缺口右侧，左侧不碰（App 菜单零风险）。
+/// - `notchOnly`：什么都不落在缺口外，关闭态就是那个挖孔剪影（计数只在展开态出现）。
+/// - `wideCapsule`：角色与计数分居两侧（改造前的形态）。
+///
+/// 与「空闲时的胶囊」（`IdleNotchVisibility`）是正交的一根轴：那根轴管**什么时候**
+/// 隐藏，这根轴管**隐藏之前画多少**。
+nonisolated enum ClosedCapsuleLayout: String, PreferenceOption {
+    case badgeOnly
+    case notchOnly
+    case wideCapsule
+
+    static let preferenceKey = "closedCapsuleLayout"
+    static var defaultValue: ClosedCapsuleLayout { .badgeOnly }
+
+    /// 关闭态是否画左侧的像素角色。只有 `wideCapsule` 画——角色落在缺口里看不见，
+    /// 要看见就得往菜单栏上再吃一段宽度。
+    var showsMascot: Bool { self == .wideCapsule }
+
+    /// 关闭态是否画右侧计数徽标（`notchOnly` 不画）。
+    var showsBadge: Bool { self != .notchOnly }
+
+    /// 计数可占的最大宽度，超出就按档位降级文案（见 `NotchClosedMetrics.label`）。
+    var badgeSlotLimit: CGFloat {
+        switch self {
+        case .wideCapsule: return NotchClosedMetrics.maximumEarWidth
+        case .badgeOnly, .notchOnly: return NotchClosedMetrics.Capsule.maximumBadgeSlot
+        }
+    }
+
+    /// 胶囊左右内边距。`badgeOnly` 左缘与缺口左缘对齐（不多占侧边距那 14pt），
+    /// 右缘给徽标留一点余量。
+    var leadingPadding: CGFloat {
+        self == .wideCapsule ? NotchClosedMetrics.Capsule.sidePadding : 0
+    }
+
+    var trailingPadding: CGFloat {
+        switch self {
+        case .wideCapsule: return NotchClosedMetrics.Capsule.sidePadding
+        case .badgeOnly: return NotchClosedMetrics.Capsule.badgeSidePadding
+        case .notchOnly: return 0
+        }
+    }
+}
+
 // MARK: - 已结束会话的保留
 
 /// 结束的会话在列表里再留多久。
@@ -483,6 +536,7 @@ typealias HoverExpandSelector = EnumPreference<HoverExpand>
 typealias CompletionBadgeSelector = EnumPreference<CompletionBadge>
 typealias PanelSizeSelector = EnumPreference<PanelSize>
 typealias IdleNotchVisibilitySelector = EnumPreference<IdleNotchVisibility>
+typealias ClosedCapsuleLayoutSelector = EnumPreference<ClosedCapsuleLayout>
 typealias SessionRetentionSelector = EnumPreference<SessionRetention>
 typealias SessionRowDensitySelector = EnumPreference<SessionRowDensity>
 typealias RefreshCadenceSelector = EnumPreference<RefreshCadence>

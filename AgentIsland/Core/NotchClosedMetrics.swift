@@ -89,6 +89,14 @@ nonisolated enum NotchClosedMetrics {
         static let sidePadding: CGFloat = 14
         /// 头部条带的固定高度：胶囊高度不足 24 时也画 24（关闭态胶囊的最小高度）。
         static let minimumHeight: CGFloat = 24
+        /// `badgeOnly` 档：徽标到胶囊右缘的边距。那一侧已经贴着菜单栏上的状态图标，
+        /// 边距比通用侧边距小一点是一点。
+        static let badgeSidePadding: CGFloat = 8
+        /// 徽标槽的上限：超宽的计数按档位降级（`11+11/22` → `11+11` → `11/22` → `11`），
+        /// 实在装不下才交给 `minimumScaleFactor` 缩字。
+        static let maximumBadgeSlot: CGFloat = 60
+        /// 徽标槽的下限：一位数也要留出一点呼吸位。
+        static let minimumBadgeSlot: CGFloat = 20
         /// 左侧审批指示（琥珀色）占掉的宽度：图标 14 + 与角色之间的间距 4。
         static let permissionIndicator: CGFloat = 18
         /// 提示弹跳时临时加宽的宽度（`isBouncing`）。
@@ -142,7 +150,9 @@ nonisolated enum NotchClosedMetrics {
                 subagents: level == .activeOnly || level == .withoutSubagents
                     ? nil : (subagentCount > 0 ? subagentCount : nil),
                 totalSessions: level == .activeOnly || level == .withoutTotal ? nil : totalSessions)
-            if textWidth(candidate.text, scale: scale) + countClearance <= limit { return candidate }
+            if textWidth(candidate.text, scale: scale) + countClearance <= limit {
+                return candidate
+            }
         }
         // 最省位的一档仍然超上限：交给 minimumScaleFactor 缩字。
         return Label(
@@ -197,5 +207,142 @@ nonisolated enum NotchClosedMetrics {
             + Capsule.badgeTrailing + 2 * Capsule.sidePadding
             + (isBouncing ? Capsule.bounce : 0)
         return CGSize(width: width, height: height)
+    }
+
+    // MARK: - 按档位排版
+
+    /// 关闭态一次算清的结果：画出来的那一块（同时也是命中判据）+ 该画哪几段 + 各段宽度。
+    ///
+    /// 视图过去是「先按计数算耳宽、再算胶囊尺寸、再按段排版」三处各算一次，
+    /// 哪一处漏掉「有待批 / 正在弹跳」都会让画出来的与判据的错开一截。
+    /// 现在合成一个返回值，三处读同一个 `plan`。
+    struct ClosedCapsulePlan: Equatable, Sendable {
+        /// 画出来的那一块（== 命中判据，见 `NotchViewModel.updateClosedCapsuleSize`）。
+        var size: CGSize
+        /// 关闭态要画的计数档位；`nil` = 这一档不画计数。
+        var label: Label?
+        /// 中间透明占位段的宽度（角色与徽标靠它把挖孔那一段撑开）。
+        var spacerWidth: CGFloat
+        /// 徽标槽宽（`0` = 不画）。
+        var badgeSlot: CGFloat
+        /// 左右耳宽（只有 `wideCapsule` 用得上，其余档为 0）。
+        var earWidth: CGFloat
+        /// 是否画左侧角色 / 右侧徽标。
+        var showsMascot: Bool
+        var showsBadge: Bool
+        /// 胶囊左右内边距（画在卡片内部，由 `NotchView` 的 padding 消费）。
+        var leadingPadding: CGFloat
+        var trailingPadding: CGFloat
+    }
+
+    /// 按档位算清关闭态的全部度量。
+    ///
+    /// - Parameters:
+    ///   - layout: 「关闭态胶囊的占位」档位（决定占多少菜单栏）。
+    ///   - notchSize: 标称胶囊尺寸（`NotchViewModel.deviceNotchRect`）。
+    ///   - activeSessions: 活跃会话数。
+    ///   - subagents: 活跃子 Agent 数（`nil` = 该段不显示）。
+    ///   - totalSessions: 纳管会话总数（`nil` = 该段不显示）。
+    ///   - showsActivity: 当前是否有活动（处理中 / 待批 / 等待输入）。
+    ///   - showsPermissionIndicator: 左侧是否画琥珀色审批指示（只有 `wideCapsule` 有左侧）。
+    ///   - isBouncing: 是否处于提示弹跳（短促加宽）。
+    ///   - scale: 用户的「内容字号」档位（字号与占位宽度必须同源缩放）。
+    static func plan(
+        layout: ClosedCapsuleLayout,
+        notchSize: CGSize,
+        activeSessions: Int,
+        subagents: Int?,
+        totalSessions: Int?,
+        showsActivity: Bool,
+        showsPermissionIndicator: Bool = false,
+        isBouncing: Bool = false,
+        scale: CGFloat = 1
+    ) -> ClosedCapsulePlan {
+        let height = max(Capsule.minimumHeight, notchSize.height)
+        let bounce = isBouncing ? Capsule.bounce : 0
+
+        // 只画挖孔剪影：缺口外什么都不落，宽度就是缺口宽度。
+        guard layout != .notchOnly else {
+            return ClosedCapsulePlan(
+                size: CGSize(width: notchSize.width, height: height),
+                label: nil,
+                spacerWidth: notchSize.width,
+                badgeSlot: 0,
+                earWidth: 0,
+                showsMascot: false,
+                showsBadge: false,
+                leadingPadding: 0,
+                trailingPadding: 0)
+        }
+
+        let badgeLabel = label(
+            activeSessions: activeSessions,
+            subagents: subagents ?? 0,
+            totalSessions: totalSessions ?? 0,
+            limit: layout.badgeSlotLimit,
+            scale: scale)
+        let slot = badgeSlot(for: badgeLabel, limit: layout.badgeSlotLimit, scale: scale)
+
+        // 徽标独占右侧：左缘与缺口左缘对齐，中间的占位段就是缺口那一段。
+        if layout == .badgeOnly {
+            guard showsActivity else {
+                return ClosedCapsulePlan(
+                    size: CGSize(width: notchSize.width, height: height),
+                    label: nil,
+                    spacerWidth: notchSize.width,
+                    badgeSlot: 0,
+                    earWidth: 0,
+                    showsMascot: false,
+                    showsBadge: true,
+                    leadingPadding: layout.leadingPadding,
+                    trailingPadding: layout.trailingPadding)
+            }
+            return ClosedCapsulePlan(
+                size: CGSize(
+                    width:
+                        notchSize.width + slot + Capsule.badgeTrailing + layout.trailingPadding
+                        + bounce,
+                    height: height),
+                label: badgeLabel,
+                spacerWidth: notchSize.width + bounce,
+                badgeSlot: slot,
+                earWidth: 0,
+                showsMascot: false,
+                showsBadge: true,
+                leadingPadding: layout.leadingPadding,
+                trailingPadding: layout.trailingPadding)
+        }
+
+        // wideCapsule：角色与计数分居缺口两侧，沿用原来的算式。
+        let ear = earWidth(
+            for: badgeLabel, minimum: minimumEarWidth(notchHeight: notchSize.height), scale: scale)
+        return ClosedCapsulePlan(
+            size: capsuleSize(
+                notchSize: notchSize,
+                earWidth: ear,
+                showsEars: showsActivity,
+                showsPermissionIndicator: showsPermissionIndicator,
+                isBouncing: isBouncing),
+            label: showsActivity ? badgeLabel : nil,
+            spacerWidth:
+                showsActivity
+                ? notchSize.width - Capsule.centerInset + bounce
+                : notchSize.width - Capsule.idleCenterInset,
+            badgeSlot: showsActivity ? ear : 0,
+            earWidth: ear,
+            showsMascot: showsActivity,
+            showsBadge: showsActivity,
+            leadingPadding: layout.leadingPadding,
+            trailingPadding: layout.trailingPadding)
+    }
+
+    /// 徽标槽宽：文字宽 + 余量，夹在下限与档位上限之间（与 `earWidth` 同一套算式）。
+    static func badgeSlot(
+        for label: Label, limit: CGFloat, scale: CGFloat = 1
+    ) -> CGFloat {
+        min(
+            limit,
+            max(
+                Capsule.minimumBadgeSlot, textWidth(label.text, scale: scale) + countClearance))
     }
 }

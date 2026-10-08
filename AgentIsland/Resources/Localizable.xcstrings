@@ -7672,6 +7672,120 @@
         }
       }
     }
+    ,
+    "Closed Notch Layout" : {
+      "comment" : "行为页「刘海」组的一行：关闭态胶囊允许占掉多少菜单栏",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Closed Notch Layout"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭态刘海"
+          }
+        }
+      }
+    },
+    "Badge Only" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Badge Only"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只留计数"
+          }
+        }
+      }
+    },
+    "Notch Only" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notch Only"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只留挖孔"
+          }
+        }
+      }
+    },
+    "Full Capsule" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full Capsule"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完整胶囊"
+          }
+        }
+      }
+    },
+    "Only the count sits next to the cutout, so menu bar items stay clear." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only the count sits next to the cutout, so menu bar items stay clear."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只有计数落在挖孔旁边，菜单栏图标不被动。"
+          }
+        }
+      }
+    },
+    "Nothing is drawn beside the cutout; counts appear when the panel opens." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing is drawn beside the cutout; counts appear when the panel opens."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "挖孔两侧什么都不画，计数在面板展开时出现。"
+          }
+        }
+      }
+    },
+    "The mascot and the count sit on both sides of the cutout." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The mascot and the count sit on both sides of the cutout."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "角色与计数分居挖孔两侧。"
+          }
+        }
+      }
+    }
   },
   "version" : "1.0"
 }

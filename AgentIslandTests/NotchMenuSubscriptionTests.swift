@@ -75,6 +75,7 @@ struct NotchMenuSubscriptionTests {
 
             ("悬停展开", .behavior, HoverExpandSelector.shared),
             ("空闲胶囊", .behavior, IdleNotchVisibilitySelector.shared),
+            ("关闭态刘海", .behavior, ClosedCapsuleLayoutSelector.shared),
             ("已结束会话", .behavior, SessionRetentionSelector.shared),
             ("行信息密度", .behavior, SessionRowDensitySelector.shared),
             ("单击动作", .behavior, SessionRowClickActionSelector.shared),

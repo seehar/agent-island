@@ -331,12 +331,17 @@ class NotchViewModel: ObservableObject {
         self.screenRect = screenRect
         self.windowHeight = windowHeight
         self.hasPhysicalNotch = hasPhysicalNotch
-        // 关闭态胶囊尺寸先用「最小耳宽 + 空胶囊」形态铺底：视图第一次布局之前就来悬停时
+        // 关闭态胶囊尺寸先用「当前档位 + 无活动」形态铺底：视图第一次布局之前就来悬停时
         // 判据不能是 .zero（那段时间会整段漏判）。同一个纯函数，视图随后按真实计数文案覆盖。
-        self.closedCapsuleSize = NotchClosedMetrics.capsuleSize(
-            notchSize: deviceNotchRect.size,
-            earWidth: NotchClosedMetrics.minimumEarWidth(notchHeight: deviceNotchRect.height),
-            showsEars: false)
+        self.closedCapsuleSize =
+            NotchClosedMetrics.plan(
+                layout: PreferenceStore.read(ClosedCapsuleLayout.self),
+                notchSize: deviceNotchRect.size,
+                activeSessions: 0,
+                subagents: nil,
+                totalSessions: nil,
+                showsActivity: false
+            ).size
         setupEventHandlers()
         // 视图发布真实胶囊尺寸之前也要有一个兴趣区：先用上面这份铺底几何，否则那段时间
         // 事件层没有边界，悬停展开整段失效（放在订阅之后：指针正停在胶囊上时这一次发布

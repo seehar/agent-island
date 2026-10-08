@@ -39,6 +39,8 @@ struct NotchView: View {
  @ObservedObject private var completionBadge = CompletionBadgeSelector.shared
  @ObservedObject private var idleVisibility = IdleNotchVisibilitySelector.shared
  @ObservedObject private var notificationScope = NotificationScopeSelector.shared
+ /// 关闭态胶囊允许占掉多少菜单栏（档位见 `ClosedCapsuleLayout`）
+ @ObservedObject private var closedLayout = ClosedCapsuleLayoutSelector.shared
  /// 待批到来时是否自动展开（档位见 `ApprovalAutoExpand`）
  @ObservedObject private var autoExpand = ApprovalAutoExpandSelector.shared
  @ObservedObject private var l10n = LocalizationManager.shared
@@ -122,19 +124,27 @@ struct NotchView: View {
   viewModel.cardSize
  }
 
- /// 关闭态胶囊**画出来的**尺寸：宽度跟着计数文案的实测宽度走（左右耳 + 中间文字槽 +
- /// 计数尾距 + 两侧内边距，见 `NotchClosedMetrics.capsuleSize`）。
+ /// 关闭态的排版结果：尺寸、画哪几段、各段宽度一次性算清（见 `NotchClosedMetrics.plan`）。
  ///
- /// 它同时是命中判据：布局变化时发布给视图模型，悬停展开与点击展开都按它判——
+ /// `size` 同时是命中判据：布局变化时发布给视图模型，悬停展开与点击展开都按它判——
  /// 画出来的与判据必须是同一个数，否则角色（左耳）与计数徽标（右耳）会跨在边线两侧：
  /// 耳朵外半截悬停没反应、点击还会穿到菜单栏。
- private var closedCapsuleSize: CGSize {
-  NotchClosedMetrics.capsuleSize(
+ private var closedCapsulePlan: NotchClosedMetrics.ClosedCapsulePlan {
+  NotchClosedMetrics.plan(
+   layout: closedLayout.option,
    notchSize: closedNotchSize,
-   earWidth: countEarWidth,
-   showsEars: showClosedActivity,
+   activeSessions: activeSessionCount,
+   subagents: activeSubagentCount,
+   totalSessions: totalSessionCount,
+   showsActivity: showClosedActivity,
    showsPermissionIndicator: hasPendingPermission,
-   isBouncing: isBouncing)
+   isBouncing: isBouncing,
+   scale: headerTextScale)
+ }
+
+ /// 关闭态胶囊**画出来的**尺寸（== 上面那份排版结果的尺寸）。
+ private var closedCapsuleSize: CGSize {
+  closedCapsulePlan.size
  }
 
  private var notchSize: CGSize {
@@ -200,10 +210,12 @@ struct NotchView: View {
        alignment: .top
       )
       .padding(
-       .horizontal,
-       viewModel.status == .opened
-        ? openedCardHeaderInset
-        : NotchClosedMetrics.Capsule.sidePadding
+       .leading,
+       viewModel.status == .opened ? openedCardHeaderInset : closedCapsulePlan.leadingPadding
+      )
+      .padding(
+       .trailing,
+       viewModel.status == .opened ? openedCardHeaderInset : closedCapsulePlan.trailingPadding
       )
       .padding([.horizontal, .bottom], viewModel.status == .opened ? openedCardSideInset : 0)
     }
@@ -218,7 +230,7 @@ struct NotchView: View {
     .animation(motion(.smooth), value: activityCoordinator.expandingActivity)
     .animation(motion(.smooth), value: hasPendingPermission)
     .animation(motion(.smooth), value: hasWaitingForInput)
-    .animation(motion(.smooth), value: countEarWidth)
+    .animation(motion(.smooth), value: closedCapsulePlan.badgeSlot)
     .animation(motion(.spring(response: 0.3, dampingFraction: 0.5)), value: isBouncing)
     .contentShape(Rectangle())
     .onHover { hovering in
@@ -356,7 +368,7 @@ struct NotchView: View {
  }
 
  /// 头部角色的舞台边长：跟着胶囊高度走，上下各留一点边距。
- /// 上限 26——关闭态的耳宽只有约 30pt（`countEarWidth`），角色再大就会顶到
+ /// 上限 26——关闭态的耳宽只有约 30pt（`closedCapsulePlan.earWidth`），角色再大就会顶到
  /// 右侧的计数徽标。
  private var headerMascotSize: CGFloat {
   min(26, max(14, closedNotchSize.height - 6))
@@ -376,7 +388,7 @@ struct NotchView: View {
  private var headerRow: some View {
   HStack(spacing: 0) {
    // 左侧 - Agent 标记 + 可选审批指示（处理中、待审批、等待输入时可见）
-   if showClosedActivity {
+   if showClosedActivity && (viewModel.status == .opened || closedCapsulePlan.showsMascot) {
     HStack(spacing: 4) {
      headerLogo(isSource: showClosedActivity)
 
@@ -393,7 +405,7 @@ struct NotchView: View {
     .frame(
      width: viewModel.status == .opened
       ? nil
-      : countEarWidth
+      : closedCapsulePlan.earWidth
        + (hasPendingPermission ? NotchClosedMetrics.Capsule.permissionIndicator : 0)
     )
     .padding(.leading, viewModel.status == .opened ? 8 : 0)
@@ -407,34 +419,27 @@ struct NotchView: View {
     // Closed without activity: empty space
     Rectangle()
      .fill(.clear)
-     .frame(width: closedNotchSize.width - NotchClosedMetrics.Capsule.idleCenterInset)
+     .frame(width: closedCapsulePlan.spacerWidth)
    } else {
     // Closed with activity: spacer (with optional bounce)
-    // 透明占位：这一块画成黑色只是因为**关闭态背景**是黑的，它的作用是把左右
-    // 两侧撑开。跟着背景一起换成 clear，与上面「无活动」分支同源。
+    // 透明占位：它的作用是把两侧撑开，跟着背景一起是 clear。
     Rectangle()
      .fill(.clear)
-     .frame(
-      width: closedNotchSize.width - NotchClosedMetrics.Capsule.centerInset
-       + (isBouncing ? NotchClosedMetrics.Capsule.bounce : 0))
+     .frame(width: closedCapsulePlan.spacerWidth)
    }
 
    // Right side - **只画关闭态**的「活跃数/总数」：状态由计数取色与左侧 logo 表达。
    // 展开态的计数在 `openedHeaderContent` 里（与两个按钮同一个 HStack，间距才统一）；
    // 两处都画会重叠成两个计数。
-   if showClosedActivity && viewModel.status != .opened {
-    sessionCountBadge(for: closedCountLabel)
-     .frame(width: countEarWidth)
+   if let label = closedCapsulePlan.label, closedCapsulePlan.showsBadge,
+    viewModel.status != .opened
+   {
+    sessionCountBadge(for: label)
+     .frame(width: closedCapsulePlan.badgeSlot)
      .padding(.trailing, NotchClosedMetrics.Capsule.badgeTrailing)
    }
   }
   .frame(height: closedNotchSize.height)
- }
-
- /// 关闭态的**最小**耳宽：由胶囊高度推出（32pt 高的刘海 → 30），跟着「胶囊高度」设置走。
- /// 计数文案更宽时由 `countEarWidth` 抬上去，见 `NotchClosedMetrics`。
- private var sideWidth: CGFloat {
-  NotchClosedMetrics.minimumEarWidth(notchHeight: closedNotchSize.height)
  }
 
  /// 头部文字（计数徽标）的字号档位：与内容面同一个来源。
@@ -444,11 +449,6 @@ struct NotchView: View {
  /// 字号与耳宽必须一起缩放（见 `NotchClosedMetrics.textWidth`）。
  private var headerTextScale: CGFloat {
   textSizeSelector.scale
- }
-
- /// 关闭态计数徽标的档位：受胶囊耳宽上限约束，超宽的计数退成更短的写法，而不是被截断。
- private var closedCountLabel: NotchClosedMetrics.Label {
-  countLabel(limit: NotchClosedMetrics.maximumEarWidth)
  }
 
  /// 展开态头部的计数：面板够宽、不受上限约束，始终给最全的一档。
@@ -465,17 +465,9 @@ struct NotchView: View {
    scale: headerTextScale)
  }
 
- /// 关闭态左右耳的宽度：按当前计数文案的实测宽度自适应，夹在最小耳宽与上限之间。
- /// 左右耳**同宽**——胶囊在屏幕上居中，文字槽在右耳里居中，因此「计数避开相机挖孔」
- /// 只由耳宽决定；只加宽右耳反而会把计数推回挖孔里（推导见 `NotchClosedMetrics`）。
- private var countEarWidth: CGFloat {
-  NotchClosedMetrics.earWidth(
-   for: closedCountLabel, minimum: sideWidth, scale: headerTextScale)
- }
-
  /// 会话计数徽标：`活跃[+子]/总数`，按档位取舍（见 `NotchClosedMetrics`）。
  /// 活跃数与子 Agent 数取头部标记的品牌色、总数弱化，数字等宽以免计数刷新时宽度抖动。
- /// 槽宽由调用方给：关闭态用 `countEarWidth`，展开态不限制（自己那个 HStack 里放得下）。
+ /// 槽宽由调用方给：关闭态用 `closedCapsulePlan.badgeSlot`，展开态不限制（自己那个 HStack 里放得下）。
  private func sessionCountBadge(for label: NotchClosedMetrics.Label) -> some View {
   sessionCountText(for: label)
    .font(

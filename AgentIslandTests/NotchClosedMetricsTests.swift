@@ -185,4 +185,155 @@ struct NotchClosedMetricsTests {
         #expect(idle.width < size.width)
         #expect(idle.height == size.height)
     }
+
+    // MARK: - 按档位排版
+
+    /// 本机内置屏的标称缺口宽度（185 挖孔 + 4 对齐，见 `Ext+NSScreen.notchWidth`）。
+    private let notch = CGSize(width: 189, height: 32)
+
+    private func plan(
+        _ layout: ClosedCapsuleLayout,
+        active: Int = 2,
+        subagents: Int? = nil,
+        total: Int? = 4,
+        showsActivity: Bool = true,
+        isBouncing: Bool = false,
+        scale: CGFloat = 1
+    ) -> NotchClosedMetrics.ClosedCapsulePlan {
+        NotchClosedMetrics.plan(
+            layout: layout,
+            notchSize: notch,
+            activeSessions: active,
+            subagents: subagents,
+            totalSessions: total,
+            showsActivity: showsActivity,
+            isBouncing: isBouncing,
+            scale: scale)
+    }
+
+    @Test("只留计数：空闲时宽度就是缺口宽度（有活动时只往右长出徽标）")
+    func badgeOnlyKeepsTheMenuBarClear() {
+        let idle = plan(.badgeOnly, showsActivity: false)
+        #expect(idle.size.width == notch.width)
+        #expect(idle.label == nil)
+        #expect(idle.showsMascot == false)
+        // 无活动时一个像素都不落在缺口之外。
+        #expect(idle.badgeSlot == 0)
+
+        let active = plan(.badgeOnly)
+        let expected =
+            notch.width + active.badgeSlot + NotchClosedMetrics.Capsule.badgeTrailing
+            + ClosedCapsuleLayout.badgeOnly.trailingPadding
+        #expect(active.size.width == expected)
+        #expect(active.earWidth == 0)
+        #expect(active.label != nil)
+        #expect(active.spacerWidth == notch.width)
+        // 画出来的那一块必须盖住整个缺口（否则计数会压在挖孔边缘上）。
+        #expect(active.size.width > notch.width)
+    }
+
+    @Test("只留计数：占位预算是硬判据——最宽的计数也不许吃掉半个菜单栏")
+    func badgeOnlyStaysWithinItsOcclusionBudget() {
+        // 预算取「徽标槽上限 + 尾距 + 右边距」：越界宽度与计数文案无关，只由这个上限决定。
+        let budget =
+            ClosedCapsuleLayout.badgeOnly.badgeSlotLimit
+            + NotchClosedMetrics.Capsule.badgeTrailing
+            + ClosedCapsuleLayout.badgeOnly.trailingPadding
+
+        for counts in [(1, 0, 3), (11, 0, 22), (11, 11, 22), (123, 45, 678)] {
+            let result = plan(.badgeOnly, active: counts.0, subagents: counts.1, total: counts.2)
+            let overflow = (result.size.width - notch.width) / 2
+            #expect(result.size.width - notch.width <= budget)
+            #expect(overflow > 0)
+            // 徽标槽夹在上限之内：降级是靠文案档位做的，不是靠把字挤出槽外。
+            #expect(result.badgeSlot <= ClosedCapsuleLayout.badgeOnly.badgeSlotLimit)
+        }
+
+        // 弹跳那一档也要算进尺寸（判据跟着它走才不会与画面分家）。
+        let bouncing = plan(.badgeOnly, isBouncing: true)
+        #expect(
+            bouncing.size.width == plan(.badgeOnly).size.width + NotchClosedMetrics.Capsule.bounce)
+
+        // 字号放大时**先降级文案**再谈槽宽：占位预算对任何字号档都是硬上限，
+        // 所以这里钉的是「槽不超上限、总宽度不超预算」，而不是「槽一定变宽」。
+        let scaled = plan(.badgeOnly, active: 123, total: 678, scale: 1.3)
+        #expect(scaled.badgeSlot <= ClosedCapsuleLayout.badgeOnly.badgeSlotLimit)
+        #expect(scaled.size.width - notch.width <= budget)
+    }
+
+    @Test("只留挖孔：任何状态下都不落在缺口之外")
+    func notchOnlyNeverLeavesTheCutout() {
+        for showsActivity in [false, true] {
+            for isBouncing in [false, true] {
+                let result = plan(
+                    .notchOnly, showsActivity: showsActivity, isBouncing: isBouncing)
+                #expect(result.size == CGSize(width: notch.width, height: notch.height))
+                #expect(result.label == nil)
+                #expect(result.showsMascot == false)
+                #expect(result.showsBadge == false)
+                #expect(result.badgeSlot == 0)
+                #expect(result.leadingPadding == 0)
+                #expect(result.trailingPadding == 0)
+            }
+        }
+    }
+
+    @Test("完整胶囊：仍是原来的算式（角色与计数分居两侧）")
+    func wideCapsuleKeepsTheLegacyShape() {
+        let result = plan(.wideCapsule)
+        #expect(result.showsMascot)
+        #expect(result.showsBadge)
+        #expect(result.label != nil)
+        #expect(result.badgeSlot == result.earWidth)
+        #expect(result.spacerWidth == notch.width - NotchClosedMetrics.Capsule.centerInset)
+        #expect(
+            result.size
+                == NotchClosedMetrics.capsuleSize(
+                    notchSize: notch, earWidth: result.earWidth, showsEars: true))
+
+        // 无活动时走空胶囊那一档：命中带不能拿宽胶囊去覆盖它。
+        let idle = plan(.wideCapsule, showsActivity: false)
+        #expect(idle.label == nil)
+        #expect(idle.badgeSlot == 0)
+        #expect(idle.spacerWidth == notch.width - NotchClosedMetrics.Capsule.idleCenterInset)
+        #expect(
+            idle.size
+                == NotchClosedMetrics.capsuleSize(
+                    notchSize: notch, earWidth: idle.earWidth, showsEars: false))
+
+        // 待批指示只有左侧：完整胶囊档里左耳多占一个指示宽度。
+        let pending = NotchClosedMetrics.plan(
+            layout: .wideCapsule, notchSize: notch, activeSessions: 2, subagents: nil,
+            totalSessions: 4, showsActivity: true, showsPermissionIndicator: true)
+        #expect(
+            pending.size.width
+                == plan(.wideCapsule).size.width + NotchClosedMetrics.Capsule.permissionIndicator)
+    }
+
+    @Test("排版自洽：尺寸恒等于各段之和（画出来的与命中的必须是同一个数）")
+    func planSizeEqualsItsSegments() {
+        for layout in ClosedCapsuleLayout.allCases {
+            let result = plan(layout)
+            let expected =
+                result.leadingPadding
+                + (result.showsMascot ? result.earWidth : 0)
+                + result.spacerWidth
+                + (result.showsBadge
+                    ? result.badgeSlot + NotchClosedMetrics.Capsule.badgeTrailing : 0)
+                + result.trailingPadding
+            #expect(result.size.width == expected)
+        }
+
+        // 待批指示只加在左耳上：三段之和之外还要加上它，尺寸也得跟着长。
+        let pending = NotchClosedMetrics.plan(
+            layout: .wideCapsule, notchSize: notch, activeSessions: 2, subagents: nil,
+            totalSessions: 4, showsActivity: true, showsPermissionIndicator: true)
+        let plain = plan(.wideCapsule)
+        #expect(
+            pending.size.width
+                == plain.leadingPadding + plain.earWidth
+                + NotchClosedMetrics.Capsule.permissionIndicator + plain.spacerWidth
+                + plain.badgeSlot + NotchClosedMetrics.Capsule.badgeTrailing
+                + plain.trailingPadding)
+    }
 }

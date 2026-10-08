@@ -441,7 +441,7 @@ nonisolated enum NotchMenuMetrics {
     /// 胶囊高度自定义 16…64 → 36…76。
     /// 侧栏化之后每页少掉 34pt 的固定开销，**值选择器又全部改成浮层**（见
     /// `SettingsPickerOverlay`）之后，逐页的「内容高 + 该页最高单个展开」是：通用 480 + 0、
-    /// 行为 446 + 0、通知 298 + 0、智能体 530 +（行内目录编辑器 106）、关于 391 + 0、
+    /// 行为 486 + 0、通知 298 + 0、智能体 530 +（行内目录编辑器 106）、关于 391 + 0、
     /// 快捷键 590 + 0、标记动态 387 + 0。**只有智能体页（672）会触顶**（快捷键页只在
     /// chrome 76 时 666 触顶），其余页面在任何 chrome 档下都装得下；被夹取的组合逐条登记在
     /// `NotchMenuMetricsTests.clampedPairs`（表驱动用例会先失败，逼你登记）。
@@ -552,8 +552,8 @@ nonisolated enum NotchMenuMetrics {
             ]
         case .behavior:
             return [
-                // 胶囊：悬停展开 / 空闲可见性（完成提示已移到通知页）
-                Block(rows: Array(repeating: rowHeight, count: 2)),
+                // 胶囊：悬停展开 / 空闲可见性 / 关闭态占位（完成提示已移到通知页）
+                Block(rows: Array(repeating: rowHeight, count: 3)),
                 // 会话：保留已结束 / 信息密度 / 单击动作 / 刷新 / 子代理详情 / 隐藏闲置
                 Block(rows: [
                     rowHeight, rowHeight, rowHeight, rowHeight, twoLineRowHeight, twoLineRowHeight,

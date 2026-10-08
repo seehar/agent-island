@@ -214,7 +214,15 @@ struct BehaviorSettingsPage: View {
                         source: .symbol(name: "eye", tint: AppPalette.accent)),
                     title: l10n.t("Idle Notch"),
                     selector: IdleNotchVisibilitySelector.shared,
-                    label: idleNotchLabel,
+                    label: idleNotchLabel
+                )
+                PreferencePickerRow(
+                    badge: SettingsBadge(
+                        source: .symbol(name: "rectangle.on.rectangle", tint: AppPalette.accent)),
+                    title: l10n.t("Closed Notch Layout"),
+                    selector: ClosedCapsuleLayoutSelector.shared,
+                    label: closedCapsuleLayoutLabel,
+                    detail: closedCapsuleLayoutDetail,
                     showsSeparator: false
                 )
             }
@@ -297,6 +305,25 @@ struct BehaviorSettingsPage: View {
         case .always: return l10n.t("Always")
         case .whenActive: return l10n.t("When Active")
         case .linger: return l10n.t("Keep 3 Seconds")
+        }
+    }
+
+    private func closedCapsuleLayoutLabel(_ option: ClosedCapsuleLayout) -> String {
+        switch option {
+        case .badgeOnly: return l10n.t("Badge Only")
+        case .notchOnly: return l10n.t("Notch Only")
+        case .wideCapsule: return l10n.t("Full Capsule")
+        }
+    }
+
+    private func closedCapsuleLayoutDetail(_ option: ClosedCapsuleLayout) -> String {
+        switch option {
+        case .badgeOnly:
+            return l10n.t("Only the count sits next to the cutout, so menu bar items stay clear.")
+        case .notchOnly:
+            return l10n.t("Nothing is drawn beside the cutout; counts appear when the panel opens.")
+        case .wideCapsule:
+            return l10n.t("The mascot and the count sit on both sides of the cutout.")
         }
     }
 

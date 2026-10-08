@@ -45,6 +45,7 @@ struct BehaviorPreferencesTests {
         try roundTrip(CompletionBadge.self)
         try roundTrip(PanelSize.self)
         try roundTrip(IdleNotchVisibility.self)
+        try roundTrip(ClosedCapsuleLayout.self)
         try roundTrip(SessionRetention.self)
         try roundTrip(SessionRowDensity.self)
         try roundTrip(RefreshCadence.self)
@@ -104,6 +105,30 @@ struct BehaviorPreferencesTests {
         #expect(
             IdleNotchVisibility.linger.lingerWindow
                 > IdleNotchVisibility.whenActive.lingerWindow)
+    }
+
+    @Test("关闭态占位：默认只留计数，只有「完整胶囊」档画角色与占两翼")
+    func closedCapsuleLayoutOccupiesMenuBar() {
+        // 默认档是最保守的那档：只有计数落在缺口右侧，左缘与缺口左缘对齐。
+        #expect(ClosedCapsuleLayout.defaultValue == .badgeOnly)
+        #expect(!ClosedCapsuleLayout.badgeOnly.showsMascot)
+        #expect(ClosedCapsuleLayout.badgeOnly.showsBadge)
+        #expect(ClosedCapsuleLayout.badgeOnly.leadingPadding == 0)
+
+        #expect(!ClosedCapsuleLayout.notchOnly.showsMascot)
+        #expect(!ClosedCapsuleLayout.notchOnly.showsBadge)
+
+        #expect(ClosedCapsuleLayout.wideCapsule.showsMascot)
+        #expect(ClosedCapsuleLayout.wideCapsule.showsBadge)
+        #expect(ClosedCapsuleLayout.wideCapsule.leadingPadding > 0)
+
+        // 徽标槽上限：两档都不得把计数撑成「整条菜单栏都让出去」。
+        for layout in ClosedCapsuleLayout.allCases {
+            #expect(layout.badgeSlotLimit <= NotchClosedMetrics.maximumEarWidth)
+        }
+        #expect(
+            ClosedCapsuleLayout.badgeOnly.badgeSlotLimit
+                < ClosedCapsuleLayout.wideCapsule.badgeSlotLimit)
     }
 
     @Test("刷新频率：状态复核随档位变慢，目录扫描不比它更快")
@@ -280,7 +305,9 @@ struct BehaviorPreferencesTests {
         let approval = PermissionContext(
             toolUseId: "tool-1", toolName: "Bash", toolInput: nil, receivedAt: now)
         #expect(
-            visible(.waitingForApproval(approval), at: justEnded, retention: .immediate, hideIdle: true))
+            visible(
+                .waitingForApproval(approval), at: justEnded, retention: .immediate, hideIdle: true)
+        )
     }
 
     @Test("会话展示的两个开关默认保持既有行为（明细显示、闲置不过滤）")
