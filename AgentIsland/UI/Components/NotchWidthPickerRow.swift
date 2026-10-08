@@ -3,7 +3,9 @@
 //  AgentIsland
 //
 //  设置面板里的胶囊宽度选择行：默认跟随屏幕（有物理刘海取刘海宽度，外接屏取典型
-//  MacBook 刘海宽度），也可以逐点微调；微调会把来源切成「自定义」，此后不再跟随屏幕。
+//  MacBook 刘海宽度），也可以逐点微调、或直接在输入框里键入精确磅值；两者都会把来源
+//  切成「自定义」，此后不再跟随屏幕，改动立刻写回（关闭态矩形跟着换，见
+//  `notchGeometryPreferenceChanged`）。
 //  有物理刘海的屏幕上微调下限就是刘海宽度——比挖孔还窄时胶囊两侧会露出挖孔、顶部出现
 //  台阶，因此那里只能把胶囊调宽；外接屏两个方向都开放。
 //
@@ -13,11 +15,20 @@ import SwiftUI
 
 struct NotchWidthPickerRow: View {
     /// 是否是所在卡片的最后一行（最后一行不画分隔线）。
-    var showsSeparator: Bool = true
+    let showsSeparator: Bool
 
-    @ObservedObject private var selector = NotchWidthSelector.shared
+    @ObservedObject private var selector: NotchWidthSelector
+    /// 预览要按真实比例画，因此宽度这一行也读高度那一档（两个选择器都是共享实例）。
+    @ObservedObject private var heightSelector = NotchHeightSelector.shared
     @ObservedObject private var screenSelector = ScreenSelector.shared
     @ObservedObject private var l10n = LocalizationManager.shared
+
+    /// 宽度选择器可注入：设置页传共享实例，渲染用例传独立偏好域
+    /// （避免动用户的真实设置，与 `ShortcutRecorderRow` 同法）。
+    init(showsSeparator: Bool = true, selector: NotchWidthSelector) {
+        self.showsSeparator = showsSeparator
+        self._selector = ObservedObject(wrappedValue: selector)
+    }
 
     private var isExpanded: Bool { selector.isPickerExpanded }
 
@@ -60,7 +71,15 @@ struct NotchWidthPickerRow: View {
                 maximum: NotchWidthSelector.maximumWidth,
                 isSelected: selector.mode == .custom,
                 decrease: { step(by: -NotchWidthSelector.step) },
-                increase: { step(by: NotchWidthSelector.step) }
+                increase: { step(by: NotchWidthSelector.step) },
+                setValue: { selector.setWidth($0, on: screen) }
+            )
+
+            // 实时预览：面板打开时关闭态胶囊被展开卡片整块盖住，这一行是宽度**唯一**的
+            // 可见反馈（高度那一档不加预览：它本来就能从面板自身高度看出来）。
+            ClosedCapsulePreview(
+                width: selector.resolvedWidth(for: screen),
+                height: heightSelector.resolvedHeight(for: screen)
             )
         }
     }

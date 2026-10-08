@@ -594,10 +594,14 @@ struct SettingsCompactButtonStyle: ButtonStyle {
     }
 }
 
+/// 长度的单位。数值与单位都不需要翻译（见 `settingsLengthLabel`），单独取出来是因为
+/// 微调行的输入框把它当后缀画在数字右边——同一个字符串只写一处。
+let settingsLengthUnit = "pt"
+
 /// 把长度写成设置行里的短标签（整数 + pt）。数值与单位都不需要翻译，
 /// 因此不走 `t(_:)`；胶囊高度行与宽度行共用，避免两处格式化各写一套。
 func settingsLengthLabel(_ value: CGFloat) -> String {
-    "\(Int(value.rounded())) pt"
+    "\(Int(value.rounded())) \(settingsLengthUnit)"
 }
 
 /// 把秒数写成短标签（0.3 s / 1 s / 1.5 s）。整数不带小数点。

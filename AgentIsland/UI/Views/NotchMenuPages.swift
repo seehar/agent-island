@@ -34,7 +34,7 @@ struct GeneralSettingsPage: View {
                 LanguagePickerRow()
                 ScreenPickerRow(screenSelector: screenSelector)
                 NotchHeightPickerRow()
-                NotchWidthPickerRow()
+                NotchWidthPickerRow(selector: NotchWidthSelector.shared)
                 TextSizePickerRow()
                 // 「面板尺寸」与胶囊高度、宽度、字号同属「面板长什么样」，从行为页搬来：
                 // 它同时是行为页高度的对价——行为页让出一行，音效那一行才装得下。

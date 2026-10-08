@@ -51,7 +51,11 @@ final class NotchHeightSelector: ObservableObject {
     private let modeKey = "notchHeightMode"
     private let customHeightKey = "notchHeightCustom"
 
-    private init() {
+    private let defaults: UserDefaults
+
+    /// 默认读写标准偏好域；测试传独立域，避免污染真实偏好（与 `NotchWidthSelector` 同族）。
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         loadPreferences()
     }
 
@@ -100,6 +104,19 @@ final class NotchHeightSelector: ObservableObject {
         savePreferences()
     }
 
+    /// 直接写入一个高度（微调行的输入框键入用）：夹进微调范围，并把来源切成「自定义」。
+    ///
+    /// 与 `stepHeight` 分开是因为键入的是**绝对值**、不是增量。夹紧范围与屏幕无关
+    /// （高度的可选区间是全局的），因此这里不收 `screen`。值没变就直接返回——输入框
+    /// 逐字符生效，每次都落盘并发通知会让窗口控制器白算几遍几何。
+    func setHeight(_ height: CGFloat) {
+        let clamped = min(max(height, Self.minimumHeight), Self.maximumHeight)
+        guard mode != .custom || clamped != customHeight else { return }
+        customHeight = clamped
+        mode = .custom
+        savePreferences()
+    }
+
     // MARK: - 面板高度
 
     /// 展开后可见的选项行数：3 个来源选项 + 1 行微调。
@@ -115,23 +132,23 @@ final class NotchHeightSelector: ObservableObject {
     // MARK: - 持久化
 
     private func loadPreferences() {
-        if let raw = UserDefaults.standard.string(forKey: modeKey),
+        if let raw = defaults.string(forKey: modeKey),
             let stored = NotchHeightMode(rawValue: raw)
         {
             mode = stored
         }
 
-        let storedHeight = UserDefaults.standard.double(forKey: customHeightKey)
+        let storedHeight = defaults.double(forKey: customHeightKey)
         if storedHeight > 0 {
             customHeight = min(max(CGFloat(storedHeight), Self.minimumHeight), Self.maximumHeight)
         }
     }
 
     private func savePreferences() {
-        UserDefaults.standard.set(mode.rawValue, forKey: modeKey)
-        UserDefaults.standard.set(Double(customHeight), forKey: customHeightKey)
+        defaults.set(mode.rawValue, forKey: modeKey)
+        defaults.set(Double(customHeight), forKey: customHeightKey)
         // 高度变化不需要重建窗口，只要换掉关闭态矩形：面板可以一直开着，边调边看。
-        NotificationCenter.default.post(name: .notchGeometryPreferenceChanged, object: nil)
+        NotificationCenter.default.post(name: .notchGeometryPreferenceChanged, object: self)
     }
 }
 

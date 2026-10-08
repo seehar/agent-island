@@ -7,6 +7,7 @@
 //  展开高度要按选项数算进面板。全部在独立偏好域里跑，不碰用户的真实偏好。
 //
 
+import Combine
 import CoreGraphics
 import Foundation
 import Testing
@@ -99,6 +100,49 @@ struct NotchWidthSelectorTests {
         #expect(selector.mode == .custom)
         #expect(selector.customWidth == NotchWidthSelector.maximumWidth)
     }
+
+    @Test("键入：夹紧、切自定义、落盘；同一个（夹紧后的）值不重复通知窗口")
+    func typingClampsSwitchesModeAndNotifiesOncePerChange() throws {
+        let defaults = try makeDefaults()
+        let selector = NotchWidthSelector(defaults: defaults)
+
+        // 通知就是「立刻换关闭态矩形」那条路径（见 `notchGeometryPreferenceChanged`）：
+        // 按发布者过滤，别的用例/别的选择器发出的通知不算。
+        var notified = 0
+        let token = NotificationCenter.default.publisher(
+            for: .notchGeometryPreferenceChanged, object: selector
+        ).sink { _ in notified += 1 }
+        defer { token.cancel() }
+
+        // 低于下限（拿不到屏幕时下限就是微调范围下限）→ 夹到下限，来源切自定义
+        selector.setWidth(10, on: nil)
+        #expect(selector.mode == .custom)
+        #expect(selector.customWidth == NotchWidthSelector.minimumWidth)
+        #expect(notified == 1)
+
+        // 键入是逐字符生效的：夹紧后同一个值再来一次不该再落盘、也不再通知窗口
+        selector.setWidth(10, on: nil)
+        #expect(notified == 1)
+
+        // 换成别的值：通知，且立刻落盘（重建后仍是自定义宽度）
+        selector.setWidth(300, on: nil)
+        #expect(selector.customWidth == 300)
+        #expect(notified == 2)
+
+        let reloaded = NotchWidthSelector(defaults: defaults)
+        #expect(reloaded.mode == .custom)
+        #expect(reloaded.customWidth == 300)
+
+        // 上限同样夹紧
+        selector.setWidth(9999, on: nil)
+        #expect(selector.customWidth == NotchWidthSelector.maximumWidth)
+
+        // 有物理刘海时下限抬到挖孔宽度：键入比挖孔窄的值也写不进去
+        let floor = NotchWidthSelector.lowerBound(notchHeight: 38, notchWidth: 200)
+        #expect(floor == 200)
+        #expect(NotchWidthSelector.clamped(120, lowerBound: floor) == 200)
+    }
+
 
     @Test("标称宽度只加长胶囊中间那段：胶囊宽度随它 1:1 增长，两侧耳位完全不参与")
     func nominalWidthOnlyLengthensTheMiddleSection() {

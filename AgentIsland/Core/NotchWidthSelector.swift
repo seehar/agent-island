@@ -110,11 +110,32 @@ final class NotchWidthSelector: ObservableObject {
         savePreferences()
     }
 
+    /// 直接写入一个宽度（微调行的输入框键入用）：夹进本屏范围，并把来源切成「自定义」。
+    ///
+    /// 与 `stepWidth` 分开是因为键入的是**绝对值**、不是增量；夹紧与收尾（落盘 + 通知窗口
+    /// 换关闭态矩形）两条路径共用。
+    ///
+    /// 值没变就直接返回：输入框是**逐字符**生效的（敲 `2`、`20`、`200` 会连着来三次），
+    /// 每次都落盘并发通知会让窗口控制器白算三遍几何。
+    func setWidth(_ width: CGFloat, on screen: NSScreen?) {
+        let clamped = Self.clamped(width, lowerBound: Self.lowerBound(on: screen))
+        guard mode != .custom || clamped != customWidth else { return }
+        customWidth = clamped
+        mode = .custom
+        savePreferences()
+    }
+
     // MARK: - 面板高度
 
-    /// 展开后可见的选项行数：1 个「自动」选项 + 1 行微调。
+    /// 展开后可见的选项行数：1 个「自动」选项 + 1 行微调 + 2 行实时预览
+    /// （预览行取两行选项高，见 `ClosedCapsulePreview.rowHeight`）。
     /// 面板高度按它算，预算核对（`NotchMenuMetricsTests`）也读它，不要再写数字。
-    nonisolated static let visibleOptions = 2
+    ///
+    /// 预览行只加在**宽度**这一档：面板打开时关闭态胶囊被展开卡片整块盖住，宽度改了没有
+    /// 任何别的反馈；高度那一档本来就能从面板自身的高度看出来（固定开销跟着
+    /// `deviceNotchRect.height` 走），因此没有预览行。两档的展开高度因此都是 4 行
+    /// （138pt），通用页「最高的单个展开」这笔账没有变。
+    nonisolated static let visibleOptions = 4
 
     /// 展开时面板需要多出来的高度。
     var expandedPickerHeight: CGFloat {
@@ -141,6 +162,6 @@ final class NotchWidthSelector: ObservableObject {
         defaults.set(mode.rawValue, forKey: modeKey)
         defaults.set(Double(customWidth), forKey: customWidthKey)
         // 宽度变化不需要重建窗口，只要换掉关闭态矩形：面板可以一直开着，边调边看。
-        NotificationCenter.default.post(name: .notchGeometryPreferenceChanged, object: nil)
+        NotificationCenter.default.post(name: .notchGeometryPreferenceChanged, object: self)
     }
 }

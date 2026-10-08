@@ -3,8 +3,9 @@
 //  AgentIsland
 //
 //  设置面板里的胶囊高度选择行：自动跟随屏幕（有刘海用刘海高度，外接屏用菜单栏高度）、
-//  固定的菜单栏高度、固定的刘海高度，以及逐点微调。微调会把来源切成「自定义」，
-//  此后不再跟随屏幕。每个选项右侧标出它实际会得到的高度，便于对齐参照物。
+//  固定的菜单栏高度、固定的刘海高度，以及逐点微调或直接键入精确磅值。两者都会把来源
+//  切成「自定义」，此后不再跟随屏幕，改动立刻写回（面板的固定开销跟着换）。
+//  每个选项右侧标出它实际会得到的高度，便于对齐参照物。
 //
 
 import AppKit
@@ -61,7 +62,8 @@ struct NotchHeightPickerRow: View {
                 maximum: NotchHeightSelector.maximumHeight,
                 isSelected: selector.mode == .custom,
                 decrease: { step(by: -NotchHeightSelector.step) },
-                increase: { step(by: NotchHeightSelector.step) }
+                increase: { step(by: NotchHeightSelector.step) },
+                setValue: { selector.setHeight($0) }
             )
         }
     }

@@ -58,7 +58,7 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
 
 **Small by design.** No Dock icon, no menu bar item, no daemon: a local Unix socket, one `NSPanel` on the notch, and your agents' own files.
 
-**Yours to tune.** Hover delay, idle behaviour, panel size, row density, click action, refresh cadence, notification scope, content text size, notch height and width, and the language (English / 简体中文) — all switchable at runtime.
+**Yours to tune.** Hover delay, idle behaviour, panel size, row density, click action, refresh cadence, notification scope, content text size, notch height and width (stepped or typed as an exact point value, with a live preview of the capsule while you type the width), and the language (English / 简体中文) — all switchable at runtime, applied the moment you change them.
 
 ## Usage stats
 
