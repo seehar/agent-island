@@ -10,9 +10,9 @@
 //     整块盖住，这一行是宽度唯一的反馈。用墨迹量：三级文字色的描边在深色卡片上就是墨迹。
 //
 //  两张 PNG 落到 /tmp/width-picker-probe 供人工核对（探针产物不入库）。它们用
-//  `NSHostingViewProbe` 出图：断言用的 `ImageRenderer` **画不了 `TextField`**（会画成
-//  琥珀色占位块），它的图里输入框那一格是空的——判据只看预览行的墨迹与整行高度，
-//  因此不受影响，给人看的图则要真的把输入框画出来。
+//  `NSHostingViewProbe` 出图：断言用的 `ImageRenderer` 不画 AppKit 控件（`TextField`
+//  那一格是琥珀色占位块）——判据只看预览行的墨迹与整行高度，因此不受影响，
+//  给人看的图则要真的把输入框画出来。
 //
 //  用例传**独立偏好域**里的选择器（行支持注入，见它的 `init`）：不碰用户的真实设置，
 //  也不会与并行跑的其它用例抢共享实例的展开态。
@@ -87,8 +87,9 @@ struct NotchWidthPickerRowRenderTests {
                 "\(name) 行高 \(size.height) ≠ 解析式 \(expectedHeight)（预览行没有算进选项区）")
             #expect(clusters.count == 1, "\(name) 预览行应只有一个剪影：\(clusters)")
 
+            // 不先删旧图：`ImageWriter.write` 是原子写，会直接覆盖（先删反而给并行的
+            // 另一个宿主进程留出「刚写完就被删掉」的窗口）。
             let file = probeDirectory.appendingPathComponent("\(name).png")
-            try? FileManager.default.removeItem(at: file)
             if let appKitImage = NSHostingViewProbe.raster(row) {
                 try ImageWriter.write(appKitImage, to: file)
             }
@@ -101,6 +102,15 @@ struct NotchWidthPickerRowRenderTests {
         #expect(
             silhouetteWidths.count == 2 && silhouetteWidths[1] > silhouetteWidths[0] + 10,
             "预览没有跟着数值变宽：\(silhouetteWidths)")
+
+        // 真实渲染出来的比例 == `ClosedCapsulePreview.box(inDetailWidth:)` 那套解析式：
+        // 用例的夹具盒（`ClosedCapsulePreviewTests`）与生产排版因此是同一件事，不是各写一份。
+        let modelBox = ClosedCapsulePreview.box(
+            inDetailWidth: NotchMenuMetrics.settingsDetailWidth)
+        let modelScale = ClosedCapsulePreview.scale(in: modelBox)
+        #expect(
+            abs(silhouetteWidths[0] - 200 * modelScale) <= 2,
+            "渲染比例 \(silhouetteWidths[0] / 200) 与解析式 \(modelScale) 不符（预览盒 \(modelBox)）")
 
         let reportURL = probeDirectory.appendingPathComponent("measurements.txt")
         try (report.joined(separator: "\n") + "\n").write(

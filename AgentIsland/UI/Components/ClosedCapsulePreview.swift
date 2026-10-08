@@ -73,6 +73,22 @@ struct ClosedCapsulePreview: View {
             box.height / NotchHeightSelector.maximumHeight)
     }
 
+    /// 生产里预览盒的实际形状（解析式，与视图里 `GeometryReader` 量出来的那个盒子同一套
+    /// 口径）：宽度 = 设置详情列 − 展开块缩进 − 选项行自己的左右内边距 − 两侧留白，
+    /// 高度 = 行高 − 上下留白。
+    ///
+    /// 它给用例当夹具，判据才落在**真实几何**上：盒高一行、还是两行，直接决定「受约束的
+    /// 是宽还是高」，按一张手写的盒子建夹具会在改行高时静默脱节（改 `rowHeight` 时这里与
+    /// 视图一起变）。
+    static func box(inDetailWidth detailWidth: CGFloat) -> CGSize {
+        CGSize(
+            width: max(
+                0,
+                detailWidth - NotchMenuMetrics.optionIndent
+                    - 2 * NotchMenuMetrics.optionHorizontalPadding - 2 * inset),
+            height: max(0, rowHeight - 2 * inset))
+    }
+
     /// 剪影尺寸：拿 `scale(in:)` 乘出来的，因此任何合法取值都装得下，
     /// 且画出来的宽高都随入参单调增长（不会在某一端饱和）。
     static func fittedSize(

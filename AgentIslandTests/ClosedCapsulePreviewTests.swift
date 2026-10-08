@@ -14,8 +14,12 @@ import Testing
 @MainActor
 @Suite("关闭态胶囊预览")
 struct ClosedCapsulePreviewTests {
-    /// 与真实预览盒同形：一行选项高（32）减去上下边距后是 20，宽度取标准档的一项内容宽。
-    private let box = CGSize(width: 300, height: 20)
+    /// 与**真实排版**同形的预览盒：从 `ClosedCapsulePreview.box(inDetailWidth:)` 推出来
+    /// （标准档详情列 323pt → 257×52）。手写一个 300×20 的盒子会让「受约束的是哪个方向」
+    /// 这件事跟生产脱节——改预览行高时它不会跟着变。
+    private var box: CGSize {
+        ClosedCapsulePreview.box(inDetailWidth: NotchMenuMetrics.settingsDetailWidth)
+    }
 
     @Test("整个可调区间都装得下：任何合法取值都不越出预览盒")
     func everyLegalValueFitsTheBox() {
@@ -41,9 +45,9 @@ struct ClosedCapsulePreviewTests {
             width: NotchWidthSelector.maximumWidth,
             height: NotchHeightSelector.maximumHeight,
             in: box)
-        // 预览盒是扁的（300×20），限制轴是高度
-        #expect(abs(size.height - box.height) < 0.0001)
-        #expect(size.width < box.width)
+        // 真实盒形是矮胖的（257×52）：宽度那一路先撞线（257/520 < 52/64），限制轴是宽度。
+        #expect(abs(size.width - box.width) < 0.0001)
+        #expect(size.height < box.height)
     }
 
     @Test("剪影的圆角跟着身子同一个比例缩：预览盒减半，圆角也减半")

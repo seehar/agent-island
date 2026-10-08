@@ -64,9 +64,11 @@ struct NotchWidthPickerRow: View {
 
             SettingsStepperRow(
                 label: l10n.t("Custom"),
-                // 未微调过时显示当前生效宽度：第一下微调是从眼前的数值继续，
-                // 而不是跳到一个存起来的旧值。
-                value: selector.mode == .custom ? selector.customWidth : effectiveWidth,
+                // 一律显示**当前生效**的宽度（`resolvedWidth` 已按本屏下限夹过），而不是
+                // `customWidth` 本身：自定义值可能是在别的屏幕上定的（外接屏 150pt），换到
+                // 有挖孔的屏之后实际生效的是挖孔宽度——只显示存下来的那个数，输入框就会与
+                // 旁边的预览、以及真的胶囊自相矛盾。微调也是从眼前的数值继续。
+                value: effectiveWidth,
                 minimum: NotchWidthSelector.lowerBound(on: screen),
                 maximum: NotchWidthSelector.maximumWidth,
                 isSelected: selector.mode == .custom,

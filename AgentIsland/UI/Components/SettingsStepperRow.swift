@@ -32,8 +32,8 @@ struct SettingsStepperRow: View {
 
     /// 文本框宽度：4 位数字（范围上限 520）在 11pt 等宽下最宽约 27pt。
     private static let fieldWidth: CGFloat = 34
-    /// 文本框高度：与徽标块同档（22），行高因此仍是 `optionRowHeight`（面板高度照旧）。
-    private static let fieldHeight: CGFloat = 22
+    /// 文本框高度：与徽标块同档，行高因此仍是 `optionRowHeight`（面板高度照旧）。
+    private static let fieldHeight: CGFloat = NotchMenuMetrics.badgeSize
 
     var body: some View {
         HStack(spacing: 8) {
@@ -48,7 +48,7 @@ struct SettingsStepperRow: View {
                 systemName: "minus",
                 label: l10n.t("Decrease"),
                 isEnabled: value > minimum,
-                action: decrease
+                action: { endEditingForStepping(); decrease() }
             )
 
             valueField
@@ -57,14 +57,15 @@ struct SettingsStepperRow: View {
                 systemName: "plus",
                 label: l10n.t("Increase"),
                 isEnabled: value < maximum,
-                action: increase
+                action: { endEditingForStepping(); increase() }
             )
         }
         .padding(.horizontal, NotchMenuMetrics.optionHorizontalPadding)
         .frame(height: NotchMenuMetrics.optionRowHeight)
         // 键入：先把文本归一成纯数字（粘贴 `224 pt` 也认），再逐字符写回。
         // 只在编辑中写回——`draft` 的其它来源（首次出现、外部改动、失焦归一）都是程序性同步，
-        // 照单写回会在**打开选择器时就**把来源切成「自定义」。
+        // 照单写回会在**打开选择器时就**把来源切成「自定义」。因此 `commitDraft` 只在失焦
+        // 回调里跑（那一刻 `isEditing` 已是 false），回车走的是「结束键入」而不是就地归一。
         .onChange(of: draft) { _, newText in
             guard isEditing else { return }
             let digits = Self.digitsOnly(newText)
@@ -114,8 +115,10 @@ struct SettingsStepperRow: View {
                 .foregroundColor(AppPalette.primaryText)
                 .frame(width: Self.fieldWidth)
                 .focused($isEditing)
-                .onSubmit(commitDraft)
-                .accessibilityLabel(Text(label))
+                // 回车＝结束键入（焦点交回去），由失焦回调做归一。**不**在这里直接归一：
+                // 那会在 `isEditing == true` 时改写 `draft`，而改写会被下面的 onChanged 当成
+                // 键入写回——「展开选择器后在空输入框里按回车」就会把来源静默切成「自定义」。
+                .onSubmit { isEditing = false }
 
             // 单位不翻译，与 `settingsLengthLabel` 用同一个字符串。
             Text(verbatim: settingsLengthUnit)
@@ -130,10 +133,19 @@ struct SettingsStepperRow: View {
         )
     }
 
-    /// 回车 / 失焦：把文本框归一成**真正生效的**值——键入中途可能停在一个被夹紧前的数字上
+    /// 失焦：把文本框归一成**真正生效的**值——键入中途可能停在一个被夹紧前的数字上
     /// （下限随屏幕变化，输入框自己并不知道该夹到哪）。
+    ///
+    /// 只从失焦回调调用：那里 `isEditing` 已经是 false，写回路径因此不会被这次程序性改写
+    /// 触发（见 `body` 里的两条 `onChange`）。
     private func commitDraft() {
         draft = Self.digits(from: value)
+    }
+
+    /// 点 ± 之前先结束键入：焦点不交回去的话文本框会停在一个紧接着就被步进改掉的旧数字上
+    /// （macOS 的普通按钮不抢 first responder），而且要等到失焦才归一。
+    private func endEditingForStepping() {
+        isEditing = false
     }
 
     // MARK: - 文本归一（纯函数，可单测）
