@@ -655,39 +655,6 @@
         }
       }
     },
-    "Dangerous commands run" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dangerous commands run"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "危险命令会直接运行"
-          }
-        }
-      }
-    },
-    "Status check %@ · session scan %@" : {
-      "comment" : "刷新频率行：分别显示会话状态复核和磁盘会话扫描的间隔。",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Status check %@ · session scan %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "状态复核 %@ · 会话扫描 %@"
-          }
-        }
-      }
-    },
     "Requires a tmux session and yabai; otherwise opens chat." : {
       "comment" : "聚焦终端单击动作的前置条件和回退行为。",
       "localizations" : {
@@ -701,6 +668,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "需要 tmux 会话和 yabai；否则改为打开对话。"
+          }
+        }
+      }
+    },
+    "Left: status check interval. Right: session scan interval." : {
+      "comment" : "刷新频率行的悬停提示：说明档位说明里那两个秒数的含义",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Left: status check interval. Right: session scan interval."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左：状态复核间隔；右：会话扫描间隔。"
           }
         }
       }
@@ -7734,54 +7718,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "完整胶囊"
-          }
-        }
-      }
-    },
-    "Only the count sits next to the cutout, so menu bar items stay clear." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Only the count sits next to the cutout, so menu bar items stay clear."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "只有计数落在挖孔旁边，菜单栏图标不被动。"
-          }
-        }
-      }
-    },
-    "Nothing is drawn beside the cutout; counts appear when the panel opens." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nothing is drawn beside the cutout; counts appear when the panel opens."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "挖孔两侧什么都不画，计数在面板展开时出现。"
-          }
-        }
-      }
-    },
-    "The mascot and the count sit on both sides of the cutout." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The mascot and the count sit on both sides of the cutout."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "角色与计数分居挖孔两侧。"
           }
         }
       }

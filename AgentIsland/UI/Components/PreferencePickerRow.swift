@@ -6,6 +6,10 @@
 //  选项文案与说明由调用方给出：文案必须在视图里按字面量取键，本地化守卫才能审计到，
 //  所以不把文案放到 `PreferenceOption` 上。
 //
+//  与「放不放得下」有关的一条口径：**取值列与选项行都只有一行**，长文案会被中间截断。
+//  因此 `detail` 只放短标注（数值 / 单位 / 几个词），整句话的说明走 `helpText`（悬停提示，
+//  不受宽度限制）——档位说明不该占满一行、再把半句吞掉。
+//
 
 import SwiftUI
 
@@ -17,8 +21,12 @@ struct PreferencePickerRow<Option: PreferenceOption>: View {
     @ObservedObject var selector: EnumPreference<Option>
     /// 档位文案。
     let label: (Option) -> String
-    /// 档位右侧的补充说明（数值 + 单位）；返回 nil 就不画。
+    /// 档位右侧的补充说明（数值 / 单位 / 几个词）；返回 nil 就不画。
+    /// **只放短标注**：取值列与选项行都只有一行，长文案会被中间截断。
     var detail: (Option) -> String? = { _ in nil }
+    /// 整句话的说明（悬停提示）。不受宽度限制，因此「为什么 / 什么情况下不生效」写在它
+    /// 里面，而不是塞进档位说明里被截断。
+    var helpText: String? = nil
     /// 是否是所在卡片的最后一行（最后一行不画分隔线）。带默认值的参数放最后，
     /// 调用点才能把它写在实参表末尾。
     var showsSeparator: Bool = true
@@ -29,6 +37,15 @@ struct PreferencePickerRow<Option: PreferenceOption>: View {
     }
 
     var body: some View {
+        // 只在有文案时挂 tooltip：`.help` 不判空，空串会留一个什么都没有的气泡。
+        if let helpText {
+            pickerRow.help(helpText)
+        } else {
+            pickerRow
+        }
+    }
+
+    private var pickerRow: some View {
         SettingsPickerRow(
             badge: badge,
             title: title,

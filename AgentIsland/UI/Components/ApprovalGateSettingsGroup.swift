@@ -91,7 +91,8 @@ private struct ApprovalAskScopePickerRow: View {
             ForEach(ApprovalAskScope.allCases, id: \.self) { option in
                 SettingsOptionRow(
                     label: optionTitle(option),
-                    detail: option == .alwaysAllow ? l10n.t("Dangerous commands run") : nil,
+                    // 不再给「始终允许」加一句档位说明：它和这一行的 tooltip（`explanation`）
+                    // 说的是同一件事，而选项行里放不下——加了只会被中间截断。
                     isSelected: selector.option == option
                 ) {
                     selector.select(option)

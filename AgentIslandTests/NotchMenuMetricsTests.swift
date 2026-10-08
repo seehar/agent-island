@@ -528,6 +528,23 @@ struct NotchMenuMetricsTests {
         }
     }
 
+    @Test("档位说明的可用宽 = 详情列 − 展开缩进 − 行内边距 − 固定开销")
+    func optionRowTextWidthMatchesLayout() {
+        // 说明与标签共用这一条：它是「档位说明放不放得下」的唯一判据，写成常量而不是
+        // 各处手算，改动选项行几何时这里会先红。
+        let expected =
+            NotchMenuMetrics.settingsDetailWidth - NotchMenuMetrics.optionIndent
+            - 2 * NotchMenuMetrics.optionHorizontalPadding - 8 - 8
+            - NotchMenuMetrics.checkmarkWidth
+        #expect(NotchMenuMetrics.optionRowTextWidth == expected)
+        // 说明与标签都在这一行里，因此它必须比单个标签列宽——否则任何说明都放不下。
+        #expect(NotchMenuMetrics.optionRowTextWidth > 0)
+        #expect(
+            NotchMenuMetrics.optionRowTextWidth
+                < NotchMenuMetrics.settingsDetailWidth,
+            "说明的可用宽不该等于整列宽：右边还有选中勾与弹性下限")
+    }
+
     @Test("选项块高度随选项数线性增长，空列表只留内边距")
     func pickerOptionsHeightScalesLinearly() {
         #expect(

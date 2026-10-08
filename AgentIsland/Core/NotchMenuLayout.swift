@@ -159,6 +159,22 @@ nonisolated enum NotchMenuMetrics {
     static let toggleRowHeight: CGFloat = 42
     /// 展开的选择器里的一行选项（含微调行）。
     static let optionRowHeight: CGFloat = 32
+    /// 展开的选项行里「标签 + 说明」能用的宽度。
+    ///
+    /// `SettingsOptionRow` 的一行是：左右内边距 + 标签 + 8pt 间隙 + 说明 + 8pt（弹性下限）
+    /// + 10pt（选中勾），所以可用宽 = 详情列 − 展开缩进 − 两份行内边距 − 那三份固定开销。
+    ///
+    /// 标准档下是 **243pt**，换成 12pt/11pt 的两把尺子大约是「英文 40 字符 / 中文 19 字」。
+    /// 档位说明超过它就**不会换行、只会被中间截断**（`truncationMode(.middle)`）——这一档
+    /// 只放短标注（数值 / 单位 / 几个词），整句话走 `PreferencePickerRow.helpText`。
+    static var optionRowTextWidth: CGFloat {
+        settingsDetailWidth - optionIndent - 2 * optionHorizontalPadding
+            - 8 - 8 - checkmarkWidth
+    }
+
+    /// 选项行右侧选中勾的宽度（`Image(systemName: "checkmark")` 在 10pt semibold 下的实测宽）。
+    static let checkmarkWidth: CGFloat = 10
+
     /// 选项列表的上下留白：选项块总高 = 选项数 × 行高 + 这个值。
     static let optionListPadding: CGFloat = 10
     static let optionListTopPadding: CGFloat = 4

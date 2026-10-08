@@ -222,7 +222,8 @@ struct BehaviorSettingsPage: View {
                     title: l10n.t("Closed Notch Layout"),
                     selector: ClosedCapsuleLayoutSelector.shared,
                     label: closedCapsuleLayoutLabel,
-                    detail: closedCapsuleLayoutDetail,
+                    // 三个档位名自己就把「挖孔两侧画什么」说完了（只留计数 / 只留挖孔 /
+                    // 完整胶囊），原来的三句解释在选项行里都放不下、只会被中间截断。
                     showsSeparator: false
                 )
             }
@@ -248,7 +249,9 @@ struct BehaviorSettingsPage: View {
                     title: l10n.t("Click Action"),
                     selector: SessionRowClickActionSelector.shared,
                     label: clickActionLabel,
-                    detail: clickActionDetail
+                    // 「定位终端要 tmux / yabai，否则改成打开对话」是**整句话**：放进 tooltip，
+                    // 不再塞进档位说明（那一行放不下，会被截断成半句）。
+                    helpText: l10n.t("Requires a tmux session and yabai; otherwise opens chat.")
                 )
                 PreferencePickerRow(
                     badge: SettingsBadge(
@@ -256,7 +259,8 @@ struct BehaviorSettingsPage: View {
                     title: l10n.t("Refresh Rate"),
                     selector: RefreshCadenceSelector.shared,
                     label: refreshCadenceLabel,
-                    detail: refreshCadenceDetail
+                    detail: refreshCadenceDetail,
+                    helpText: l10n.t("Left: status check interval. Right: session scan interval.")
                 )
                 // 两个列表开关：都是两行行高（标题 + 一句说明），见 `NotchMenuMetrics`。
                 SettingsToggleRow(
@@ -316,17 +320,6 @@ struct BehaviorSettingsPage: View {
         }
     }
 
-    private func closedCapsuleLayoutDetail(_ option: ClosedCapsuleLayout) -> String {
-        switch option {
-        case .badgeOnly:
-            return l10n.t("Only the count sits next to the cutout, so menu bar items stay clear.")
-        case .notchOnly:
-            return l10n.t("Nothing is drawn beside the cutout; counts appear when the panel opens.")
-        case .wideCapsule:
-            return l10n.t("The mascot and the count sit on both sides of the cutout.")
-        }
-    }
-
     private func sessionRetentionLabel(_ option: SessionRetention) -> String {
         switch option {
         case .immediate: return l10n.t("Immediately")
@@ -352,11 +345,6 @@ struct BehaviorSettingsPage: View {
         }
     }
 
-    private func clickActionDetail(_ option: SessionRowClickAction) -> String? {
-        guard option == .focusTerminal else { return nil }
-        return l10n.t("Requires a tmux session and yabai; otherwise opens chat.")
-    }
-
     private func refreshCadenceLabel(_ option: RefreshCadence) -> String {
         switch option {
         case .fast: return l10n.t("Fast")
@@ -365,12 +353,11 @@ struct BehaviorSettingsPage: View {
         }
     }
 
+    /// 两个间隔只写成一对数值（左复核 / 右扫描，含义在 tooltip 里）：带标签的整句在
+    /// 取值列与选项行里都放不下，会被中间截断。
     private func refreshCadenceDetail(_ option: RefreshCadence) -> String? {
-        l10n.t(
-            "Status check %@ · session scan %@",
-            settingsSecondsLabel(TimeInterval(option.statusSeconds)),
-            settingsSecondsLabel(TimeInterval(option.discoverySeconds))
-        )
+        "\(settingsSecondsLabel(TimeInterval(option.statusSeconds)))"
+            + " / \(settingsSecondsLabel(TimeInterval(option.discoverySeconds)))"
     }
 
 }

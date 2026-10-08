@@ -31,6 +31,20 @@ struct NotchPanelFaceTests {
   @Test("面板高跟着内容面换：会话列表 320、统计分组被夹到上限、收起回到会话列表")
   @MainActor
   func panelHeightFollowsContentFace() {
+    // 这一页的高度是「用户偏好 + 展开态」派生出来的，因此先把两类**共享状态**复位
+    // （手法与 `NotchMenuSubscriptionTests.resetHeightContributors()` 一致：用例自己建立
+    // 前置，结束前把用户原来的档位放回去）：
+    //  · `PanelSizeSelector.shared` 读的是**用户的真实档位**——面板尺寸设成「紧凑」时
+    //    会话列表是 320 × 0.88 = 281.6，用例会在真机上红（本机实测过一次）；
+    //  · 展开态与并行跑的用例共用同一批选择器，展开块会把菜单面顶到上限之上。
+    let previousSize = PanelSizeSelector.shared.option
+    PickerExpansion.collapseCurrent()
+    PanelSizeSelector.shared.select(.standard)
+    defer {
+      PickerExpansion.collapseCurrent()
+      PanelSizeSelector.shared.select(previousSize)
+    }
+
     let model = makeModel()
 
     // 会话列表：固定 320（`NotchViewModel.openedSize` 的 `.instances` 分支）。
