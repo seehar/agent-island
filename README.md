@@ -155,7 +155,7 @@ Already monitoring these agents? The next launch rewrites their extension to the
 
 Opening a picker expands its options in place and the panel grows to fit them — the whole list stays visible, so nothing ever ends up below the fold.
 
-The rail on the left carries the **four configuration pages** (General, Behavior, Notifications, Agents) with **About** pinned at the bottom; on a narrow panel (the compact size) it falls back to icons only. **Statistics** and **Quota** are not in that rail — they are dashboard faces of their own, reached from the chart and card buttons in the panel header, and they take the full panel width.
+The rail on the left carries the **four configuration pages** (General, Behavior, Notifications, Agents) and **About** as its last item (it is no longer pinned to the bottom of the rail); on a narrow panel (the compact size) it falls back to icons only. **Statistics** and **Quota** are not in that rail — they are dashboard faces of their own, reached from the chart and card buttons in the panel header, and they take the full panel width.
 
 |Page|What's in it|
 |---|---|

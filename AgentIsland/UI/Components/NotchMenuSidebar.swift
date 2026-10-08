@@ -30,7 +30,8 @@ import SwiftUI
 /// + `matchedGeometryEffect`）画成两档：
 ///
 /// - **带标签档**（`NotchMenuMetrics.sidebarLabeledWidth`，113pt）：图标 + 页面名。
-///   4 个配置页各有各的名字，用户不必逐个悬停去猜——这一档存在的全部理由。
+///   4 个配置页 + 收尾的「关于」各有各的名字，用户不必逐个悬停去猜——这一档存在的
+///   全部理由。
 /// - **图标档**（`sidebarIconWidth`，32pt）：内容宽装不下「标签 + 画廊硬下限」时退回
 ///   这一档（紧凑档内容宽只有 414pt），详情列因此与侧栏化之前同宽。
 ///
@@ -61,9 +62,11 @@ struct NotchMenuSidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: NotchMenuMetrics.sidebarItemSpacing) {
-            // 4 个配置页，加钉底常驻的「关于」。
+            // 5 项：4 个配置页 + 收尾的「关于」。**「关于」就是这一列的最后一项**——
+            // 不再用弹性 `Spacer` 把它推到栏底（那一版它在面板里与前四项隔着一大段
+            // 空白，用户反馈不如直接排在菜单最后）。
             //
-            // **这里不再套 `ScrollView`**：4 + 1 项在最矮的设置页也放得下（判据见
+            // **这里不再套 `ScrollView`**：5 项在最矮的设置页也放得下（判据见
             // `NotchMenuMetricsTests.sidebarFitsShortestSettingsPage`）。也不要再加回来
             // 一个 `ScrollView` + `.scrollIndicators(.automatic)`：macOS 上的 `.automatic`
             // 与 iOS 相反，是「内容放不下就**常驻**一条 overlay 轨道」，窄栏上会永远压着
@@ -71,23 +74,10 @@ struct NotchMenuSidebar: View {
             ForEach(NotchMenuSection.sidebarSections) { section in
                 item(for: section)
             }
-
-            Spacer(minLength: 0)
-
-            Rectangle()
-                .fill(AppPalette.separator)
-                .frame(
-                    width: NotchMenuMetrics.sidebarDividerLength(showsLabels: showsLabels),
-                    height: NotchMenuMetrics.sidebarDividerThickness
-                )
-                .padding(.leading, NotchMenuMetrics.sidebarIconLeading)
-
-            ForEach(NotchMenuSection.sidebarFooterSections) { section in
-                item(for: section)
-            }
         }
         .frame(width: railWidth, alignment: .leading)
-        // 钉底的「关于」靠这一条撑开（父级 HStack 的 `alignment: .top`，详情列自己更高）。
+        // 栏自己撑满面板高度、条目从顶排（父级 HStack 是 `alignment: .top`，详情列更高）：
+        // 整列都算侧栏的悬停 / 点击区。
         .frame(maxHeight: .infinity, alignment: .top)
         .padding(.vertical, NotchMenuMetrics.sidebarVerticalPadding)
         // 指针**整个离开侧栏**时清掉悬停态。只靠条目自己的 `onHover(false)` 清不干净：

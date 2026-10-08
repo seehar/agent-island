@@ -37,7 +37,11 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
 
     var id: String { rawValue }
 
-    /// 侧栏的 4 个入口（显示序即这个序）：**只放配置页**。
+    /// 侧栏的 5 个入口（显示序即这个序）：**4 个配置页 + 收尾的「关于」**。
+    ///
+    /// 「关于」就是这一列的**最后一项**：它曾经单独成组、被弹性 `Spacer` 钉到栏底
+    /// （在面板里与前四项隔着一大段空白），用户反馈不如直接排在菜单最后 —— 于是
+    /// 取消了那个分组，分组线也随之删掉。顺序即上面这个数组的序，不再有第二个分组。
     ///
     /// 统计与额度是**读数**（仪表盘），不是配置：它们不占侧栏位、也不显示侧栏，
     /// 而是占满整宽的一条独立内容面，入口是面板头部的图表 / 额度按钮
@@ -45,11 +49,8 @@ nonisolated enum NotchMenuSection: String, CaseIterable, Identifiable, Sendable 
     /// ① 侧栏本来要滚动（6 项 250pt 高过最矮一页的可用高度，当前页那项会被挤到视口外）；
     /// ② 统计页套在设置上限（640）下每个 chrome 档都会被切掉一截（内容 635 + 开销）。
     static let sidebarSections: [NotchMenuSection] = [
-        .general, .behavior, .notifications, .agents,
+        .general, .behavior, .notifications, .agents, .about,
     ]
-
-    /// 钉在侧栏底部的入口（与「关于」这类收尾项一组）。
-    static let sidebarFooterSections: [NotchMenuSection] = [.about]
 
     /// 读数面（统计 / 额度）：不占侧栏位、不显示侧栏，整块内容占满面板宽度，
     /// 且不套设置面的高度上限（见 `NotchMenuMetrics.heightCap(for:)`）。
@@ -231,23 +232,14 @@ nonisolated enum NotchMenuMetrics {
     /// 侧栏条目之间的间距（**纵向**）。取 2pt：条目之间只有一条细缝，才连成一条轨；
     /// 栏与详情之间的横向间距是另一档（`sidebarContentSpacing`），不要混用。
     static let sidebarItemSpacing: CGFloat = 2
-    /// 侧栏自身的上下内边距（`NotchMenuSidebar` 的 `.padding(.vertical, …)`）。
-    /// 它是侧栏高度账的一项：条目表 + 分隔线 + 这一圈才是整条栏占的高度。
+    /// 侧栏自身的内边距（`NotchMenuSidebar` 的 `.padding(.vertical, …)`）。
+    /// 它是侧栏高度账的一项：条目表 + 这一圈才是整条栏占的高度。
     static let sidebarVerticalPadding: CGFloat = 2
     /// 面板内容容器的左右内边距（`NotchMenuView`）。
     ///
     /// 与 `sidebarContentSpacing` 成对使用：两者合计决定「侧栏到详情」的总留白，
     /// 调一个要同时看另一个，否则详情列宽度会变。
     static let panelContentPadding: CGFloat = 4
-    /// 侧栏内把「关于」与一级分组隔开的那条发丝线。
-    ///
-    /// 是**横向**的：侧栏条目竖排，分隔两组就要横线。写成 1pt×20pt 的竖条会读成
-    /// 一个杂散的小竖杠（实机截图就是这个效果），不是分隔线。长度在栏内缩进一格，
-    /// 粗细与页面里其它分隔线（`AppPalette.separator`）一致。
-    static func sidebarDividerLength(showsLabels: Bool) -> CGFloat {
-        showsLabels ? sidebarLabeledWidth - 2 * sidebarIconLeading : sidebarIconWidth - 12
-    }
-    static let sidebarDividerThickness: CGFloat = 1
 
     /// 内容区宽度：面板宽预算减去**卡片侧内边距**与容器的左右内边距。
     ///

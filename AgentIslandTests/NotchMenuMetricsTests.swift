@@ -104,12 +104,14 @@ struct NotchMenuMetricsTests {
 
     // MARK: - 侧栏
 
-    @Test("侧栏只放配置页：读数面与两页子页都不占侧栏位")
+    @Test("侧栏放 4 个配置页 + 收尾的「关于」：读数面与两页子页都不占侧栏位")
     func sidebarSectionsPartitionConfigurationPages() {
-        let sidebar = NotchMenuSection.sidebarSections + NotchMenuSection.sidebarFooterSections
+        // 「关于」是这一列**最后一项**（不再单独成组、不再被弹性 `Spacer` 推到栏底），
+        // 因此侧栏就是这一个数组，没有第二个分组。
+        let sidebar = NotchMenuSection.sidebarSections
         #expect(Set(sidebar).count == sidebar.count, "同一个分组在侧栏里出现了两次")
-        #expect(NotchMenuSection.sidebarSections == [.general, .behavior, .notifications, .agents])
-        #expect(NotchMenuSection.sidebarFooterSections == [.about])
+        #expect(sidebar == [.general, .behavior, .notifications, .agents, .about])
+        #expect(sidebar.last == .about, "「关于」必须是侧栏的最后一项")
 
         // 每个分组要么自己就是侧栏项，要么在 `railSelection` 里有一个归属（子页 → 父页）；
         // 没有归属的那种面**不显示侧栏**，必须是读数面。
@@ -137,7 +139,7 @@ struct NotchMenuMetricsTests {
 
     @Test("整条侧栏在最矮的设置面也放得下（不再需要滚动）")
     func sidebarFitsShortestSettingsPage() {
-        // 侧栏不再套 `ScrollView`（见 `NotchMenuSidebar`）：4 个配置页 + 钉底的「关于」
+        // 侧栏不再套 `ScrollView`（见 `NotchMenuSidebar`）：4 个配置页 + 收尾的「关于」
         // 必须自己装得下，否则「关于」会被卡片圆角裁掉、用户回不去。判据取**最矮的设置面**
         // （读数面不显示侧栏）与最小可达开销，两档（带标签 / 图标）都核。
         let settingsFaces = NotchMenuSection.allCases.filter {
@@ -146,17 +148,16 @@ struct NotchMenuMetricsTests {
         let shortest = settingsFaces.min {
             NotchMenuMetrics.contentHeight(for: $0) < NotchMenuMetrics.contentHeight(for: $1)
         }!
-        let rowCount =
-            NotchMenuSection.sidebarSections.count + NotchMenuSection.sidebarFooterSections.count
+        let rowCount = NotchMenuSection.sidebarSections.count
 
         for showsLabels in [true, false] {
-            // 整条栏的实际高度：条目表 + 每个子视图之间的间距（4 项 + Spacer + 分隔线 +
-            // 「关于」⇒ 6 个间隙）+ 分隔线自身 + 栏自己的上下内边距。
+            // 整条栏的实际高度 = 条目表 + **条目之间**的间距（5 项 ⇒ 4 个间隙；没有分隔线、
+            // 也没有弹性 `Spacer`）+ 栏自己的内边距，与 `NotchMenuSidebar` 的子视图数一致。
             let needed =
                 CGFloat(rowCount)
                 * (NotchMenuMetrics.sidebarItemHeight(showsLabels: showsLabels)
                     + NotchMenuMetrics.sidebarItemSpacing)
-                + NotchMenuMetrics.sidebarDividerThickness + NotchMenuMetrics.sidebarItemSpacing
+                - NotchMenuMetrics.sidebarItemSpacing
                 + 2 * NotchMenuMetrics.sidebarVerticalPadding
             for chrome in [CGFloat(36), NotchMenuMetrics.maxPanelHeight] {
                 let available =
@@ -210,8 +211,7 @@ struct NotchMenuMetricsTests {
         // 逐语言实测，并核对常量确实等于这条规则在真实 catalog 上的取值——翻译变长时
         // 会在这里失败，提示重算 `sidebarLabeledWidth`。
         let keys =
-            (NotchMenuSection.sidebarSections + NotchMenuSection.sidebarFooterSections)
-            .map(Self.titleKey(for:))
+            NotchMenuSection.sidebarSections.map(Self.titleKey(for:))
         let font = NSFont.systemFont(ofSize: NotchMenuMetrics.sidebarLabelSize, weight: .medium)
         let labelColumn =
             NotchMenuMetrics.sidebarLabeledWidth - NotchMenuMetrics.sidebarIconLeading
@@ -244,7 +244,7 @@ struct NotchMenuMetricsTests {
         #expect(NotchMenuMetrics.sidebarLabeledWidth > NotchMenuMetrics.sidebarIconWidth)
     }
 
-    @Test("侧栏条目几何：两档的行高都装得下图标，分隔线不越过栏宽")
+    @Test("侧栏条目几何：两档的行高都装得下图标")
     func sidebarItemGeometryFitsBothModes() {
         // 图标档：方形瓦片（`sidebarItemBox` = 栏宽）在行高里居中，上下留白要宽过条目间距，
         // 否则瓦片会贴到相邻条目上。
@@ -268,20 +268,6 @@ struct NotchMenuMetricsTests {
             labeledHeight
                 >= NotchMenuMetrics.sidebarIconSize + 2 * NotchMenuMetrics.sidebarThumbInset)
         #expect(labeledHeight <= NotchMenuMetrics.sidebarItemHeight(showsLabels: false))
-
-        // 分隔线两档都不越过栏宽；带标签档下要够长，否则在 113pt 宽的栏里读成一根小竖杠
-        // （那个观感是实机截图报过的缺陷）。
-        for showsLabels in [true, false] {
-            let railWidth =
-                showsLabels
-                ? NotchMenuMetrics.sidebarLabeledWidth : NotchMenuMetrics.sidebarIconWidth
-            let length = NotchMenuMetrics.sidebarDividerLength(showsLabels: showsLabels)
-            #expect(length < railWidth, "分隔线 \(length)pt 越过了 \(railWidth)pt 的栏")
-        }
-        #expect(
-            NotchMenuMetrics.sidebarDividerLength(showsLabels: true)
-                >= 2 * NotchMenuMetrics.sidebarIconWidth,
-            "带标签档的分隔线太短，读不成一条分组线")
     }
 
     /// 侧栏标签的本地化键（= 英文源文案）。与 `NotchMenuSection.title(_:)` 是同一份映射，

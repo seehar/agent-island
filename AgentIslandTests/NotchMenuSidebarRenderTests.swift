@@ -6,7 +6,7 @@
 //  `NotchMenuMetrics` 推出来，因此三条判据都要落在像素上：
 //
 //  1. 渲染宽度 == `sidebarWidth(inContentWidth:)`（两档都核）。
-//  2. 渲染高度 == 条目表算出来的理想高（4 个配置页 + 分隔线 + 钉底的「关于」）——
+//  2. 渲染高度 == 条目表算出来的理想高（4 个配置页 + 收尾的「关于」）——
 //     `sidebarFitsShortestSettingsPage` 只核算术，这里核视图真的按它排版。
 //  3. **带标签档的标签真的画在标签列里，图标档不画**：档位是视图按内容宽现算的
 //     （`sidebarShowsLabels`），把它算反了不会让上面两条失败（宽度跟着一起变），
@@ -133,15 +133,12 @@ struct NotchMenuSidebarRenderTests {
             .background(Color.black)
     }
 
-    /// 侧栏的理想高：上下内边距 + 4 个配置页 + 分隔线 + 钉底的「关于」+ 子视图之间的间距。
-    /// 中间那个弹性 `Spacer`（负责把「关于」钉到底部）理想高度是 0，但它两侧的间距照算。
+    /// 侧栏的理想高：上下内边距 + 4 个配置页 + 收尾的「关于」+ 条目之间的间距。
     private func idealRailHeight(showsLabels: Bool) -> CGFloat {
         let item = NotchMenuMetrics.sidebarItemHeight(showsLabels: showsLabels)
-        let rows =
-            NotchMenuSection.sidebarSections.count + NotchMenuSection.sidebarFooterSections.count
-        // 子视图：4 项 + Spacer + 分隔线 + 1 项 ⇒ 6 个间距。
-        return CGFloat(rows) * item + 6 * NotchMenuMetrics.sidebarItemSpacing
-            + NotchMenuMetrics.sidebarDividerThickness
+        let rows = NotchMenuSection.sidebarSections.count
+        // 子视图就是这 5 个条目 ⇒ 4 个间距（没有分隔线、也没有弹性 `Spacer`）。
+        return CGFloat(rows) * item + CGFloat(rows - 1) * NotchMenuMetrics.sidebarItemSpacing
             + 2 * NotchMenuMetrics.sidebarVerticalPadding
     }
 
