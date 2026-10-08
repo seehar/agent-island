@@ -545,6 +545,49 @@ struct NotchMenuMetricsTests {
             "说明的可用宽不该等于整列宽：右边还有选中勾与弹性下限")
     }
 
+    @Test("档位文案在选项行里放得下：按 catalog 逐语言实测")
+    func optionCopyFitsTheOptionRow() {
+        // 选项行只有一行：标签 + 8pt 间隙 + 说明必须塞进 `optionRowTextWidth`，否则
+        // `truncationMode(.middle)` 会把整句吞掉半截（用户报过「关闭态刘海」那三行说明）。
+        // 键就是代码里用的那条 en 原文，宽度按 catalog 的**译文**实测——翻译变长、
+        // 或选项行几何变窄，都会在这里红。列表是「当前带说明 / 标签偏长的行」的抽样：
+        // 新增同类行时在这里补一行（智能体页的三条保护档位名没列进来：它们是设计文档
+        // `docs/approval-multi-agent.md` 里写明的档位名，en 侧按保守预算量超出 5–6pt）。
+        let pairs: [(name: String, labelKey: String, detailKey: String?)] = [
+            ("关闭态刘海 / 只留计数", "Badge Only", nil),
+            ("关闭态刘海 / 只留挖孔", "Notch Only", nil),
+            ("关闭态刘海 / 完整胶囊", "Full Capsule", nil),
+            ("单击动作 / 打开对话", "Open Chat", nil),
+            ("单击动作 / 定位终端", "Focus Terminal", nil),
+            ("屏幕 / 自动", "Automatic", "Built-in or Main"),
+        ]
+        let labelFont = NSFont.systemFont(ofSize: AppTypeScale.option)
+        let detailFont = NSFont.systemFont(ofSize: AppTypeScale.footnote)
+        let budget = NotchMenuMetrics.optionRowTextWidth
+
+        for code in AppLanguage.availableCodes {
+            for pair in pairs {
+                let label = LocalizationManager.t(pair.labelKey, languageCode: code)
+                // 译文缺失时 `localizedString` 会把键原样返回：键名漂了、或 catalog 缺键
+                // 都会在这里暴露，而不是让下面的宽度判据量一个不存在的文案。
+                if code != "en" {
+                    #expect(label != pair.labelKey, "键「\(pair.labelKey)」在 \(code) 里没有译文")
+                }
+                var used = (label as NSString).size(withAttributes: [.font: labelFont]).width
+                if let detailKey = pair.detailKey {
+                    let detail = LocalizationManager.t(detailKey, languageCode: code)
+                    if code != "en" {
+                        #expect(detail != detailKey, "键「\(detailKey)」在 \(code) 里没有译文")
+                    }
+                    used += 8 + (detail as NSString).size(withAttributes: [.font: detailFont]).width
+                }
+                #expect(
+                    used <= budget,
+                    "\(code) 的「\(label)」用了 \(used)pt，选项行只有 \(budget)pt：要么收短文案，要么改走 PreferencePickerRow.helpText")
+            }
+        }
+    }
+
     @Test("选项块高度随选项数线性增长，空列表只留内边距")
     func pickerOptionsHeightScalesLinearly() {
         #expect(
