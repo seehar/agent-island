@@ -17,8 +17,8 @@
 //
 //  抬上去的预算**不会自动还原**（闸门随启用而来，没有「关掉闸门」这个动作了）。
 //  原因是还原是「整份写回备份」：用户在这之后用 `omp config set` 改过配置时，还原会把
-//  那些改动一起抹掉。备份文件 `config.yml.agent-island.bak` 留给用户手动恢复，原值也记在
-//  偏好域（`ompGateConfig*`）里供排查。
+//  那些改动一起抹掉。备份文件 `config.yml.agent-island.bak` 留给用户手动恢复（原值不回写
+//  偏好域：没有读取方，需要核对时看备份文件本身）。
 //
 
 import Foundation
@@ -121,7 +121,7 @@ nonisolated enum OmpConfigInstaller {
 
         // 已经是目标值：不必再动用户文件（可能是上次开启留下的，也可能用户自己设过）。
         if original == String(gateHandlerTimeoutMs) {
-            record(original: original, backup: backup)
+            AppSettings.ompGateTimeoutSetupFailed = false
             logger.notice("omp handler 预算已是目标值，未改写配置")
             return
         }
@@ -133,24 +133,13 @@ nonisolated enum OmpConfigInstaller {
                 throw Failure.verifyFailed("读回值不是 \(gateHandlerTimeoutMs)（得到 \(readBack ?? "空")）")
             }
         } catch {
-            // 回滚：把备份内容写回去，并清掉这次留下的记录。
+            // 回滚：把备份内容写回去。
             _ = restore(from: backup, to: config)
-            AppSettings.ompGateConfigBackupPath = nil
-            AppSettings.ompGateConfigOriginalTimeout = nil
-            AppSettings.ompGateConfigAppliedAt = nil
             logger.error("写 omp 配置失败已回滚：\(String(describing: error), privacy: .public)")
             throw error
         }
 
-        record(original: original, backup: backup)
-    }
-
-    // MARK: - 记录
-
-    private static func record(original: String?, backup: URL) {
-        AppSettings.ompGateConfigBackupPath = backup.path
-        AppSettings.ompGateConfigOriginalTimeout = original
-        AppSettings.ompGateConfigAppliedAt = Date()
+        // 成功：清掉上次的失败标记（它只服务于界面提示）。
         AppSettings.ompGateTimeoutSetupFailed = false
     }
 

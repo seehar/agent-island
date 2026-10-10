@@ -94,9 +94,6 @@ nonisolated enum AppSettings {
     static let firstRunIntroPending = "firstRunIntroPending"
     /// omp 闸门等待预算写入失败；扩展可能仍运行，但请求会提前超时。
     static let ompGateTimeoutSetupFailed = "ompGateTimeoutSetupFailed"
-    static let ompGateConfigBackupPath = "ompGateConfigBackupPath"
-    static let ompGateConfigOriginalTimeout = "ompGateConfigOriginalTimeout"
-    static let ompGateConfigAppliedAt = "ompGateConfigAppliedAt"
     /// New API 账号列表（`[NewAPIAccount]` 的 JSON）。
     static let newAPIAccounts = "newAPIAccounts"
     /// 额度页当前选中的账号 id。
@@ -495,28 +492,13 @@ nonisolated enum AppSettings {
     set { PreferenceStore.write(newValue, defaults: defaults) }
   }
 
-  // MARK: - omp 配置写入记录
-
-  /// `~/.omp/agent/config.yml` 的备份路径（写入失败时回滚、以及留给用户人工恢复用；
-  /// 关闭某个 Agent 不再自动还原 —— 理由见 `OmpConfigInstaller` 文件头）。
-  static var ompGateConfigBackupPath: String? {
-    get { defaults.string(forKey: Keys.ompGateConfigBackupPath) }
-    set { defaults.set(newValue, forKey: Keys.ompGateConfigBackupPath) }
-  }
-
-  /// 写入前 `extensionHandlers.toolCallTimeoutMs` 的原值（回滚与人工核对用）。
-  static var ompGateConfigOriginalTimeout: String? {
-    get { defaults.string(forKey: Keys.ompGateConfigOriginalTimeout) }
-    set { defaults.set(newValue, forKey: Keys.ompGateConfigOriginalTimeout) }
-  }
-
-  /// 写入时间。
-  static var ompGateConfigAppliedAt: Date? {
-    get { defaults.object(forKey: Keys.ompGateConfigAppliedAt) as? Date }
-    set { defaults.set(newValue, forKey: Keys.ompGateConfigAppliedAt) }
-  }
+  // MARK: - omp 配置写入
 
   /// 上次确保 omp 闸门等待预算时是否失败。
+  ///
+  /// 「写入时间 / 原值 / 备份路径」曾经也记在这套 `ompGateConfig*` 键里，但没有任何读取方
+  /// （界面不展示、还原路径已删除），2026-10-10 随「只写不读的状态」一起删掉：排查要看的
+  /// 是备份文件本身（`config.yml.agent-island.bak`）与这条失败标记。
   static var ompGateTimeoutSetupFailed: Bool {
     get { defaults.bool(forKey: Keys.ompGateTimeoutSetupFailed) }
     set { defaults.set(newValue, forKey: Keys.ompGateTimeoutSetupFailed) }
