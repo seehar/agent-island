@@ -3,7 +3,7 @@
 // agent-island-extension-kind: gate
 // agent-island-extension-degradation: __AGENT_ISLAND_DEGRADATION__
 // agent-island-extension-ask-scope: __AGENT_ISLAND_ASK_SCOPE__
-// 本文件由 AgentIsland 安装并管理，勿手改：开关切换、档位变更或应用升级都会整体重写。
+// 本文件由 AgentIsland 安装并管理，勿手改：档位变更或应用升级都会整体重写。
 //
 // 作用：把会话生命周期与工具调用实时上报给 notch 应用（unix socket），
 // 让 pi/omp 拥有和 Claude Code hooks 同等的实时状态，而不必轮询记录文件。

@@ -11,8 +11,8 @@
 > 历史决策保留。需要注意的四处：**§0 的并行 WIP 基线与文件行号是 2026-09-20 的快照，
 > 已完全过期（只作历史记录）**；§6.1 的「关闭时回滚」不存在（备份只留给人工恢复）；
 > §6.4 描述的逐行开关从未以那个形态上线；§8 P1 的「换回只上报扩展」在当前口径下不可达。
-> 另有三处版本/落点已更新：§12.4 版本戳 7、§12.6 脚本落点 `~/.agent-island/hooks/`、
-> §12.7 插件版本戳 4。
+> 另有几处已更新：§12.4 的只上报版已删除（随包只剩闸门版一份）、§12.6 脚本落点
+> `~/.agent-island/hooks/`、§12.7 插件版本戳 4。
 
 - 目标仓库：`/Users/seehar/work/code/mine/agent-island`（只读测绘，本文件是唯一产物）
 - 参考仓库：`/Users/seehar/work/code/git/CodeIsland`、`/Users/seehar/work/code/git/oh-my-pi`、pi 0.85.1 安装包
@@ -821,11 +821,14 @@ ask: { questions: [ { id, question, header?, multi_select, free_text, options: [
 - **为什么必须严格小于、不能相等**：相等时「谁先到点」不可判定——客户端以为自己仍是裁决者，服务端却可能在同一时刻 fail-closed，用户看到的是不可读的 `Extension … timed out` 而不是我们给的可读理由；而且相等这种配置在真机上要等满该时长才能证伪（整合验收已把它标为 [未实测]）。ask 客户端因此取 240s（相对服务端 300s 留 60s 余量），闸门客户端 120s 与服务端 300s 均不变。
 - **TTL 与 ask 预算的关系**：TTL 330s 仍 > ask 240s、也 > 服务端 300s，保证「扩展先超时、应用后收割」；TTL 小于 ask 预算时，卡片会在用户思考期间被应用先收割 → 下图那条「作答无门」的路径就是它，因此 v3 把 TTL 从 150s 提到 330s。
 
-### 12.4 只上报版也带影子 ask
+### 12.4 只上报版已删除（2026-10-10）
 
-`agent-island-pi-extension-report-only.ts.txt` 与闸门版**同源**，同样注册影子 ask：「只上报」只表示**不做闸门**（不拦 `tool_call`），问答通道与闸门开关无关。两个变体的版本戳由同一个常量给出（当前 **7**：`AgentIntegrationInstaller.piFamilyExtensionVersion`；安装器按「版本 + 变体 + （闸门版）降级档」判定是否重装，改扩展就必须 +1，否则已装用户不会被重写）。
+「影子 ask 与闸门无关」这一点仍然成立，但它当时被复制在**两个**变体文件里。闸门的启用口径改成「随 Agent 启用而来」之后，只上报版再没有任何安装路径（`install()` 只对已启用的 Agent 调用，而已启用必然装闸门版），却仍要求每次改扩展都同步维护两处。因此本次：
 
-**（2026-10-10 复核）只上报版在当前口径下没有安装路径**：`piFamilyExtensionVariant` 只在闸门激活（= 该 Agent 已启用）或该 Agent 不支持闸门时返回 `.reportOnly`，而 `install()` 只对已启用的 Agent 调用、`uninstall()` 直接删文件 —— 所以这个变体（连同它里面的影子 ask）目前是「不装、也就用不上」的保留件。要么给它一条安装路径（例如「关掉闸门但仍要问答通道」），要么确认是死件后连同本节一起删。
+- 删掉资源 `agent-island-pi-extension-report-only.ts.txt`，以及安装器里的 `Variant` 枚举与全部变体分支（`piFamilyExtensionVariant` 随之消失）；
+- 随包只剩一份扩展（`agent-island-pi-extension.ts.txt`）：改动与版本戳只有一处，安装器一律注入降级档 / 适用范围；
+- 磁盘上若还留着历史的 `report-only` 扩展，`isPiFamilyExtensionCurrent` 按文件头的 `agent-island-extension-kind:`（期望 `gate`）与两个档位标记判定「该重装」并整体重写 —— 删除变体本身不需要 bump 版本戳；同批把模板头那句已不存在的「开关切换」也改掉了，按本仓「改扩展就 +1」的规矩一并把 `piFamilyExtensionVersion` 升到 **8**；
+- `scripts/verify-omp-gate.sh` 的 `report-only-ask` 用例随之删除（它验证的变体已不存在；影子 ask 由闸门版用例覆盖）。
 
 ### 12.5 仍然存在的边界
 

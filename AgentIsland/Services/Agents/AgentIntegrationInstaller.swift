@@ -40,9 +40,10 @@ nonisolated enum AgentIntegrationInstaller {
   /// 6 = 闸门不可用（含「该 Agent 已被关闭」）改走降级档，而不是把服务端关闭读成拒绝。
   /// 7 = 上报 Paseo 托管终端身份（`PASEO_TERMINAL_ID` / `PASEO_HOOK_CLI`），
   ///     使非 tmux 会话（如「我的机器」里的终端）也能从刘海发消息。
+  /// 8 = 删除只上报版变体（闸门随 Agent 启用而来），并修正模板头里那句已不存在的「开关切换」。
   /// 当前应用期望的扩展版本戳：改 pi/omp 扩展时必须同步 +1。
   /// `isInstalled` 按它比对（不再只看「文件在不在」），用户手改过或升级未重写都能被发现。
-  static let piFamilyExtensionVersion = 7
+  static let piFamilyExtensionVersion = 8
 
   /// 扩展源码里声明版本 / 变体 / 降级档的三行注释标记。
   private static let versionMarkerPrefix = "// agent-island-extension-version:"
@@ -65,21 +66,14 @@ nonisolated enum AgentIntegrationInstaller {
   /// OpenCode 插件文件名。
   static let openCodePluginName = "agent-island-state.js"
 
-  /// pi 系扩展的两个变体：闸门版（阻塞等刘海决定）与只上报版（关闭闸门/降级时用）。
-  enum Variant: String {
-    /// 阻塞闸门：`tool_call` 里等刘海决策，`{block:true}` 拦下被拒的工具。
-    case gate
-    /// 只上报：与旧版行为一致，审批仍在终端完成。
-    case reportOnly = "report-only"
+  /// pi 系扩展的随包资源名（`.ts.txt`）。**只有闸门版一份**：闸门随 Agent 启用而来，
+  /// 曾经那个「关掉闸门就换成只上报版」的开关已删除，只上报版因此没有安装路径
+  /// （2026-10-10 连同资源文件一起删掉：留着既装不上、又要求两处同步维护）。
+  private static let piFamilyExtensionResourceName = "agent-island-pi-extension"
 
-    /// 随包资源名（`.ts.txt`）。
-    var resourceName: String {
-      switch self {
-      case .gate: return "agent-island-pi-extension"
-      case .reportOnly: return "agent-island-pi-extension-report-only"
-      }
-    }
-  }
+  /// 扩展文件头声明变体的那一行应有的值。磁盘上是别的值（历史上可能装过
+  /// `report-only`）时，`isPiFamilyExtensionCurrent` 会判它「该重装」并整体重写。
+  private static let piFamilyExtensionKindMarker = "gate"
 
   /// 该 Agent 的集成是否支持「刘海审批闸门」（能把决定回传给 agent）。
   /// 目前只有 omp / pi 的扩展提供这条通道；Claude Code 走 hook 自己的审批通道，
@@ -126,11 +120,6 @@ nonisolated enum AgentIntegrationInstaller {
     case .claudeCode: return false
     default: return false
     }
-  }
-
-  /// 该 Agent 当前应安装哪个变体：支持闸门且正在被监控时用闸门版，其余用只上报版。
-  static func piFamilyExtensionVariant(_ kind: AgentKind) -> Variant {
-    gateIsActive(kind) ? .gate : .reportOnly
   }
 
   /// 改名前的 pi 系扩展文件名：Agent 会加载目录里所有扩展，旧文件不清掉等于旧脚本
@@ -182,7 +171,7 @@ nonisolated enum AgentIntegrationInstaller {
       // 失败不算安装失败：扩展已经在位、闸门照常工作，缺的只是预算；算成失败会连带挡掉
       // 「启用」（例如 GUI 环境找不到 omp 可执行文件），代价更大。原因只记日志——设置页
       // 上没有任何可展示它的位置（这一条是本次改造后唯一的用户不可见失败）。
-      if installed, kind == .ohMyPi, piFamilyExtensionVariant(kind) == .gate {
+      if installed, kind == .ohMyPi, gateIsActive(kind) {
         do {
           try OmpConfigInstaller.applyGateTimeout()
         } catch {
@@ -262,31 +251,26 @@ nonisolated enum AgentIntegrationInstaller {
       == String(openCodePluginVersion)
   }
 
-  /// 磁盘上的扩展是不是「当前该装的那一份」：版本戳、变体、以及闸门版的降级档都要对上。
+  /// 磁盘上的扩展是不是「当前该装的那一份」：版本戳、变体标记、以及两个策略档位都要对上。
   static func isPiFamilyExtensionCurrent(_ kind: AgentKind) -> Bool {
     guard let file = piFamilyExtensionFile(kind),
       let contents = try? String(contentsOf: file, encoding: .utf8)
     else {
       return false
     }
-    let variant = piFamilyExtensionVariant(kind)
     guard
       markerValue(in: contents, prefix: versionMarkerPrefix) == String(piFamilyExtensionVersion),
-      markerValue(in: contents, prefix: kindMarkerPrefix) == variant.rawValue
+      markerValue(in: contents, prefix: kindMarkerPrefix) == piFamilyExtensionKindMarker
     else {
       return false
     }
-    if variant == .gate,
+    // 两个策略档位的值烘焙在文件里：换档位等于换文件，界面不能继续显示「已安装」。
+    guard
       markerValue(in: contents, prefix: degradationMarkerPrefix)
-        != AppSettings.approvalDegradation.rawValue
-    {
-      return false
-    }
-    // 适用范围同理：换档位等于换文件，界面不能继续显示「已安装」。
-    if variant == .gate,
+        == AppSettings.approvalDegradation.rawValue,
       markerValue(in: contents, prefix: askScopeMarkerPrefix)
-        != AppSettings.approvalAskScope.rawValue
-    {
+        == AppSettings.approvalAskScope.rawValue
+    else {
       return false
     }
     return true
@@ -313,21 +297,19 @@ nonisolated enum AgentIntegrationInstaller {
 
   private static func installPiFamilyExtension(_ kind: AgentKind) -> Bool {
     guard let destination = piFamilyExtensionFile(kind) else { return false }
-    let variant = piFamilyExtensionVariant(kind)
     guard
       let source = Bundle.main.url(
-        forResource: variant.resourceName,
+        forResource: piFamilyExtensionResourceName,
         withExtension: piFamilyExtensionResourceExtension
       ),
       let contents = try? String(contentsOf: source, encoding: .utf8)
     else {
       logger.error(
-        "缺少内置的 pi 扩展资源（\(variant.rawValue, privacy: .public)），无法为 \(kind.rawValue, privacy: .public) 安装集成"
-      )
+        "缺少内置的 pi 扩展资源，无法为 \(kind.rawValue, privacy: .public) 安装集成")
       return false
     }
 
-    let rendered = renderPiFamilyExtension(contents, kind: kind, variant: variant)
+    let rendered = renderPiFamilyExtension(contents, kind: kind)
     guard !rendered.contains(placeholderPrefix) else {
       // 占位符没替换完的扩展写出去就是坏脚本：宁可报告失败也不要静默装一个坏文件。
       logger.error("pi 扩展资源里有未替换的占位符，拒绝安装")
@@ -349,21 +331,16 @@ nonisolated enum AgentIntegrationInstaller {
     }
   }
 
-  /// 把随包资源渲染成可安装的扩展：替换 Agent 名；闸门版再把降级档、适用范围与策略常量注入。
+  /// 把随包资源渲染成可安装的扩展：替换 Agent 名，并注入降级档、适用范围与策略常量。
   ///
   /// 策略写进文件而不是运行时下发：扩展在 `tool_call` 里需要立刻知道降级档与适用范围，而
   /// 此时未必还能跟应用通话（应用不在正是降级档的适用场景）。
-  private static func renderPiFamilyExtension(
-    _ contents: String,
-    kind: AgentKind,
-    variant: Variant
-  ) -> String {
+  private static func renderPiFamilyExtension(_ contents: String, kind: AgentKind) -> String {
     var rendered = contents.replacingOccurrences(of: agentToken, with: kind.rawValue)
     // 版本号由这里写入：模板里的版本标记与 `EXTENSION_VERSION` 都用同一个占位符，
-    // 版本因此只有一个来源（`piFamilyExtensionVersion`）——两个变体、两处写法都不会漂。
+    // 版本因此只有一个来源（`piFamilyExtensionVersion`），不会漂。
     rendered = rendered.replacingOccurrences(
       of: versionToken, with: String(piFamilyExtensionVersion))
-    guard variant == .gate else { return rendered }
     let degradation = AppSettings.approvalDegradation.rawValue
     let askScope = AppSettings.approvalAskScope.rawValue
     rendered = rendered.replacingOccurrences(of: degradationToken, with: degradation)

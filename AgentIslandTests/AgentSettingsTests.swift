@@ -173,30 +173,64 @@ struct AgentRootOverrideSettingsTests {
 
 @Suite("闸门随启用而来（omp / pi 没有独立开关）", .serialized)
 struct ApprovalGateFollowsEnablementTests {
-    /// 闸门版扩展是那个「把决定回传给刘海」的变体：被监控的 omp / pi 必须装它，否则用户
-    /// 打开开关却收不到审批卡片。改造前这一步是页面上手动点的第二个开关，最容易被改回去。
-    @Test("启用 → 闸门版扩展；关闭 → 只上报版")
-    func variantFollowsEnablement() {
+    /// 闸门版扩展是那个「把决定回传给刘海」的变体：被监控的 omp / pi 必须**真的装上它**
+    /// （版本戳、变体标记与两个策略档位都要对得上），否则用户打开开关却收不到审批卡片。
+    /// 改造前这一步是页面上手动点的第二个开关，最容易被改回去。这里断言的是磁盘结果 ——
+    /// 只有一份扩展资源、装出来的必然带 `gate` 标记，关掉监控则连文件一起清掉。
+    @Test("启用 omp / pi → 磁盘上就是闸门版；关闭 → 文件被删")
+    func gateExtensionLandsOnDisk() throws {
         for kind in [AgentKind.ohMyPi, .pi] {
-            let original = AppSettings.isAgentEnabled(kind)
-            defer { AppSettings.setAgent(kind, enabled: original) }
+            let root = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("agent-island-gate-\(kind.rawValue)-\(UUID().uuidString)")
+            let previousOverride = AppSettings.agentRootOverride(kind)
+            let previousEnabled = AppSettings.isAgentEnabled(kind)
+            let previousBudgetFlag = AppSettings.ompGateTimeoutSetupFailed
+            defer {
+                AppSettings.setAgent(kind, enabled: previousEnabled)
+                AppSettings.setAgentRootOverride(kind, path: previousOverride)
+                // omp 那一条会顺带尝试抬 handler 预算：临时目录里没有 config.yml，
+                // 它会记一次「失败」——那个标记属于用户偏好域，用完要还原。
+                AppSettings.ompGateTimeoutSetupFailed = previousBudgetFlag
+                try? FileManager.default.removeItem(at: root)
+            }
+
+            // 配置目录存在 = 该工具装着（安装器先过这道存在性闸门）；指到临时目录
+            // 是为了不碰真实的 ~/.omp / ~/.pi。
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            AppSettings.setAgentRootOverride(kind, path: root.path)
 
             AppSettings.setAgent(kind, enabled: false)
-            #expect(AgentIntegrationInstaller.piFamilyExtensionVariant(kind) == .reportOnly)
             #expect(!AgentIntegrationInstaller.gateIsActive(kind))
 
             AppSettings.setAgent(kind, enabled: true)
-            #expect(AgentIntegrationInstaller.piFamilyExtensionVariant(kind) == .gate)
             #expect(AgentIntegrationInstaller.gateIsActive(kind))
+            #expect(AgentIntegrationInstaller.install(kind))
+
+            let file = root.appendingPathComponent("extensions/agent-island-state.ts")
+            let contents = try String(contentsOf: file, encoding: .utf8)
+            #expect(contents.contains("// agent-island-extension-kind: gate"))
+            #expect(contents.contains("// agent-island-extension-degradation: "))
+            #expect(contents.contains("// agent-island-extension-ask-scope: "))
+            // 占位符必须全部替换：漏一个写出去就是坏脚本。
+            #expect(!contents.contains("__AGENT_ISLAND_"))
+            #expect(AgentIntegrationInstaller.isInstalled(kind))
+
+            AppSettings.setAgent(kind, enabled: false)
+            AgentIntegrationInstaller.uninstall(kind)
+            #expect(!FileManager.default.fileExists(atPath: file.path))
         }
     }
 
-    /// 没有回传通道的 Agent（Claude / OpenCode 等）永远用只上报版——给它们判成闸门等于
-    /// 让界面显示「闸门已开」却没有那条通道。
-    @Test("不支持闸门的 Agent 不受启用影响")
+    /// 没有回传通道的 Agent（Claude / OpenCode / Cursor 等）永远不跑闸门：把它们打开监控
+    /// 不该让「闸门策略」那两行亮起来——那会让界面声称有一条并不存在的通道。
+    @Test("不支持闸门的 Agent 打开监控也不激活闸门")
     func unsupportedAgentsNeverGate() {
         for kind in AgentKind.allCases where !AgentIntegrationInstaller.supportsApprovalGate(kind) {
-            #expect(AgentIntegrationInstaller.piFamilyExtensionVariant(kind) == .reportOnly)
+            let original = AppSettings.isAgentEnabled(kind)
+            defer { AppSettings.setAgent(kind, enabled: original) }
+
+            #expect(!AgentIntegrationInstaller.gateIsActive(kind))
+            AppSettings.setAgent(kind, enabled: true)
             #expect(!AgentIntegrationInstaller.gateIsActive(kind))
         }
     }

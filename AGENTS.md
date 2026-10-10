@@ -65,7 +65,7 @@ AgentIsland/
     Mascots/    # 运行时**像素角色**：一枚 Agent 一个文件 + 共享工具（MascotKit/MascotMotion）
     Views/      # NotchView（关闭态 + 展开态）、NotchMenuView/NotchMenuPages（设置面板）、ClaudeInstancesView（会话列表）、ChatView（对话）
     Window/     # NSPanel 宿主：NotchPanel、NotchWindowController、NotchViewController
-  Resources/    # Localizable.xcstrings、四个 Agent 侧集成资源（state.py / opencode 插件 .js / pi 扩展的两个 .ts.txt 变体）、entitlements
+  Resources/    # Localizable.xcstrings、三个 Agent 侧集成资源（state.py / opencode 插件 .js / pi 扩展 .ts.txt）、entitlements
 AgentIslandTests/ # 纯逻辑单测（target AgentIslandTests，scheme 的 Testables 里挂了它）
 scripts/          # build.sh / build-and-install.sh / create-release.sh / gate.sh / generate-keys.sh / check-localization.py / make-appicon.py / verify-agent-hooks.sh / verify-omp-gate.sh
 ```
@@ -215,7 +215,7 @@ Cursor / Copilot / Factory / CodeBuddy / Kimi / Cline / Grok / Trae / Trae CLI /
 - Codex 只在 `$CODEX_HOME/config.toml` 的 `[features] hooks = true` 时才触发 hook（安装器会补这一行），并且要用户在 Codex 里跑一次 `/hooks` 审核信任本应用的 hook；没审核时 Codex **静默不跑**，看起来就像「没支持 Codex」。
 - Kimi 的 `hooks` 在 TOML 里是 `[[hooks]]` 数组表，与旧的标量 `hooks = …` 互斥：安装时把标量行注释掉、卸载时再放回去（不能删——那是用户的内容）。
 - 单个 Agent 卸载**不要**删 `~/.agent-island/hooks/agent-island-state.py`：它是所有配置文件型 Agent 共用的脚本，删掉会让其余工具的配置指向不存在的文件。
-- 改 pi/omp 扩展（`agent-island-pi-extension*.ts.txt`）必须同步 +1 `AgentIntegrationInstaller.piFamilyExtensionVersion`（两个变体文件都要改），否则 `isInstalled` 认不出升级、界面继续显示「已安装」。**扩展是进程启动时求值一次的**：改完只有新起的 CLI 会加载，已在跑的会话（含 Paseo 终端里的）要重启才会带上新字段——症状是「代码改了但界面上没变化」。
+- 改 pi/omp 扩展（`AgentIsland/Resources/agent-island-pi-extension.ts.txt`，随包只有这一份）必须同步 +1 `AgentIntegrationInstaller.piFamilyExtensionVersion`，否则 `isInstalled` 认不出升级、界面继续显示「已安装」。**扩展是进程启动时求值一次的**：改完只有新起的 CLI 会加载，已在跑的会话（含 Paseo 终端里的）要重启才会带上新字段——症状是「代码改了但界面上没变化」。
 - **路径归一不是一个可选优化**：`FileManager` 的目录遍历返回的是 `realpath` 展开后的路径（macOS 下 `/var/…` → `/private/var/…`），而 `URL.resolvingSymlinksInPath()` / `standardizedFileURL` **不会**展开 `/var`、`/tmp`、`/etc` 这几个系统软链。provider 里 `hasPrefix(自己的根)` 的判定因此会与遍历结果对不上，记录被静默跳过（表现：工具在跑，面板里一个会话都没有）。统一走 `AgentProviderRoot.canonical`（POSIX `realpath`），用例夹具建目录后也要过它一次。
 - **记录文件的「首行很长」不是边角情况**：WorkBuddy / CodeBuddy 会把整段注入上下文写成第一条 user 消息（本机实测 WorkBuddy 首行 14 896 字节）。`TranscriptFileReader.firstRecordField` 因此只对**完整行**做判断、总读取量由 `headerReadBudgetBytes`（1 MiB）封顶。它曾经只读固定 8 KB 前缀、再把整段前缀按 UTF-8 解码切行 —— 长首行会被切成半个 JSON（或切在半个多字节字符上让整段解码失败），`cwd` 取不到，会话在发现器里**静默跳过**（面板里一条都没有）。改这个函数时别退回「按固定前缀截断再解析」。
 
