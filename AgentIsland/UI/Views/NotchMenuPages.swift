@@ -249,9 +249,11 @@ struct BehaviorSettingsPage: View {
                     title: l10n.t("Click Action"),
                     selector: SessionRowClickActionSelector.shared,
                     label: clickActionLabel,
-                    // 「定位终端要 tmux / yabai，否则改成打开对话」是**整句话**：放进 tooltip，
-                    // 不再塞进档位说明（那一行放不下，会被截断成半句）。
-                    helpText: l10n.t("Requires a tmux session and yabai; otherwise opens chat.")
+                    // 「yabai 只用来精确定位窗口，没有它仍会激活终端应用」是**整句话**：
+                    // 放进 tooltip，不再塞进档位说明（那一行放不下，会被截断成半句）。
+                    helpText: l10n.t(
+                        "Focusing uses yabai when it is installed, and otherwise activates the terminal app; single-click focuses tmux sessions only."
+                    )
                 )
                 PreferencePickerRow(
                     badge: SettingsBadge(

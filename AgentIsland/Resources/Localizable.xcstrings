@@ -655,19 +655,19 @@
         }
       }
     },
-    "Requires a tmux session and yabai; otherwise opens chat." : {
-      "comment" : "聚焦终端单击动作的前置条件和回退行为。",
+    "Focusing uses yabai when it is installed, and otherwise activates the terminal app; single-click focuses tmux sessions only." : {
+      "comment" : "聚焦终端单击动作的行为：yabai 只用于精确定位窗口，没有它仍会激活终端应用；单击只对 tmux 会话生效。",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Requires a tmux session and yabai; otherwise opens chat."
+            "value" : "Focusing uses yabai when it is installed, and otherwise activates the terminal app; single-click focuses tmux sessions only."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "需要 tmux 会话和 yabai；否则改为打开对话。"
+            "value" : "装了 yabai 时用它精确定位窗口，否则激活终端所在的应用；单击只有 tmux 会话会聚焦。"
           }
         }
       }
