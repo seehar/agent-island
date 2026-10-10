@@ -8,6 +8,8 @@
 #
 # 判据（任何一步不达标就地 exit 非 0，不要只看日志）：
 #   步骤 1  check-localization.py --strict：0 错误、0 警告
+#   步骤 1b 资源目录卫生：AgentIsland/Resources 下不得有 __pycache__ / *.pyc / .DS_Store /
+#           其它生成物或子目录（同步资源组会把它们原样拷进 app 包）
 #   步骤 2  编译出现 ** BUILD SUCCEEDED **，且 ": error:" / ": warning:" 诊断数为 0
 #   步骤 3  --with-tests 时追加测试（Debug，独立派生目录，build-for-testing +
 #           test-without-building，只跑 AgentIslandTests）：** TEST SUCCEEDED **
@@ -69,6 +71,31 @@ if [ "$GUARD_EXIT" -ne 0 ] || [ "$GUARD_WARNINGS" -ne 0 ]; then
     echo "ERROR: 门禁未通过 —— 本地化守卫（退出码 ${GUARD_EXIT}，警告 $GUARD_WARNINGS 条）"
     exit 1
 fi
+echo ""
+
+# ============================================
+# 步骤 1b: 资源目录卫生
+# ============================================
+echo "=== 步骤 1b: 资源目录卫生 ==="
+# `PBXFileSystemSynchronizedRootGroup` 会把 `AgentIsland/Resources/` 下的东西**原样**拷进
+# app 包 —— 包括未跟踪、被 .gitignore 拦住的文件。实测踩过一次：hook 验证脚本用 importlib
+# 加载随包的 `agent-island-state.py`，Python 把 `__pycache__` 写回源目录，于是 37KB 的过期
+# 字节码进了 DMG。这里把「不该进包的东西」挡在编译之前。
+RESOURCES_DIR="$PROJECT_DIR/AgentIsland/Resources"
+STRAY="$(
+    find "$RESOURCES_DIR" -mindepth 1 \
+        \( -type d -o -name '*.pyc' -o -name '.DS_Store' -o -name '*.orig' \
+           -o -name '*.rej' -o -name '*.swp' -o -name '*~' \) \
+        -print | sed "s|^$RESOURCES_DIR/||"
+)"
+if [ -n "$STRAY" ]; then
+    echo ""
+    echo "ERROR: 门禁未通过 —— 资源目录里有不该随包发布的东西（会原样拷进 app 包）："
+    printf '%s\n' "$STRAY" | sed 's/^/  /'
+    echo "  处理：删掉它们（生成物应落在临时目录），或把它移出 Resources。"
+    exit 1
+fi
+echo "资源目录干净"
 echo ""
 
 # ============================================
