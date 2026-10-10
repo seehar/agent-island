@@ -23,7 +23,7 @@ Two agents in tmux already means tab-hunting to find the one that is waiting on 
 
 The notch is the one strip of the screen you never leave. AgentIsland makes it the status light for your agents:
 
-- **Closed** — a capsule that stays out of the way. Its left mark is that agent's own **pixel mascot** — dozing with a floating z while idle, doing its signature move while it works, and jumping with a `!` when it needs your approval, the right side reads `active[+subagents]/total`. The capsule widens just enough to keep that count clear of the camera housing, and only at extreme counts drops the least important number instead of truncating it.
+- **Closed** — a capsule that stays out of the way: by default only the right side carries the `active[+subagents]/total` count, widened just enough to keep it clear of the camera housing, and at extreme counts it drops the least important number instead of truncating it. Set **Closed Notch Layout** to *Full Capsule* and the left side gains that agent's own **pixel mascot** — dozing with a floating z while idle, doing its signature move while it works, and jumping with a `!` when it needs your approval.
 - **Hover** — it expands into one live list across every agent you run.
 - **Approval** — a tool call that needs permission opens the panel with Allow / Deny, and your answer travels back to the agent.
 
@@ -35,7 +35,7 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
     <td width="50%"><img src="docs/images/notch-approval.png" alt="A pending approval in the notch"></td>
   </tr>
   <tr>
-    <td align="center"><sub>Closed: pixel mascot + working sessions</sub></td>
+    <td align="center"><sub>Closed (Full Capsule): pixel mascot + working sessions</sub></td>
     <td align="center"><sub>A pending tool call, decided in place</sub></td>
   </tr>
 </table>
@@ -46,7 +46,7 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
 
 **Subagents included.** Claude Code tool calls inside subagents, and `omp`/`pi` subagent runs, count towards the notch badge and are listed under the `task` card that spawned them.
 
-**Approvals on the notch.** Allow / Deny for every agent that can hand the decision back: Claude Code and its forks (Qoder), Codex, Gemini CLI and Trae CLI through their permission hooks, `omp`/`pi` through a blocking extension gate (opt-in), OpenCode through its plugin. The rest still show up and are approved in their own terminal. Calls classified as dangerous — `rm -rf /`, `sudo rm`, `mkfs`, `dd … of=/dev/…`, `curl … | sh`, reverse shells, `kill -9 1` — are flagged in red, and their fail-open path is never used.
+**Approvals on the notch.** Allow / Deny for every agent that can hand the decision back: Claude Code and its forks (Qoder), Codex, Gemini CLI and Trae CLI through their permission hooks, `omp`/`pi` through a blocking extension gate that comes with the agent (no separate switch), OpenCode through its plugin. The rest still show up and are approved in their own terminal. Calls classified as dangerous — `rm -rf /`, `sudo rm`, `mkfs`, `dd … of=/dev/…`, `curl … | sh`, reverse shells, `kill -9 1` — are flagged in red, and their fail-open path is never used.
 
 **Usage stats.** Coverage follows what each tool actually records. Token numbers come from the agents whose records carry a token field we could verify — Claude Code (and its forks Qoder / Factory / CodeBuddy / WorkBuddy), Oh My Pi, Pi, Codex, OpenCode, and Hermes (whose token totals include its subagent sessions, while session counts do not). Tool-call counts follow each agent's record format: Claude Code, its forks (Qoder / Factory / CodeBuddy / WorkBuddy), Oh My Pi, Pi, Codex, Cursor, Copilot and Hermes. Gemini, Kimi, Cline, Grok, Trae, Trae CLI and DeepSeek Harness provide no checkable usage fields (or no readable records at all), so they do not appear on the stats page. The header's chart button opens a stats page: total tokens with input / output / cache read / cache write and hit rate, session and tool-call counts, for **Today / This Week / This Month / All** — split per agent, with a trend chart and a tool leaderboard. The numbers are indexed from the agents' own session records, so finished sessions still count.
 
@@ -70,9 +70,9 @@ The page lives in the panel's **Statistics** page (the chart button in the panel
 
 |Agent|Session records|Live integration|Approve from the notch|Subagents|
 |---|---|---|---|---|
-|**Claude Code**|`~/.claude/projects/**/*.jsonl`|`~/.claude/hooks/agent-island-state.py` + `settings.json`|yes — hook `PermissionRequest`|tool calls inside subagents|
-|**Oh My Pi** (`omp`)|`~/.omp/agent/sessions/**`|`~/.omp/agent/extensions/agent-island-state.ts`|yes — extension gate (opt-in)|`task` runs|
-|**Pi**|`~/.pi/agent/sessions/**`|`~/.pi/agent/extensions/agent-island-state.ts`|yes — extension gate (opt-in)|`task` runs|
+|**Claude Code**|`~/.claude/projects/**/*.jsonl`|`~/.agent-island/hooks/agent-island-state.py` (shared) + entries in `~/.claude/settings.json`|yes — hook `PermissionRequest`|tool calls inside subagents|
+|**Oh My Pi** (`omp`)|`~/.omp/agent/sessions/**`|`~/.omp/agent/extensions/agent-island-state.ts`|yes — extension gate (with the agent enabled)|`task` runs|
+|**Pi**|`~/.pi/agent/sessions/**`|`~/.pi/agent/extensions/agent-island-state.ts`|yes — extension gate (with the agent enabled)|`task` runs|
 |**OpenCode**|`~/.local/share/opencode/opencode.db`|`~/.config/opencode/plugins/agent-island-state.js`|yes — plugin|`task` runs|
 |**Codex**|`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`|`$CODEX_HOME/hooks.json` (+ `[features] hooks = true` in `config.toml`)|yes — hook `PermissionRequest`|—|
 |**Gemini CLI**|`~/.gemini/tmp/<project>/chats/session-*.jsonl`|`~/.gemini/settings.json`|yes — hook `BeforeTool`|—|
@@ -128,7 +128,7 @@ AgentIsland only touches each agent's own integration surface: the shared hook s
 |Agent|File written|Also touched|
 |---|---|---|
 |Claude Code|`~/.agent-island/hooks/agent-island-state.py`|hook entries merged into `~/.claude/settings.json`|
-|Oh My Pi|`~/.omp/agent/extensions/agent-island-state.ts`|only if you enable the gate: `~/.omp/agent/config.yml`, backed up first|
+|Oh My Pi|`~/.omp/agent/extensions/agent-island-state.ts`|whenever you enable Oh My Pi: `~/.omp/agent/config.yml`, backed up first|
 |Pi|`~/.pi/agent/extensions/agent-island-state.ts`|—|
 |OpenCode|`~/.config/opencode/plugins/agent-island-state.js`|—|
 |Codex|`~/.agent-island/hooks/agent-island-state.py` (shared)|`$CODEX_HOME/hooks.json` entries + `[features] hooks = true` in `$CODEX_HOME/config.toml`|
@@ -160,7 +160,7 @@ The rail on the left carries the **four configuration pages** (General, Behavior
 |Page|What's in it|
 |---|---|
 |**General**|Language, screen, notch height/width, content text size, panel size · launch at login, accessibility status, and keyboard-focus behavior on open.|
-|**Behavior**|Hover expand, idle capsule · ended-session retention, row density, click action (Focus Terminal falls back to chat without tmux/yabai), both status-check and session-scan intervals · subagent details in chat, hide idle sessions.|
+|**Behavior**|Hover expand, idle capsule, closed-notch layout (badge only / notch only / full capsule) · ended-session retention, row density, click action (Focus Terminal falls back to chat for non-tmux sessions), both status-check and session-scan intervals · subagent details in chat, hide idle sessions.|
 |**Notifications**|Notification sound (clicking a sound plays it), volume, quiet hours, sound scope (ready only / ready and approvals), completion badge. The list also carries your own sounds from `~/Library/Sounds`. Quiet hours silences the sound only — the notch still shows everything.|
 |**Agents**|Enable/disable and integration state for each agent; per-agent config root; tool-call guard scope and offline behavior. The first row is the entry to **Animations**. The agent list scrolls within its card.|
 |**Animations**|Every agent's pixel mascot side by side, with an activity picker (idle / working / needs approval) and a preview speed (still / 0.5× / 1× / 2×). Reached from the first row of the **Agents** card (the rail keeps Agents highlighted).|
@@ -213,7 +213,7 @@ Every state change goes through a single entry point (`SessionStore.process(_:)`
 
 **Gatekeeper says the app is damaged.** It isn't — it is ad-hoc signed and not notarized. Right-click → **Open**, or clear the quarantine flag (see [Install](#install)).
 
-**"Focus Terminal" does nothing.** Focusing the pane is only offered for tmux sessions and uses [yabai](https://github.com/koekeishiya/yabai) to bring the window forward; without yabai, open the chat view instead to see what a session is doing.
+**"Focus Terminal" does nothing.** [yabai](https://github.com/koekeishiya/yabai) is only used to pick the exact window when it is installed; without it the app still brings the terminal forward by activating the terminal's application. A session with neither a process nor a tmux pane has nothing to focus — open the chat view instead to see what it is doing.
 
 **How do I quit or uninstall it?** The panel's *About* page has **Quit**. To remove it: quit, drag the app out of `Applications`, and delete the integration files you no longer want (switching an agent off in **Settings → Agents** already removes its integration); `defaults delete com.celestial.AgentIsland` clears its preferences.
 

@@ -6,6 +6,13 @@
 > 「待批时自动展开」改为「有待处理请求时自动展开」。因此 §6.3 / §6.4 / §10 里关于
 > 「关闭开关」的语义与文案不再适用，出口改为全局档位「运行前询问什么 → 始终允许」。
 > 扩展契约、信封、超时与降级档均未变。
+>
+> **2026-10-10 复核（v1.4.0 发布时）**：正文里仍按「开关时代」写的现状描述已就地改正，
+> 历史决策保留。需要注意的四处：**§0 的并行 WIP 基线与文件行号是 2026-09-20 的快照，
+> 已完全过期（只作历史记录）**；§6.1 的「关闭时回滚」不存在（备份只留给人工恢复）；
+> §6.4 描述的逐行开关从未以那个形态上线；§8 P1 的「换回只上报扩展」在当前口径下不可达。
+> 另有三处版本/落点已更新：§12.4 版本戳 7、§12.6 脚本落点 `~/.agent-island/hooks/`、
+> §12.7 插件版本戳 4。
 
 - 目标仓库：`/Users/seehar/work/code/mine/agent-island`（只读测绘，本文件是唯一产物）
 - 参考仓库：`/Users/seehar/work/code/git/CodeIsland`、`/Users/seehar/work/code/git/oh-my-pi`、pi 0.85.1 安装包
@@ -462,15 +469,15 @@ pi.on("tool_call", async (event, ctx) => {          // omp: 在 tool_execution_s
 
 ### 6.1 要写什么、什么时候写
 
-**总原则：只在用户打开开关时执行；写前备份、写后校验、卸载/关闭时回滚。**
+**总原则（2026-10-10 修订）：在用户启用该 Agent 时执行（闸门随启用而来，见文首横幅）；写前备份、写后校验；关闭 Agent 时应用不自动还原 —— 备份 `config.yml.agent-island.bak` 留给用户手动恢复（有意取舍：整份写回会连带抹掉用户此后用 `omp config set` 改过的内容）。**
 
 | 文件 | 键 | 何时写 | 值 | 回滚 |
 | --- | --- | --- | --- | --- |
-| `~/.omp/agent/config.yml` | `extensionHandlers.toolCallTimeoutMs` | 用户开启「在刘海上批准」时 | `300000`（原值 `30000`） | 关闭开关时写回备份内容 |
+| `~/.omp/agent/config.yml` | `extensionHandlers.toolCallTimeoutMs` | 启用 Oh My Pi 时（`AgentIntegrationInstaller.install` 的 ohMyPi 分支 → `OmpConfigInstaller.applyGateTimeout`） | `300000`（原值 `30000`） | **不自动回滚**：只有写入/读回失败时才写回备份（`OmpConfigInstaller.restore`）；关闭 Agent 只删扩展，`.bak` 留给人工恢复 |
 | `~/.omp/agent/config.yml` | `tools.approvalMode` | **默认不写**（见 §6.3 的实测与理由） | —— | —— |
 | `~/.pi/agent/settings.json` | 无 | —— | pi 没有审批相关配置 | —— |
 | `~/.claude/settings.json` | **不动** | —— | 既有 `PermissionRequest` + `timeout: 86400` 保持 | —— |
-| `~/.omp/agent/extensions/agent-island-state.ts`、`~/.pi/agent/extensions/agent-island-state.ts` | 扩展本体 | 开启/升级时（M11 版本戳比对） | 闸门版 | 关闭时替换为「只上报」版（保留状态展示） |
+| `~/.omp/agent/extensions/agent-island-state.ts`、`~/.pi/agent/extensions/agent-island-state.ts` | 扩展本体 | 启用/升级时（版本戳比对） | 闸门版 | 关闭 Agent 时**删除**该文件（不是换回只上报版；只上报版在当前口径下没有安装路径，见 §12.4） |
 | （**不写文件**）闸门降级档 `strict` / `notify-only` / `read-only-allow` | —— | 用户在设置面板选择时（v2 新增） | 存 `AppSettings`（UserDefaults），随 `session_start` 下发给扩展 | 切回默认 `notify-only` |
 | `<cwd>/.omp/config.yml`（**可选**，项目层） | `tools.approvalMode: yolo` | 仅当用户显式要求「只在本项目生效」时（v2 新增） | 项目层覆盖全局（T6 实测：全局 `always-ask` + 项目 `yolo` → 生效 `yolo`） | 删除该文件/该键 |
 
@@ -502,7 +509,16 @@ pi.on("tool_call", async (event, ctx) => {          // omp: 在 tool_execution_s
   → 检测方式（**只作诊断**，§5.5）：`pi.pi.settings.isConfigured("tools.approvalMode") && get(...) !== "yolo"` 或 `get("tools.approval")` 非空 → 上报 `approval_mode` / `approval_policies`，由应用侧决定告警。
   → **静默接管防护（v2 新增）**：若用户**显式**配置过限制模式（`isConfigured == true`），应用**不得**静默改写它——只提示，并把闸门的默认档降为「只上报 + 让位」（§5.7 ② 态），把决定权留给用户的原生提示。
 
-### 6.4 UI 开关（默认关、opt-in）
+### 6.4 UI 开关（当时的方案：默认关、opt-in）
+
+> **现行实现（2026-10-10）：这一节描述的「逐行闸门开关」从未以这个形态上线。**
+> 闸门现在**随 Agent 启用而来**：`AgentIntegrationInstaller.gateIsActive(kind) = supportsApprovalGate(kind) && AppSettings.isAgentEnabled(kind)`，
+> 行里没有任何审批开关或字样（`AgentSettingsSection`）；执行顺序是「先落 `enabled`、再 install」，
+> 且 `kind == .ohMyPi` 时 best-effort 调 `OmpConfigInstaller.applyGateTimeout()`（失败只记日志、不挡启用）。
+> `AppSettings.isApprovalGateEnabled` / `approvalGateAgents` 已删除 —— 升级用户不需要迁移代码，
+> 启动时 `installIfNeeded` 就会把已监控的 omp/pi 换写成闸门版扩展；降级档仍是三个全局档位。
+> 文案改为**工具调用保护 / Tool Call Guard**（不是「审批闸门」），官方出口是「运行前询问什么 → 始终允许」；
+> 「待批时自动展开」改成「有待处理请求时自动展开」。**下面保留当时的设计与文案（历史）。**
 
 - 位置：`AgentIsland/UI/Components/AgentSettingsSection.swift` 的 per-agent 行区域（现有 `AgentSettingsRow` + `toggle(_:)` 在 `:43-66`）；新增一个与本功能绑定、**默认关**的开关，仅对 `AgentKind.allCases` 中 `approval.canDecideRemotely && requiresIntegrationInstall` 的 agent 显示。
 - 状态存储：`AgentIsland/Core/Settings.swift`（`AppSettings`，UserDefaults；参考既有 `isAgentEnabled`/`setAgent` 的写法）。
@@ -572,7 +588,7 @@ opencode 插件（~/.config/opencode/plugins/agent-island-state.js）
 | --- | --- |
 | 改动文件 | ① `Resources/agent-island-pi-extension.ts.txt`（闸门版 + `requestDecision` + 名单表 + **三态让位（§5.7）** + **降级三档（§5.4）** + 版本戳；**替换后保留一份只上报版** `agent-island-pi-extension-report-only.ts.txt` 供关闭开关时用）② `Services/Agents/AgentIntegrationInstaller.swift`（版本戳比对 + 只上报版切换）③ **新文件** `Services/Agents/OmpConfigInstaller.swift`（`config.yml` 备份 / `omp config set` / 校验 / 回滚）④ `Models/AgentKind.swift`（omp/pi 的 `approval.canDecideRemotely = true`）⑤ `UI/Components/AgentSettingsSection.swift` + `Core/Settings.swift`（默认关的开关 + 降级档选择器）⑥ `Localizable.xcstrings`（§6.4 文案，zh-Hans + en，**按键名合并**）⑦ `Services/Hooks/HookSocketServer.swift`（若 P0 的 B2 读窗口需调整）。**动手前按 §0.1 重新 grep 符号**（该文件与他人 WIP 同文件） |
 | 验收判据 | ① 隔离环境复跑 RUN 矩阵（allow → `ISLAND_TOOL_RAN`；deny → 模型收到理由且工具未执行；静默 → 客户端超时 → 拒绝且理由可读）② **降级三档各验一次**（`strict` 全拒 / `notify-only` 普通命令照跑且 TUI 出现「闸门离线」/ `read-only-allow` 只放只读）+ 危险命令在任何档位都被拒 ③ 真 TUI（tmux）下**只有刘海上一个提示**（T2 场景需真的构造：`--approval-mode write` + exec 档 → 断言刘海**让位**显示「终端正在询问」而不是两个入口） ④ **OMP 自拒与刘海拒绝可区分**（构造 headless/no-UI 场景，断言 UI 文案不同）⑤ **多会话并发**：同时开 2 个 omp 会话各触发一次审批 → 两张卡分属不同会话、互不串台 ⑥ pi 侧一次端到端（`~/.pi` 无审批门，验证 deny 生效 + 降级行为）⑦ 应用侧 `pendingPermissions` 在 TTL 后自清（`lsof` 无残留 fd） |
-| 回滚 | 关闭开关 → 恢复 `config.yml` 备份 + 换回只上报扩展；再不行 `git revert` P1 commit（用户配置由备份还原） |
+| 回滚 | 关闭该 Agent → 删掉扩展文件（**不恢复** `config.yml`，`.bak` 留给人工；「换回只上报扩展」在当前口径下不可达，见 §12.4）；再不行 `git revert` P1 commit |
 
 ### P2 —— opencode
 
@@ -717,7 +733,7 @@ grep -c "Allow tool" /tmp/ai-approve/p1/frames/f1.txt   # 期望 0
 | 3 | 允许安装器改写 `~/.omp/agent/config.yml` 吗 | **允许，但只写 `extensionHandlers.toolCallTimeoutMs`**（方案 1），不写 `approvalMode`；写前备份。**若 §5.3 的方案 2（预算豁免）验证通过，可完全不写**（v2 修订） | 不写超时会让 30s 的 fail-closed 成为默认体验；不动 `approvalMode` 因为默认已是 yolo（写了反而掩盖「用户自己选的」）；需要范围化时用项目层（§6.1） |
 | 4 | **app 不可达 / 在等待中被杀时的行为**（v2 修订，把原第 4 条与 WS-E P3 合并） | 拆成两个场景：**① app 从未运行** → **默认 `notify-only`（放行 + 记录 + 刘海事后展示；危险命令仍拒）**，另备 `strict` / `read-only-allow` 两档由用户选；**② 等待中被杀（已投递过卡片）** → **拒绝** + 可读 reason | ① 保证「AgentIsland 没开也不会让 omp/pi 不可用」，同时降级**必须可见**（TUI 打印「闸门离线」）；② 已经问过人，不静默放行。两者 UI 提示必须不同（§5.4） |
 | 5 | opencode 是否本期做 | **本期做 P2**（工作量小、收益明确），但不阻塞 P1 上线 | 一个文件、80–120 行；且能让「多 agent 都能在刘海上决定」这件事一次说清 |
-| 6 | 「关闭开关」的安全语义 | **仅停用闸门 + 文案明确告知「omp 将不再有任何审批闸门」**；若你愿意，再加一个可选按钮「同时把 approvalMode 设为 write（恢复 omp 原生提示）」 | 关闭不等于恢复原状（§6.3）；给用户一个真正能回到「omp 自己问」的选项 |
+| 6 | 「关闭闸门」的安全语义（**2026-10-10 修订**） | 关掉的是**这个 Agent**（没有单独的闸门开关）：关掉即卸载扩展、不再写预算，omp 在默认 yolo 下因此没有任何审批闸门 | 关闭不等于恢复原状（§6.3）。「同时把 approvalMode 设为 write」当时列为可选、**未做**：想回到「omp 自己问」要用户自己配 |
 
 ---
 
@@ -726,8 +742,8 @@ grep -c "Allow tool" /tmp/ai-approve/p1/frames/f1.txt   # 期望 0
 1. **不照搬 CodeIsland 的 17 个 agent 安装器**（`Sources/CodeIsland/ConfigInstaller.swift` 约 3400 行里约 2000 行是 YAML/TOML 外科手术式合并）。本期只做 **Claude（已存在）+ omp + pi + opencode** 四条。
 2. **不逐字抄 `CodeIsland` 的代码**（虽同为 MIT）：只借鉴结构（能力矩阵、fail-open 语义、版本戳、pending 键的教训）。所有需要的能力都能独立实现。
 3. **不引入 bridge 二进制**：E1/E2 证明我们的 BSD socket 服务端容忍半关闭，不需要 `shutdown(SHUT_WR)` 绕道；仅当真机端到端复现出丢应答时才重新评估。
-4. **不做「影子 `ask` 工具 + 竞速」**（CodeIsland `codeisland-omp.ts:637-905`）：本期问答通道不在范围内（P3 再议），它引入的竞速/abort 复杂度与我们的目标无关。
-5. **不做 tmux 按键作为主路径**（`ToolApprovalHandler.swift` 仍是未接线遗留代码：`1/2/n` 硬编码、无 UI 调用者）。只在 P3 作为「无扩展时」的兜底。
+4. **（2026-10-10：此条已被 §12 取代）** 当时不做「影子 `ask` 工具 + 竞速」（CodeIsland `codeisland-omp.ts:637-905`）；后来做了——两个变体的扩展都注册同名影子 `ask` 并与原生提问竞速（`registerShadowAsk` / `raceIslandAndNativeAsk`），`AgentKind.interactiveToolNames` 里 omp/pi 的 `ask` 就是它。
+5. **不做 tmux 按键作为审批主路径**（**2026-10-10 修订**：`ToolApprovalHandler` 现在**已接线**，但承担的是「用户消息 / 中断（Ctrl-C）」注入 —— `ChatView.sendToSession` / `interruptSession` → `TmuxController`，里面没有任何 `1/2/n` 审批键，审批一律走 socket 回写）。也不存在「无扩展时用按键兜底」这条路径。
 6. **不用 ACP/SDK/collab 作为主路径**：它们都要求「外部拥有会话」或「开房间 + relay」，改变了用户使用 omp 的方式。
    - **（v2 修订）也不用 `omp --mode rpc`（C′）作为主路径**：它是唯一官方协议级通道（R2/R3 实测），但要求 app 成为会话宿主并渲染会话流 —— **本期只作为 P3 的可选产品形态**记录下来，不在 P0–P2 实施；也**不**把它写成「已经支持」。
 7. **本期不做 always / 记住决定**：CodeIsland 对 pi/omp 也没有 always（`{block:true}` 只支持拦、不支持批）；我们要做就得写进各 agent 自己的配置（omp `tools.approval.<tool>: allow`；Claude `updatedPermissions`），属于独立能力，风险与验收面都不同。
@@ -807,7 +823,9 @@ ask: { questions: [ { id, question, header?, multi_select, free_text, options: [
 
 ### 12.4 只上报版也带影子 ask
 
-`agent-island-pi-extension-report-only.ts.txt` 与闸门版**同源**，同样注册影子 ask：「只上报」只表示**不做闸门**（不拦 `tool_call`），问答通道与闸门开关无关。两个变体的版本戳由同一个常量给出（当前 **6**：`AgentIntegrationInstaller.piFamilyExtensionVersion`；安装器按「版本 + 变体 + （闸门版）降级档」判定是否重装，改扩展就必须 +1，否则已装用户不会被重写）。
+`agent-island-pi-extension-report-only.ts.txt` 与闸门版**同源**，同样注册影子 ask：「只上报」只表示**不做闸门**（不拦 `tool_call`），问答通道与闸门开关无关。两个变体的版本戳由同一个常量给出（当前 **7**：`AgentIntegrationInstaller.piFamilyExtensionVersion`；安装器按「版本 + 变体 + （闸门版）降级档」判定是否重装，改扩展就必须 +1，否则已装用户不会被重写）。
+
+**（2026-10-10 复核）只上报版在当前口径下没有安装路径**：`piFamilyExtensionVariant` 只在闸门激活（= 该 Agent 已启用）或该 Agent 不支持闸门时返回 `.reportOnly`，而 `install()` 只对已启用的 Agent 调用、`uninstall()` 直接删文件 —— 所以这个变体（连同它里面的影子 ask）目前是「不装、也就用不上」的保留件。要么给它一条安装路径（例如「关掉闸门但仍要问答通道」），要么确认是死件后连同本节一起删。
 
 ### 12.5 仍然存在的边界
 
@@ -817,7 +835,7 @@ ask: { questions: [ { id, question, header?, multi_select, free_text, options: [
 ### 12.6 Claude 的 `AskUserQuestion`（v4 新增）
 
 Claude 链路不是 TS 扩展，而是 hook 脚本 `AgentIsland/Resources/agent-island-state.py`（由
-`HookInstaller` 装到 `~/.claude/hooks`，注册在 `PermissionRequest`，hook `timeout: 86400`）。
+`HookInstaller` 装到 `~/.agent-island/hooks/` —— 所有 hook 型 Agent 共用这一份，旧落点 `~/.claude/hooks` 里的副本会被主动清理；注册在 `PermissionRequest`，hook `timeout: 86400`）。
 它在**同一条答案通道**上多做了两步：把提问归一成 `ask` 上行、把刘海的回答映射成 Claude 的
 `updatedInput` 下行。
 
@@ -893,8 +911,8 @@ opencode 1.18.32 的提问是一个**工具**（`question`）+ 一对事件：`q
 四层链条不变：**app pending TTL 330s > 问答 240s > 闸门 120s**。超时 / 应用不可达 / 回写失败 = **不回写**，
 终端里的原生提问照旧可用（与权限通道的 fail-open 同一条纪律）。
 
-**版本戳**：插件文件头 `agent-island-opencode-plugin-version: 3`，与
-`AgentIntegrationInstaller.openCodePluginVersion` 同步（安装器只比版本戳判「是否该重装」）。
+**版本戳**：插件文件头 `agent-island-opencode-plugin-version: 4`，与
+`AgentIntegrationInstaller.openCodePluginVersion` 同步（安装器只比版本戳判「是否该重装」；3 = 新增交互提问、4 = 上报 Paseo 终端身份）。
 
 ### 12.8 待批卡片的存活性：状态上报不许把它抹掉（v7 新增）
 

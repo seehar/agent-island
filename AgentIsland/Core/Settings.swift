@@ -497,13 +497,14 @@ nonisolated enum AppSettings {
 
   // MARK: - omp 配置写入记录
 
-  /// `~/.omp/agent/config.yml` 的备份路径（关闭闸门时据此还原）。
+  /// `~/.omp/agent/config.yml` 的备份路径（写入失败时回滚、以及留给用户人工恢复用；
+  /// 关闭某个 Agent 不再自动还原 —— 理由见 `OmpConfigInstaller` 文件头）。
   static var ompGateConfigBackupPath: String? {
     get { defaults.string(forKey: Keys.ompGateConfigBackupPath) }
     set { defaults.set(newValue, forKey: Keys.ompGateConfigBackupPath) }
   }
 
-  /// 写入前 `extensionHandlers.toolCallTimeoutMs` 的原值（界面展示与还原核对用）。
+  /// 写入前 `extensionHandlers.toolCallTimeoutMs` 的原值（回滚与人工核对用）。
   static var ompGateConfigOriginalTimeout: String? {
     get { defaults.string(forKey: Keys.ompGateConfigOriginalTimeout) }
     set { defaults.set(newValue, forKey: Keys.ompGateConfigOriginalTimeout) }

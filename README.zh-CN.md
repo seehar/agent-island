@@ -23,7 +23,7 @@ tmux 里开两个 Agent，你就得在两个 pane 之间切来切去看谁在等
 
 刘海是屏幕上你永远不会离开的那一条。AgentIsland 把它变成 Agent 的状态灯：
 
-- **关闭态** —— 平时只留一条不碍事的胶囊：左侧是那个 Agent 自己的**像素角色**：空闲时打盹（头顶飘 Z）、干活时做招牌动作、需要你时跳起来喊一句，右侧读作 `活跃[+子代理]/总数`；计数变宽时胶囊横向长到刚好放得下（不再压到相机挖孔），只有数字特别大时才按档位退成更短的写法，而不是被截断。
+- **关闭态** —— 平时只留一条不碍事的胶囊：默认只在右侧显示 `活跃[+子代理]/总数`，横向长到刚好避开相机挖孔；只有数字特别大时才按档位退成更短的写法，而不是被截断。把**「关闭态刘海」**设为「完整胶囊」后，左侧会显示那个 Agent 自己的**像素角色** —— 空闲时打盹（头顶飘 Z）、干活时做招牌动作、需要你时跳起来喊一句。
 - **悬停** —— 展开成一张跨所有 Agent 的实时会话列表。
 - **审批** —— 需要权限的工具调用会把面板展开成 Allow / Deny，你的决定直接回传给 Agent。
 
@@ -35,7 +35,7 @@ tmux 里开两个 Agent，你就得在两个 pane 之间切来切去看谁在等
     <td width="50%"><img src="docs/images/notch-approval.png" alt="刘海上的待批审批"></td>
   </tr>
   <tr>
-    <td align="center"><sub>关闭态：像素角色 + 工作中的会话</sub></td>
+    <td align="center"><sub>关闭态（完整胶囊）：像素角色 + 工作中的会话</sub></td>
     <td align="center"><sub>待批的工具调用，就地决策</sub></td>
   </tr>
 </table>
@@ -46,7 +46,7 @@ tmux 里开两个 Agent，你就得在两个 pane 之间切来切去看谁在等
 
 **子代理也在列表里。** Claude Code 子代理内部的工具调用、以及 `omp`/`pi` 的子代理运行，都计入刘海计数，并列在派发它的 `task` 卡片下。
 
-**在刘海上审批。** 凡是能把决定回传的 Agent 都支持 Allow / Deny：Claude Code 及其分支（Qoder）、Codex、Gemini CLI、Trae CLI 走各自的权限 hook，`omp`/`pi` 走扩展的阻塞闸门（需手动开启），OpenCode 走插件；其余 Agent 照常出现在列表里，审批在它们自己的终端完成。被判为危险的调用（`rm -rf /`、`sudo rm`、`mkfs`、`dd … of=/dev/…`、`curl … | sh`、反弹 shell、`kill -9 1` 等）会标红，且**永不**走「不可达就放行」这条降级路径。
+**在刘海上审批。** 凡是能把决定回传的 Agent 都支持 Allow / Deny：Claude Code 及其分支（Qoder）、Codex、Gemini CLI、Trae CLI 走各自的权限 hook，`omp`/`pi` 走扩展的阻塞闸门（随 Agent 启用，没有单独的开关），OpenCode 走插件；其余 Agent 照常出现在列表里，审批在它们自己的终端完成。被判为危险的调用（`rm -rf /`、`sudo rm`、`mkfs`、`dd … of=/dev/…`、`curl … | sh`、反弹 shell、`kill -9 1` 等）会标红，且**永不**走「不可达就放行」这条降级路径。
 
 **用量统计。** 覆盖范围取决于各工具自己写了什么。token 数字来自记录里**核对过** token 字段的 Agent —— Claude Code（及其分支 Qoder / Factory / CodeBuddy / WorkBuddy）、Oh My Pi、Pi、Codex、OpenCode、Hermes（token 总量含它的子会话，会话数不含）。工具调用计数按各 Agent 自己的记录格式提取：Claude Code 及其分支（Qoder / Factory / CodeBuddy / WorkBuddy）、Oh My Pi、Pi、Codex、Cursor、Copilot、Hermes。Gemini、Kimi、Cline、Grok、Trae、Trae CLI、DSH 的记录里没有可核对的用量字段（或根本没有可解析记录），因此不出现在统计页。统计页是面板的**统计**读数面（头部图表按钮一点直达，占满整个面板宽度）：token 总量（含输入 / 输出 / 缓存读 / 缓存写与命中率）、会话数与工具调用次数，按 **今天 / 本周 / 本月 / 全部** 分档，并按 Agent 拆分，另带趋势柱图与工具榜。数字来自对 Agent 自身会话记录的索引，已结束的会话也计入。
 
@@ -70,9 +70,9 @@ tmux 里开两个 Agent，你就得在两个 pane 之间切来切去看谁在等
 
 |Agent|会话记录|实时集成|刘海审批|子代理|
 |---|---|---|---|---|
-|**Claude Code**|`~/.claude/projects/**/*.jsonl`|`~/.claude/hooks/agent-island-state.py` + `settings.json`|支持 —— hook `PermissionRequest`|子代理内部的工具调用|
-|**Oh My Pi**（`omp`）|`~/.omp/agent/sessions/**`|`~/.omp/agent/extensions/agent-island-state.ts`|支持 —— 扩展闸门（需开启）|`task` 运行|
-|**Pi**|`~/.pi/agent/sessions/**`|`~/.pi/agent/extensions/agent-island-state.ts`|支持 —— 扩展闸门（需开启）|`task` 运行|
+|**Claude Code**|`~/.claude/projects/**/*.jsonl`|`~/.agent-island/hooks/agent-island-state.py`（共用）+ 写进 `~/.claude/settings.json` 的 hook 条目|支持 —— hook `PermissionRequest`|子代理内部的工具调用|
+|**Oh My Pi**（`omp`）|`~/.omp/agent/sessions/**`|`~/.omp/agent/extensions/agent-island-state.ts`|支持 —— 扩展闸门（随 Agent 启用）|`task` 运行|
+|**Pi**|`~/.pi/agent/sessions/**`|`~/.pi/agent/extensions/agent-island-state.ts`|支持 —— 扩展闸门（随 Agent 启用）|`task` 运行|
 |**OpenCode**|`~/.local/share/opencode/opencode.db`|`~/.config/opencode/plugins/agent-island-state.js`|支持 —— 插件|`task` 运行|
 |**Codex**|`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`|`$CODEX_HOME/hooks.json`（另需 `config.toml` 的 `[features] hooks = true`）|支持 —— hook `PermissionRequest`|—|
 |**Gemini CLI**|`~/.gemini/tmp/<项目>/chats/session-*.jsonl`|`~/.gemini/settings.json`|支持 —— hook `BeforeTool`|—|
@@ -128,7 +128,7 @@ AgentIsland 只碰各 Agent 自己的接入面：共用脚本 `~/.agent-island/h
 |Agent|写入文件|还会动到|
 |---|---|---|
 |Claude Code|`~/.agent-island/hooks/agent-island-state.py`|往 `~/.claude/settings.json` 合并 hook 条目|
-|Oh My Pi|`~/.omp/agent/extensions/agent-island-state.ts`|仅当你开启闸门时：`~/.omp/agent/config.yml`（先备份）|
+|Oh My Pi|`~/.omp/agent/extensions/agent-island-state.ts`|只要你启用 Oh My Pi：`~/.omp/agent/config.yml`（先备份）|
 |Pi|`~/.pi/agent/extensions/agent-island-state.ts`|—|
 |OpenCode|`~/.config/opencode/plugins/agent-island-state.js`|—|
 |Codex|`~/.agent-island/hooks/agent-island-state.py`（共用）|`$CODEX_HOME/hooks.json` 条目 + `$CODEX_HOME/config.toml` 的 `[features] hooks = true`|
@@ -160,7 +160,7 @@ AgentIsland 只碰各 Agent 自己的接入面：共用脚本 `~/.agent-island/h
 |页面|内容|
 |---|---|
 |**通用**|语言、屏幕、胶囊高度/宽度、内容字号、面板尺寸 · 登录时启动、辅助功能状态、面板展开时是否接管键盘焦点。|
-|**行为**|悬停展开、空闲胶囊 · 已结束会话保留、行信息密度、单击动作（无 tmux/yabai 时聚焦终端会回退到打开对话）、状态复核与会话扫描间隔 · 对话里的子代理明细、隐藏闲置会话。|
+|**行为**|悬停展开、空闲胶囊、关闭态刘海（只留计数 / 只留挖孔 / 完整胶囊） · 已结束会话保留、行信息密度、单击动作（非 tmux 会话定位终端会回退到打开对话）、状态复核与会话扫描间隔 · 对话里的子代理明细、隐藏闲置会话。|
 |**通知**|通知音效（点一下即听一声）、音量、安静时段、提示音范围（仅就绪 / 就绪与审批）、完成提示。列表里也会带上你放在 `~/Library/Sounds` 里的自带音效。安静时段只静音，刘海与卡片照常显示。|
 |**智能体**|逐 Agent 启用/关闭与集成状态、配置目录、工具调用保护范围和离线策略；卡片第一行是「标记动态」的入口（带轮播的角色缩略图）；Agent 列表在卡片内滚动。|
 |**标记动态**|19 个 Agent 的像素角色一次铺开（CodeBuddy 与 WorkBuddy 共用同一枚），可选活动状态（空闲 / 处理中 / 待审批）与预览速度（静止 / 0.5× / 1× / 2×）；从「智能体」卡片第一行进入（侧栏仍高亮「智能体」）。|
@@ -213,7 +213,7 @@ flowchart LR
 
 **Gatekeeper 说应用已损坏。** 并没有损坏 —— 它是 ad-hoc 签名、未经公证。右键选「打开」，或清掉隔离属性（见[安装](#安装)）。
 
-**「聚焦终端」没反应。** 跳回 pane 只对 tmux 会话提供，并且需要 [yabai](https://github.com/koekeishiya/yabai) 把窗口提到前面；没有 yabai 时，改用对话页查看会话在做什么。
+**「定位终端」没反应。** 装了 [yabai](https://github.com/koekeishiya/yabai) 时它只用来精确定位到那个窗口；没有 yabai 时，应用仍会激活终端所在的应用、把窗口带到前面。既没有进程、也不在 tmux 里的会话没有可聚焦的目标 —— 改用对话页查看它在做什么。
 
 **怎么退出 / 卸载？** 面板「关于」页有**退出**。卸载：退出后把应用从 `Applications` 拖走，再删掉你不再需要的集成文件（在 **设置 → 智能体** 里关掉某个 Agent 就已经删掉它的集成）；`defaults delete com.celestial.AgentIsland` 可清掉偏好。
 
