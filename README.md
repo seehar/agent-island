@@ -52,7 +52,7 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
 
 **Chat history, rendered.** The full conversation with Markdown, tool call cards with their results, subagent runs inline, and the question when a tool is waiting for your input.
 
-![The chat view: Markdown, tool calls and subagents](docs/images/notch-chat.png)
+![The chat view: Markdown, tool calls and their results](docs/images/notch-chat.png)
 
 **Works with or without the integration.** Sessions are discovered by reading each agent's own records — JSONL transcripts (Claude Code, Qoder, Factory, CodeBuddy, WorkBuddy, Codex, Gemini, Cursor, Copilot, Kimi, Cline, Grok), or the SQLite stores of OpenCode and Hermes — and status is inferred from the transcript. Trae, Trae CLI and DSH have no readable records and rely on their integration (DSH on the external [dsh-island](https://github.com/cdxiaodong/dsh-island) plugin). Installing the integration adds live events immediately, and on `omp`/`pi` it is what makes the approval gate possible.
 
@@ -62,7 +62,7 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
 
 ## Usage stats
 
-![Usage stats: totals, per-agent split, trend and tools](docs/images/notch-stats.png)
+![Usage stats: totals, per-agent and per-model split, and the trend chart](docs/images/notch-stats.png)
 
 The page lives in the panel's **Statistics** page (the chart button in the panel header jumps straight to it) and reads the same records the chat view does, keeping only aggregate counters in its own store. Totals include cached tokens (hit rate = cache read / (input + cache read + cache write)); session counts exclude subagents. The index runs in the background on first open, and the page reports when it last indexed. The ↻ **Rescan** button beside the range switch re-reads every session record and recomputes the numbers — the background pass only reads the tail of each record, so this is the way to fix totals that look off.
 
@@ -164,7 +164,7 @@ The rail on the left carries the **four configuration pages** (General, Behavior
 |**Notifications**|Notification sound (clicking a sound plays it), volume, quiet hours, sound scope (ready only / ready and approvals), completion badge. The list also carries your own sounds from `~/Library/Sounds`. Quiet hours silences the sound only — the notch still shows everything.|
 |**Agents**|Enable/disable and integration state for each agent; per-agent config root; tool-call guard scope and offline behavior. The first row is the entry to **Animations**. The agent list scrolls within its card.|
 |**Animations**|Every agent's pixel mascot side by side, with an activity picker (idle / working / needs approval) and a preview speed (still / 0.5× / 1× / 2×). Reached from the first row of the **Agents** card (the rail keeps Agents highlighted).|
-|**Statistics**|Token, session and tool-call totals, trends, per-agent/model breakdown, date range and full rescan. Reached from the chart button in the panel header; the whole page is visible without scrolling.|
+|**Statistics**|Token, session and tool-call totals, trends, per-agent/model breakdown, date range and full rescan. Reached from the chart button in the panel header; the page scrolls once there is a lot to show.|
 |**Quota**|A running balance per New API account — every account you add gets its own row; the server URL, API key, and optional access token / user ID are edited per account behind **Edit Credentials** in the action row (the list collapses to the account being edited). The card below the list shows the selected account's identity (whose token it is, its group), its key balance, and the instance address and version. Amounts follow the instance's own currency setting (e.g. `$350.27`, from its `quota_per_unit`), not raw quota units. Reached from the card button in the panel header; it fetches only while the page is open.|
 |**About**|Version, check for updates, automatic update checks, star on GitHub, keyboard shortcuts, quit.|
 
