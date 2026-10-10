@@ -3,6 +3,14 @@
     <channel>
         <title>AgentIsland</title>
         <item>
+            <title>1.4.0</title>
+            <pubDate>Sat, 10 Oct 2026 14:24:47 +0800</pubDate>
+            <sparkle:version>8</sparkle:version>
+            <sparkle:shortVersionString>1.4.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/seehar/agent-island/releases/download/v1.4.0/AgentIsland-1.4.0.dmg" length="6146449" type="application/octet-stream" sparkle:edSignature="Pk9bMIHkqIJB3ld/A4QcnTwpKvp0wJ2HTCbErEyP2SrUVCnDzVYpV41A7icz0NGDlVMFjssf5T1hddDdK1x6Cw=="/>
+        </item>
+        <item>
             <title>1.3.3</title>
             <pubDate>Tue, 22 Sep 2026 10:18:04 +0800</pubDate>
             <sparkle:version>7</sparkle:version>
