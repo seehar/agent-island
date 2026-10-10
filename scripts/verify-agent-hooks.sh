@@ -275,6 +275,11 @@ import importlib.util
 import json
 import sys
 
+# 不落 .pyc：被验证脚本在**仓库源目录**里（AgentIsland/Resources/），importlib 默认会把
+# __pycache__ 写回源目录，而 Xcode 的同步资源组会照原样拷进 app 包 —— 发出去的 DMG 里
+# 会多一份过期字节码。
+sys.dont_write_bytecode = True
+
 
 def load_module(path):
     spec = importlib.util.spec_from_file_location("agent_island_state_under_test", path)
