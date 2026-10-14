@@ -193,9 +193,12 @@ nonisolated enum UsageStatsMetrics {
 
     // MARK: - 热力图（近 53 周 · 每日用量）
 
-    /// 格子间距（行、列同一个）与圆角。格子小（标准档约 5.5pt），圆角因此比
+    /// 格子间距（行、列同一个）与圆角。格子小（标准档约 6.5pt），圆角因此比
     /// `shareBarRadius` 还小一档。
-    static let heatmapCellSpacing: CGFloat = 2
+    ///
+    /// 间距取 1pt：53 列塞进几百点宽，2pt 的缝快赶上格子本身宽（约 36%，一眼是「点阵」
+    /// 而不是「热力图」）；1pt 时格子更大（标准档 5.51 → 6.49pt）、整块更接近参考稿的密度。
+    static let heatmapCellSpacing: CGFloat = 1
     static let heatmapCellRadius: CGFloat = 1.5
     /// 左侧星期标签栏的宽度：只画隔行的 周一 / 周三 / 周五 / 周日。取**固定值**而不是按
     /// 文案自适应——面板高度的解析式要跟语言无关；「两种语言的星期缩写都排得下」由
@@ -217,6 +220,8 @@ nonisolated enum UsageStatsMetrics {
     static let heatmapLegendHeight: CGFloat = 11
     static let heatmapLegendSwatchSize: CGFloat = 8
     static let heatmapLegendSwatchRadius: CGFloat = 2
+    /// 图例里色阶小方块之间的间距（比格网的间距宽一点：图例的方块大、挨太紧会糊成一条）。
+    static let heatmapLegendSwatchSpacing: CGFloat = 3
     /// 右上角分档控件（Tokens / 工具调用）的高度与分段间距：与分组标题行同高（14），
     /// 标题、说明行与控件挤在同一行里（说明行不进卡片——那是整页只剩几个点余量时
     /// 最先该省的一行）。

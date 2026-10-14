@@ -237,7 +237,8 @@ struct UsageStatsLayoutTests {
         // 图例（右下角）：少 + 5 格色阶 + 多。
         let legendNeeded =
           labelWidth(text("Less"), size: 9) + 5 * UsageStatsMetrics.heatmapLegendSwatchSize
-          + 6 * 4 + labelWidth(text("More"), size: 9)
+          + 6 * UsageStatsMetrics.heatmapLegendSwatchSpacing
+          + labelWidth(text("More"), size: 9)
         #expect(
           legendNeeded <= available,
           "\(panel.name) 档下 \(code) 的图例要 \(legendNeeded)pt，可用 \(available)pt")

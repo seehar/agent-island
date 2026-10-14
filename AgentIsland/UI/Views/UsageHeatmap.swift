@@ -178,7 +178,7 @@ struct UsageHeatmap: View {
 
     /// 色阶图例（右下角）：浅 → 深五格 + 两端的「少 / 多」。
     private var legend: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: UsageStatsMetrics.heatmapLegendSwatchSpacing) {
             Text(l10n.t("Less"))
                 .appFont(9)
                 .foregroundColor(AppPalette.subtleText)
