@@ -373,6 +373,20 @@ struct NotchMenuMetricsTests {
         #expect(notifications[0].rows.allSatisfy { $0 == NotchMenuMetrics.rowHeight })
     }
 
+    @Test("通用分组：界面 6 行（都是选择行）、系统卡以投屏可见开关收尾")
+    func generalSectionRowsMatchSystemCard() {
+        let general = NotchMenuMetrics.blocks(for: .general)
+        #expect(general.count == 2)
+        // 界面：六个选择行（语言 / 屏幕 / 胶囊高度 / 胶囊宽度 / 内容字号 / 面板尺寸）
+        #expect(general[0].rows == Array(repeating: NotchMenuMetrics.rowHeight, count: 6))
+        // 系统：登录时启动（带副标题）/ 辅助功能 / 接管键盘焦点 / 投屏时显示（两个单行开关）
+        #expect(
+            general[1].rows == [
+                NotchMenuMetrics.twoLineRowHeight, NotchMenuMetrics.rowHeight,
+                NotchMenuMetrics.toggleRowHeight, NotchMenuMetrics.toggleRowHeight,
+            ])
+    }
+
     @Test("没到上限时面板高度就是固定开销加内容加展开量")
     func panelHeightBelowCapIsAdditive() {
         let expected =
@@ -411,15 +425,19 @@ struct NotchMenuMetricsTests {
     /// 否则测试失败——那是「又加了一行，面板装不下了」的信号。
     ///
     /// - shortcuts@76（590 + 76 = 666 > 640）：只在胶囊高度自定义到最大时触顶。
+    /// - general@76（522 + 138 + 76 = 736 > 730）：通用页加「投屏时显示」开关后，胶囊
+    ///   高度自定义到最大、又展开该页最高的选择器时越过窗口上限 6pt——夹掉的是面板
+    ///   底部内边距（最后一个选项的底边在 724pt，仍在 730 以内，选项完整可见）。
     ///
     /// 值选择器的展开增量不在这张表里：panelHeight 把静态内容夹到本面上限之后，
     /// 再加展开增量，只受窗口上限（maxDashboardHeight = 730）约束，因此任何一个选择器
-    /// 展开后整份选项都看得见，不会被 640 切掉。最高的组合是智能体页（530 + 106 + 76 = 712）
-    /// 与行为页（486 + 138 + 76 = 700），都在 730 以内。
+    /// 展开后整份选项都看得见，不会被 640 切掉。最高的组合是通用页（522 + 138 + 76 = 736，
+    /// 见上）与智能体页（530 + 106 + 76 = 712），其余都在 730 以内。
     ///
     /// 读数面（统计 / 额度）不在这个表里：它们不套 640，改用 maxDashboardHeight。
     private static let clampedPairs: Set<String> = [
         "shortcuts@76",
+        "general@76",
     ]
 
     @Test("额度分组：动作条 + 详情基准一行，账号个数与可选行不进静态表")

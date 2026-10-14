@@ -27,6 +27,9 @@ struct GeneralSettingsPage: View {
     @State private var launchAtLoginError: String?
     /// 面板展开时是否接管键盘焦点（偏好域里的布尔档，进页面与回到应用时重读）。
     @State private var panelTakesFocus = AppSettings.panelTakesFocus
+    /// 投屏 / 录屏 / 截图中是否显示面板（布尔偏好，开关即生效——窗口共享类型由
+    /// 窗口控制器订阅应用，不经过本页的局部状态）。
+    @ObservedObject private var showWhileCasting = CastVisibilityPreferences.showWhileCasting
 
     var body: some View {
         VStack(alignment: .leading, spacing: NotchMenuMetrics.groupSpacing) {
@@ -73,13 +76,24 @@ struct GeneralSettingsPage: View {
                     // 单行开关行：版面表按 `toggleRowHeight` 计高（加副标题会多 6pt，
                     // 而通用页在最大 chrome 那一档已经没有余量，见 `NotchMenuMetrics`），
                     // 因此解释走提示而不是副标题。
-                    // 系统卡的最后一行：不画分隔线，否则发丝线会横穿卡片圆角底边
-                    // （同一页其它卡片的收尾行都是这么标的）。
-                    showsSeparator: false,
                     helpText: l10n.t(
                         "Move keyboard focus to the panel when it opens. Turn this off to keep typing in your editor while the notch is open."
                     ),
                     onToggle: togglePanelFocus
+                )
+                .frame(height: NotchMenuMetrics.toggleRowHeight)
+                SettingsToggleRow(
+                    badge: SettingsBadge(
+                        source: .symbol(name: "airplayvideo", tint: AppPalette.accent)),
+                    title: l10n.t("Show While Casting"),
+                    isOn: showWhileCasting.isOn,
+                    // 系统卡的最后一行：不画分隔线，否则发丝线会横穿卡片圆角底边
+                    // （同一页其它卡片的收尾行都是这么标的）。
+                    showsSeparator: false,
+                    helpText: l10n.t(
+                        "Include the notch panel in screen casts, recordings, and screen shares. When off, the panel is invisible to them — and to your own screenshots."
+                    ),
+                    onToggle: { showWhileCasting.toggle() }
                 )
                 .frame(height: NotchMenuMetrics.toggleRowHeight)
             }

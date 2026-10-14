@@ -8,6 +8,11 @@
 //
 
 import AppKit
+import os
+
+/// 窗口层的日志（投屏可见性的应用路径是设置面板与窗口之间唯一的接缝，留一条可查的痕迹）。
+let castVisibilityLogger = Logger(
+    subsystem: "com.celestial.AgentIsland", category: "Window")
 
 // MARK: - 点击转投
 
@@ -158,10 +163,10 @@ class NotchPanel: NSPanel {
         // Above the menu bar
         level = .mainMenu + 3
 
-        // 投屏 / 录屏 / 截图时都不把面板画进捕获画面：系统按窗口排除（复合截图、逐窗口
-        // 截图、ScreenCaptureKit 三条截取路径都实测生效；代价是该窗口不参与窗口共享类
-        // 系统服务，如系统窗口选择器）
-        sharingType = .none
+        // 投屏 / 录屏 / 截图时是否把面板画进捕获画面：默认不画（系统按窗口排除，
+        // 复合截图 / 逐窗口截图 / ScreenCaptureKit 都实测生效；代价是该窗口不参与
+        // 窗口共享类系统服务）。开关的改动由 `NotchWindowController` 的订阅实时应用。
+        sharingType = Self.preferredSharingType
 
         // Enable tooltips even when app is inactive (needed for panel windows)
         allowsToolTipsWhenApplicationIsInactive = true
@@ -177,6 +182,22 @@ class NotchPanel: NSPanel {
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    // MARK: - 投屏可见性
+
+    /// 当前偏好下窗口该用的共享类型：`.none` = 不画进任何截取画面（默认），
+    /// `.readOnly` = 按普通窗口参与捕获。初始化与开关的实时订阅共用这一处映射
+    /// （映射写错时 `NotchPanelCaptureTests` 会先红）。
+    static var preferredSharingType: NSWindow.SharingType {
+        CastVisibilityPreferences.showWhileCasting.isOn ? .readOnly : .none
+    }
+
+    /// 把当前偏好应用到本窗口（开关变化时由 `NotchWindowController` 的订阅调用）。
+    func applyCastVisibilityPreference() {
+        sharingType = Self.preferredSharingType
+        castVisibilityLogger.debug(
+            "cast visibility applied: sharingType=\(self.sharingType.rawValue)")
+    }
 
     // MARK: - Click-through for areas outside the panel content
 

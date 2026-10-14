@@ -514,6 +514,21 @@ enum SessionDisplayPreferences {
         key: "hideIdleSessions", defaultValue: false)
 }
 
+// MARK: - 投屏可见性
+
+/// 面板在投屏 / 录屏 / 截图里是否可见的布尔偏好：设置行与窗口控制器必须拿同一实例，
+/// 否则开关改了窗口不跟着变。
+///
+/// 默认关闭（不可见）：`NotchPanel` 以 `sharingType = .none` 把窗口从系统的各条截取
+/// 路径里排除（复合截图 / 逐窗口截图 / ScreenCaptureKit 都生效，本机整机实测过）。
+/// 打开后窗口按普通窗口参与捕获。偏好键保持稳定：改名等于丢用户设置。
+@MainActor
+enum CastVisibilityPreferences {
+    /// 投屏 / 录屏 / 截屏时把面板画进去。
+    static let showWhileCasting = BoolPreference(
+        key: "showWhileCasting", defaultValue: false)
+}
+
 // MARK: - 会话可见性
 
 /// 结束会话保留与「隐藏闲置」共用可见性判据：先按保留档过滤结束会话，再隐藏 idle。

@@ -8,6 +8,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import os
 
 class NotchWindowController: NSWindowController {
     let viewModel: NotchViewModel
@@ -155,6 +156,17 @@ class NotchWindowController: NSWindowController {
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.viewModel.updateDeviceNotchRect(Self.closedNotchRect(for: self.screen))
+            }
+            .store(in: &cancellables)
+
+        // 投屏可见性开关：窗口的共享类型跟着偏好实时切换（默认不可见，见 `NotchPanel`）。
+        CastVisibilityPreferences.showWhileCasting.$isOn
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isOn in
+                let panel = self?.window as? NotchPanel
+                castVisibilityLogger.debug(
+                    "cast visibility sink: isOn=\(isOn) panel=\(panel != nil)")
+                panel?.applyCastVisibilityPreference()
             }
             .store(in: &cancellables)
 

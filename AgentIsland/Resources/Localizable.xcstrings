@@ -3137,6 +3137,23 @@
         }
       }
     },
+    "Include the notch panel in screen casts, recordings, and screen shares. When off, the panel is invisible to them — and to your own screenshots." : {
+      "comment" : "投屏可见性开关的悬停提示",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Include the notch panel in screen casts, recordings, and screen shares. When off, the panel is invisible to them — and to your own screenshots."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开后，投屏、录屏与屏幕共享都会带上刘海面板；关闭则不会出现（你自己的截屏也拍不到它）。"
+          }
+        }
+      }
+    },
     "Install & Relaunch" : {
       "localizations" : {
         "en" : {
@@ -7482,6 +7499,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "收起"
+          }
+        }
+      }
+    },
+    "Show While Casting" : {
+      "comment" : "投屏 / 录屏 / 截屏可见性开关（默认关：面板不进任何截获画面）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show While Casting"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "投屏时显示"
           }
         }
       }

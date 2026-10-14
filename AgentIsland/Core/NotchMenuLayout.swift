@@ -428,13 +428,14 @@ nonisolated enum NotchMenuMetrics {
     /// 档位会落到隐藏滚动条的视口之外——用户只看到箭头翻转（这正是它一度改成浮层的起因，
     /// 那版的手感被判为「难用」，已按用户要求改回就地展开，见 `SettingsPickerRow`）。
     ///
-    /// 逐页的「静态内容 + 该页最高单个展开」：通用 480 + 138、行为 486 + 138、通知 298 + 202、
+    /// 逐页的「静态内容 + 该页最高单个展开」：通用 522 + 138、行为 486 + 138、通知 298 + 202、
     /// 智能体 530 + 106、关于 391 + 0、快捷键 590 + 0、标记动态 387 + 0。chrome 可达 36…76。
-    /// 静态内容只有**快捷键页**在 chrome 76 时触顶（590 + 76 = 666 > 640）；加上展开后最高的
-    /// 组合是智能体页（530 + 106 + 76 = 712）与行为页（486 + 138 + 76 = 700），都在窗口上限
-    /// 730 以内——**任何一个选择器展开后整份选项都看得见**。被夹取的组合登记在
-    /// `NotchMenuMetricsTests.clampedPairs`。展开块是**互斥**的（见 `PickerExpansion`），
-    /// 因此按「该页最高的单个展开」核对即可。**读数面不套这个上限**，见 `maxDashboardHeight`。
+    /// 静态内容只有**快捷键页**在 chrome 76 时触顶（590 + 76 = 666 > 640）；展开后最高的组合是
+    /// 通用页（522 + 138 + 76 = 736）与智能体页（530 + 106 + 76 = 712），其余都在窗口上限 730
+    /// 以内。通用页那 6pt 夹掉的是面板底部内边距——最后一个选项的底边在 724pt，仍在 730 以内，
+    /// 选项完整可见；被夹取的组合都登记在 `NotchMenuMetricsTests.clampedPairs`。展开块是
+    /// **互斥**的（见 `PickerExpansion`），因此按「该页最高的单个展开」核对即可。
+    /// **读数面不套这个上限**，见 `maxDashboardHeight`。
     static let maxPanelHeight: CGFloat = 640
 
     /// 读数面（统计 / 额度）的高度上限。它们不是设置导航里的一页（见
@@ -531,8 +532,9 @@ nonisolated enum NotchMenuMetrics {
             return [
                 // 界面：语言 / 屏幕 / 胶囊高度 / 胶囊宽度 / 内容字号 / 面板尺寸
                 Block(rows: [rowHeight, rowHeight, rowHeight, rowHeight, rowHeight, rowHeight]),
-                // 系统：登录时启动（开关行，带副标题）/ 辅助功能 / 接管键盘焦点（单行开关）
-                Block(rows: [twoLineRowHeight, rowHeight, toggleRowHeight]),
+                // 系统：登录时启动（开关行，带副标题）/ 辅助功能 / 接管键盘焦点 /
+                // 投屏时显示（后两个是单行开关，收尾行不画分隔线）
+                Block(rows: [twoLineRowHeight, rowHeight, toggleRowHeight, toggleRowHeight]),
             ]
         case .behavior:
             return [

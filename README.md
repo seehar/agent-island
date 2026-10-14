@@ -159,7 +159,7 @@ The rail on the left carries the **four configuration pages** (General, Behavior
 
 |Page|What's in it|
 |---|---|
-|**General**|Language, screen, notch height/width, content text size, panel size · launch at login, accessibility status, and keyboard-focus behavior on open.|
+|**General**|Language, screen, notch height/width, content text size, panel size · launch at login, accessibility status, keyboard-focus behavior on open, and whether the panel shows up in screen casts, recordings, and screenshots.|
 |**Behavior**|Hover expand, idle capsule, closed-notch layout (badge only / notch only / full capsule) · ended-session retention, row density, click action (Focus Terminal falls back to chat for non-tmux sessions), both status-check and session-scan intervals · subagent details in chat, hide idle sessions.|
 |**Notifications**|Notification sound (clicking a sound plays it), volume, quiet hours, sound scope (ready only / ready and approvals), completion badge. The list also carries your own sounds from `~/Library/Sounds`. Quiet hours silences the sound only — the notch still shows everything.|
 |**Agents**|Enable/disable and integration state for each agent; per-agent config root; tool-call guard scope and offline behavior. The first row is the entry to **Animations**. The agent list scrolls within its card.|
@@ -200,7 +200,7 @@ Every state change goes through a single entry point (`SessionStore.process(_:)`
 - Two network calls exist, both read-only: the Sparkle update check against this repository's appcast on GitHub Pages, and — after you fill in a server in the panel's **Quota** page (the card button in the panel header) — while that page is open, per account, a few GETs to *your own* New API instance (`/api/usage/token/` with the `sk-` key; `/api/user/self`, `/api/token/` and `/api/user/self/groups` with the access token — a slot without its credential is never called), plus one credential-free GET of `/api/status` per distinct server for the instance's quota unit and version. The token list and group ratio are optional extras: an instance too old to serve them simply doesn't show that part. Nothing else is sent anywhere, and nothing is polled in the background.
 - The app reads the session records your agents already write; it never modifies them.
 - Usage stats are aggregate counters kept in the app's own store; session records are only read, never rewritten.
-- The notch panel is excluded from screen capture: it doesn't appear in screenshots, screen recordings, or screen sharing and mirroring (marking the window non-shareable also keeps it out of window-sharing system services).
+- The notch panel is excluded from screen capture by default: it doesn't appear in screenshots, screen recordings, or screen sharing and mirroring (marking the window non-shareable also keeps it out of window-sharing system services). **Settings → General → Show While Casting** turns the exclusion off.
 
 ## FAQ
 
