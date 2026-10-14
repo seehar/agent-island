@@ -24,14 +24,25 @@ import CoreGraphics
 nonisolated enum UsageStatsMetrics {
     // MARK: - 版面
 
-    /// 统计页的内容高度（含脚注）。与面板的固定开销（36…76）相加后仍在读数面上限
-    /// `NotchMenuMetrics.maxDashboardHeight`（730）之内：76 +（58 + 574）= 708，余 22pt。
-    /// 560 → 577 是因为脚注新增了「不计入的 Agent」那一行
-    /// （`UsageStatsView.excludedAgentsNote`，文案压成一行、最窄档也排得下）。
-    /// 一行 = 10pt 字体 + `footnoteLineSpacing`(5) + 行高余量（实测 17）。
-    /// 577 → 574：趋势卡里新增了每日热力图（+`heatmapBlockHeight` = 153），预算从两处榜单的
-    /// 长尾让出来——工具榜 12 → 8 行（−104）、模型榜 8 → 6 行（−52），合计 −156。
-    static let sectionHeight: CGFloat = 574
+    /// 统计页的内容高度（含脚注），由四个数推出来——**不是**随手取的整数：
+    ///
+    ///   · `sectionHeightBeforeHeatmap`（577）= 热力图之前那一版的实测内容高；
+    ///   · + `heatmapSectionHeight`：热力图是后加的一个分组（组间距 + 标题行 + 卡片）；
+    ///   · − 两处榜单让出的长尾：工具榜 12 → 8（−104）、模型榜 8 → 6（−52）。
+    ///
+    /// 与面板的固定开销（36…76）相加后仍在读数面上限 `NotchMenuMetrics.maxDashboardHeight`
+    /// （730）之内：76 +（58 + ~586）= ~720，余 ~10pt。余量由
+    /// `UsageStatsLayoutTests.heatmapSectionFeedsTheHeightBudget` 钉住（改任一项都要重算）。
+    static var sectionHeight: CGFloat {
+        sectionHeightBeforeHeatmap + heatmapSectionHeight
+            - CGFloat(12 - toolListMax) * toolRowHeight
+            - CGFloat(8 - modelListMax) * modelRowHeight
+    }
+
+    /// 热力图分组加入之前那一版的内容高（含脚注）。560 → 577 是因为脚注新增了
+    /// 「不计入的 Agent」那一行（`UsageStatsView.excludedAgentsNote`，文案压成一行、
+    /// 最窄档也排得下）：一行 = 10pt 字体 + `footnoteLineSpacing`(5) + 行高余量（实测 17）。
+    private static let sectionHeightBeforeHeatmap: CGFloat = 577
     /// 页面内容宽度（标准档）：面板宽预算减去卡片侧内边距与容器内边距
     /// （`NotchMenuMetrics.contentAreaWidth` = 448）。统计页是读数面、不显示侧栏，
     /// 拿到的就是这一份整宽；工具榜两列、芯片网格、月历与图例行都要在这个宽度内排下。
@@ -164,12 +175,11 @@ nonisolated enum UsageStatsMetrics {
     static let chartLegendHeight: CGFloat = 20
     static let chartLegendDotSize: CGFloat = 7
     static let chartLegendGap: CGFloat = 8
-    /// 趋势卡的总高（卡片内边距 + 图例 + 读数行 + 图 + 横轴行 + 热力图块）：首屏要能整块看到，
+    /// 趋势卡的总高（卡片内边距 + 图例 + 读数行 + 图 + 横轴行）：首屏要能整块看到，
     /// 不需要滚动就能读出形状（`UsageStatsLayoutTests` 钉住这条）。
     static var trendCardHeight: CGFloat {
         2 * 10 + chartLegendHeight + 6 + chartReadoutHeight + 6 + chartPlotHeight + 4
             + chartXAxisHeight
-            + heatmapBlockHeight
     }
 
     /// y 轴刻度栏宽度：按最长的那条刻度文案量出来的宽度加上留白，夹在上下限之间。
@@ -181,34 +191,153 @@ nonisolated enum UsageStatsMetrics {
             chartYAxisMaximumWidth)
     }
 
-    // MARK: - 热力图（趋势卡里的每日热力图）
+    // MARK: - 热力图（近 53 周 · 每日用量）
 
-    /// 一格的**高**。格宽由可用宽度等分——标准档下约 14.4pt（与高几乎相等），紧凑档下
-    /// 随面板收窄（约 10.9pt）；行的走向不变、整块高度也不随面板宽度变，网格高度因此能
-    /// 直接进面板高度的解析式（见 `sectionHeight` 的账）。
-    static let heatmapCellHeight: CGFloat = 14
-    /// 格间距（行、列同一个）。
+    /// 格子间距（行、列同一个）与圆角。格子小（标准档约 5.5pt），圆角因此比
+    /// `shareBarRadius` 还小一档。
     static let heatmapCellSpacing: CGFloat = 2
-    /// 格子的圆角。
-    static let heatmapCellRadius: CGFloat = 3
-    /// 网格高度 = 7 行格子 + 6 个行间距（`UsageStatsCalendar.daysPerWeek` 与列里放几天同源）。
-    static var heatmapGridHeight: CGFloat {
-        CGFloat(UsageStatsCalendar.daysPerWeek) * heatmapCellHeight
-            + CGFloat(UsageStatsCalendar.daysPerWeek - 1) * heatmapCellSpacing
-    }
-    /// 图例里色阶小方块的边长与圆角（比格子小一档）。
+    static let heatmapCellRadius: CGFloat = 1.5
+    /// 左侧星期标签栏的宽度：只画隔行的 周一 / 周三 / 周五 / 周日。取**固定值**而不是按
+    /// 文案自适应——面板高度的解析式要跟语言无关；「两种语言的星期缩写都排得下」由
+    /// `UsageStatsLayoutTests` 的宽度用例守住。
+    static let heatmapWeekdayGutterWidth: CGFloat = 28
+    /// 星期标签与格网之间的间距（算在栏宽内）。
+    static let heatmapWeekdayLabelGap: CGFloat = 6
+
+    /// 卡片内上下内边距。
+    static let heatmapCardVerticalPadding: CGFloat = 10
+    /// 汇总行（日期范围 + 两个读数）与它下面的间距。
+    static let heatmapSummaryHeight: CGFloat = 13
+    static let heatmapSummaryGap: CGFloat = 6
+    /// 月份标签行与它下面的间距。
+    static let heatmapMonthLabelHeight: CGFloat = 11
+    static let heatmapMonthLabelGap: CGFloat = 2
+    /// 图例行（色阶 + 少 / 多）与它上面的间距。
+    static let heatmapLegendGap: CGFloat = 4
+    static let heatmapLegendHeight: CGFloat = 11
     static let heatmapLegendSwatchSize: CGFloat = 8
     static let heatmapLegendSwatchRadius: CGFloat = 2
-    /// 网格与读数行之间的间距、读数行的高度。
-    static let heatmapCaptionSpacing: CGFloat = 8
-    static let heatmapCaptionHeight: CGFloat = 14
-    /// 热力图块自己的上下内边距。
-    static let heatmapVerticalPadding: CGFloat = 10
-    /// 热力图块在趋势卡里**新增**的高度：发丝分隔线 + 上下内边距 + 网格 + 读数行。
-    /// `sectionHeight` 的增量就是它——两处要一起改（账记在 `sectionHeight` 上）。
-    static var heatmapBlockHeight: CGFloat {
-        1 + 2 * heatmapVerticalPadding + heatmapGridHeight + heatmapCaptionSpacing
-            + heatmapCaptionHeight
+    /// 右上角分档控件（Tokens / 工具调用）的高度与分段间距：与分组标题行同高（14），
+    /// 标题、说明行与控件挤在同一行里（说明行不进卡片——那是整页只剩几个点余量时
+    /// 最先该省的一行）。
+    static let heatmapMetricSwitcherHeight: CGFloat = 14
+    static let heatmapMetricSwitcherSpacing: CGFloat = 2
+    static let heatmapMetricSwitcherPadding: CGFloat = 1
+    static let heatmapMetricSwitcherRadius: CGFloat = 6
+    /// 分组标题行里标题与说明行之间的间距。
+    static let heatmapHeaderTextGap: CGFloat = 8
+    /// 汇总行两段文字各自的缩字下限（最窄档 + 最长文案仍要一行放得下）。
+    static let heatmapSummaryMinimumScale: CGFloat = 0.85
+
+    /// 悬停浮卡：宽度、内边距、标题与两个读数行的高度。它浮在**卡片之内**（跟随光标、
+    /// 被夹在卡片范围内），因此不占版面高度。
+    static let heatmapHoverCardWidth: CGFloat = 152
+    static let heatmapHoverCardPadding: CGFloat = 8
+    static let heatmapHoverTitleHeight: CGFloat = 13
+    static let heatmapHoverRowHeight: CGFloat = 14
+    static let heatmapHoverCardGap: CGFloat = 3
+    static var heatmapHoverCardHeight: CGFloat {
+        2 * heatmapHoverCardPadding + heatmapHoverTitleHeight + 2 * heatmapHoverCardGap
+            + 2 * heatmapHoverRowHeight
+    }
+
+    /// 分组标题行的高度：标题（`sectionHeaderHeight`）与右上角分档控件取高者。
+    static var heatmapHeaderHeight: CGFloat {
+        max(NotchMenuMetrics.sectionHeaderHeight, heatmapMetricSwitcherHeight)
+    }
+
+    /// 格网的可用宽度（给定卡片内宽）：卡片内宽 − 星期标签栏。
+    static func heatmapGridWidth(forCardWidth cardWidth: CGFloat) -> CGFloat {
+        max(0, cardWidth - heatmapWeekdayGutterWidth)
+    }
+
+    /// 格网的可用宽度（给定面板宽）：页面内容宽 − 卡片左右内边距 − 星期标签栏。
+    /// 标准档的那一份进面板高度的解析式（见 `heatmapGridHeight`）。
+    static func heatmapGridWidth(inPanelWidth panelWidth: CGFloat) -> CGFloat {
+        heatmapGridWidth(
+            forCardWidth: NotchMenuMetrics.contentAreaWidth(inPanelWidth: panelWidth)
+                - 2 * NotchMenuMetrics.rowHorizontalPadding)
+    }
+
+    /// 一格的边长（正方形）：53 列等分格网宽——格宽吃满可用宽，格高跟着它走。
+    static func heatmapCellSide(forGridWidth gridWidth: CGFloat) -> CGFloat {
+        let columns = CGFloat(UsageStatsCalendar.heatmapWeekCount)
+        return max(0, (gridWidth - (columns - 1) * heatmapCellSpacing) / columns)
+    }
+
+    /// 格网高度 = 7 行格子 + 6 个行间距（格高 = 格宽，见 `heatmapCellSide(forGridWidth:)`）。
+    static func heatmapGridHeight(forGridWidth gridWidth: CGFloat) -> CGFloat {
+        let rows = CGFloat(UsageStatsCalendar.daysPerWeek)
+        return rows * heatmapCellSide(forGridWidth: gridWidth)
+            + (rows - 1) * heatmapCellSpacing
+    }
+
+    /// 标准档下的格网高度：进面板高度解析式的那一份（窄面板下格网更矮，页面整体只会更短）。
+    static var heatmapGridHeight: CGFloat {
+        heatmapGridHeight(forGridWidth: heatmapGridWidth(inPanelWidth: NotchMenuMetrics.panelWidthMax))
+    }
+
+    /// 悬停命中：把一个点（格网坐标系）换成「第几列第几行」，落在格网外给 `nil`。
+    /// 与 `heatmapCellSide(forGridWidth:)` 同一套几何——反查与绘制不能各算一套。
+    static func heatmapCell(at point: CGPoint, gridWidth: CGFloat) -> (column: Int, row: Int)? {
+        let pitch = heatmapCellSide(forGridWidth: gridWidth) + heatmapCellSpacing
+        guard pitch > 0, point.x >= 0, point.y >= 0 else { return nil }
+        // 先卡「点在格网矩形里」：53 列正好铺满格网宽，右边多出来的一条就是卡片内边距，
+        // 落在那里不该算成最后一列。
+        guard
+          point.x < gridWidth, point.y < heatmapGridHeight(forGridWidth: gridWidth)
+        else { return nil }
+        let column = Int(point.x / pitch)
+        let row = Int(point.y / pitch)
+        guard
+          column >= 0, column < UsageStatsCalendar.heatmapWeekCount,
+          row >= 0, row < UsageStatsCalendar.daysPerWeek
+        else { return nil }
+        return (column, row)
+    }
+
+    /// 悬停浮卡的落点（相对格网左上角）：优先放在格子的右侧，右边放不下翻到左侧；
+    /// 纵向跟着格子、再夹进**卡片内容**范围（浮卡比格网高，光夹格网会顶出卡片）。
+    /// 与 `heatmapCell(at:gridWidth:)` 同一套几何——反查、绘制与浮卡定位不能各算一套。
+    static func heatmapHoverCardPosition(column: Int, row: Int, gridWidth: CGFloat) -> CGSize {
+        let side = heatmapCellSide(forGridWidth: gridWidth)
+        let pitch = side + heatmapCellSpacing
+        let cellX = CGFloat(column) * pitch
+        let cellY = CGFloat(row) * pitch
+
+        var x = cellX + side + 6
+        if x + heatmapHoverCardWidth > gridWidth { x = cellX - heatmapHoverCardWidth - 6 }
+        x = min(max(x, 0), max(0, gridWidth - heatmapHoverCardWidth))
+
+        let gridHeight = heatmapGridHeight(forGridWidth: gridWidth)
+        let lowest = gridHeight + heatmapSpaceBelowGrid - heatmapHoverCardHeight
+        let ceiling = -heatmapSpaceAboveGrid
+        var y = cellY - (heatmapHoverCardHeight - side) / 2
+        y = min(max(y, ceiling), max(lowest, ceiling))
+        return CGSize(width: x, height: y)
+    }
+
+    /// 热力图卡片的内容高：上下内边距 + 汇总行 + 月份标签 + 格网 + 图例。
+    /// （说明行在**分组标题行**里，不占卡片的高度。）
+    static var heatmapCardHeight: CGFloat {
+        2 * heatmapCardVerticalPadding + heatmapSummaryHeight + heatmapSummaryGap
+            + heatmapMonthLabelHeight + heatmapMonthLabelGap + heatmapGridHeight
+            + heatmapLegendGap + heatmapLegendHeight
+    }
+
+    /// 格网之上 / 之下在卡片内容里各有多少空间（悬停浮卡纵向夹取用：浮卡比格网高，
+    /// 光夹格网会顶出卡片）。
+    static var heatmapSpaceAboveGrid: CGFloat {
+        heatmapCardVerticalPadding + heatmapSummaryHeight + heatmapSummaryGap
+            + heatmapMonthLabelHeight + heatmapMonthLabelGap
+    }
+    static var heatmapSpaceBelowGrid: CGFloat {
+        heatmapCardVerticalPadding + heatmapLegendGap + heatmapLegendHeight
+    }
+
+    /// 热力图分组的净高：组间距 + 标题行（含分档控件）+ 卡片。
+    static var heatmapSectionHeight: CGFloat {
+        groupSpacing + heatmapHeaderHeight + NotchMenuMetrics.sectionHeaderGap + heatmapCardHeight
     }
 
     // MARK: - 工具榜

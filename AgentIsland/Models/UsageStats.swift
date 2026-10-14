@@ -378,18 +378,38 @@ nonisolated struct TrendPoint: Identifiable, Equatable, Sendable {
   }
 }
 
-/// 热力图上的一天：某个本地自然日的总量（与趋势桶同口径：四路 token 之和，含缓存）。
+/// 热力图上的一天：某个本地自然日的两个读数（token 总量与工具调用次数）。
 ///
 /// 键就是 `UsageStatsKey.bucket(for:granularity: .day)` 给的本地自然日键（`yyyy-MM-dd`），
-/// 视图拿它与 `UsageStatsCalendar.heatmapWeeks` 的每一格对齐。查询只返回**有用量的日子**
+/// 视图拿它与 `UsageStatsCalendar.heatmapWeeks` 的每一格对齐。查询只返回**有记录的日子**
 /// （没有记录的日子由视图按 0 画），因此数组是稀疏、升序的。
 nonisolated struct DayUsage: Identifiable, Equatable, Sendable {
   /// 本地自然日键（`2026-09-20`）。
   let dayKey: String
-  /// 当日总量。
+  /// 当日总量（输入 + 输出 + 缓存读 + 缓存写，与总览卡同口径）。
   let total: Int
+  /// 当日的工具调用次数（与工具榜同口径）。
+  let calls: Int
 
   var id: String { dayKey }
+
+  /// 按当前显示的量取值（热力图的深浅与汇总行都读它）。
+  func value(for metric: StatsHeatmapMetric) -> Int {
+    switch metric {
+    case .tokens: return total
+    case .calls: return calls
+    }
+  }
+}
+
+/// 热力图按哪个量上色（右上角的两档切换）。
+nonisolated enum StatsHeatmapMetric: String, CaseIterable, Identifiable, Sendable {
+  /// 当日 token 总量（与总览卡同一份口径）。
+  case tokens
+  /// 当日工具调用次数（与工具榜同一份口径）。
+  case calls
+
+  var id: String { rawValue }
 }
 
 /// 一次查询的完整结果，视图只消费这个值。

@@ -494,17 +494,19 @@ nonisolated final class UsageStatsStore {
     return snapshot
   }
 
-  /// 热力图用：`since`（含）起每个本地自然日的总量，升序、只含有用量的日子。
+  /// 热力图用：`since`（含）起每个本地自然日的两个读数（token 总量 + 工具调用次数），
+  /// 升序、只含有记录的日子。
   ///
-  /// 口径与总览卡 / 曲线图一致（四路 token 之和，含缓存）：热力图的深浅与它们说的是
-  /// 同一个量。`hour_key` 是零填充的 `yyyy-MM-dd'T'HH` 键，传给 `hour_key >= ?` 的
-  /// 日键（10 字符）因此天然把当天零点及之后的所有小时都圈进来——字符串比较即时间比较。
+  /// 口径与总览卡 / 工具榜一致：热力图的深浅、汇总行与它们说的是同一份数。
+  /// `hour_key` 是零填充的 `yyyy-MM-dd'T'HH` 键，传给 `hour_key >= ?` 的日键（10 字符）
+  /// 因此天然把当天零点及之后的所有小时都圈进来——字符串比较即时间比较。
   private func dailyTotals(since: Date, calendar: Calendar) throws -> [DayUsage] {
     let startKey = UsageStatsKey.bucket(for: since, granularity: .day, calendar: calendar)
     return try query(
       """
       SELECT substr(hour_key, 1, 10) AS day,
-             COALESCE(SUM(input + output + cache_read + cache_write), 0)
+             COALESCE(SUM(input + output + cache_read + cache_write), 0),
+             COALESCE(SUM(calls), 0)
       FROM usage_bucket
       WHERE hour_key >= ?
       GROUP BY day ORDER BY day;
@@ -512,7 +514,10 @@ nonisolated final class UsageStatsStore {
       values: [.text(startKey)]
     ) { statement in
       guard let key = self.text(statement, 0) else { return nil }
-      return DayUsage(dayKey: key, total: Int(sqlite3_column_int64(statement, 1)))
+      return DayUsage(
+        dayKey: key,
+        total: Int(sqlite3_column_int64(statement, 1)),
+        calls: Int(sqlite3_column_int64(statement, 2)))
     }.compactMap { $0 }
   }
 

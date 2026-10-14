@@ -237,9 +237,9 @@ struct UsageStatsIndexerTests {
   func dailyTotalsFollowLocalDays() throws {
     let root = try tempRoot()
     let store = try makeStore(in: root)
-    let longAgo = calendar.date(byAdding: .day, value: -200, to: todayBase) ?? todayBase
+    let longAgo = calendar.date(byAdding: .day, value: -400, to: todayBase) ?? todayBase
 
-    // 今天与 200 天前各一条记录（各占一个新会话文件）：200 天在 26 周（182 天）之外。
+    // 今天与 400 天前各一条记录（各占一个新会话文件）：400 天在 53 周（371 天）之外。
     try write(
       piLine(date: todayBase, input: 100, output: 10, cacheRead: 5, cacheWrite: 1, tools: ["bash"])
         + "\n",
@@ -253,10 +253,11 @@ struct UsageStatsIndexerTests {
     let snapshot = try store.snapshot(
       window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
 
-    // 只含有用量的自然日：今天那条（100+10+5+1）；窗口起点由 26 周那一块决定，
-    // 200 天前的那条不会被它圈进来。
+    // 只含有用量的自然日：今天那条（100+10+5+1）；窗口起点由 53 周那一块决定，
+    // 400 天前的那条不会被它圈进来。
     let todayKey = UsageStatsKey.bucket(for: todayBase, granularity: .day, calendar: calendar)
-    #expect(snapshot.daily == [DayUsage(dayKey: todayKey, total: 116)])
+    // 当天一条记录：token 116、1 次工具调用（拼出来的 `bash`）。
+    #expect(snapshot.daily == [DayUsage(dayKey: todayKey, total: 116, calls: 1)])
     // 但「全部」的总量照旧含它——热力图的窗口窄，别把它当成用量丢了。
     #expect(snapshot.totals.input == 1100)
     #expect(snapshot.totals.total == 1100 + 116)

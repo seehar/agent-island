@@ -87,12 +87,12 @@ nonisolated enum UsageStatsCalendar {
 
     // MARK: - 热力图的周网格
 
-    /// 热力图的周数：末列是包含「今天」的那一周，整块显示近 26 周（约半年）。
+    /// 热力图的周数：末列是包含「今天」的那一周，整块显示 53 列 ≈ 近一年。
     ///
-    /// 它是**固定窗口**、不跟随统计页的范围选择器：GitHub 的贡献图同理，这块要的是
-    /// 「近半年的每日节律」——按天粒度去重画选定的窗口没有意义（「今天」只有一格、
-    /// 「近一天」两格）。面板越窄格子越窄，但列数固定，近半年才说得上是「节律」。
-    static let heatmapWeekCount = 26
+    /// 它是**固定窗口**、不跟随统计页的范围选择器：GitHub 的贡献图也是「一年一格一天」
+    /// ——按天粒度去重画选定的窗口没有意义（「今天」只有一格、「近一天」两格）。
+    /// 53 列是「一年」在周网格里的写法（一年 52 周 + 1）。面板越窄格子越窄，列数不变。
+    static let heatmapWeekCount = 53
 
     /// 一周的天数：热力图的列高（月历的格子也是它）。
     static let daysPerWeek = 7
@@ -113,6 +113,24 @@ nonisolated enum UsageStatsCalendar {
             byAdding: .day, value: -daysPerWeek * (heatmapWeekCount - 1), to: lastWeek) ?? lastWeek
     }
 
+    /// 月份标签落在哪几列：某一列的第一天与前一列的第一天不同月，就在该列起一个标签；
+    /// 末尾不足 `trailingSlack` 列的标签不给——标签比一列宽（一列只有几个点），贴着
+    /// 卡片右缘会顶出去。返回升序的（列号, 该列第一天）。
+    static func heatmapMonthStarts(
+        weeks: [[Date]], calendar: Calendar = .current, trailingSlack: Int = 3
+    ) -> [(column: Int, date: Date)] {
+        var starts: [(column: Int, date: Date)] = []
+        var lastMonth: Int?
+        for (column, week) in weeks.enumerated() {
+            guard let first = week.first else { continue }
+            let month = calendar.component(.month, from: first)
+            guard month != lastMonth else { continue }
+            lastMonth = month
+            if weeks.count - column >= trailingSlack { starts.append((column, first)) }
+        }
+        return starts
+    }
+
     /// 热力图的格子：`heatmapWeekCount` 列 × `daysPerWeek` 行。
     ///
     /// 列升序（最早的一周 → 包含 `now` 的那一周）；每列的行从 `calendar.firstWeekday`
@@ -121,7 +139,13 @@ nonisolated enum UsageStatsCalendar {
         let first = heatmapStart(containing: now, calendar: calendar)
         return (0..<heatmapWeekCount).map { column in
             (0..<daysPerWeek).map { row in
-                calendar.date(byAdding: .day, value: column * daysPerWeek + row, to: first) ?? first
+                let date =
+                    calendar.date(byAdding: .day, value: column * daysPerWeek + row, to: first)
+                    ?? first
+                // 归一到当天零点：夏令时开始的那一天当地没有 00:00（时钟从 23:59 跳到 01:00），
+                // 按「加 n 天」推出来的那一刻会停在 01:00——格子代表的仍然是那一天，
+                // 但 `startOfDay` 的统一口径要被守住（分桶、比较、用例都按它来）。
+                return calendar.startOfDay(for: date)
             }
         }
     }

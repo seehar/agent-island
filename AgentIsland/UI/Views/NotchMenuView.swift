@@ -153,7 +153,10 @@ struct NotchMenuView: View {
         case .animations:
             AgentAnimationsSettingsPage()
         case .statistics:
-            UsageStatisticsSettingsPage(viewModel: statsViewModel)
+            UsageStatisticsSettingsPage(
+                viewModel: statsViewModel,
+                contentWidth: NotchMenuMetrics.contentAreaWidth(
+                    inPanelWidth: viewModel.openedSize.width))
         case .quota:
             QuotaSettingsPage(viewModel: balanceViewModel)
         case .about:

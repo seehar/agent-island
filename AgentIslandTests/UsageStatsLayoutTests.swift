@@ -134,75 +134,167 @@ struct UsageStatsLayoutTests {
     #expect(
       UsageStatsMetrics.trendCardHeight
         >= UsageStatsMetrics.chartPlotHeight + UsageStatsMetrics.chartXAxisHeight)
-    // 热力图也在同一张卡里，且它的块高占了卡片高的一段（不是白算的常量）。
-    #expect(
-      UsageStatsMetrics.trendCardHeight
-        >= UsageStatsMetrics.chartPlotHeight + UsageStatsMetrics.heatmapBlockHeight)
   }
 
-  // MARK: - 热力图
+  // MARK: - 热力图（近 53 周）
 
-  @Test("热力图真实排版高度 == 解析式（网格 + 读数行），且网格高只由行数与间距决定")
+  @Test("热力图：真实排版高度 == 解析式；53 列等分格网宽、格是正方形")
   @MainActor
-  func heatmapRendersAtItsAnalyticHeight() {
-    // 面板高度的解析式（`sectionHeight`）加的就是这两个常量：渲染对不上，面板高度就与
-    // 真实版面漂移。宽度不参与高度——格子只在高与间距上固定，宽由可用宽度等分。
-    let width = UsageStatsMetrics.contentWidth - 2 * NotchMenuMetrics.rowHorizontalPadding
-    let view = UsageHeatmap(days: [], now: Date(), calendar: .current).frame(width: width)
-    let measured = NSHostingView(rootView: view).fittingSize.height
+  func heatmapRendersAtItsAnalyticHeight() throws {
+    // 面板高度的解析式用的是**标准档**那一份（`heatmapGridHeight`）。按标准档的卡片内宽
+    // 渲染：真实排版必须与解析式逐值相符，否则面板高度与真实版面就开始漂移。
+    // 用 ImageRenderer 而不是 `NSHostingView.fittingSize`：后者量的是**理想尺寸**，
+    // 而这里要的是「在标准档宽度下真实排出来多高」——ImageRenderer 按给定 frame 出图。
+    // 传的是**页面内容宽**（卡片自己再扣左右内边距），与页面里那一份同源。
+    let width = UsageStatsMetrics.contentWidth
+    let raster = try? renderedPixels(
+      of: heatmapCard(days: [], metric: .tokens, now: Date(), calendar: .current, width: width))
+    let measured = Double(raster?.height ?? 0) / 2
+    #expect(
+      abs(measured - Double(UsageStatsMetrics.heatmapCardHeight)) <= 1,
+      "热力图实际排版 \(measured) ≠ 解析式 \(UsageStatsMetrics.heatmapCardHeight)")
 
-    let expected =
-      UsageStatsMetrics.heatmapGridHeight + UsageStatsMetrics.heatmapCaptionSpacing
-      + UsageStatsMetrics.heatmapCaptionHeight
-    #expect(measured == expected, "热力图实际排版 \(measured) ≠ 解析式 \(expected)")
-
+    // 格网几何：一列 53 格（一年 52 周 + 1）、一行 7 格，正方形 + 统一间距。
+    let columns = CGFloat(UsageStatsCalendar.heatmapWeekCount)
     let rows = CGFloat(UsageStatsCalendar.daysPerWeek)
+    let gridWidth = UsageStatsMetrics.heatmapGridWidth(inPanelWidth: NotchMenuMetrics.panelWidthMax)
+    let side = UsageStatsMetrics.heatmapCellSide(forGridWidth: gridWidth)
+    #expect(side > 0)
     #expect(
-      UsageStatsMetrics.heatmapGridHeight
-        == rows * UsageStatsMetrics.heatmapCellHeight
-        + (rows - 1) * UsageStatsMetrics.heatmapCellSpacing)
-    // 块高 = 发丝分隔线 + 上下内边距 + 网格 + 读数行：`sectionHeight` 的增量就是它。
+      abs(columns * side + (columns - 1) * UsageStatsMetrics.heatmapCellSpacing - gridWidth) < 0.01,
+      "53 列 + 间距没有正好铺满格网宽")
     #expect(
-      UsageStatsMetrics.heatmapBlockHeight
-        == 1 + 2 * UsageStatsMetrics.heatmapVerticalPadding + UsageStatsMetrics.heatmapGridHeight
-        + UsageStatsMetrics.heatmapCaptionSpacing + UsageStatsMetrics.heatmapCaptionHeight)
+      abs(
+        UsageStatsMetrics.heatmapGridHeight(forGridWidth: gridWidth)
+          - (rows * side + (rows - 1) * UsageStatsMetrics.heatmapCellSpacing)) < 0.01,
+      "格网高度 ≠ 7 行正方形 + 间距")
+    // 标准档下格子是「几个点宽」的方块（448pt 的面板里塞一年就是这个量级），
+    // 但也不能小到看不见：低于 4pt 就该重新考虑列数了。
+    #expect(side >= 4, "标准档格子只剩 \(side)pt")
+
+    // 悬停反查与绘制同一套几何：格网内的点能换成列 / 行，出界给 nil。
+    let corner = UsageStatsMetrics.heatmapCell(at: .zero, gridWidth: gridWidth)
+    #expect(corner?.column == 0 && corner?.row == 0)
+    let last = UsageStatsMetrics.heatmapCell(
+      at: CGPoint(x: gridWidth - 0.5, y: 0), gridWidth: gridWidth)
+    #expect(last?.column == UsageStatsCalendar.heatmapWeekCount - 1)
     #expect(
-      UsageStatsMetrics.sectionHeight
-        == 577 + UsageStatsMetrics.heatmapBlockHeight
-        - CGFloat(12 - UsageStatsMetrics.toolListMax) * UsageStatsMetrics.toolRowHeight
-        - CGFloat(8 - UsageStatsMetrics.modelListMax) * UsageStatsMetrics.modelRowHeight,
-      "统计页的高度账变了：热力图块 + 两处榜单的长尾（工具榜 12 → 8、模型榜 8 → 6）")
+      UsageStatsMetrics.heatmapCell(at: CGPoint(x: gridWidth + 1, y: 0), gridWidth: gridWidth)
+        == nil)
+    #expect(UsageStatsMetrics.heatmapCell(at: CGPoint(x: -1, y: 0), gridWidth: gridWidth) == nil)
+    #expect(
+      UsageStatsMetrics.heatmapCell(at: CGPoint(x: 0, y: gridWidth), gridWidth: gridWidth) == nil)
   }
 
-  @Test("热力图读数行（口径 + 图例）在两种面板宽度、两种语言下都排得下")
-  func heatmapCaptionFitsWidths() {
+  @Test("热力图的说明行 / 汇总行 / 图例 / 星期标签栏在两种面板宽度、两种语言下都排得下")
+  func heatmapTextRowsFitWidths() {
     let panels: [(name: String, width: CGFloat)] = [
       ("standard", NotchMenuMetrics.panelWidthMax),
       ("compact", NotchMenuMetrics.panelWidthMax * PanelSize.compact.scale),
     ]
+    let scale = UsageStatsMetrics.heatmapSummaryMinimumScale
     for panel in panels {
-      // 读数行的可用宽：面板内容宽再减掉卡片自己的左右内边距（热力图在趋势卡里）。
+      // 卡片内宽：说明行、汇总行与格网吃的都是这一份宽。
       let available =
         NotchMenuMetrics.contentAreaWidth(inPanelWidth: panel.width)
         - 2 * NotchMenuMetrics.rowHorizontalPadding
       for code in ["en", "zh-Hans"] {
         let bundle = LocalizationManager.bundle(for: code)
-        let caption = String(
-          format: bundle.localizedString(
-            forKey: "Tokens per day · last %lld weeks", value: nil, table: nil),
+        func text(_ key: String) -> String {
+          bundle.localizedString(forKey: key, value: nil, table: nil)
+        }
+
+        // 分组标题行 = 标题 + 8 + 说明行 + 8 + 分档控件（标题行吃的是页面内容宽，
+        // 不是卡片内宽）。控件按「两格都跟最宽那档一样宽」conservative 估。
+        let headerAvailable =
+          NotchMenuMetrics.contentAreaWidth(inPanelWidth: panel.width)
+          - 2 * NotchMenuMetrics.rowHorizontalPadding
+        let subtitle = String(
+          format: text("Last %lld weeks · one square per day"),
           UsageStatsCalendar.heatmapWeekCount)
-        let less = bundle.localizedString(forKey: "Less", value: nil, table: nil)
-        let more = bundle.localizedString(forKey: "More", value: nil, table: nil)
-        // 读数行 = 口径文案 + 8pt 弹性下限 + 8pt 间距 + 「少」+ 5 个色阶格 + 「多」。
-        // 文案与「少 / 多」用 medium 量（实际是 regular）：判据因此是保守的。
-        let needed =
-          labelWidth(caption, size: 10) + 8
-          + labelWidth(less, size: 9) + 5 * UsageStatsMetrics.heatmapLegendSwatchSize + 6 * 4
-          + labelWidth(more, size: 9)
+        let switcher =
+          labelWidth(text("Tokens"), size: 9) + labelWidth(text("Tool calls"), size: 9)
+          + 4 * 7 + UsageStatsMetrics.heatmapMetricSwitcherSpacing
+          + 2 * UsageStatsMetrics.heatmapMetricSwitcherPadding
+        let headerNeeded =
+          labelWidth(text("Usage heatmap"), size: 11)
+          + 2 * UsageStatsMetrics.heatmapHeaderTextGap
+          + labelWidth(subtitle, size: 10) * scale
+          + switcher
         #expect(
-          needed <= available,
-          "\(panel.name) 档下 \(code) 的读数行要 \(needed)pt，可用 \(available)pt")
+          headerNeeded <= headerAvailable,
+          "\(panel.name) 档下 \(code) 的标题行要 \(headerNeeded)pt，可用 \(headerAvailable)pt")
+
+        // 汇总行 = 日期范围 + 8pt + 合计；日期按最长的形态量（跨年、两位月日）。
+        let range = dateRangeLabel(code: code)
+        let totals = String(
+          format: text("%@ tokens · %@ tool calls"), "9999.99亿", "9999.99亿")
+        let summaryNeeded = (labelWidth(range, size: 10) + 8 + labelWidth(totals, size: 11)) * scale
+        #expect(
+          summaryNeeded <= available,
+          "\(panel.name) 档下 \(code) 的汇总行要 \(summaryNeeded)pt，可用 \(available)pt")
+
+        // 图例（右下角）：少 + 5 格色阶 + 多。
+        let legendNeeded =
+          labelWidth(text("Less"), size: 9) + 5 * UsageStatsMetrics.heatmapLegendSwatchSize
+          + 6 * 4 + labelWidth(text("More"), size: 9)
+        #expect(
+          legendNeeded <= available,
+          "\(panel.name) 档下 \(code) 的图例要 \(legendNeeded)pt，可用 \(available)pt")
+
+        // 星期标签栏：最宽的那一档 + 与格网的间距 ≤ 栏宽——超了就会把格网挤窄、甚至顶出卡片。
+        let widest = weekdaySymbols(code: code).map { labelWidth($0, size: 9) }.max() ?? 0
+        #expect(
+          widest + UsageStatsMetrics.heatmapWeekdayLabelGap
+            <= UsageStatsMetrics.heatmapWeekdayGutterWidth,
+          "\(code) 的星期标签最宽 \(widest)pt，栏宽只有 \(UsageStatsMetrics.heatmapWeekdayGutterWidth)pt")
       }
+    }
+  }
+
+  @Test("悬停浮卡：排版 = 解析式；落点躲开右缘、并夹进卡片内容范围")
+  @MainActor
+  func heatmapHoverCardFitsAndAnchors() throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .gmt
+    let date = try #require(
+      calendar.date(from: DateComponents(year: 2026, month: 7, day: 5)))
+    let raster = try #require(
+      renderedPixels(
+        of: UsageHeatmapHoverCard(
+          date: date, usage: DayUsage(dayKey: "2026-07-05", total: 873_000_000, calls: 2398))))
+    #expect(raster.width == Int(UsageStatsMetrics.heatmapHoverCardWidth * 2), "浮卡宽 \(raster.width)")
+    #expect(
+      abs(Double(raster.height) / 2 - Double(UsageStatsMetrics.heatmapHoverCardHeight)) <= 1,
+      "浮卡高 \(Double(raster.height) / 2) ≠ 解析式 \(UsageStatsMetrics.heatmapHoverCardHeight)")
+
+    let gridWidth = UsageStatsMetrics.heatmapGridWidth(inPanelWidth: NotchMenuMetrics.panelWidthMax)
+    let side = UsageStatsMetrics.heatmapCellSide(forGridWidth: gridWidth)
+    let pitch = side + UsageStatsMetrics.heatmapCellSpacing
+    let cardWidth = UsageStatsMetrics.heatmapHoverCardWidth
+    let gridHeight = UsageStatsMetrics.heatmapGridHeight(forGridWidth: gridWidth)
+    let ceiling = -UsageStatsMetrics.heatmapSpaceAboveGrid
+    let lowest = gridHeight + UsageStatsMetrics.heatmapSpaceBelowGrid
+      - UsageStatsMetrics.heatmapHoverCardHeight
+
+    // 中段的格子：浮卡放在它右侧。
+    let middle = UsageStatsMetrics.heatmapHoverCardPosition(
+      column: 10, row: 3, gridWidth: gridWidth)
+    #expect(abs(middle.width - (10 * pitch + side + 6)) < 0.01)
+    // 贴右缘：翻到左侧，且两种情况都不越出格网宽（浮卡不许被卡片裁掉）。
+    let edge = UsageStatsMetrics.heatmapHoverCardPosition(
+      column: UsageStatsCalendar.heatmapWeekCount - 1, row: 0, gridWidth: gridWidth)
+    #expect(abs(edge.width - (52 * pitch - cardWidth - 6)) < 0.01)
+    for position in [middle, edge] {
+      #expect(position.width >= 0 && position.width + cardWidth <= gridWidth + 0.01)
+    }
+    // 纵向：任何一行都夹在卡片内容范围里（浮卡比格网高，光夹格网会顶出卡片）。
+    for row in 0..<UsageStatsCalendar.daysPerWeek {
+      let y = UsageStatsMetrics.heatmapHoverCardPosition(
+        column: 20, row: row, gridWidth: gridWidth
+      ).height
+      #expect(y >= ceiling - 0.01, "第 \(row) 行浮卡顶到卡片外：\(y)")
+      #expect(y <= max(lowest, ceiling) + 0.01, "第 \(row) 行浮卡掉到卡片外：\(y)")
     }
   }
 
@@ -217,24 +309,29 @@ struct UsageStatsLayoutTests {
     let now = try #require(
       calendar.date(from: DateComponents(year: 2026, month: 9, day: 18, hour: 15)))
     // 非零日只有一天（少于档位数）⇒ 按 `UsageHeatmapScale` 的口径它是**最深**那一档。
-    let days = [DayUsage(dayKey: "2026-09-16", total: 4_200_000)]
+    let days = [DayUsage(dayKey: "2026-09-16", total: 4_200_000, calls: 12)]
 
-    let width = UsageStatsMetrics.contentWidth - 2 * NotchMenuMetrics.rowHorizontalPadding
+    let cardWidth = UsageStatsMetrics.contentWidth - 2 * NotchMenuMetrics.rowHorizontalPadding
     let raster = try #require(
-      renderedPixels(of: UsageHeatmap(days: days, now: now, calendar: calendar).frame(width: width))
-    )
+      renderedPixels(
+        of: heatmapCard(
+          days: days, metric: .tokens, now: now, calendar: calendar,
+          width: UsageStatsMetrics.contentWidth)))
     let scale = 2.0
-    let columns = CGFloat(UsageStatsCalendar.heatmapWeekCount)
-    let cellWidth =
-      (width - (columns - 1) * UsageStatsMetrics.heatmapCellSpacing) / columns
+    let gridWidth = UsageStatsMetrics.heatmapGridWidth(inPanelWidth: NotchMenuMetrics.panelWidthMax)
+    let side = UsageStatsMetrics.heatmapCellSide(forGridWidth: gridWidth)
+    let pitch = side + UsageStatsMetrics.heatmapCellSpacing
+    // 格网左上角（视图坐标系）：左边是卡片内边距 + 星期标签栏；上面是卡片内边距 +
+    // 汇总行 + 月份标签（`heatmapSpaceAboveGrid` 已经含卡片内边距，别再叠加一次）。
+    let gridLeft = NotchMenuMetrics.rowHorizontalPadding + UsageStatsMetrics.heatmapWeekdayGutterWidth
+    let gridTop = UsageStatsMetrics.heatmapSpaceAboveGrid
+    let gridHeight = UsageStatsMetrics.heatmapGridHeight(forGridWidth: gridWidth)
+    let lastColumn = UsageStatsCalendar.heatmapWeekCount - 1
 
     /// 一格中心的像素坐标（位图第 0 行对应图像顶部）。
     func center(column: Int, row: Int) -> (x: Int, y: Int) {
-      let x = (CGFloat(column) * (cellWidth + UsageStatsMetrics.heatmapCellSpacing) + cellWidth / 2)
-      let y =
-        (CGFloat(row)
-          * (UsageStatsMetrics.heatmapCellHeight + UsageStatsMetrics.heatmapCellSpacing)
-          + UsageStatsMetrics.heatmapCellHeight / 2)
+      let x = gridLeft + CGFloat(column) * pitch + side / 2
+      let y = gridTop + CGFloat(row) * pitch + side / 2
       return (Int((x * scale).rounded()), Int((y * scale).rounded()))
     }
     func alpha(_ x: Int, _ y: Int) -> Int { Int(raster.pixels[(y * raster.width + x) * 4 + 3]) }
@@ -245,11 +342,12 @@ struct UsageStatsLayoutTests {
       )
     }
 
-    // 网格区里「不透明」的格子只该有一格（最深档 alpha = 255；空档是 0.09 叠白 ≈ 23，
-    // 未来格完全透明）。扫描只覆盖网格区，避开读数行里的图例色块。
-    let gridPixels = Int(UsageStatsMetrics.heatmapGridHeight * scale)
+    // 只在格网那一条带里找「不透明」的格子（最深档 alpha = 255；空档是 0.09 叠白 ≈ 23，
+    // 未来格完全透明）——避开说明 / 汇总 / 图例里的文字与色块。
+    let top = Int((gridTop * scale).rounded())
+    let bottom = Int(((gridTop + gridHeight) * scale).rounded())
     var bright: [(x: Int, y: Int)] = []
-    for y in 0..<min(gridPixels, raster.height) {
+    for y in top..<min(bottom, raster.height) {
       for x in 0..<raster.width where alpha(x, y) >= 230 {
         bright.append((x, y))
       }
@@ -260,28 +358,33 @@ struct UsageStatsLayoutTests {
     let maxX = bright.map(\.x).max() ?? 0
     let minY = bright.map(\.y).min() ?? 0
     let maxY = bright.map(\.y).max() ?? 0
-    let expected = center(column: UsageStatsCalendar.heatmapWeekCount - 1, row: 2)
+    let expected = center(column: lastColumn, row: 2)
 
-    // 亮区的中心必须落在 09-16 那一格的几何位置上（±4px ≈ 2pt）：行列写反、整列错位、
-    // 日期与格子的对应算错，都会把它推到别处。
+    // 亮区的中心必须落在 09-16 那一格的几何位置上：行列写反、整列错位、日期与格子的
+    // 对应算错，都会把它推到别处（格子小，容差按 ±3px ≈ 1.5pt 给）。
     #expect(
-      abs(Double(minX + maxX) / 2 - Double(expected.x)) <= 4,
+      abs(Double(minX + maxX) / 2 - Double(expected.x)) <= 3,
       "亮格横向中心 \((minX + maxX) / 2) ≠ 预期 \(expected.x)")
     #expect(
-      abs(Double(minY + maxY) / 2 - Double(expected.y)) <= 4,
+      abs(Double(minY + maxY) / 2 - Double(expected.y)) <= 3,
       "亮格纵向中心 \((minY + maxY) / 2) ≠ 预期 \(expected.y)")
-    // 亮区大小 ≈ 一格（14pt → 28px）：整列 / 整行变亮会让它明显更大。
-    #expect(abs(CGFloat(maxX - minX + 1) - cellWidth * scale) <= 4)
-    #expect(abs(CGFloat(maxY - minY + 1) - UsageStatsMetrics.heatmapCellHeight * scale) <= 4)
+    // 亮区大小 ≈ 一格：整列 / 整行变亮会让它明显更大。
+    #expect(abs(CGFloat(maxX - minX + 1) - side * scale) <= 3)
+    #expect(abs(CGFloat(maxY - minY + 1) - side * scale) <= 3)
     // 深色的色相来自「总量」那一路（浅蓝），不是随便一个高亮色。
     let brightColor = channels(expected.x, expected.y)
     #expect(brightColor.r > 120 && brightColor.g > 160 && brightColor.b > 220, "\(brightColor)")
 
-    // 同列的周一（09-14）没有用量 ⇒ 空档轨道（弱白底），周六 / 周日是未来 ⇒ 完全透明。
-    let track = alpha(center(column: 25, row: 0).x, center(column: 25, row: 0).y)
-    #expect(track >= 15 && track <= 40, "空档格 alpha = \(track)")
-    #expect(alpha(center(column: 25, row: 5).x, center(column: 25, row: 5).y) == 0)
-    #expect(alpha(center(column: 25, row: 6).x, center(column: 25, row: 6).y) == 0)
+    // 同列的周一（09-14）没有用量 ⇒ 空档轨道（弱白底）；周六 / 周日是未来 ⇒ 那一格不画，
+    // 露出的只是卡片自己的底色（比空档轨道还淡）。
+    let track = center(column: lastColumn, row: 0)
+    let trackAlpha = alpha(track.x, track.y)
+    #expect(trackAlpha >= 12 && trackAlpha <= 40, "空档格 alpha = \(trackAlpha)")
+    for row in [5, 6] {
+      let future = center(column: lastColumn, row: row)
+      let futureAlpha = alpha(future.x, future.y)
+      #expect(futureAlpha < trackAlpha - 3, "第 \(row) 行的未来格被画出来了：alpha = \(futureAlpha)")
+    }
   }
 
   @Test("展开范围选择器后滚动视口仍留得下内容（不小于 200pt）")
@@ -391,7 +494,8 @@ struct UsageStatsLayoutTests {
     viewModel.snapshot = statisticsFixtureSnapshot()
 
     let leftMost = leftMostInk(
-      of: UsageStatsView(viewModel: viewModel).frame(width: compactContentWidth))
+      of: UsageStatsView(viewModel: viewModel, contentWidth: compactContentWidth)
+        .frame(width: compactContentWidth))
 
     // 渲染失败时会返回 0（页面左上角不可能一个墨迹都没有）：先钉住「真的量到了像素」，
     // 否则这条用例会在渲染失效时静默变成恒真断言。
@@ -505,6 +609,38 @@ struct UsageStatsLayoutTests {
         + 2 * NotchMenuMetrics.rowHorizontalPadding + 2 * 10 + 40
       #expect(rowWidth <= panel.width, "\(panel.name) 档下模型行需要 \(rowWidth)pt")
     }
+  }
+
+  /// 与真实页面同构的热力图卡：`SettingsCard` + 左右内边距 + 页面内容宽。
+  /// 用例按 `width` 出图（= 页面内容宽），因此格边长、格网高与解析式可以逐值对拍。
+  @MainActor
+  private func heatmapCard(
+    days: [DayUsage], metric: StatsHeatmapMetric, now: Date, calendar: Calendar, width: CGFloat
+  ) -> some View {
+    SettingsCard {
+      UsageHeatmap(
+        days: days, metric: .constant(metric), contentWidth: width, now: now, calendar: calendar
+      )
+      .padding(.horizontal, NotchMenuMetrics.rowHorizontalPadding)
+    }
+    .frame(width: width)
+  }
+
+  /// 汇总行日期范围的最长形态（跨年、两位月日）：`2025年10月13日 – 2026年10月14日`。
+  private func dateRangeLabel(code: String) -> String {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .gmt
+    let style = Date.FormatStyle.dateTime.year().month().day().locale(Locale(identifier: code))
+    let from = calendar.date(from: DateComponents(year: 2025, month: 10, day: 13)) ?? Date()
+    let to = calendar.date(from: DateComponents(year: 2026, month: 10, day: 14)) ?? Date()
+    return "\(from.formatted(style)) – \(to.formatted(style))"
+  }
+
+  /// 某语言的星期缩写（下标 0 = 周日，与 `Calendar.firstWeekday` 同一套编号）。
+  private func weekdaySymbols(code: String) -> [String] {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.locale = Locale(identifier: code)
+    return calendar.shortWeekdaySymbols
   }
 
   /// 等宽数字的排版宽度（总览卡的大数字与小计都用等宽字形）。

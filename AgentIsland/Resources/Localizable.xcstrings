@@ -5380,36 +5380,87 @@
         }
       }
     },
-    "Tokens per day · last %lld weeks" : {
-      "comment" : "统计页热力图的读数行：%lld 是周数——说清热力图量的是什么、窗口是固定近半年。",
+    "Usage heatmap" : {
+      "comment" : "统计页热力图分组的标题。",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tokens per day · last %lld weeks"
+            "value" : "Usage heatmap"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "每日 token · 近 %lld 周"
+            "value" : "用量热力图"
           }
         }
       }
     },
-    "%@ · %@ tokens" : {
-      "comment" : "统计页热力图一格的悬停读数：第一个 %@ 是日期、第二个 %@ 是当日总量。",
+    "Last %lld weeks · one square per day" : {
+      "comment" : "统计页热力图的说明行：%lld 是周数——说清窗口多大、一格是什么。",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ · %@ tokens"
+            "value" : "Last %lld weeks · one square per day"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ · %@ token"
+            "value" : "最近 %lld 周 · 一格一天"
+          }
+        }
+      }
+    },
+    "Tokens" : {
+      "comment" : "统计页热力图分档控件的第一档，也是悬停浮卡里 token 那一行的名目。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tokens"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token"
+          }
+        }
+      }
+    },
+    "%@ tokens · %@ tool calls" : {
+      "comment" : "统计页热力图的汇总行右段：%@ 是 token 合计、%@ 是工具调用合计。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ tokens · %@ tool calls"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ token · %@ 工具调用"
+          }
+        }
+      }
+    },
+    "%@ · %@ tokens · %@ tool calls" : {
+      "comment" : "统计页热力图一格的悬停读数：日期 · token · 工具调用（与无障碍标签共用）。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %@ tokens · %@ tool calls"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %@ token · %@ 工具调用"
           }
         }
       }

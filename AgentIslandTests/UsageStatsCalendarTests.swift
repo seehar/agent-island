@@ -122,7 +122,7 @@ struct UsageStatsCalendarTests {
     #expect(UsageStatsCalendar.startOfDay(day(2026, 9, 20), calendar: calendar) == day(2026, 9, 20))
   }
 
-  @Test("热力图：26 列 × 7 行、行序按周起始日、末列是包含今天的那一周")
+  @Test("热力图：53 列 × 7 行、行序按周起始日、末列是包含今天的那一周")
   func heatmapWeeksAlignToFirstWeekday() {
     // 2026-09-20 是周日：周一起算的日历里，它落在那一周的最后一行；周日起算时是第一行。
     let now =
@@ -135,12 +135,13 @@ struct UsageStatsCalendarTests {
       let today = calendar.startOfDay(for: now)
 
       #expect(weeks.count == UsageStatsCalendar.heatmapWeekCount)
-      #expect(weeks.count == 26)
+      #expect(weeks.count == 53)
       #expect(weeks.allSatisfy { $0.count == UsageStatsCalendar.daysPerWeek })
+      let lastColumn = weeks.count - 1
 
       // 「今天」那一格的行号 = 从周起始日数到今天的天数。
       let row = (calendar.component(.weekday, from: today) - firstWeekday + 7) % 7
-      #expect(weeks[25][row] == today, "firstWeekday = \(firstWeekday)")
+      #expect(weeks[lastColumn][row] == today, "firstWeekday = \(firstWeekday)")
 
       // 每一列的第一天是它自己的那一周，且都是本地零点。
       for column in weeks {
@@ -150,20 +151,49 @@ struct UsageStatsCalendarTests {
         #expect(UsageStatsCalendar.startOfWeek(column[6], calendar: calendar) == column[0])
       }
 
-      // 逐格相邻：同一列相邻两行差一天，末列之后没有「多出来的」那一列。
+      // 逐格相邻：同一列相邻两行差一天（夏令时那天当地没有 00:00，比较前先归一到当天零点）。
       for index in 1..<weeks[0].count {
-        #expect(
-          calendar.date(byAdding: .day, value: 1, to: weeks[0][index - 1]) == weeks[0][index])
+        let next =
+          calendar.date(byAdding: .day, value: 1, to: weeks[0][index - 1]).map(calendar.startOfDay)
+        #expect(next == weeks[0][index])
       }
       // 第 0 列第 0 格 == 查询起点（最早那一周的第一天）。
       #expect(weeks[0][0] == UsageStatsCalendar.heatmapStart(containing: now, calendar: calendar))
       // 末列的第 0 行就是「今天所在周的起点」。
-      #expect(weeks[25][0] == UsageStatsCalendar.startOfWeek(now, calendar: calendar))
-      // 网格覆盖 26 周整：首尾两格相差 181 天（含首尾 = 182 天）。
+      #expect(weeks[lastColumn][0] == UsageStatsCalendar.startOfWeek(now, calendar: calendar))
+      // 网格覆盖 53 周整：首尾两格相差 370 天（含首尾 = 371 天）。
       #expect(
-        UsageStatsCalendar.dayCount(from: weeks[0][0], to: weeks[25][6], calendar: calendar)
+        UsageStatsCalendar.dayCount(
+          from: weeks[0][0], to: weeks[lastColumn][6], calendar: calendar)
           == UsageStatsCalendar.daysPerWeek * UsageStatsCalendar.heatmapWeekCount)
     }
+  }
+
+  @Test("热力图月份标签：每个新月一列、末尾不足三列的不给（标签比一列宽）")
+  func heatmapMonthLabelsMarkMonthStarts() {
+    let calendar = calendar()
+    let now = calendar.date(from: DateComponents(year: 2026, month: 10, day: 14)) ?? Date()
+    let weeks = UsageStatsCalendar.heatmapWeeks(containing: now, calendar: calendar)
+    let starts = UsageStatsCalendar.heatmapMonthStarts(weeks: weeks, calendar: calendar)
+
+    // 一年 12 个月：至少 11 个标签（首列那个月可能只有几天），且列号严格递增。
+    #expect(starts.count >= 11 && starts.count <= 13, "标签数 \(starts.count)")
+    #expect(starts.map(\.column) == starts.map(\.column).sorted())
+    #expect(Set(starts.map(\.column)).count == starts.count)
+    // 每个标签都落在「前一列与这一列的首日不同月」的位置上。
+    for start in starts {
+      let column = start.column
+      #expect(column >= 0 && column < weeks.count)
+      #expect(weeks[column].first == start.date)
+      if column > 0, let previous = weeks[column - 1].first, let first = weeks[column].first {
+        #expect(
+          calendar.component(.month, from: previous) != calendar.component(.month, from: first))
+      }
+      // 相邻标签至少隔 4 列（一个月最短 28 天 = 4 周），否则会在行里叠字。
+      #expect(weeks.count - column >= 3, "末尾标签太贴右缘")
+    }
+    // 首列一定有标签（网格从哪一周起都要能读出「从哪个月开始」）。
+    #expect(starts.first?.column == 0)
   }
 
   @Test("热力图跨夏令时也逐格对齐（按天推，不是按 24 小时推）")
@@ -180,7 +210,11 @@ struct UsageStatsCalendarTests {
 
     #expect(flat.allSatisfy { calendar.startOfDay(for: $0) == $0 })
     for index in 1..<flat.count {
-      #expect(calendar.date(byAdding: .day, value: 1, to: flat[index - 1]) == flat[index])
+      // 夏令时开始那天当地没有 00:00（时钟 23:59 → 01:00）：先「加一天」再归一到当天零点，
+      // 与 `heatmapWeeks` 的口径一致。
+      let next =
+        calendar.date(byAdding: .day, value: 1, to: flat[index - 1]).map(calendar.startOfDay)
+      #expect(next == flat[index])
     }
     #expect(
       UsageStatsCalendar.dayCount(from: flat[0], to: flat[flat.count - 1], calendar: calendar)

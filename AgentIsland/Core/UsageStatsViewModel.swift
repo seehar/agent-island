@@ -33,6 +33,8 @@ final class UsageStatsViewModel: ObservableObject {
     @Published private(set) var calendarMonth: Date = Date()
     /// 曲线图显示哪几路（默认总量 / 输入 / 输出）。
     @Published var visibleSeries: Set<StatsSeries> = StatsSeries.defaultVisible
+    /// 热力图按哪个量上色（默认 token；切到工具调用时深浅与汇总行都跟着换）。
+    @Published var heatmapMetric: StatsHeatmapMetric = .tokens
     /// 最近一次索引失败的摘要（没有失败时为 `nil`）。页脚据此显示/隐藏警告行；
     /// 某一轮完全成功（含「没有新增」的空轮）后索引器会清掉它，警告行随即消失。
     @Published private(set) var indexingFailure: UsageStatsFailureReport?

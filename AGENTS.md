@@ -219,7 +219,7 @@ Cursor / Copilot / Factory / CodeBuddy / Kimi / Cline / Grok / Trae / Trae CLI /
 - **路径归一不是一个可选优化**：`FileManager` 的目录遍历返回的是 `realpath` 展开后的路径（macOS 下 `/var/…` → `/private/var/…`），而 `URL.resolvingSymlinksInPath()` / `standardizedFileURL` **不会**展开 `/var`、`/tmp`、`/etc` 这几个系统软链。provider 里 `hasPrefix(自己的根)` 的判定因此会与遍历结果对不上，记录被静默跳过（表现：工具在跑，面板里一个会话都没有）。统一走 `AgentProviderRoot.canonical`（POSIX `realpath`），用例夹具建目录后也要过它一次。
 - **记录文件的「首行很长」不是边角情况**：WorkBuddy / CodeBuddy 会把整段注入上下文写成第一条 user 消息（本机实测 WorkBuddy 首行 14 896 字节）。`TranscriptFileReader.firstRecordField` 因此只对**完整行**做判断、总读取量由 `headerReadBudgetBytes`（1 MiB）封顶。它曾经只读固定 8 KB 前缀、再把整段前缀按 UTF-8 解码切行 —— 长首行会被切成半个 JSON（或切在半个多字节字符上让整段解码失败），`cwd` 取不到，会话在发现器里**静默跳过**（面板里一条都没有）。改这个函数时别退回「按固定前缀截断再解析」。
 
-- 统计页的**每日热力图**是固定窗口（近 `UsageStatsCalendar.heatmapWeekCount` 周），**不跟范围选择器**——那是刻意的（GitHub 贡献图同理，「今天」只有一格画不出节律）；它的高度预算从工具榜 / 模型榜的长尾让出来，账记在 `UsageStatsMetrics.sectionHeight` 上（`UsageStatsLayoutTests` 有用例钉住这条等式，改截断数或块高必须重算）。
+- 统计页的**每日热力图**是独立分组（自己的标题 + Tokens / 工具调用分档控件），窗口固定 `UsageStatsCalendar.heatmapWeekCount` 列 ≈ 近一年，**不跟范围选择器**——那是刻意的（GitHub 贡献图同理，「今天」只有一格画不出节律）。格子是正方形、53 列等分卡片宽度，所以**格网高度随宽度变**：面板高度的解析式取标准档那一份（`UsageStatsMetrics.heatmapGridHeight`）。它的高度预算从工具榜 / 模型榜的长尾让出来（账记在 `UsageStatsMetrics.sectionHeight` 的推导式里）；改截断数、卡片行或列数都要重算，`UsageStatsLayoutTests` 会先红。
 <delegation_rules>
 何时委托子代理 vs 直接处理：
 

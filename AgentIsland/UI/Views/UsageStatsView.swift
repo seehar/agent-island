@@ -2,8 +2,8 @@
 //  UsageStatsView.swift
 //  AgentIsland
 //
-//  统计页：总览 + 各 Agent 拆分 + 各模型拆分 + 多路趋势曲线图（趋势卡下方还有每日
-//  热力图，见 `UsageHeatmap`）+ 工具榜 + 口径脚注。
+//  统计页：总览 + 每日热力图（近 53 周，见 `UsageHeatmap`）+ 各 Agent 拆分 + 各模型拆分
+//  + 多路趋势曲线图 + 工具榜 + 口径脚注。
 //  视图只消费 `UsageStatsSnapshot`——总量、缓存命中率、排序都由数据层给出，
 //  这里不重算口径（口径写在 Models/UsageStats.swift 的注释里）。
 //
@@ -18,6 +18,9 @@ import SwiftUI
 
 struct UsageStatsView: View {
     @ObservedObject var viewModel: UsageStatsViewModel
+    /// 页面内容宽（面板宽的同源解析式，见 `NotchMenuMetrics.contentAreaWidth(inPanelWidth:)`）。
+    /// 只给热力图用：53 列的格边长必须由宽度算出来，不能靠实测或 `aspectRatio`。
+    let contentWidth: CGFloat
     @ObservedObject private var l10n = LocalizationManager.shared
 
     /// 数字与日期的格式化跟随界面语言（由根视图的 LocalizedRoot 注入环境 locale）。
@@ -41,6 +44,9 @@ struct UsageStatsView: View {
         } else {
             VStack(alignment: .leading, spacing: UsageStatsMetrics.groupSpacing) {
                 overviewCard
+
+                // 热力图紧跟总览：它是「近一年的节律」，首屏就该看到（再往下是各种拆分）。
+                heatmapGroup
 
                 if hasAgents { agentGroup }
                 if hasModels { modelGroup }
@@ -235,29 +241,107 @@ struct UsageStatsView: View {
 
     // MARK: - 趋势
 
-    /// 趋势卡：上面是折线（选定范围的走势），下面是热力图（近半年的每日节律）。
-    /// 两者同卡——都是「时间上的用量」，只是窗口不同；发丝线把两种窗口分开，
-    /// 热力图自己的读数行也写明了它的窗口（它**不跟随**范围选择器）。
+    /// 趋势卡：折线（选定范围的走势）。热力图有自己的分组（见 `heatmapGroup`）——
+    /// 它自带标题、分档控件与汇总行，跟折线拼在同一张卡里会读成「同一块」。
     private var trendGroup: some View {
         cardGroup(l10n.t("Trend")) {
-            VStack(alignment: .leading, spacing: 0) {
-                UsageTrendChart(
-                    points: viewModel.snapshot.trend,
-                    // 粒度取**快照自己记的窗口**：横轴刻度与桶必须来自同一次查询，
-                    // 否则换窗口的过渡帧里会出现「天粒度的桶配小时刻度」这类错配。
-                    granularity: viewModel.snapshot.window.granularity(),
-                    visibleSeries: $viewModel.visibleSeries
+            UsageTrendChart(
+                points: viewModel.snapshot.trend,
+                // 粒度取**快照自己记的窗口**：横轴刻度与桶必须来自同一次查询，
+                // 否则换窗口的过渡帧里会出现「天粒度的桶配小时刻度」这类错配。
+                granularity: viewModel.snapshot.window.granularity(),
+                visibleSeries: $viewModel.visibleSeries
+            )
+            .padding(.horizontal, NotchMenuMetrics.rowHorizontalPadding)
+            .padding(.vertical, 10)
+        }
+    }
+
+    // MARK: - 每日热力图
+
+    /// 热力图分组：标题 + 右上角的分档控件（Tokens / 工具调用），卡片里是近 53 周的
+    /// 每日用量（见 `UsageHeatmap`）。它**不跟随**范围选择器：窗口固定是近一年。
+    private var heatmapGroup: some View {
+        VStack(alignment: .leading, spacing: NotchMenuMetrics.sectionHeaderGap) {
+            HStack(spacing: UsageStatsMetrics.heatmapHeaderTextGap) {
+                Text(l10n.t("Usage heatmap"))
+                    .appFont(11, weight: .semibold)
+                    .foregroundColor(AppPalette.tertiaryText)
+                    .lineLimit(1)
+
+                // 说明行（窗口 + 读法）跟在标题后面：它放进卡片会白占掉一行高度预算
+                // （读数面只剩几个点余量），放进标题行则与标题同高。
+                Text(
+                    l10n.t(
+                        "Last %lld weeks · one square per day", UsageStatsCalendar.heatmapWeekCount)
                 )
-                .padding(.bottom, UsageStatsMetrics.heatmapVerticalPadding)
+                .appFont(10)
+                .foregroundColor(AppPalette.subtleText)
+                .lineLimit(1)
 
-                separator
+                Spacer(minLength: 8)
 
-                UsageHeatmap(days: viewModel.snapshot.daily)
-                    .padding(.vertical, UsageStatsMetrics.heatmapVerticalPadding)
+                metricSwitcher
             }
             .padding(.horizontal, NotchMenuMetrics.rowHorizontalPadding)
-            // 曲线的上内边距：与热力图的上下内边距同一档，卡内两块的呼吸一致。
-            .padding(.top, UsageStatsMetrics.heatmapVerticalPadding)
+            .frame(height: UsageStatsMetrics.heatmapHeaderHeight)
+
+            SettingsCard {
+                UsageHeatmap(
+                    days: viewModel.snapshot.daily, metric: $viewModel.heatmapMetric,
+                    contentWidth: contentWidth
+                )
+                .padding(.horizontal, NotchMenuMetrics.rowHorizontalPadding)
+            }
+        }
+    }
+
+    /// 分档控件：两格（Tokens / 工具调用）。选中态由**滑块**表达（与设置面板的分段控件
+    /// 同一套语义：轨道 + 滑块，强调色不参与）。
+    private var metricSwitcher: some View {
+        HStack(spacing: UsageStatsMetrics.heatmapMetricSwitcherSpacing) {
+            ForEach(StatsHeatmapMetric.allCases) { metric in
+                let isSelected = viewModel.heatmapMetric == metric
+                Button {
+                    withAnimation(SettingsMotion.segment) { viewModel.heatmapMetric = metric }
+                } label: {
+                    Text(metricTitle(metric))
+                        .appFont(9, weight: .medium)
+                        .foregroundColor(
+                            isSelected ? AppPalette.primaryText : AppPalette.tertiaryText
+                        )
+                        .padding(.horizontal, 7)
+                        .frame(
+                            height: UsageStatsMetrics.heatmapMetricSwitcherHeight
+                                - 2 * UsageStatsMetrics.heatmapMetricSwitcherPadding
+                        )
+                        .background(
+                            RoundedRectangle(
+                                cornerRadius: UsageStatsMetrics.heatmapMetricSwitcherRadius - 1,
+                                style: .continuous
+                            )
+                            .fill(isSelected ? AppPalette.segmentedThumb : Color.clear)
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(SettingsCompactButtonStyle())
+            }
+        }
+        .padding(UsageStatsMetrics.heatmapMetricSwitcherPadding)
+        .background(
+            RoundedRectangle(
+                cornerRadius: UsageStatsMetrics.heatmapMetricSwitcherRadius, style: .continuous
+            )
+            .fill(AppPalette.segmentedTrack)
+        )
+        .frame(height: UsageStatsMetrics.heatmapMetricSwitcherHeight)
+    }
+
+    /// 分档控件的档位名：只在这里查表——本地化键必须是字面量（`check-localization.py`）。
+    private func metricTitle(_ metric: StatsHeatmapMetric) -> String {
+        switch metric {
+        case .tokens: return l10n.t("Tokens")
+        case .calls: return l10n.t("Tool calls")
         }
     }
 
@@ -490,9 +574,11 @@ struct UsageStatsView: View {
 /// 重新取一次快照——两个入口（头部图标 / 设置面板）看到的是同一份状态。
 struct UsageStatisticsSettingsPage: View {
     @ObservedObject var viewModel: UsageStatsViewModel
+    /// 页面内容宽（由 `NotchMenuView` 按面板宽现算后传下来）。
+    let contentWidth: CGFloat
 
     var body: some View {
-        UsageStatsView(viewModel: viewModel)
+        UsageStatsView(viewModel: viewModel, contentWidth: contentWidth)
             // 进页即让索引器做一次增量扫描（内部有节流）；新数据到达后视图模型会重取快照。
             .onAppear {
                 viewModel.onAppear()
