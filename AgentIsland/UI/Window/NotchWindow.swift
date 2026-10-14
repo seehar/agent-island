@@ -158,6 +158,11 @@ class NotchPanel: NSPanel {
         // Above the menu bar
         level = .mainMenu + 3
 
+        // 投屏 / 录屏 / 截图时都不把面板画进捕获画面：系统按窗口排除（复合截图、逐窗口
+        // 截图、ScreenCaptureKit 三条截取路径都实测生效；代价是该窗口不参与窗口共享类
+        // 系统服务，如系统窗口选择器）
+        sharingType = .none
+
         // Enable tooltips even when app is inactive (needed for panel windows)
         allowsToolTipsWhenApplicationIsInactive = true
 
