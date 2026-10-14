@@ -28,12 +28,22 @@ struct UsageStatsCalendarTests {
   @Test("天数含首尾；顺序颠倒按交换后算；跨年也对")
   func dayCountIncludesBothEnds() {
     let calendar = calendar()
-    #expect(UsageStatsCalendar.dayCount(from: day(2026, 9, 1), to: day(2026, 9, 1), calendar: calendar) == 1)
-    #expect(UsageStatsCalendar.dayCount(from: day(2026, 9, 1), to: day(2026, 9, 30), calendar: calendar) == 30)
-    #expect(UsageStatsCalendar.dayCount(from: day(2026, 9, 30), to: day(2026, 9, 1), calendar: calendar) == 30)
-    #expect(UsageStatsCalendar.dayCount(from: day(2025, 12, 31), to: day(2026, 1, 1), calendar: calendar) == 2)
+    #expect(
+      UsageStatsCalendar.dayCount(from: day(2026, 9, 1), to: day(2026, 9, 1), calendar: calendar)
+        == 1)
+    #expect(
+      UsageStatsCalendar.dayCount(from: day(2026, 9, 1), to: day(2026, 9, 30), calendar: calendar)
+        == 30)
+    #expect(
+      UsageStatsCalendar.dayCount(from: day(2026, 9, 30), to: day(2026, 9, 1), calendar: calendar)
+        == 30)
+    #expect(
+      UsageStatsCalendar.dayCount(from: day(2025, 12, 31), to: day(2026, 1, 1), calendar: calendar)
+        == 2)
     // 跨月且跨夏令时无关的月份：3 月 31 天。
-    #expect(UsageStatsCalendar.dayCount(from: day(2026, 3, 1), to: day(2026, 3, 31), calendar: calendar) == 31)
+    #expect(
+      UsageStatsCalendar.dayCount(from: day(2026, 3, 1), to: day(2026, 3, 31), calendar: calendar)
+        == 31)
   }
 
   @Test("范围归一：先点晚的那天、再点早的那天也能得到「早 – 晚」")
@@ -88,18 +98,92 @@ struct UsageStatsCalendarTests {
   @Test("月份步进遇到月末夹到目标月最后一天")
   func addMonthsClampsInvalidDays() {
     let calendar = calendar()
-    #expect(UsageStatsCalendar.addMonths(1, to: day(2026, 1, 31), calendar: calendar) == day(2026, 2, 28))
-    #expect(UsageStatsCalendar.addMonths(1, to: day(2024, 1, 31), calendar: calendar) == day(2024, 2, 29))
-    #expect(UsageStatsCalendar.addMonths(-1, to: day(2026, 3, 31), calendar: calendar) == day(2026, 2, 28))
-    #expect(UsageStatsCalendar.addMonths(1, to: day(2026, 9, 15), calendar: calendar) == day(2026, 10, 15))
+    #expect(
+      UsageStatsCalendar.addMonths(1, to: day(2026, 1, 31), calendar: calendar) == day(2026, 2, 28))
+    #expect(
+      UsageStatsCalendar.addMonths(1, to: day(2024, 1, 31), calendar: calendar) == day(2024, 2, 29))
+    #expect(
+      UsageStatsCalendar.addMonths(-1, to: day(2026, 3, 31), calendar: calendar) == day(2026, 2, 28)
+    )
+    #expect(
+      UsageStatsCalendar.addMonths(1, to: day(2026, 9, 15), calendar: calendar) == day(2026, 10, 15)
+    )
     // 跨年：12 月 +1 月 → 次年 1 月。
-    #expect(UsageStatsCalendar.addMonths(1, to: day(2026, 12, 15), calendar: calendar) == day(2027, 1, 15))
+    #expect(
+      UsageStatsCalendar.addMonths(1, to: day(2026, 12, 15), calendar: calendar) == day(2027, 1, 15)
+    )
   }
 
   @Test("月的第一天与起点：startOfMonth 落在 1 日零点")
   func startOfMonthLandsOnFirstDay() {
     let calendar = calendar()
-    #expect(UsageStatsCalendar.startOfMonth(day(2026, 9, 20), calendar: calendar) == day(2026, 9, 1))
+    #expect(
+      UsageStatsCalendar.startOfMonth(day(2026, 9, 20), calendar: calendar) == day(2026, 9, 1))
     #expect(UsageStatsCalendar.startOfDay(day(2026, 9, 20), calendar: calendar) == day(2026, 9, 20))
+  }
+
+  @Test("热力图：26 列 × 7 行、行序按周起始日、末列是包含今天的那一周")
+  func heatmapWeeksAlignToFirstWeekday() {
+    // 2026-09-20 是周日：周一起算的日历里，它落在那一周的最后一行；周日起算时是第一行。
+    let now =
+      calendar().date(
+        from: DateComponents(year: 2026, month: 9, day: 20, hour: 15, minute: 30)) ?? Date()
+
+    for firstWeekday in 1...7 {
+      let calendar = calendar(firstWeekday: firstWeekday)
+      let weeks = UsageStatsCalendar.heatmapWeeks(containing: now, calendar: calendar)
+      let today = calendar.startOfDay(for: now)
+
+      #expect(weeks.count == UsageStatsCalendar.heatmapWeekCount)
+      #expect(weeks.count == 26)
+      #expect(weeks.allSatisfy { $0.count == UsageStatsCalendar.daysPerWeek })
+
+      // 「今天」那一格的行号 = 从周起始日数到今天的天数。
+      let row = (calendar.component(.weekday, from: today) - firstWeekday + 7) % 7
+      #expect(weeks[25][row] == today, "firstWeekday = \(firstWeekday)")
+
+      // 每一列的第一天是它自己的那一周，且都是本地零点。
+      for column in weeks {
+        #expect(column[0] == UsageStatsCalendar.startOfWeek(column[0], calendar: calendar))
+        #expect(column.allSatisfy { calendar.startOfDay(for: $0) == $0 })
+        // 列里最后一行与第一行同属一周（行序按周起始日对齐的直接结果）。
+        #expect(UsageStatsCalendar.startOfWeek(column[6], calendar: calendar) == column[0])
+      }
+
+      // 逐格相邻：同一列相邻两行差一天，末列之后没有「多出来的」那一列。
+      for index in 1..<weeks[0].count {
+        #expect(
+          calendar.date(byAdding: .day, value: 1, to: weeks[0][index - 1]) == weeks[0][index])
+      }
+      // 第 0 列第 0 格 == 查询起点（最早那一周的第一天）。
+      #expect(weeks[0][0] == UsageStatsCalendar.heatmapStart(containing: now, calendar: calendar))
+      // 末列的第 0 行就是「今天所在周的起点」。
+      #expect(weeks[25][0] == UsageStatsCalendar.startOfWeek(now, calendar: calendar))
+      // 网格覆盖 26 周整：首尾两格相差 181 天（含首尾 = 182 天）。
+      #expect(
+        UsageStatsCalendar.dayCount(from: weeks[0][0], to: weeks[25][6], calendar: calendar)
+          == UsageStatsCalendar.daysPerWeek * UsageStatsCalendar.heatmapWeekCount)
+    }
+  }
+
+  @Test("热力图跨夏令时也逐格对齐（按天推，不是按 24 小时推）")
+  func heatmapGridSurvivesDaylightSavingTransition() {
+    // America/Havana 2026-11-01 结束夏令时：那一天当地有 25 小时，用「+24h」逐格推会
+    // 在跳变处错开一小时，格子就不再是本地零点（月历的 `lastHourStart` 有同类注释）。
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "America/Havana") ?? .gmt
+    calendar.firstWeekday = 1
+
+    let now = calendar.date(from: DateComponents(year: 2026, month: 11, day: 15)) ?? Date()
+    let weeks = UsageStatsCalendar.heatmapWeeks(containing: now, calendar: calendar)
+    let flat = weeks.flatMap { $0 }
+
+    #expect(flat.allSatisfy { calendar.startOfDay(for: $0) == $0 })
+    for index in 1..<flat.count {
+      #expect(calendar.date(byAdding: .day, value: 1, to: flat[index - 1]) == flat[index])
+    }
+    #expect(
+      UsageStatsCalendar.dayCount(from: flat[0], to: flat[flat.count - 1], calendar: calendar)
+        == UsageStatsCalendar.daysPerWeek * UsageStatsCalendar.heatmapWeekCount)
   }
 }

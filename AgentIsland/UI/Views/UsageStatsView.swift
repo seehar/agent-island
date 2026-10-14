@@ -2,7 +2,8 @@
 //  UsageStatsView.swift
 //  AgentIsland
 //
-//  统计页：总览 + 各 Agent 拆分 + 各模型拆分 + 多路趋势曲线图 + 工具榜 + 口径脚注。
+//  统计页：总览 + 各 Agent 拆分 + 各模型拆分 + 多路趋势曲线图（趋势卡下方还有每日
+//  热力图，见 `UsageHeatmap`）+ 工具榜 + 口径脚注。
 //  视图只消费 `UsageStatsSnapshot`——总量、缓存命中率、排序都由数据层给出，
 //  这里不重算口径（口径写在 Models/UsageStats.swift 的注释里）。
 //
@@ -234,17 +235,29 @@ struct UsageStatsView: View {
 
     // MARK: - 趋势
 
+    /// 趋势卡：上面是折线（选定范围的走势），下面是热力图（近半年的每日节律）。
+    /// 两者同卡——都是「时间上的用量」，只是窗口不同；发丝线把两种窗口分开，
+    /// 热力图自己的读数行也写明了它的窗口（它**不跟随**范围选择器）。
     private var trendGroup: some View {
         cardGroup(l10n.t("Trend")) {
-            UsageTrendChart(
-                points: viewModel.snapshot.trend,
-                // 粒度取**快照自己记的窗口**：横轴刻度与桶必须来自同一次查询，
-                // 否则换窗口的过渡帧里会出现「天粒度的桶配小时刻度」这类错配。
-                granularity: viewModel.snapshot.window.granularity(),
-                visibleSeries: $viewModel.visibleSeries
-            )
+            VStack(alignment: .leading, spacing: 0) {
+                UsageTrendChart(
+                    points: viewModel.snapshot.trend,
+                    // 粒度取**快照自己记的窗口**：横轴刻度与桶必须来自同一次查询，
+                    // 否则换窗口的过渡帧里会出现「天粒度的桶配小时刻度」这类错配。
+                    granularity: viewModel.snapshot.window.granularity(),
+                    visibleSeries: $viewModel.visibleSeries
+                )
+                .padding(.bottom, UsageStatsMetrics.heatmapVerticalPadding)
+
+                separator
+
+                UsageHeatmap(days: viewModel.snapshot.daily)
+                    .padding(.vertical, UsageStatsMetrics.heatmapVerticalPadding)
+            }
             .padding(.horizontal, NotchMenuMetrics.rowHorizontalPadding)
-            .padding(.vertical, 10)
+            // 曲线的上内边距：与热力图的上下内边距同一档，卡内两块的呼吸一致。
+            .padding(.top, UsageStatsMetrics.heatmapVerticalPadding)
         }
     }
 

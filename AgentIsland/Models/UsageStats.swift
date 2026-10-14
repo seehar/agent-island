@@ -378,6 +378,20 @@ nonisolated struct TrendPoint: Identifiable, Equatable, Sendable {
   }
 }
 
+/// 热力图上的一天：某个本地自然日的总量（与趋势桶同口径：四路 token 之和，含缓存）。
+///
+/// 键就是 `UsageStatsKey.bucket(for:granularity: .day)` 给的本地自然日键（`yyyy-MM-dd`），
+/// 视图拿它与 `UsageStatsCalendar.heatmapWeeks` 的每一格对齐。查询只返回**有用量的日子**
+/// （没有记录的日子由视图按 0 画），因此数组是稀疏、升序的。
+nonisolated struct DayUsage: Identifiable, Equatable, Sendable {
+  /// 本地自然日键（`2026-09-20`）。
+  let dayKey: String
+  /// 当日总量。
+  let total: Int
+
+  var id: String { dayKey }
+}
+
 /// 一次查询的完整结果，视图只消费这个值。
 nonisolated struct UsageStatsSnapshot: Equatable, Sendable {
   /// 这次查询的窗口（视图据它取粒度与横轴刻度）。
@@ -391,6 +405,11 @@ nonisolated struct UsageStatsSnapshot: Equatable, Sendable {
   var tools: [ToolUsage] = []
   /// 趋势，按时间升序且**含空桶**（视图可直接画）。
   var trend: [TrendPoint] = []
+  /// 热力图用的每日总量：近 `UsageStatsCalendar.heatmapWeekCount` 周、升序且稀疏（见 `DayUsage`）。
+  ///
+  /// 它是**固定窗口**、不跟着 `window` 变（热力图要的是近半年的每日节律，理由见
+  /// `UsageStatsCalendar.heatmapWeekCount`）。
+  var daily: [DayUsage] = []
   /// 最近一次索引完成时间。
   var indexedAt: Date?
   /// 是否正在做首次回填 / 增量扫描。

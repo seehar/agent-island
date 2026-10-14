@@ -84,4 +84,45 @@ nonisolated enum UsageStatsCalendar {
         while cells.count < total { cells.append(nil) }
         return Array(cells.prefix(total))
     }
+
+    // MARK: - 热力图的周网格
+
+    /// 热力图的周数：末列是包含「今天」的那一周，整块显示近 26 周（约半年）。
+    ///
+    /// 它是**固定窗口**、不跟随统计页的范围选择器：GitHub 的贡献图同理，这块要的是
+    /// 「近半年的每日节律」——按天粒度去重画选定的窗口没有意义（「今天」只有一格、
+    /// 「近一天」两格）。面板越窄格子越窄，但列数固定，近半年才说得上是「节律」。
+    static let heatmapWeekCount = 26
+
+    /// 一周的天数：热力图的列高（月历的格子也是它）。
+    static let daysPerWeek = 7
+
+    /// 包含 `date` 的那一周的第一天零点。周起始日 = `calendar.firstWeekday`
+    /// （中文地区是周一，英文地区是周日），与月历的列序同一个约定。
+    static func startOfWeek(_ date: Date, calendar: Calendar = .current) -> Date {
+        let day = calendar.startOfDay(for: date)
+        let offset = (calendar.component(.weekday, from: day) - calendar.firstWeekday + 7) % 7
+        return calendar.date(byAdding: .day, value: -offset, to: day) ?? day
+    }
+
+    /// 热力图的第一列（最早那一周）的第一天：库里查询的起点，也是网格的第 0 格。
+    /// 逐格按「天」往回推（`date(byAdding:)`），跨夏令时的那一周也不会错位。
+    static func heatmapStart(containing now: Date, calendar: Calendar = .current) -> Date {
+        let lastWeek = startOfWeek(now, calendar: calendar)
+        return calendar.date(
+            byAdding: .day, value: -daysPerWeek * (heatmapWeekCount - 1), to: lastWeek) ?? lastWeek
+    }
+
+    /// 热力图的格子：`heatmapWeekCount` 列 × `daysPerWeek` 行。
+    ///
+    /// 列升序（最早的一周 → 包含 `now` 的那一周）；每列的行从 `calendar.firstWeekday`
+    /// 起算。第 `[0][0]` 格就是 `heatmapStart`，同一列的第 `i` 行与第 `i+1` 行是相邻的自然日。
+    static func heatmapWeeks(containing now: Date, calendar: Calendar = .current) -> [[Date]] {
+        let first = heatmapStart(containing: now, calendar: calendar)
+        return (0..<heatmapWeekCount).map { column in
+            (0..<daysPerWeek).map { row in
+                calendar.date(byAdding: .day, value: column * daysPerWeek + row, to: first) ?? first
+            }
+        }
+    }
 }

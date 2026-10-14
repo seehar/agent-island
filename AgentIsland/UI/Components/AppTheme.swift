@@ -133,4 +133,17 @@ nonisolated enum ChartPalette {
     static let output = Color(red: 0.78, green: 0.62, blue: 0.98)
     static let cacheRead = Color(red: 0.36, green: 0.86, blue: 0.78)
     static let cacheWrite = Color(red: 1.00, green: 0.83, blue: 0.55)
+
+    /// 热力图的色阶（下标就是档位：0 = 没有用量，1…4 由浅到深）。
+    ///
+    /// 用 `total` 的同一支色相加深：热力图量的是每日总量，色阶与曲线图里「总量」那一路
+    /// 同源——同一页里深色的含义是同一个量。0 档取分段轨道的弱底色（那一档的意思是
+    /// 「这块没有数据」，不是「有一点数据」）。
+    static let heatmapLevels: [Color] = [
+        AppPalette.segmentedTrack,
+        total.opacity(0.30),
+        total.opacity(0.52),
+        total.opacity(0.76),
+        total,
+    ]
 }

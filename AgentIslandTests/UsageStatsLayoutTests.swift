@@ -134,6 +134,154 @@ struct UsageStatsLayoutTests {
     #expect(
       UsageStatsMetrics.trendCardHeight
         >= UsageStatsMetrics.chartPlotHeight + UsageStatsMetrics.chartXAxisHeight)
+    // 热力图也在同一张卡里，且它的块高占了卡片高的一段（不是白算的常量）。
+    #expect(
+      UsageStatsMetrics.trendCardHeight
+        >= UsageStatsMetrics.chartPlotHeight + UsageStatsMetrics.heatmapBlockHeight)
+  }
+
+  // MARK: - 热力图
+
+  @Test("热力图真实排版高度 == 解析式（网格 + 读数行），且网格高只由行数与间距决定")
+  @MainActor
+  func heatmapRendersAtItsAnalyticHeight() {
+    // 面板高度的解析式（`sectionHeight`）加的就是这两个常量：渲染对不上，面板高度就与
+    // 真实版面漂移。宽度不参与高度——格子只在高与间距上固定，宽由可用宽度等分。
+    let width = UsageStatsMetrics.contentWidth - 2 * NotchMenuMetrics.rowHorizontalPadding
+    let view = UsageHeatmap(days: [], now: Date(), calendar: .current).frame(width: width)
+    let measured = NSHostingView(rootView: view).fittingSize.height
+
+    let expected =
+      UsageStatsMetrics.heatmapGridHeight + UsageStatsMetrics.heatmapCaptionSpacing
+      + UsageStatsMetrics.heatmapCaptionHeight
+    #expect(measured == expected, "热力图实际排版 \(measured) ≠ 解析式 \(expected)")
+
+    let rows = CGFloat(UsageStatsCalendar.daysPerWeek)
+    #expect(
+      UsageStatsMetrics.heatmapGridHeight
+        == rows * UsageStatsMetrics.heatmapCellHeight
+        + (rows - 1) * UsageStatsMetrics.heatmapCellSpacing)
+    // 块高 = 发丝分隔线 + 上下内边距 + 网格 + 读数行：`sectionHeight` 的增量就是它。
+    #expect(
+      UsageStatsMetrics.heatmapBlockHeight
+        == 1 + 2 * UsageStatsMetrics.heatmapVerticalPadding + UsageStatsMetrics.heatmapGridHeight
+        + UsageStatsMetrics.heatmapCaptionSpacing + UsageStatsMetrics.heatmapCaptionHeight)
+    #expect(
+      UsageStatsMetrics.sectionHeight
+        == 577 + UsageStatsMetrics.heatmapBlockHeight
+        - CGFloat(12 - UsageStatsMetrics.toolListMax) * UsageStatsMetrics.toolRowHeight
+        - CGFloat(8 - UsageStatsMetrics.modelListMax) * UsageStatsMetrics.modelRowHeight,
+      "统计页的高度账变了：热力图块 + 两处榜单的长尾（工具榜 12 → 8、模型榜 8 → 6）")
+  }
+
+  @Test("热力图读数行（口径 + 图例）在两种面板宽度、两种语言下都排得下")
+  func heatmapCaptionFitsWidths() {
+    let panels: [(name: String, width: CGFloat)] = [
+      ("standard", NotchMenuMetrics.panelWidthMax),
+      ("compact", NotchMenuMetrics.panelWidthMax * PanelSize.compact.scale),
+    ]
+    for panel in panels {
+      // 读数行的可用宽：面板内容宽再减掉卡片自己的左右内边距（热力图在趋势卡里）。
+      let available =
+        NotchMenuMetrics.contentAreaWidth(inPanelWidth: panel.width)
+        - 2 * NotchMenuMetrics.rowHorizontalPadding
+      for code in ["en", "zh-Hans"] {
+        let bundle = LocalizationManager.bundle(for: code)
+        let caption = String(
+          format: bundle.localizedString(
+            forKey: "Tokens per day · last %lld weeks", value: nil, table: nil),
+          UsageStatsCalendar.heatmapWeekCount)
+        let less = bundle.localizedString(forKey: "Less", value: nil, table: nil)
+        let more = bundle.localizedString(forKey: "More", value: nil, table: nil)
+        // 读数行 = 口径文案 + 8pt 弹性下限 + 8pt 间距 + 「少」+ 5 个色阶格 + 「多」。
+        // 文案与「少 / 多」用 medium 量（实际是 regular）：判据因此是保守的。
+        let needed =
+          labelWidth(caption, size: 10) + 8
+          + labelWidth(less, size: 9) + 5 * UsageStatsMetrics.heatmapLegendSwatchSize + 6 * 4
+          + labelWidth(more, size: 9)
+        #expect(
+          needed <= available,
+          "\(panel.name) 档下 \(code) 的读数行要 \(needed)pt，可用 \(available)pt")
+      }
+    }
+  }
+
+  @Test("热力图：渲染出的格子与日期一一对应（行序 / 未来格 / 档位都对）")
+  @MainActor
+  func heatmapPixelsMatchGridGeometry() throws {
+    // 固定「今天」= 2026-09-18（周五）15:00，周一起算：末列是 09-14（周一）… 09-20（周日），
+    // 其中周六、周日是未来（不画）。唯一有量的一天是 09-16（周三 = 末列第 2 行）。
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .gmt
+    calendar.firstWeekday = 2
+    let now = try #require(
+      calendar.date(from: DateComponents(year: 2026, month: 9, day: 18, hour: 15)))
+    // 非零日只有一天（少于档位数）⇒ 按 `UsageHeatmapScale` 的口径它是**最深**那一档。
+    let days = [DayUsage(dayKey: "2026-09-16", total: 4_200_000)]
+
+    let width = UsageStatsMetrics.contentWidth - 2 * NotchMenuMetrics.rowHorizontalPadding
+    let raster = try #require(
+      renderedPixels(of: UsageHeatmap(days: days, now: now, calendar: calendar).frame(width: width))
+    )
+    let scale = 2.0
+    let columns = CGFloat(UsageStatsCalendar.heatmapWeekCount)
+    let cellWidth =
+      (width - (columns - 1) * UsageStatsMetrics.heatmapCellSpacing) / columns
+
+    /// 一格中心的像素坐标（位图第 0 行对应图像顶部）。
+    func center(column: Int, row: Int) -> (x: Int, y: Int) {
+      let x = (CGFloat(column) * (cellWidth + UsageStatsMetrics.heatmapCellSpacing) + cellWidth / 2)
+      let y =
+        (CGFloat(row)
+          * (UsageStatsMetrics.heatmapCellHeight + UsageStatsMetrics.heatmapCellSpacing)
+          + UsageStatsMetrics.heatmapCellHeight / 2)
+      return (Int((x * scale).rounded()), Int((y * scale).rounded()))
+    }
+    func alpha(_ x: Int, _ y: Int) -> Int { Int(raster.pixels[(y * raster.width + x) * 4 + 3]) }
+    func channels(_ x: Int, _ y: Int) -> (r: Int, g: Int, b: Int) {
+      let offset = (y * raster.width + x) * 4
+      return (
+        Int(raster.pixels[offset]), Int(raster.pixels[offset + 1]), Int(raster.pixels[offset + 2])
+      )
+    }
+
+    // 网格区里「不透明」的格子只该有一格（最深档 alpha = 255；空档是 0.09 叠白 ≈ 23，
+    // 未来格完全透明）。扫描只覆盖网格区，避开读数行里的图例色块。
+    let gridPixels = Int(UsageStatsMetrics.heatmapGridHeight * scale)
+    var bright: [(x: Int, y: Int)] = []
+    for y in 0..<min(gridPixels, raster.height) {
+      for x in 0..<raster.width where alpha(x, y) >= 230 {
+        bright.append((x, y))
+      }
+    }
+    #expect(!bright.isEmpty, "没有渲染出最深档的格子（像素阈值或色阶有问题）")
+
+    let minX = bright.map(\.x).min() ?? 0
+    let maxX = bright.map(\.x).max() ?? 0
+    let minY = bright.map(\.y).min() ?? 0
+    let maxY = bright.map(\.y).max() ?? 0
+    let expected = center(column: UsageStatsCalendar.heatmapWeekCount - 1, row: 2)
+
+    // 亮区的中心必须落在 09-16 那一格的几何位置上（±4px ≈ 2pt）：行列写反、整列错位、
+    // 日期与格子的对应算错，都会把它推到别处。
+    #expect(
+      abs(Double(minX + maxX) / 2 - Double(expected.x)) <= 4,
+      "亮格横向中心 \((minX + maxX) / 2) ≠ 预期 \(expected.x)")
+    #expect(
+      abs(Double(minY + maxY) / 2 - Double(expected.y)) <= 4,
+      "亮格纵向中心 \((minY + maxY) / 2) ≠ 预期 \(expected.y)")
+    // 亮区大小 ≈ 一格（14pt → 28px）：整列 / 整行变亮会让它明显更大。
+    #expect(abs(CGFloat(maxX - minX + 1) - cellWidth * scale) <= 4)
+    #expect(abs(CGFloat(maxY - minY + 1) - UsageStatsMetrics.heatmapCellHeight * scale) <= 4)
+    // 深色的色相来自「总量」那一路（浅蓝），不是随便一个高亮色。
+    let brightColor = channels(expected.x, expected.y)
+    #expect(brightColor.r > 120 && brightColor.g > 160 && brightColor.b > 220, "\(brightColor)")
+
+    // 同列的周一（09-14）没有用量 ⇒ 空档轨道（弱白底），周六 / 周日是未来 ⇒ 完全透明。
+    let track = alpha(center(column: 25, row: 0).x, center(column: 25, row: 0).y)
+    #expect(track >= 15 && track <= 40, "空档格 alpha = \(track)")
+    #expect(alpha(center(column: 25, row: 5).x, center(column: 25, row: 5).y) == 0)
+    #expect(alpha(center(column: 25, row: 6).x, center(column: 25, row: 6).y) == 0)
   }
 
   @Test("展开范围选择器后滚动视口仍留得下内容（不小于 200pt）")
@@ -311,6 +459,27 @@ struct UsageStatsLayoutTests {
       for x in 0..<width where hasInk(x, y) { return CGFloat(x) / 2 }
     }
     return 0
+  }
+
+  /// 离屏渲染一张位图，返回 premultiplied RGBA 像素与尺寸（2x，与 `leftMostInk` 同一口径）。
+  @MainActor
+  private func renderedPixels(
+    of view: some View, scale: CGFloat = 2
+  ) -> (pixels: [UInt8], width: Int, height: Int)? {
+    let renderer = ImageRenderer(content: view)
+    renderer.scale = scale
+    guard let image = renderer.cgImage else { return nil }
+    let width = image.width
+    let height = image.height
+    var pixels = [UInt8](repeating: 0, count: width * height * 4)
+    guard
+      let context = CGContext(
+        data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+    else { return nil }
+    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    return (pixels, width, height)
   }
 
   @Test("模型榜两列排得开、token 列容得下最长文案")

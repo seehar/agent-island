@@ -24,12 +24,14 @@ import CoreGraphics
 nonisolated enum UsageStatsMetrics {
     // MARK: - 版面
 
-    /// 统计页的内容高度（含脚注）。与面板的固定开销（42…76）相加后仍在读数面上限
-    /// `NotchMenuMetrics.maxDashboardHeight`（730）之内：76 + 635 = 711。
+    /// 统计页的内容高度（含脚注）。与面板的固定开销（36…76）相加后仍在读数面上限
+    /// `NotchMenuMetrics.maxDashboardHeight`（730）之内：76 +（58 + 574）= 708，余 22pt。
     /// 560 → 577 是因为脚注新增了「不计入的 Agent」那一行
     /// （`UsageStatsView.excludedAgentsNote`，文案压成一行、最窄档也排得下）。
     /// 一行 = 10pt 字体 + `footnoteLineSpacing`(5) + 行高余量（实测 17）。
-    static let sectionHeight: CGFloat = 577
+    /// 577 → 574：趋势卡里新增了每日热力图（+`heatmapBlockHeight` = 153），预算从两处榜单的
+    /// 长尾让出来——工具榜 12 → 8 行（−104）、模型榜 8 → 6 行（−52），合计 −156。
+    static let sectionHeight: CGFloat = 574
     /// 页面内容宽度（标准档）：面板宽预算减去卡片侧内边距与容器内边距
     /// （`NotchMenuMetrics.contentAreaWidth` = 448）。统计页是读数面、不显示侧栏，
     /// 拿到的就是这一份整宽；工具榜两列、芯片网格、月历与图例行都要在这个宽度内排下。
@@ -162,11 +164,12 @@ nonisolated enum UsageStatsMetrics {
     static let chartLegendHeight: CGFloat = 20
     static let chartLegendDotSize: CGFloat = 7
     static let chartLegendGap: CGFloat = 8
-    /// 趋势卡的总高（卡片内边距 + 图例 + 读数行 + 图 + 横轴行）：首屏要能整块看到，
+    /// 趋势卡的总高（卡片内边距 + 图例 + 读数行 + 图 + 横轴行 + 热力图块）：首屏要能整块看到，
     /// 不需要滚动就能读出形状（`UsageStatsLayoutTests` 钉住这条）。
     static var trendCardHeight: CGFloat {
         2 * 10 + chartLegendHeight + 6 + chartReadoutHeight + 6 + chartPlotHeight + 4
             + chartXAxisHeight
+            + heatmapBlockHeight
     }
 
     /// y 轴刻度栏宽度：按最长的那条刻度文案量出来的宽度加上留白，夹在上下限之间。
@@ -178,10 +181,42 @@ nonisolated enum UsageStatsMetrics {
             chartYAxisMaximumWidth)
     }
 
+    // MARK: - 热力图（趋势卡里的每日热力图）
+
+    /// 一格的**高**。格宽由可用宽度等分——标准档下约 14.4pt（与高几乎相等），紧凑档下
+    /// 随面板收窄（约 10.9pt）；行的走向不变、整块高度也不随面板宽度变，网格高度因此能
+    /// 直接进面板高度的解析式（见 `sectionHeight` 的账）。
+    static let heatmapCellHeight: CGFloat = 14
+    /// 格间距（行、列同一个）。
+    static let heatmapCellSpacing: CGFloat = 2
+    /// 格子的圆角。
+    static let heatmapCellRadius: CGFloat = 3
+    /// 网格高度 = 7 行格子 + 6 个行间距（`UsageStatsCalendar.daysPerWeek` 与列里放几天同源）。
+    static var heatmapGridHeight: CGFloat {
+        CGFloat(UsageStatsCalendar.daysPerWeek) * heatmapCellHeight
+            + CGFloat(UsageStatsCalendar.daysPerWeek - 1) * heatmapCellSpacing
+    }
+    /// 图例里色阶小方块的边长与圆角（比格子小一档）。
+    static let heatmapLegendSwatchSize: CGFloat = 8
+    static let heatmapLegendSwatchRadius: CGFloat = 2
+    /// 网格与读数行之间的间距、读数行的高度。
+    static let heatmapCaptionSpacing: CGFloat = 8
+    static let heatmapCaptionHeight: CGFloat = 14
+    /// 热力图块自己的上下内边距。
+    static let heatmapVerticalPadding: CGFloat = 10
+    /// 热力图块在趋势卡里**新增**的高度：发丝分隔线 + 上下内边距 + 网格 + 读数行。
+    /// `sectionHeight` 的增量就是它——两处要一起改（账记在 `sectionHeight` 上）。
+    static var heatmapBlockHeight: CGFloat {
+        1 + 2 * heatmapVerticalPadding + heatmapGridHeight + heatmapCaptionSpacing
+            + heatmapCaptionHeight
+    }
+
     // MARK: - 工具榜
 
     /// 工具榜最多显示的行数（数据层给全量降序表，截断在视图里）。
-    static let toolListMax = 12
+    /// 12 → 8：热力图占的高度从长尾让——第 9–12 行合计只占全部调用的 5.6%
+    /// （本机实测：223 个工具名、77 万次调用）。
+    static let toolListMax = 8
     /// 工具名与调用次数两列的宽度：固定后各行的占比条才会对齐。
     static let toolNameWidth: CGFloat = 108
     static let toolCountWidth: CGFloat = 56
@@ -191,7 +226,9 @@ nonisolated enum UsageStatsMetrics {
     // MARK: - 模型榜
 
     /// 模型榜最多显示的行数（数据层给全量降序表，截断在视图里）。
-    static let modelListMax = 8
+    /// 8 → 6：与工具榜一起给热力图腾 `sectionHeight` 的预算；前 6 个模型占全部用量的
+    /// 92%（本机实测：102 个模型名），再往下列都是零头。
+    static let modelListMax = 6
     /// 模型名与 token 两列的宽度：固定后各行的占比条才会对齐。
     static let modelNameWidth: CGFloat = 176
     /// token 列宽：缩写值最长 9 字符（`10000.00亿` / `1000.00B`）在 11pt 等宽下实测

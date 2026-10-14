@@ -484,7 +484,36 @@ nonisolated final class UsageStatsStore {
       }.compactMap { $0 }
 
     snapshot.trend = try trend(window: window, filter: filter, calendar: calendar, now: now)
+    // 热力图：近半年的每日总量。区间是**固定窗口**（与视图的格子同源，见
+    // `UsageStatsCalendar.heatmapStart`），不跟着 `window` 走——同一次查询里
+    // 两种窗口并存是有意的：上面几段回答「选定的范围里用了多少」，热力图回答
+    // 「最近半年的节律」。
+    snapshot.daily = try dailyTotals(
+      since: UsageStatsCalendar.heatmapStart(containing: now, calendar: calendar),
+      calendar: calendar)
     return snapshot
+  }
+
+  /// 热力图用：`since`（含）起每个本地自然日的总量，升序、只含有用量的日子。
+  ///
+  /// 口径与总览卡 / 曲线图一致（四路 token 之和，含缓存）：热力图的深浅与它们说的是
+  /// 同一个量。`hour_key` 是零填充的 `yyyy-MM-dd'T'HH` 键，传给 `hour_key >= ?` 的
+  /// 日键（10 字符）因此天然把当天零点及之后的所有小时都圈进来——字符串比较即时间比较。
+  private func dailyTotals(since: Date, calendar: Calendar) throws -> [DayUsage] {
+    let startKey = UsageStatsKey.bucket(for: since, granularity: .day, calendar: calendar)
+    return try query(
+      """
+      SELECT substr(hour_key, 1, 10) AS day,
+             COALESCE(SUM(input + output + cache_read + cache_write), 0)
+      FROM usage_bucket
+      WHERE hour_key >= ?
+      GROUP BY day ORDER BY day;
+      """,
+      values: [.text(startKey)]
+    ) { statement in
+      guard let key = self.text(statement, 0) else { return nil }
+      return DayUsage(dayKey: key, total: Int(sqlite3_column_int64(statement, 1)))
+    }.compactMap { $0 }
   }
 
   /// 趋势桶：粒度与首尾桶都取自 `StatsWindow.trendPlan`（与视图的横轴、桶数同源），

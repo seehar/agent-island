@@ -191,6 +191,7 @@ struct UsageStatsIndexerTests {
     totals=\(snapshot.totals) agents=\(snapshot.agents.map { "\($0.agent.rawValue):\($0.totals)" })
     models=\(snapshot.models.map { "\($0.name):\($0.totals)" })
     tools=\(snapshot.tools) trend=\(snapshot.trend.map { $0.total })
+    daily=\(snapshot.daily.map { "\($0.dayKey):\($0.total)" })
     """
   }
 
@@ -230,6 +231,35 @@ struct UsageStatsIndexerTests {
     #expect(all.totals.input == 161 + 1000)
     #expect(all.totals.sessions == 3)
     #expect(all.tools.first?.name == "grep" || all.tools.contains { $0.name == "grep" })
+  }
+
+  @Test("热力图：每日总量按本地自然日聚合；26 周之前的日子不进 daily，但仍在总量里")
+  func dailyTotalsFollowLocalDays() throws {
+    let root = try tempRoot()
+    let store = try makeStore(in: root)
+    let longAgo = calendar.date(byAdding: .day, value: -200, to: todayBase) ?? todayBase
+
+    // 今天与 200 天前各一条记录（各占一个新会话文件）：200 天在 26 周（182 天）之外。
+    try write(
+      piLine(date: todayBase, input: 100, output: 10, cacheRead: 5, cacheWrite: 1, tools: ["bash"])
+        + "\n",
+      to: root.appendingPathComponent("omp/-work-demo/2026-01-01T00-00-00-000Z_hx000001.jsonl"))
+    try write(
+      piLine(date: longAgo, input: 1000, output: 100, cacheRead: 0, cacheWrite: 0, tools: ["bash"])
+        + "\n",
+      to: root.appendingPathComponent("omp/-work-demo/2026-01-01T00-00-00-000Z_hx000002.jsonl"))
+    pass(store).ingest(sources: sources(root: root))
+
+    let snapshot = try store.snapshot(
+      window: .preset(.all), calendar: calendar, now: Date(), isIndexing: false)
+
+    // 只含有用量的自然日：今天那条（100+10+5+1）；窗口起点由 26 周那一块决定，
+    // 200 天前的那条不会被它圈进来。
+    let todayKey = UsageStatsKey.bucket(for: todayBase, granularity: .day, calendar: calendar)
+    #expect(snapshot.daily == [DayUsage(dayKey: todayKey, total: 116)])
+    // 但「全部」的总量照旧含它——热力图的窗口窄，别把它当成用量丢了。
+    #expect(snapshot.totals.input == 1100)
+    #expect(snapshot.totals.total == 1100 + 116)
   }
 
   @Test("滚动窗口：近一天 / 近一周 / 近一月按整桶截断，老记录只进更长的窗口")

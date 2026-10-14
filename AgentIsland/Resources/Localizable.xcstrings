@@ -5346,6 +5346,74 @@
         }
       }
     },
+    "Less" : {
+      "comment" : "统计页热力图的图例：色阶的浅端（起点）。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Less"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "少"
+          }
+        }
+      }
+    },
+    "More" : {
+      "comment" : "统计页热力图的图例：色阶的深端（终点）。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "多"
+          }
+        }
+      }
+    },
+    "Tokens per day · last %lld weeks" : {
+      "comment" : "统计页热力图的读数行：%lld 是周数——说清热力图量的是什么、窗口是固定近半年。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tokens per day · last %lld weeks"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每日 token · 近 %lld 周"
+          }
+        }
+      }
+    },
+    "%@ · %@ tokens" : {
+      "comment" : "统计页热力图一格的悬停读数：第一个 %@ 是日期、第二个 %@ 是当日总量。",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %@ tokens"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %@ token"
+          }
+        }
+      }
+    },
     "Trend" : {
       "localizations" : {
         "en" : {
