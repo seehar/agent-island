@@ -410,13 +410,18 @@ struct UsageHeatmapHoverCard: View {
         }
         .padding(UsageStatsMetrics.heatmapHoverCardPadding)
         .frame(width: UsageStatsMetrics.heatmapHoverCardWidth, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: AppRadius.row, style: .continuous)
-                .fill(AppPalette.panelFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppRadius.row, style: .continuous)
-                        .strokeBorder(AppPalette.cardStroke, lineWidth: 0.5))
+        // 玻璃质感抄面板自己的那一份实现（`NotchPanelSurface`：macOS 26+ 走 Liquid Glass、
+        // 更早走 `Material`，上面再叠压暗罩）——浮卡要压得住底下的格网、两行读数要看得清。
+        .notchPanelSurface(
+            shape: RoundedRectangle(cornerRadius: AppRadius.row, style: .continuous),
+            scrim: NotchSurfaceScrim.floating,
+            tint: NotchSurfaceScrim.floatingTint
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppRadius.row, style: .continuous)
+                .strokeBorder(AppPalette.cardStroke, lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.45), radius: 8, y: 3)
     }
 
     /// 标题：日期 + 星期（顺序与写法由语言的日期格式决定）。
