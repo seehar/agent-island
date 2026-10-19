@@ -202,13 +202,25 @@ struct QuotaAlertWiringTests {
         }
     }
 
-    /// 一个账号：账户余额 987,655 内部单位，Key 额度 999,000 内部单位。
+    /// 一个账号：账户余额 987,655 内部单位（实例口径 500,000/单位 ⇒ **$1.98**），
+    /// Key 额度 999,000 内部单位（⇒ **$2.00**）。
     ///
-    /// 桩的 `/api/status` 虽然回了「按美元显示」，但**这一轮的读数里没有它**——显示口径是在
-    /// 刷新收尾时抄进读数的，而这条用例是手动调 `refresh()` 后立刻判的，因此读数上还是
-    /// `NewAPICurrency()`（「按内部单位显示」）。用例因此按内部单位断言：这正是用户界面上
-    /// 也没拿到口径时的行为（阈值 5 ⇒ 两个槽都在其下；阈值 1 ⇒ Key 槽在其上）。
+    /// 阈值 5 ⇒ 两个槽都在其下（账户槽优先报出）；阈值 1 ⇒ 两个槽都在其上。
+    /// 阈值按**显示口径**比：这正是「用户在额度页上看到 $1.98，于是把阈值设成 5」的场景。
     private func makeModel(defaults: UserDefaults) throws -> NewAPIBalanceViewModel {
+        try makeModelBody(
+            accounts: [
+                NewAPIAccount(
+                    label: "a",
+                    config: NewAPIConfig(
+                        serverURL: "https://a.example.com", apiKey: "sk-a", accessToken: "tok"))
+            ], defaults: defaults)
+    }
+
+    /// 桩响应表 + 账号列表 → 视图模型（`makeModel` / `makeTwoAccountModel` 共用）。
+    private func makeModelBody(
+        accounts: [NewAPIAccount], defaults: UserDefaults
+    ) throws -> NewAPIBalanceViewModel {
         NewAPIAlertStub.set([
             "/api/user/self": (
                 status: 200,
@@ -226,11 +238,9 @@ struct QuotaAlertWiringTests {
                     #"{"success":true,"message":"","data":{"version":"v9.9.9","display_in_currency":true,"quota_display_type":"USD","quota_per_unit":500000,"usd_exchange_rate":1}}"#
             ),
         ])
-        let account = NewAPIAccount(
-            label: "a",
-            config: NewAPIConfig(
-                serverURL: "https://a.example.com", apiKey: "sk-a", accessToken: "tok"))
-        AppSettings.setNewAPIAccounts([account], defaults: defaults)
+        AppSettings.setNewAPIAccounts(accounts, defaults: defaults)
+        // 站点口径（桩的 `/api/status` 回的「按美元显示、500,000/单位」）随**每一轮刷新**抄进
+        // 读数，因此 `refresh()` 之后读到的就是页面上的那个量（$1.98），不是内部单位。
         return NewAPIBalanceViewModel(
             client: NewAPIBalanceClient(session: NewAPIAlertStub.session()), defaults: defaults)
     }
@@ -247,14 +257,18 @@ struct QuotaAlertWiringTests {
         model.evaluateAlerts()
         #expect(model.mutedAlert == nil)
 
-        // 阈值 5 ⇒ 账户余额 987,655 跌破（这一轮的读数没有显示口径，因此按内部单位判，
-        // 见 `makeModel` 的注释）；账户槽优先于 Key 的 999,000。
+        // 阈值 5 ⇒ 账户 $1.98 跌破（账户槽优先于 Key 的 $2.00）。
         PreferenceStore.write(QuotaAlertThreshold.five, defaults: defaults)
         model.evaluateAlerts()
         #expect(model.mutedAlert?.slot == .account)
         #expect(model.mutedAlert?.threshold == 5)
         #expect(model.mutedAlert?.accountName == "a")
-        #expect(model.mutedAlert?.available == 987_655)
+        // 提醒里带的数字与页面上印的是同一个量（显示口径），不是内部额度单位。
+        let reading = model.reading(for: model.selectedAccount)
+        let shown = NewAPIBalanceFormat.displayedValue(
+            reading.account.lastValue?.available ?? 0, currency: reading.siteCurrency)
+        #expect(shown < 5)
+        #expect(abs((model.mutedAlert?.available ?? -1) - shown) < 0.0001)
 
         // 再判一遍（余额还低着）：不重复提醒（`mutedAlert` 停在第一次那一条）。
         model.evaluateAlerts()
@@ -298,27 +312,147 @@ struct QuotaAlertWiringTests {
         #expect(model.mutedAlert?.threshold == 5)
     }
 
-    @Test("阈值关掉后不再联网：轮询是空操作，判据也不判")
+    @Test("阈值关掉后不再联网：轮询与判据都按同一个门（关档 = 一个请求都不发）")
     func pollingStopsWhenThresholdIsOff() throws {
         let defaults = try isolatedDefaults()
-        _ = try makeModel(defaults: defaults)
+        let model = try makeModel(defaults: defaults)
 
-        // 阈值关着：起轮询是空操作（`alertPollTask` 不会建立）。
-        let off = NewAPIBalanceViewModel(
-            client: NewAPIBalanceClient(session: NewAPIAlertStub.session()), defaults: defaults)
-        off.startAlertPolling()  // 关着 ⇒ guard 里直接返回
-        // 开着阈值时才是真的起轮询：这里只钉「关闭档不建任务」这一条（节奏本身由常量给出，
-        // 真机验收见 `scripts/gate.sh` 之外的实机观察）。
-        off.stopAlertPolling()
+        // 关档：起轮询是空操作（视图模型里 `startAlertPolling()` 的第一道门就是
+        // `isAlertPollingActive`），判据也不判。
         #expect(QuotaAlertPreference.value(defaults: defaults) == nil)
+        model.startAlertPolling()
+        model.stopAlertPolling()
 
-        // 打开阈值后再起：这一次轮询会建起来；关掉之后停得掉。
+        // 开档：门开了。**真的起没起任务**测不了（测试宿主里 `AppEnvironment.isRunningTests`
+        // 会让它直接返回，这是有意的：用例不该在后台打网络），因此这条由实机验收兜：
+        // 设置里当场选档 → 应用不重启也照常在几秒内取数并弹提醒（见提交说明里的实机记录）。
         PreferenceStore.write(QuotaAlertThreshold.five, defaults: defaults)
-        let on = NewAPIBalanceViewModel(
-            client: NewAPIBalanceClient(session: NewAPIAlertStub.session()), defaults: defaults)
-        on.startAlertPolling()
-        on.stopAlertPolling()
         #expect(QuotaAlertPreference.value(defaults: defaults) == 5)
+        model.startAlertPolling()
+        model.stopAlertPolling()
+
+        // 再关掉：门又关上（设置里改回关闭档 ⇒ 视图层会调 `stopAlertPolling()`）。
+        PreferenceStore.write(QuotaAlertThreshold.off, defaults: defaults)
+        #expect(QuotaAlertPreference.value(defaults: defaults) == nil)
+        model.stopAlertPolling()
+    }
+
+    /// 两个账号（各自的桩响应一样：账户 $1.98、Key $2.00）。
+    private func makeTwoAccountModel(defaults: UserDefaults) throws -> NewAPIBalanceViewModel {
+        try makeModelBody(accounts: [
+            NewAPIAccount(
+                label: "a",
+                config: NewAPIConfig(
+                    serverURL: "https://a.example.com", apiKey: "sk-a", accessToken: "tok")),
+            NewAPIAccount(
+                label: "b",
+                config: NewAPIConfig(
+                    serverURL: "https://b.example.com", apiKey: "sk-b", accessToken: "tok")),
+        ], defaults: defaults)
+    }
+
+    @Test("多个账号同轮跌破：一轮只弹一条（列表顺序即优先级），另一条在后续轮次补上")
+    func announcesOneAccountPerRound() async throws {
+        let defaults = try isolatedDefaults()
+        PreferenceStore.write(QuotaAlertThreshold.five, defaults: defaults)
+        let model = try makeTwoAccountModel(defaults: defaults)
+        model.refresh()
+        await waitUntilRefreshed(model)
+
+        // `refresh()` 收尾会排一拍判据（`Task { @MainActor in evaluateAlerts() }`），那一拍
+        // 什么时候跑不确定：它先跑就报了第一个账号。因此这里不猜「第一次是谁发的」，
+        // 而是把 `mutedAlert` **每次变出来的那一条**记下来（相邻重复不算新提醒——一直低着
+        // 时它会停在上一条上，这正是「不重复报」）。
+        var announced: [String] = []
+        func record() {
+            guard let name = model.mutedAlert?.accountName else { return }
+            if announced.last != name { announced.append(name) }
+        }
+        record()
+        // 判几轮：两个账号的两条降沿都该被报出来（第二条没被第一条吃掉）。
+        for _ in 0..<4 {
+            model.evaluateAlerts()
+            record()
+        }
+        #expect(announced.count == 2)
+        #expect(Set(announced) == Set(["a", "b"]))
+
+        // 两条都记过账了：再判不再换人（也不重复报同一个）。
+        let settled = model.mutedAlert?.accountName
+        model.evaluateAlerts()
+        model.evaluateAlerts()
+        #expect(model.mutedAlert?.accountName == settled)
+    }
+
+    @Test("两个槽交错：一个槽回升、另一个槽在低位，原来的槽再跌破时仍然会响")
+    func slotsRecoverIndependently() async throws {
+        let defaults = try isolatedDefaults()
+        let model = try makeModel(defaults: defaults)
+        PreferenceStore.write(QuotaAlertThreshold.five, defaults: defaults)
+
+        model.refresh()
+        await waitUntilRefreshed(model)
+        #expect(model.mutedAlert?.slot == .account)
+
+        // 账户充钱（$40）、Key 仍在低位（$2）：报出的是 Key 槽，账户槽应被复位。
+        NewAPIAlertStub.set([
+            "/api/user/self": (
+                status: 200,
+                body:
+                    #"{"success":true,"message":"","data":{"quota":20000000,"used_quota":1,"display_name":"t","id":7,"group":"default","request_count":9}}"#
+            )
+        ])
+        model.refresh()
+        await waitUntilRefreshed(model)
+        model.evaluateAlerts()
+        #expect(model.mutedAlert?.slot == .key)
+
+        // Key 换新（$40）、账户又花光（$1.98）：账户槽是**新的**一次下跌，照常报出。
+        NewAPIAlertStub.set([
+            "/api/user/self": (
+                status: 200,
+                body:
+                    #"{"success":true,"message":"","data":{"quota":987655,"used_quota":1,"display_name":"t","id":7,"group":"default","request_count":9}}"#
+            ),
+            "/api/usage/token/": (
+                status: 200,
+                body:
+                    #"{"success":true,"message":"ok","data":{"total_granted":20000000,"total_used":1,"total_available":20000000,"unlimited_quota":false}}"#
+            ),
+        ])
+        model.refresh()
+        await waitUntilRefreshed(model)
+        model.evaluateAlerts()
+        #expect(model.mutedAlert?.slot == .account)
+    }
+
+    @Test("清空凭据：那条提醒跟着消失，填回来又是「首见」——不会顶着陈旧的降沿标记")
+    func clearingCredentialsDropsTheAlert() async throws {
+        let defaults = try isolatedDefaults()
+        let model = try makeModel(defaults: defaults)
+        PreferenceStore.write(QuotaAlertThreshold.five, defaults: defaults)
+
+        model.refresh()
+        await waitUntilRefreshed(model)
+        model.evaluateAlerts()
+        #expect(model.mutedAlert?.slot == .account)
+
+        // 用户把地址 / Key 清掉：能查的账号一个都没有，`refresh()` 走「不可用快照」的早退分支。
+        // 那一支也必须判一遍——否则这条提醒会一直挂着，而它描述的读数已经取不到了。
+        model.setField(.apiKey, to: "")
+        model.setField(.accessToken, to: "")
+        model.commitConfig()
+        await waitUntilRefreshed(model)
+        #expect(model.mutedAlert == nil)
+
+        // 再填回去（余额仍然低）：这是新一轮「首见」，照常提醒一次。
+        // （`refresh()` 收尾会再排一拍判据；判据本身幂等，这里显式判一次就不用赌那一拍的时序。）
+        model.setField(.apiKey, to: "sk-a")
+        model.setField(.accessToken, to: "tok")
+        model.commitConfig()
+        await waitUntilRefreshed(model)
+        model.evaluateAlerts()
+        #expect(model.mutedAlert?.slot == .account)
     }
 
     @Test("阈值档位表：关闭档在首位（默认），其余是 1 / 5 / 10 / 20 / 50")
