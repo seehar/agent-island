@@ -564,3 +564,48 @@ typealias RefreshCadenceSelector = EnumPreference<RefreshCadence>
 typealias NotificationScopeSelector = EnumPreference<NotificationScope>
 typealias QuietHoursSelector = EnumPreference<QuietHours>
 typealias SessionRowClickActionSelector = EnumPreference<SessionRowClickAction>
+typealias QuotaAlertThresholdSelector = EnumPreference<QuotaAlertThreshold>
+
+// MARK: - 额度提醒阈值
+
+/// 余额低于多少时提醒，以及怎么提醒。
+///
+/// 阈值是**显示口径的数字**——就是额度页上那个数（`NewAPIBalanceFormat.display` 印出来的
+/// 那个量：站点把额度显示成钱时是钱、`quota_per_unit` 换算之后的值，否则是内部额度）。
+/// 这样用户设的「5」与他在列表里看到的「$5.32」是同一个量，不必心算站点那套换算；代价是
+/// 同一个阈值在两个显示口径不同的实例上含义不同（见 `NewAPIBalanceFormat.displayedValue`）。
+///
+/// 档位是预设而不是滑杆：设置面板的行高与展开块高度都是解析式算出来的（见 `NotchMenuMetrics`），
+/// 连续值控件只在通知音量那一处（那行有自己的排版）。
+nonisolated enum QuotaAlertThreshold: String, CaseIterable, PreferenceOption {
+    /// 关闭：不提醒（也不做任何额度轮询）。
+    case off
+    case one
+    case five
+    case ten
+    case twenty
+    case fifty
+
+    static let preferenceKey = "quotaAlertThreshold"
+    static var defaultValue: QuotaAlertThreshold { .off }
+
+    /// 阈值（显示口径的数字）；关闭档为 nil。
+    var value: Double? {
+        switch self {
+        case .off: return nil
+        case .one: return 1
+        case .five: return 5
+        case .ten: return 10
+        case .twenty: return 20
+        case .fifty: return 50
+        }
+    }
+}
+
+/// 判断侧要的阈值数值（`nonisolated`：后台轮询里读偏好域）。
+nonisolated enum QuotaAlertPreference {
+    /// 当前阈值（显示口径的数字）；关闭档为 nil。
+    static func value(defaults: UserDefaults = .standard) -> Double? {
+        PreferenceStore.read(QuotaAlertThreshold.self, defaults: defaults).value
+    }
+}

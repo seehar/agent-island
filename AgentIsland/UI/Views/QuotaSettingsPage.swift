@@ -15,6 +15,10 @@
 //
 //  应用不轮询：进页触一次（30 秒节流）+ 手动刷新，页眉的时间戳就是读数的新鲜度。
 //
+//  余额提醒（`QuotaAlertThreshold`）在这一页上有两处可见：低于阈值的主读数改用警示色 +
+//  一枚警示形状（见 `QuotaLowBalanceHighlight`），以及详情卡脚注里写明「低于多少会提醒」
+//  ——阈值就是用户在这里读到的那个量，不该只存在于通知页的一行档位里。
+//
 
 import SwiftUI
 
@@ -22,6 +26,8 @@ import SwiftUI
 struct QuotaSettingsPage: View {
     @ObservedObject var viewModel: NewAPIBalanceViewModel
     @ObservedObject private var pageState = NewAPIAccountPageState.shared
+    /// 阈值档：这一页的高亮与脚注都跟着它变（在通知页改了档，切回来要立刻是高亮后的样子）。
+    @ObservedObject private var alertThreshold = QuotaAlertThresholdSelector.shared
     @ObservedObject private var l10n = LocalizationManager.shared
 
     /// 「减少动态效果」系统偏好：凭据表单的展开动画据此换成不动的版本（见 `AppMotion`）。
@@ -82,6 +88,7 @@ struct QuotaSettingsPage: View {
                             account: account,
                             index: index(of: account),
                             reading: viewModel.reading(for: account),
+                            highlight: highlight(for: account),
                             isSelected: account.id == viewModel.selectedAccountID,
                             canRemove: viewModel.canRemoveSelectedAccount,
                             isInteractive: !pageState.isEditingCredentials,
@@ -125,9 +132,7 @@ struct QuotaSettingsPage: View {
     private var detailGroup: some View {
         SettingsGroup(
             title: detailTitle,
-            footnote: l10n.t(
-                "Amounts follow the instance's own currency setting; credentials are kept in this app's preferences."
-            )
+            footnote: detailFootnote
         ) {
             if pageState.isEditingCredentials {
                 credentialsForm
@@ -162,7 +167,9 @@ struct QuotaSettingsPage: View {
                     .font(.system(size: AppTypeScale.footnote))
                     .monospacedDigit()
                     .lineLimit(1)
-                    .foregroundColor(AppPalette.tertiaryText)
+                    .foregroundColor(
+                        highlight.slot == .account
+                            ? AppPalette.warning : AppPalette.tertiaryText)
             }
         }
         .frame(height: NotchMenuMetrics.twoLineRowHeight)
@@ -214,7 +221,7 @@ struct QuotaSettingsPage: View {
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                    .foregroundColor(AppPalette.primaryText)
+                    .foregroundColor(keyValueColor)
 
                 if let ratio = keyProgressRatio {
                     QuotaProgressBar(ratio: ratio)
@@ -230,6 +237,11 @@ struct QuotaSettingsPage: View {
         if reading.token?.unlimited == true { return l10n.t("Unlimited") }
         return QuotaReadingSelection.value(
             reading.key, currency: reading.siteCurrency, locale: locale, l10n: l10n)
+    }
+
+    /// 密钥额度那一行见底时，读数改用警示色（与账号行同一条判据）。
+    private var keyValueColor: Color {
+        highlight.slot == .key ? AppPalette.warning : AppPalette.primaryText
     }
 
     private var keySubtitle: String {
@@ -392,6 +404,33 @@ struct QuotaSettingsPage: View {
 
     /// 选中账号的读数。
     private var reading: NewAPIAccountReading { viewModel.selectedReading }
+
+    /// 选中账号的低额高亮（账号行与详情行共用同一份判据，见 `QuotaLowBalanceHighlight`）。
+    private var highlight: QuotaLowBalanceHighlight {
+        highlight(for: viewModel.selectedAccount)
+    }
+
+    /// 某个账号的低额高亮：判据只有 `QuotaAlertPolicy` 一处（列表行与详情卡因此不会说两套）。
+    private func highlight(for account: NewAPIAccount) -> QuotaLowBalanceHighlight {
+        QuotaLowBalanceHighlight(
+            threshold: alertThreshold.option.value, reading: viewModel.reading(for: account))
+    }
+
+    /// 详情卡的脚注：金额口径那句之外，阈值开着时再写一句「低于多少会提醒」。
+    ///
+    /// 两句话可能都不短且脚注只排一行（超长会被截断），因此阈值档的那句**优先**：
+    /// 金额口径是常驻说明（用户读过一次就知道），而「现在会不会提醒、按多少算」是
+    /// 打开这一页最想确认的事。
+    private var detailFootnote: String {
+        guard let value = alertThreshold.option.value else {
+            return l10n.t(
+                "Amounts follow the instance's own currency setting; credentials are kept in this app's preferences."
+            )
+        }
+        return l10n.t(
+            "Alerts below %@; amounts follow the instance's own currency setting.",
+            NewAPIBalanceFormat.money(value, locale: locale))
+    }
 }
 
 // MARK: - 页眉控件

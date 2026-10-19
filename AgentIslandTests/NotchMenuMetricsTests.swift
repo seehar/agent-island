@@ -353,7 +353,7 @@ struct NotchMenuMetricsTests {
                 + CGFloat(NotchMenuMetrics.visibleAgentRows) * NotchMenuMetrics.twoLineRowHeight)
     }
 
-    @Test("行为分组：刘海 3 行、会话 4 行 + 2 个开关；通知另成一页 5 行")
+    @Test("行为分组：刘海 3 行、会话 4 行 + 2 个开关；通知另成一页 6 行")
     func behaviorSectionRowsMatchRegroupedPages() {
         let behavior = NotchMenuMetrics.blocks(for: .behavior)
         // 完成提示/音效/提示范围搬去通知页，会话组补上两个两行开关；
@@ -369,7 +369,8 @@ struct NotchMenuMetricsTests {
             "会话组：四个选择行 + 子代理明细 / 隐藏闲置两个两行开关")
 
         let notifications = NotchMenuMetrics.blocks(for: .notifications)
-        #expect(notifications.map(\.rows.count) == [5])
+        // 通知页以「余额提醒阈值」收尾（扫的是用户自己那台 New API 的余额，档位在偏好域里）。
+        #expect(notifications.map(\.rows.count) == [6])
         #expect(notifications[0].rows.allSatisfy { $0 == NotchMenuMetrics.rowHeight })
     }
 

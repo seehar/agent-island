@@ -439,7 +439,22 @@ struct NotificationsSettingsPage: View {
                         source: .symbol(name: "checkmark.circle", tint: AppPalette.accent)),
                     title: l10n.t("Completion Badge"),
                     selector: CompletionBadgeSelector.shared,
-                    label: completionBadgeLabel,
+                    label: completionBadgeLabel
+                )
+
+                // 余额提醒：这是应用里**唯一一条「页面没开着也联网」**的路径（后台慢轮询，
+                // 见 `NewAPIBalanceViewModel` 头注释），因此阈值档就是它的开关——「关闭」
+                // 档不设阈值、一个请求都不发。判据在 `QuotaAlertPolicy`。
+                PreferencePickerRow(
+                    badge: SettingsBadge(
+                        source: .symbol(
+                            name: "exclamationmark.triangle", tint: AppPalette.warning)),
+                    title: l10n.t("Low Balance Alert"),
+                    selector: QuotaAlertThresholdSelector.shared,
+                    label: quotaAlertLabel,
+                    helpText: l10n.t(
+                        "Checks your New API balances in the background and pops the notch up once when an account drops below this. A balance that stays low is not repeated; it alerts again after it recovers and drops again. Amounts follow each instance's own display setting; nothing is fetched while this is off."
+                    ),
                     showsSeparator: false
                 )
             }
@@ -470,6 +485,13 @@ struct NotificationsSettingsPage: View {
         case .readyOnly: return l10n.t("Ready Only")
         case .readyAndApprovals: return l10n.t("Ready and Approvals")
         }
+    }
+
+    /// 阈值档文案：关闭档给文字，其余档写「低于多少」（数字按环境 locale 渲染，
+    /// 与额度页上的同一个数量——见 `QuotaAlertThreshold`）。
+    private func quotaAlertLabel(_ option: QuotaAlertThreshold) -> String {
+        guard let value = option.value else { return l10n.t("Off") }
+        return l10n.t("Below %@", NewAPIBalanceFormat.money(value, locale: locale))
     }
 
     private func completionBadgeLabel(_ option: CompletionBadge) -> String {

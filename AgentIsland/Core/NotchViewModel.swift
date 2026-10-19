@@ -308,11 +308,12 @@ class NotchViewModel: ObservableObject {
                 RefreshCadenceSelector.shared.expandedPickerHeight,
             ].reduce(0, +)
         case .notifications:
-            // 通知：音效列表（点选即听）/ 安静时段 / 提示范围 / 完成提示。
+            // 通知：音效列表（点选即听）/ 安静时段 / 提示范围 / 完成提示 / 余额提醒阈值。
             return SoundSelector.shared.expandedPickerHeight
                 + QuietHoursSelector.shared.expandedPickerHeight
                 + NotificationScopeSelector.shared.expandedPickerHeight
                 + CompletionBadgeSelector.shared.expandedPickerHeight
+                + QuotaAlertThresholdSelector.shared.expandedPickerHeight
         case .agents:
             // 智能体页可展开的有：三个保护档位（问什么 / 应用未运行时 / 有待处理请求时自动展开）
             // 与 **某个 Agent 行内的目录编辑器**（同一时刻只开一个，展开高度是单份的）。
@@ -402,6 +403,7 @@ class NotchViewModel: ObservableObject {
         observeSizeAffecting(QuietHoursSelector.shared)
         observeSizeAffecting(NotificationScopeSelector.shared)
         observeSizeAffecting(CompletionBadgeSelector.shared)
+        observeSizeAffecting(QuotaAlertThresholdSelector.shared)
         observeSizeAffecting(ApprovalAskScopeSelector.shared)
         observeSizeAffecting(ApprovalDegradationSelector.shared)
         observeSizeAffecting(ApprovalAutoExpandSelector.shared)
@@ -667,6 +669,16 @@ class NotchViewModel: ObservableObject {
             contentType = .menu
             menuSection = .statistics
         }
+    }
+
+    /// 直接打开额度页（余额提醒弹出的落点，见 `NotchView.handleBalanceAlert`）。
+    ///
+    /// 与 `toggleQuota()` 分开：那个是「按钮的语义」（在额度页就退回会话列表），而提醒要的
+    /// 是**无条件落到额度页**——面板已经开着别的页时，提醒不该把它关掉。
+    func openQuota() {
+        contentType = .menu
+        menuSection = .quota
+        notchOpen(reason: .notification)
     }
 
     /// 额度按钮：进额度页；已经在额度页时退回会话列表（与图表按钮同构）。

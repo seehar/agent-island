@@ -7874,6 +7874,91 @@
           }
         }
       }
+    },
+    "Low Balance Alert" : {
+      "comment" : "通知页：余额低于阈值时弹提醒（阈值档即开关，关闭档不联网）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low Balance Alert"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "余额提醒"
+          }
+        }
+      }
+    },
+    "Below %@" : {
+      "comment" : "余额提醒阈值档：数字按环境 locale 渲染（口径与额度页一致）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Below %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "低于 %@"
+          }
+        }
+      }
+    },
+    "Below the balance alert threshold" : {
+      "comment" : "额度页低额读数旁的警示形状（辅助功能标签）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Below the balance alert threshold"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已低于提醒阈值"
+          }
+        }
+      }
+    },
+    "Alerts below %@; amounts follow the instance's own currency setting." : {
+      "comment" : "额度页详情卡脚注（阈值开着时替换默认那句）",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alerts below %@; amounts follow the instance's own currency setting."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "低于 %@ 时提醒；金额口径跟随各实例自己的货币设置。"
+          }
+        }
+      }
+    },
+    "Checks your New API balances in the background and pops the notch up once when an account drops below this. A balance that stays low is not repeated; it alerts again after it recovers and drops again. Amounts follow each instance's own display setting; nothing is fetched while this is off." : {
+      "comment" : "通知页：余额提醒那一行的悬停说明",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checks your New API balances in the background and pops the notch up once when an account drops below this. A balance that stays low is not repeated; it alerts again after it recovers and drops again. Amounts follow each instance's own display setting; nothing is fetched while this is off."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在后台检查 New API 余额：某个账号跌破这个值时限一次提醒（一直低着不会反复念；回到阈值之上后再跌破会再提醒）。金额口径跟随各实例自己的显示设置；关闭档不会发出任何请求。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

@@ -20,19 +20,49 @@ nonisolated enum NewAPIBalanceFormat {
     /// USD / CNY 是「符号紧贴数字」（`Intl` 的 `narrowSymbol`），CUSTOM 是「符号 + 空格 +
     /// 数字」，TOKENS 直接显示 token 数。
     static func display(_ quota: Double, currency: NewAPICurrency, locale: Locale) -> String {
-        guard currency.displayInCurrency else { return Self.quota(quota, locale: locale) }
+        guard let formatted = Self.displayed(quota, currency: currency, locale: locale) else {
+            return Self.quota(quota, locale: locale)
+        }
+        return formatted
+    }
+
+    /// 额度在界面上代表的**数字**（`display` 印出来的那个量）：站点把额度显示成钱时按站点
+    /// 口径换算成钱，否则就是内部额度本身；不需要符号与分组。
+    ///
+    /// 存在的理由是**阈值比较**：额度提醒的阈值是用户照着页面上的数字设的（见
+    /// `QuotaAlertThreshold`），所以判断必须与显示同源。各处的 symbol / 空格 / 分组
+    /// 排版仍只有 `display` 一处——这里只把「换算成什么量」抽出来给两处共用。
+    static func displayedValue(_ quota: Double, currency: NewAPICurrency) -> Double {
+        guard currency.displayInCurrency, currency.displayType != .tokens else { return quota }
+        switch currency.displayType {
+        case .tokens:
+            return quota
+        case .usd:
+            return converted(quota, currency, rate: 1)
+        case .cny:
+            return converted(quota, currency, rate: currency.usdExchangeRate)
+        case .custom:
+            return converted(quota, currency, rate: currency.customExchangeRate)
+        }
+    }
+
+    /// `display` 的排版部分（无符号 / 空格 / 分组口径时返回 nil，调用方退回 `quota(_:)`）。
+    private static func displayed(
+        _ quota: Double, currency: NewAPICurrency, locale: Locale
+    ) -> String? {
+        guard currency.displayInCurrency else { return nil }
 
         switch currency.displayType {
         case .tokens:
-            return Self.quota(quota, locale: locale)
+            return nil
         case .usd, .cny:
             let isCNY = currency.displayType == .cny
             let symbol = isCNY ? "¥" : "$"
-            return symbol + Self.money(converted(quota, currency, rate: isCNY ? currency.usdExchangeRate : 1), locale: locale)
+            return symbol + Self.money(Self.displayedValue(quota, currency: currency), locale: locale)
         case .custom:
             let symbol = currency.customSymbol.trimmingCharacters(in: .whitespaces)
             let text = Self.money(
-                converted(quota, currency, rate: currency.customExchangeRate), locale: locale)
+                Self.displayedValue(quota, currency: currency), locale: locale)
             return symbol.isEmpty ? text : symbol + " " + text
         }
     }

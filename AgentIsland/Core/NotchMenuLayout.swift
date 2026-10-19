@@ -428,7 +428,7 @@ nonisolated enum NotchMenuMetrics {
     /// 档位会落到隐藏滚动条的视口之外——用户只看到箭头翻转（这正是它一度改成浮层的起因，
     /// 那版的手感被判为「难用」，已按用户要求改回就地展开，见 `SettingsPickerRow`）。
     ///
-    /// 逐页的「静态内容 + 该页最高单个展开」：通用 522 + 138、行为 486 + 138、通知 298 + 202、
+    /// 逐页的「静态内容 + 该页最高单个展开」：通用 522 + 138、行为 486 + 138、通知 378 + 202、
     /// 智能体 530 + 106、关于 391 + 0、快捷键 590 + 0、标记动态 387 + 0。chrome 可达 36…76。
     /// 静态内容只有**快捷键页**在 chrome 76 时触顶（590 + 76 = 666 > 640）；展开后最高的组合是
     /// 通用页（522 + 138 + 76 = 736）与智能体页（530 + 106 + 76 = 712），其余都在窗口上限 730
@@ -547,9 +547,9 @@ nonisolated enum NotchMenuMetrics {
             ]
         case .notifications:
             return [
-                // 通知：音效（点选即试听）/ 音量 / 安静时段 / 提示音范围 / 完成提示
-                // + 一行脚注（说明用户音效放在 ~/Library/Sounds）
-                Block(rows: Array(repeating: rowHeight, count: 5), hasFootnote: true)
+                // 通知：音效（点选即试听）/ 音量 / 安静时段 / 提示音范围 / 完成提示 /
+                // 余额提醒阈值 + 一行脚注（说明用户音效放在 ~/Library/Sounds）
+                Block(rows: Array(repeating: rowHeight, count: 6), hasFootnote: true)
             ]
         case .agents:
             return [

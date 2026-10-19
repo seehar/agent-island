@@ -9,7 +9,10 @@
 //  * 行高固定 `twoLineRowHeight`——它参与面板高度解析式（`NewAPIAccountPageState`），
 //    改行高要同时改那边，真实排版由 `UsageStatsLayoutTests` 兜住；
 //  * 主读数取「账户余额优先，只有 Key 时才用密钥额度」：两个槽位各要各的凭据，
-//    多数账号只填得起一个（否则会有一行恒为「—」，改造前就是这个样子）。
+//    多数账号只填得起一个（否则会有一行恒为「—」，改造前就是这个样子）；
+//  * 低于提醒阈值时主读数改用**警示色 + 形状**（见 `QuotaLowBalanceHighlight`）：
+//    颜色之外还要一枚 `exclamationmark.triangle.fill`——只靠颜色区分状态，在黑白截图与
+//    色觉障碍下都会丢信息（与关闭态计数徽标同一条取舍）。
 //
 
 import AppKit
@@ -20,6 +23,8 @@ struct QuotaAccountRow: View {
     let account: NewAPIAccount
     let index: Int
     let reading: NewAPIAccountReading
+    /// 余额提醒的高亮（阈值 + 这个账号的读数；见 `QuotaLowBalanceHighlight`）。
+    var highlight = QuotaLowBalanceHighlight(threshold: nil, reading: NewAPIAccountReading())
     let isSelected: Bool
     /// 只剩一个账号时不给删（页面上永远留着一个可编辑的账号）。
     let canRemove: Bool
@@ -83,6 +88,15 @@ struct QuotaAccountRow: View {
                     .minimumScaleFactor(0.7)
                     .foregroundColor(titleColor)
 
+                // 低于阈值：数字与这枚形状一起变色。形状是给「颜色读不出来」的场合留的
+                // （黑白截图 / 色觉障碍），因此不放在悬停态里、也不依赖选中态。
+                if highlight.isLow {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(AppPalette.warning)
+                        .accessibilityLabel(Text(l10n.t("Below the balance alert threshold")))
+                }
+
                 if isSelected {
                     Image(systemName: "checkmark")
                         .font(.system(size: 10, weight: .semibold))
@@ -95,7 +109,11 @@ struct QuotaAccountRow: View {
     /// 行标题与主读数的明度：选中行最亮，未选中行弱一档、悬停时升到
     /// `hoverForeground`（比 `secondaryText` 亮一档）——整行只有一层悬停底色时，
     /// 文字跟着亮一档，才读得出「这一行是可以点的」。
+    ///
+    /// **低于提醒阈值时压过上面这套明度**：低额是这一行此刻最要紧的信息，选中/悬停的
+    /// 亮度差异不该把它盖掉（阈值关着时不进这一支，观感与改造前逐点一致）。
     private var titleColor: Color {
+        if highlight.isLow { return AppPalette.warning }
         if isSelected { return AppPalette.primaryText }
         return isHovered && isInteractive ? AppPalette.hoverForeground : AppPalette.secondaryText
     }
@@ -403,6 +421,28 @@ enum QuotaReadingSelection {
     ) -> String {
         let used = NewAPIBalanceFormat.display(value.used, currency: currency, locale: locale)
         return l10n.t("Used %@", used)
+    }
+}
+
+// MARK: - 低额高亮
+
+/// 一个账号行的主读数是不是「低于提醒阈值」。
+///
+/// 收在这里而不是把判据摊在视图里，是为了让「页面标红的地方」与「弹窗说的那个账号」
+/// 永远看同一个函数（`QuotaAlertPolicy.breachedSlot`）：规则一旦分家，用户会看到
+/// 弹窗说 A 见了底、页面上却是 B 标着红。
+@MainActor
+struct QuotaLowBalanceHighlight: Equatable {
+    /// 当前阈值（显示口径的数字）；关闭档 / 没设过是 nil ⇒ 永不判低。
+    let threshold: Double?
+    let reading: NewAPIAccountReading
+
+    /// 这个账号现在低不低。
+    var isLow: Bool { slot != nil }
+
+    /// 见底的是哪一个槽（nil = 不低）；详情卡按它高亮对应那一行。
+    var slot: QuotaAlertSlot? {
+        QuotaAlertPolicy.breachedSlot(reading, threshold: threshold)
     }
 }
 

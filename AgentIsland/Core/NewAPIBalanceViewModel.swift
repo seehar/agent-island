@@ -6,10 +6,21 @@
 //  各账号两个槽位的读数快照，以及刷新中的标志。视图只读这里，不自己发请求、
 //  也不自己拼口径。
 //
-//  刷新策略：**不轮询**——只有打开「额度」页时才联网（进页 30 秒节流一次 + 手动刷新）。
-//  页眉的「更新于 HH:MM」就是快照里的 `refreshedAt`，用户因此知道读数有多新。
-//  取数是**所有账号一起**（每账号最多四个 GET）：账号列表里要给每个账号显示余额，
-//  只刷新选中的那个会让列表里的其它数字一直停在旧值。
+//  刷新策略：**页面里不轮询**——打开「额度」页时才联网（进页 30 秒节流一次 + 手动刷新），
+//  页眉的「更新于 HH:MM」就是快照里的 `refreshedAt`。取数是**所有账号一起**（每账号最多
+//  四个 GET）：账号列表里要给每个账号显示余额，只刷新选中的那个会让列表里的其它数字一直
+//  停在旧值。
+//
+//  **余额提醒**（`QuotaAlertPolicy`）需要应用在后台也知道余额：用户不会一直开着额度页，
+//  而「余额见底」正是他没看着的时候发生的事。因此设了阈值（`QuotaAlertThresholdSelector`
+//  非关闭档）之后，这里多一条**慢轮询**（`alertPollInterval`，首轮 5 秒后起）——
+//  这是应用**唯一**一个「页面没打开也联网」的路径，因此有三条纪律：
+//  ① 关闭阈值档就完全停掉（不设阈值 = 一个请求都不发）；
+//  ② 每个账号 × 每个槽**每跌一次只提醒一次**：一直低着的账号不会每轮都被念一遍，回到阈值
+//     之上（充了钱 / 换了 Key）之后再跌破会再提醒一次（见 `QuotaAlertTracker`）；
+//  ③ 失败一律不提醒、不改变任何读数（`refresh()` 里的 fail-soft 仍然生效）。
+//  轮询节奏与「记录目录扫描 / 状态复核」那几档（2…15 秒）不是一回事：那几档扫的是本机
+//  文件与进程，这里每一轮都是对用户自己那台 New API 的几个 GET。
 //
 //  请求矩阵（都只在页面打开时、30 秒节流一次）：
 //  * 每账号：`/api/user/self`（账户余额 + 身份，要访问令牌）、`/api/usage/token/`（Key 额度，
@@ -59,11 +70,25 @@ final class NewAPIBalanceViewModel: ObservableObject {
     /// 正在拉取：页眉的刷新按钮据此禁用（图标同时降到最弱一级）。
     @Published private(set) var isRefreshing = false
 
+    /// 最近一次触发余额提醒的账号（账号 id + 显示名 + 是哪个槽见了底），nil = 没有被触发的提醒。
+    ///
+    /// 只做一件事：让**刘海**把提醒弹出来（`NotchView` 收到新值就展开到额度页、响一声）。
+    /// 面板收起时不弹——用户正在别处干活，展开面板抢焦点比提醒本身更打扰（见视图侧的判据）。
+    @Published private(set) var mutedAlert: QuotaAlert?
+
     // MARK: - 依赖
 
     private let client: NewAPIBalanceClient
     private let defaults: UserDefaults
     private var refreshTask: Task<Void, Never>?
+    /// 阈值提醒的降沿状态（每个账号 × 每个槽一处）。
+    private let alertTracker = QuotaAlertTracker()
+    /// 后台提醒轮询任务（只在阈值非关闭档时存在）。
+    private var alertPollTask: Task<Void, Never>?
+    /// 提醒轮询的节奏：比页面里的 30 秒节流快，比会话状态那几档慢——它打的是网络。
+    private static let alertPollInterval: TimeInterval = 120
+    /// 首轮延迟：应用启动那几秒在装窗口、扫会话，余额不是这一刻最要紧的事。
+    private static let alertPollFirstDelay: TimeInterval = 5
     /// 每次刷新的自增序号：写回快照前必须仍是最新那一次——否则先发出的慢请求会覆盖掉
     /// 「用户改了配置后重新拉」回来的读数（与 `UsageStatsViewModel` 同一套防覆盖手法）。
     private var generation = 0
@@ -85,6 +110,11 @@ final class NewAPIBalanceViewModel: ObservableObject {
             selectedAccountID = storedSelection
         } else {
             selectedAccountID = loaded[0].id
+        }
+
+        // 设了阈值才起轮询（关着时一个请求都不发，见头注释的三条纪律）。
+        if QuotaAlertPreference.value(defaults: defaults) != nil {
+            startAlertPolling()
         }
     }
 
@@ -114,8 +144,10 @@ final class NewAPIBalanceViewModel: ObservableObject {
         refresh()
     }
 
-    /// 拉一次全部账号（页眉刷新按钮与 `onAppear` 共用）。已经在拉就忽略。
+    /// 拉一次全部账号（页眉刷新按钮 / `onAppear` / 提醒轮询共用）。已经在拉就忽略。
     func refresh() {
+        // 在飞的那一轮会覆盖同样的账号，再发一次只是白花请求——提醒轮询因此不会把用户
+        // 刚点的那次手动刷新打断（读数仍会照常判一遍阈值）。
         guard !isRefreshing else { return }
         persist()
 
@@ -200,7 +232,90 @@ final class NewAPIBalanceViewModel: ObservableObject {
             next.refreshedAt = next.hasFreshValue ? Date() : previous.refreshedAt
             self.snapshot = next
             self.isRefreshing = false
+
+            // 读数落定之后才判提醒：这一轮刚拉到的数字（余额、显示口径）必须都在手上，
+            // 否则会拿上一轮的旧值去比阈值。判据要在主 actor 上跑（降沿状态与发提醒都在
+            // 那里），因此从这条任务里再排一拍——任务的收尾因此不阻塞。
+            Task { @MainActor [weak self] in self?.evaluateAlerts() }
         }
+    }
+
+    // MARK: - 余额提醒
+
+    /// 按当前阈值判一遍「有没有账号跌破了」，跌破就发一条提醒（刘海据此弹出 + 响提示音）。
+    ///
+    /// 判据全在 `QuotaAlertPolicy`（纯函数）、降沿状态在 `QuotaAlertTracker`（每个账号只响
+    /// 一次），这里只负责把两边接起来并算好账号显示名。阈值关掉时**顺带复位全部状态**：
+    /// 再打开时按当时的余额重新判一次降沿，而不是沿用几小时前那个「还在低位」的标记。
+    func evaluateAlerts() {
+        guard let threshold = QuotaAlertPreference.value(defaults: defaults) else {
+            alertTracker.reset()
+            mutedAlert = nil
+            return
+        }
+        // 这一轮谁都不低了：把上一次那条提醒清掉（面板收起时才弹，见 `NotchView.handleBalanceAlert`；
+        // 留着不清会让「余额回到阈值之上」的后续变化再次触发同一张提示）。
+        var anyBreach = false
+        for (index, account) in accounts.enumerated() {
+            let reading = reading(for: account)
+            guard let slot = QuotaAlertPolicy.breachedSlot(reading, threshold: threshold) else {
+                // 这一轮不在阈值之下：两个槽的标记都复位，下次跌破时才会再响。
+                alertTracker.noteRecovered(accountID: account.id, slot: .account)
+                alertTracker.noteRecovered(accountID: account.id, slot: .key)
+                continue
+            }
+            let value = slot == .account ? reading.account.lastValue : reading.key.lastValue
+            // `breachedSlot` 只在拿到数值时才返回槽，这里的 `?? 0` 是防御性兜底。
+            let alert = QuotaAlert(
+                accountID: account.id,
+                accountName: newAPIAccountDisplayName(account, index: index, l10n: .shared),
+                slot: slot,
+                available: value?.available ?? 0,
+                threshold: threshold)
+            anyBreach = true
+            if alertTracker.shouldAlert(alert) {
+                // 用户看得见的那一下（面板收起时展开到额度页 + 提示音，见 `NotchView`）。
+                // 日志只写账号序号、槽位与阈值：凭据与具体金额没必要留在系统日志里。
+                Self.logger.notice(
+                    "余额跌破阈值（账号 \(index + 1, privacy: .public) \(alert.slot.id, privacy: .public)，阈值 \(alert.threshold, privacy: .public)）"
+                )
+                mutedAlert = alert
+            }
+        }
+        if !anyBreach { mutedAlert = nil }
+    }
+
+    /// 起「余额提醒」的后台慢轮询（阈值关掉时是空操作；重复调用不会起第二个任务）。
+    ///
+    /// 每一轮只做两件事：拉一次全部账号（与页面里那一次同一条路径），再判一遍阈值。
+    /// 页面正好开着、或用户刚点过刷新时，`refresh()` 的守卫会让这一轮直接返回，两条路径
+    /// 因此不会打架。
+    func startAlertPolling() {
+        guard !AppEnvironment.isRunningTests else { return }
+        guard alertPollTask == nil else { return }
+        alertPollTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.alertPollFirstDelay))
+            while !Task.isCancelled {
+                guard let self, self.isAlertPollingActive else { return }
+                // 让出一拍再启这一轮：`refresh()` 收尾时要在主 actor 上判提醒
+                // （见那里的 `Task { @MainActor in … }`），别把它压在同一个时间片里。
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                self.refresh()
+                try? await Task.sleep(for: .seconds(Self.alertPollInterval))
+            }
+        }
+    }
+
+    /// 阈值关掉后停掉轮询（在途的那一轮不打断：它只是拉一次读数，判据会在下一轮读到关闭档）。
+    func stopAlertPolling() {
+        alertPollTask?.cancel()
+        alertPollTask = nil
+    }
+
+    /// 阈值还开着吗（轮询每一轮都重读偏好域：用户在设置里关掉提醒后，最多再跑一轮就停）。
+    private var isAlertPollingActive: Bool {
+        QuotaAlertPreference.value(defaults: defaults) != nil
     }
 
     // MARK: - 账号
@@ -243,6 +358,8 @@ final class NewAPIBalanceViewModel: ObservableObject {
         var next = snapshot
         next.readings.removeValue(forKey: removed)
         snapshot = next
+        // 删掉的账号不再参与提醒（它的降沿状态也一起忘掉，免得 id 万一被复用）。
+        alertTracker.forget(accountID: removed)
         persist()
     }
 

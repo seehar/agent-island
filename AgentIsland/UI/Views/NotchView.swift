@@ -275,6 +275,10 @@ struct NotchView: View {
    handleProcessingChange()
    handleWaitingForInputChange(instances)
   }
+  // 余额跌破阈值：视图模型判出来（`QuotaAlertPolicy`），这里只负责弹出来 + 响一声。
+  .onChange(of: balanceViewModel.mutedAlert) { _, alert in
+   handleBalanceAlert(alert)
+  }
  }
 
  // MARK: - Notch Layout
@@ -761,6 +765,23 @@ struct NotchView: View {
   previousPendingIds = currentIds
  }
 
+ /// 余额提醒（`NewAPIBalanceViewModel.mutedAlert` 出现新值时）：响一声，面板收起时顺手
+ /// 展开到额度页。
+ ///
+ /// **面板开着时不抢页面**：用户可能正在填凭据或读别的分组，把视图拽走比提醒本身更打扰；
+ /// 而额度页此刻若不是当前页，那一行低额读数也该由用户自己去看（列表行与详情行都标着
+ /// 警示色 + 形状，见 `QuotaLowBalanceHighlight`）。收起态则必须展开——关闭态的胶囊上
+ /// 没有任何余额信息，只响一声的话用户根本不知道发生了什么。
+ private func handleBalanceAlert(_ alert: QuotaAlert?) {
+  guard alert != nil else { return }
+  if viewModel.status == .closed {
+   withAnimation(openAnimation) {
+    viewModel.openQuota()
+   }
+  }
+  playNotificationSound()
+ }
+
  private func handleWaitingForInputChange(_ instances: [SessionState]) {
   // Get sessions that are now waiting for input
   let waitingForInputSessions = instances.filter { $0.phase == .waitingForInput }
@@ -813,11 +834,19 @@ struct NotchView: View {
   Task {
    guard await shouldPlayNotificationSound(for: sessions) else { return }
    await MainActor.run {
-    // 音量与安静时段都在播放器里收口：命中安静时段时这里什么都不做。
-    // `play` 的返回值只给单测/排查用，这里显式丢弃，避免 `MainActor.run` 返回它。
-    _ = NotificationSoundPlayer.play(AppSettings.notificationSoundChoice)
+    playNotificationSound()
    }
   }
+ }
+
+ /// 播一声提示音（音效本身就是「通知音效」）：音量与安静时段都在播放器里收口。
+ ///
+ /// 会话提醒与余额提醒共用这一处——两条路径各写一次的话，很容易只在一边应用音量或
+ /// 安静时段（那正是这个函数被抽出来的原因）。
+ private func playNotificationSound() {
+  guard !AppSettings.notificationSoundChoice.isSilent else { return }
+  // `play` 的返回值只给单测/排查用，这里显式丢弃，避免调用点把它当成需要处理的结果。
+  _ = NotificationSoundPlayer.play(AppSettings.notificationSoundChoice)
  }
 
  /// Determine if notification sound should play for the given sessions
