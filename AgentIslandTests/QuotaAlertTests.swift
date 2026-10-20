@@ -196,6 +196,11 @@ struct QuotaAlertWiringTests {
         return defaults
     }
 
+    /// 设一个阈值：走真的写入路径（夹紧与落盘都在 `QuotaAlertSelector` 里）。
+    private func setThreshold(_ amount: Double, defaults: UserDefaults) {
+        QuotaAlertSelector(defaults: defaults).setAmount(amount)
+    }
+
     private func waitUntilRefreshed(_ model: NewAPIBalanceViewModel) async {
         for _ in 0..<400 where model.isRefreshing {
             try? await Task.sleep(for: .milliseconds(5))
@@ -258,7 +263,7 @@ struct QuotaAlertWiringTests {
         #expect(model.mutedAlert == nil)
 
         // 阈值 5 ⇒ 账户 $1.98 跌破（账户槽优先于 Key 的 $2.00）。
-        PreferenceStore.write(QuotaAlertThreshold.five, defaults: defaults)
+        setThreshold(5, defaults: defaults)
         model.evaluateAlerts()
         #expect(model.mutedAlert?.slot == .account)
         #expect(model.mutedAlert?.threshold == 5)
@@ -312,28 +317,35 @@ struct QuotaAlertWiringTests {
         #expect(model.mutedAlert?.threshold == 5)
     }
 
-    @Test("阈值关掉后不再联网：轮询与判据都按同一个门（关档 = 一个请求都不发）")
-    func pollingStopsWhenThresholdIsOff() throws {
+    @Test("轮询的门跟着阈值开关：留空 = 关（判据与轮询问的是同一个数）")
+    func pollingGateFollowsThreshold() throws {
         let defaults = try isolatedDefaults()
         let model = try makeModel(defaults: defaults)
 
-        // 关档：起轮询是空操作（视图模型里 `startAlertPolling()` 的第一道门就是
-        // `isAlertPollingActive`），判据也不判。
+        // 门是 `isAlertPollingActive`（`startAlertPolling` 的第一道 guard、循环每一轮也都问它）。
+        // **任务本身**在测试宿主里起不来（`AppEnvironment.isRunningTests` 有意短路：用例不该
+        // 在后台打网络），因此这里能钉的是门、以及判据与门读同一个值：
+        // 「真的联了网」由实机验收兜（设置里当场填金额 → 不重启，5 秒后就有取数日志）。
+        #expect(model.isAlertPollingActive == false)
         #expect(QuotaAlertPreference.value(defaults: defaults) == nil)
-        model.startAlertPolling()
-        model.stopAlertPolling()
 
-        // 开档：门开了。**真的起没起任务**测不了（测试宿主里 `AppEnvironment.isRunningTests`
-        // 会让它直接返回，这是有意的：用例不该在后台打网络），因此这条由实机验收兜：
-        // 设置里当场选档 → 应用不重启也照常在几秒内取数并弹提醒（见提交说明里的实机记录）。
-        PreferenceStore.write(QuotaAlertThreshold.five, defaults: defaults)
+        setThreshold(5, defaults: defaults)
+        #expect(model.isAlertPollingActive)
         #expect(QuotaAlertPreference.value(defaults: defaults) == 5)
+        // 门开着时起轮询是空操作（测试宿主里本来就是空操作），停也不该崩。
         model.startAlertPolling()
         model.stopAlertPolling()
 
-        // 再关掉：门又关上（设置里改回关闭档 ⇒ 视图层会调 `stopAlertPolling()`）。
-        PreferenceStore.write(QuotaAlertThreshold.off, defaults: defaults)
+        // 视图层在阈值变化时调这一个入口，值是**选择器**写进偏好域的（两件事分工明确：
+        // 写值 = 输入框那一行，起停 = 这一支）。清空（0）走停轮询，门随即关上。
+        setThreshold(0, defaults: defaults)
+        model.alertThresholdChanged(to: 0)
+        #expect(model.isAlertPollingActive == false)
         #expect(QuotaAlertPreference.value(defaults: defaults) == nil)
+        // 填上金额只等「值稳定」再开门（逐字符落盘的输入中途不启轮询），门本身立刻是开的。
+        setThreshold(5, defaults: defaults)
+        model.alertThresholdChanged(to: 5)
+        #expect(model.isAlertPollingActive)
         model.stopAlertPolling()
     }
 
@@ -354,7 +366,7 @@ struct QuotaAlertWiringTests {
     @Test("多个账号同轮跌破：一轮只弹一条（列表顺序即优先级），另一条在后续轮次补上")
     func announcesOneAccountPerRound() async throws {
         let defaults = try isolatedDefaults()
-        PreferenceStore.write(QuotaAlertThreshold.five, defaults: defaults)
+        setThreshold(5, defaults: defaults)
         let model = try makeTwoAccountModel(defaults: defaults)
         model.refresh()
         await waitUntilRefreshed(model)
@@ -388,10 +400,13 @@ struct QuotaAlertWiringTests {
     func slotsRecoverIndependently() async throws {
         let defaults = try isolatedDefaults()
         let model = try makeModel(defaults: defaults)
-        PreferenceStore.write(QuotaAlertThreshold.five, defaults: defaults)
+        setThreshold(5, defaults: defaults)
 
         model.refresh()
         await waitUntilRefreshed(model)
+        // `refresh()` 收尾那一拍判据（`Task { @MainActor in … }`）可能还没跑：显式再判
+        // 一次（幂等），否则这条断言是在赌调度顺序。
+        model.evaluateAlerts()
         #expect(model.mutedAlert?.slot == .account)
 
         // 账户充钱（$40）、Key 仍在低位（$2）：报出的是 Key 槽，账户槽应被复位。
@@ -430,7 +445,7 @@ struct QuotaAlertWiringTests {
     func clearingCredentialsDropsTheAlert() async throws {
         let defaults = try isolatedDefaults()
         let model = try makeModel(defaults: defaults)
-        PreferenceStore.write(QuotaAlertThreshold.five, defaults: defaults)
+        setThreshold(5, defaults: defaults)
 
         model.refresh()
         await waitUntilRefreshed(model)
@@ -455,13 +470,108 @@ struct QuotaAlertWiringTests {
         #expect(model.mutedAlert?.slot == .account)
     }
 
-    @Test("阈值档位表：关闭档在首位（默认），其余是 1 / 5 / 10 / 20 / 50")
-    func thresholdOptions() {
-        #expect(QuotaAlertThreshold.defaultValue == .off)
-        #expect(QuotaAlertThreshold.allCases.first == .off)
-        #expect(QuotaAlertThreshold.allCases.map(\.value) == [nil, 1, 5, 10, 20, 50])
-        // 偏好域里的 rawValue 是稳定的字符串：改它等于丢用户设置。
-        #expect(QuotaAlertThreshold.five.rawValue == "five")
+}
+
+// MARK: - 阈值的输入与持久化
+
+/// 阈值是**用户自己填的金额**（输入框逐字符生效），因此归一规则与回填文本都要钉住：
+/// 用户看到输入框里的字符，与真正生效的数字必须对得上（否则「我填了 3.50 却没提醒」
+/// 这类问题只能靠猜）。
+@MainActor
+@Suite("余额提醒阈值的输入", .serialized)
+struct QuotaAlertSelectorTests {
+    private func isolatedDefaults() throws -> UserDefaults {
+        let name = "quota-selector-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defaults.removePersistentDomain(forName: name)
+        return defaults
+    }
+
+    @Test("键入归一：只认数字与一个小数点，没有数字就是关闭（0）")
+    func sanitizedText() {
+        #expect(QuotaAlertSelector.sanitized("5") == 5)
+        #expect(QuotaAlertSelector.sanitized("3.5") == 3.5)
+        #expect(QuotaAlertSelector.sanitized(" 7 ") == 7)
+        #expect(QuotaAlertSelector.sanitized("5.") == 5)
+        // 空 / 无数字 = 关闭：清空输入框正是这个意思。
+        #expect(QuotaAlertSelector.sanitized("") == 0)
+        #expect(QuotaAlertSelector.sanitized("abc") == 0)
+        // 非法字符直接丢掉（`-5` 里的负号留不下，与「阈值非负」一致）。
+        #expect(QuotaAlertSelector.sanitized("-5") == 5)
+        // 位数上限：两位小数、六位整数。
+        #expect(QuotaAlertSelector.sanitized("1.234") == 1.23)
+        #expect(QuotaAlertSelector.sanitized("99999999") == 999_999)
+        // 小数点认环境 locale 的那一个。
+        #expect(QuotaAlertSelector.sanitized("5,5", decimalSeparator: ",") == 5.5)
+        #expect(QuotaAlertSelector.sanitized("5,5", decimalSeparator: ".") == 55)
+        // 逗号在「逗号是小数点」的 locale 下是小数点：`5,000` = 5。
+        #expect(QuotaAlertSelector.sanitized("5,000", decimalSeparator: ",") == 5)
+    }
+
+    @Test("回填文本：不带千位分隔符，每种 locale 都能原样解析回同一个金额")
+    func textRoundTrip() {
+        let english = Locale(identifier: "en_US")
+        let german = Locale(identifier: "de_DE")
+
+        #expect(QuotaAlertSelector.text(from: 0, locale: english) == "")
+        #expect(QuotaAlertSelector.text(from: 5, locale: english) == "5")
+        #expect(QuotaAlertSelector.text(from: 5.5, locale: english) == "5.5")
+        // 千位分隔符会破坏往返（`1,000` 在德语下读成 1），因此回填不带分组。
+        #expect(QuotaAlertSelector.text(from: 1000, locale: english) == "1000")
+        #expect(QuotaAlertSelector.text(from: 5.5, locale: german) == "5,5")
+
+        for locale in [english, german] {
+            let text = QuotaAlertSelector.text(from: 1234.5, locale: locale)
+            #expect(
+                QuotaAlertSelector.sanitized(text, decimalSeparator: locale.decimalSeparator?.first)
+                    == 1234.5,
+                "\(locale.identifier) 的回填文本 \(text) 解析不回原值")
+        }
+    }
+
+    @Test("夹紧：负数 / NaN / 无穷都归 0（关闭），小数保留两位，上限与输入框的六位对齐")
+    func clampedBounds() {
+        #expect(QuotaAlertSelector.clamped(0) == 0)
+        #expect(QuotaAlertSelector.clamped(-5) == 0)
+        #expect(QuotaAlertSelector.clamped(.nan) == 0)
+        #expect(QuotaAlertSelector.clamped(.infinity) == 0)
+        #expect(QuotaAlertSelector.clamped(3.456) == 3.46)
+        // 上限是 6 位整数——与输入框能敲进去的位数同一个口径（否则 `1000000` 在框里只剩
+        // `100000`，值会静默缩 10 倍）。
+        #expect(QuotaAlertSelector.maximumAmount == 999_999)
+        #expect(QuotaAlertSelector.sanitized("1000000") == 999_999)
+        #expect(
+            QuotaAlertSelector.sanitized(
+                QuotaAlertSelector.text(from: 999_999, locale: Locale(identifier: "en_US")))
+                == 999_999)
+    }
+
+    @Test("写入：夹紧到上限、保留两位小数、落盘；清空即关闭（判据侧读同一个键）")
+    func setAmountClampsAndPersists() throws {
+        let defaults = try isolatedDefaults()
+        let selector = QuotaAlertSelector(defaults: defaults)
+
+        #expect(selector.amount == 0)
+        #expect(selector.isEnabled == false)
+        #expect(selector.threshold == nil)
+        #expect(QuotaAlertPreference.value(defaults: defaults) == nil)
+
+        selector.setAmount(fromText: "3.50")
+        #expect(selector.amount == 3.5)
+        #expect(selector.isEnabled)
+        #expect(selector.threshold == 3.5)
+        // 真的落盘了：另一个实例（= 视图模型与额度页读偏好的方式）读到同一个数。
+        #expect(QuotaAlertSelector(defaults: defaults).amount == 3.5)
+        #expect(QuotaAlertPreference.value(defaults: defaults) == 3.5)
+
+        // 直接写入也夹紧（上限之外的值从别的入口进来时不会存下一个离谱的阈值）。
+        selector.setAmount(QuotaAlertSelector.maximumAmount * 3)
+        #expect(selector.amount == QuotaAlertSelector.maximumAmount)
+
+        selector.setAmount(fromText: "")
+        #expect(selector.amount == 0)
+        #expect(selector.isEnabled == false)
+        #expect(QuotaAlertPreference.value(defaults: defaults) == nil)
     }
 }
 

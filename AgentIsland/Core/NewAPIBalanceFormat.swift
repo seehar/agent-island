@@ -30,7 +30,7 @@ nonisolated enum NewAPIBalanceFormat {
     /// 口径换算成钱，否则就是内部额度本身；不需要符号与分组。
     ///
     /// 存在的理由是**阈值比较**：额度提醒的阈值是用户照着页面上的数字设的（见
-    /// `QuotaAlertThreshold`），所以判断必须与显示同源。各处的 symbol / 空格 / 分组
+    /// `QuotaAlertSelector`），所以判断必须与显示同源。各处的 symbol / 空格 / 分组
     /// 排版仍只有 `display` 一处——这里只把「换算成什么量」抽出来给两处共用。
     static func displayedValue(_ quota: Double, currency: NewAPICurrency) -> Double {
         guard currency.displayInCurrency, currency.displayType != .tokens else { return quota }

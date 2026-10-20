@@ -369,7 +369,8 @@ struct NotchMenuMetricsTests {
             "会话组：四个选择行 + 子代理明细 / 隐藏闲置两个两行开关")
 
         let notifications = NotchMenuMetrics.blocks(for: .notifications)
-        // 通知页以「余额提醒阈值」收尾（扫的是用户自己那台 New API 的余额，档位在偏好域里）。
+        // 通知页以「余额提醒金额」收尾（行内输入框，不是选择行：金额在偏好域里，扫的是
+        // 用户自己那台 New API 的余额）。
         #expect(notifications.map(\.rows.count) == [6])
         #expect(notifications[0].rows.allSatisfy { $0 == NotchMenuMetrics.rowHeight })
     }
@@ -506,9 +507,9 @@ struct NotchMenuMetricsTests {
                            ClosedCapsuleLayout.allCases.count, SessionRetention.allCases.count,
                            SessionRowDensity.allCases.count, SessionRowClickAction.allCases.count,
                            RefreshCadence.allCases.count),
+            // 余额提醒那行是**行内输入框**（不展开），因此不进这份「最高展开」的表。
             .notifications: max(SoundSelector.maxVisibleOptions, QuietHours.allCases.count,
-                                NotificationScope.allCases.count, CompletionBadge.allCases.count,
-                                QuotaAlertThreshold.allCases.count),
+                                NotificationScope.allCases.count, CompletionBadge.allCases.count),
             .agents: max(AgentDirSelector.visibleOptions, ApprovalAskScope.allCases.count,
                          ApprovalDegradation.allCases.count, ApprovalAutoExpand.allCases.count),
             .quota: 0, .statistics: 0, .about: 0, .shortcuts: 0, .animations: 0,

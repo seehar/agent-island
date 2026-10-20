@@ -433,7 +433,7 @@ enum QuotaReadingSelection {
 /// 弹窗说 A 见了底、页面上却是 B 标着红。
 @MainActor
 struct QuotaLowBalanceHighlight: Equatable {
-    /// 当前阈值（显示口径的数字）；关闭档 / 没设过是 nil ⇒ 永不判低。
+    /// 当前阈值（显示口径的数字）；留空 / 没设过是 nil ⇒ 永不判低。
     let threshold: Double?
     let reading: NewAPIAccountReading
 

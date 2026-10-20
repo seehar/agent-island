@@ -548,7 +548,7 @@ nonisolated enum NotchMenuMetrics {
         case .notifications:
             return [
                 // 通知：音效（点选即试听）/ 音量 / 安静时段 / 提示音范围 / 完成提示 /
-                // 余额提醒阈值 + 一行脚注（说明用户音效放在 ~/Library/Sounds）
+                // 余额提醒金额（行内输入框，不展开）+ 一行脚注（说明用户音效放在 ~/Library/Sounds）
                 Block(rows: Array(repeating: rowHeight, count: 6), hasFootnote: true)
             ]
         case .agents:

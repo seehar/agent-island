@@ -393,6 +393,11 @@ struct NotificationsSettingsPage: View {
 
     /// 音量是连续值（不是枚举档位），因此用滑杆行 + 偏好域里的 Double。
     @State private var volume = AppSettings.notificationVolume()
+    /// 余额提醒阈值的选择器（写偏好域；额度页与视图模型读同一个实例）。
+    @ObservedObject private var alertSelector = QuotaAlertSelector.shared
+    /// 阈值输入框的草稿。**只在编辑这张页时是权威**：与偏好域的对齐只在 `onAppear`
+    /// 与失焦时做，编辑中不回写（否则归一值会把光标后面还要敲的字符改写掉）。
+    @State private var alertDraft = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: NotchMenuMetrics.groupSpacing) {
@@ -443,25 +448,41 @@ struct NotificationsSettingsPage: View {
                 )
 
                 // 余额提醒：这是应用里**唯一一条「页面没开着也联网」**的路径（后台慢轮询，
-                // 见 `NewAPIBalanceViewModel` 头注释），因此阈值档就是它的开关——「关闭」
-                // 档不设阈值、一个请求都不发。判据在 `QuotaAlertPolicy`。
-                PreferencePickerRow(
+                // 见 `NewAPIBalanceViewModel` 头注释），因此这个金额就是它的开关——留空
+                // （= 0）不设阈值、一个请求都不发。判据在 `QuotaAlertPolicy`。
+                //
+                // 金额用输入框而不是档位：额度本来就是连续值，用户想设「低于 3.5 提醒」
+                // 也没理由拦他（见 `QuotaAlertSelector`）。
+                SettingsNumberFieldRow(
                     badge: SettingsBadge(
                         source: .symbol(
                             name: "exclamationmark.triangle", tint: AppPalette.warning)),
                     title: l10n.t("Low Balance Alert"),
-                    selector: QuotaAlertThresholdSelector.shared,
-                    label: quotaAlertLabel,
+                    text: $alertDraft,
+                    placeholder: l10n.t("Off"),
                     helpText: l10n.t(
-                        "Checks your New API balances in the background and pops the notch up once when an account drops below this. A balance that stays low is not repeated; it alerts again after it recovers and drops again. Amounts follow each instance's own display setting; nothing is fetched while this is off."
+                        "Checks your New API balances in the background and pops the notch up once when an account drops below this amount. Amounts follow each instance's own display setting. A balance that stays low is not repeated; it alerts again after it recovers and drops again. Leave it empty to turn the alert off — nothing is fetched while it is empty."
                     ),
-                    showsSeparator: false
+                    showsSeparator: false,
+                    onChange: { text in
+                        // 逐字符写偏好域：用户不一定会失焦（面板可能自己收起），
+                        // 只在失焦时落盘会静默丢掉刚敲的数字。
+                        alertSelector.setAmount(
+                            fromText: text, decimalSeparator: locale.decimalSeparator?.first)
+                    },
+                    onEditingEnded: {
+                        // 归一成真正生效的值（`5.` → `5`、`abc` → 空 = 关闭）。
+                        alertDraft = QuotaAlertSelector.text(
+                            from: alertSelector.amount, locale: locale)
+                    }
                 )
             }
         }
         .onAppear {
             // 回到这一页时重读一次：音量也可能被别的入口改过。
             volume = AppSettings.notificationVolume()
+            // 阈值同理：草稿只在进入这一页时与偏好域对齐（编辑中不回写，见 `alertDraft`）。
+            alertDraft = QuotaAlertSelector.text(from: alertSelector.amount, locale: locale)
         }
     }
 
@@ -485,13 +506,6 @@ struct NotificationsSettingsPage: View {
         case .readyOnly: return l10n.t("Ready Only")
         case .readyAndApprovals: return l10n.t("Ready and Approvals")
         }
-    }
-
-    /// 阈值档文案：关闭档给文字，其余档写「低于多少」（数字按环境 locale 渲染，
-    /// 与额度页上的同一个数量——见 `QuotaAlertThreshold`）。
-    private func quotaAlertLabel(_ option: QuotaAlertThreshold) -> String {
-        guard let value = option.value else { return l10n.t("Off") }
-        return l10n.t("Below %@", NewAPIBalanceFormat.money(value, locale: locale))
     }
 
     private func completionBadgeLabel(_ option: CompletionBadge) -> String {

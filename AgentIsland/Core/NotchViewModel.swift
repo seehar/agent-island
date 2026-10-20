@@ -308,12 +308,12 @@ class NotchViewModel: ObservableObject {
                 RefreshCadenceSelector.shared.expandedPickerHeight,
             ].reduce(0, +)
         case .notifications:
-            // 通知：音效列表（点选即听）/ 安静时段 / 提示范围 / 完成提示 / 余额提醒阈值。
+            // 通知：音效列表（点选即听）/ 安静时段 / 提示范围 / 完成提示。
+            // 余额提醒阈值是**行内输入框**（`SettingsNumberFieldRow`），不展开、不撑高面板。
             return SoundSelector.shared.expandedPickerHeight
                 + QuietHoursSelector.shared.expandedPickerHeight
                 + NotificationScopeSelector.shared.expandedPickerHeight
                 + CompletionBadgeSelector.shared.expandedPickerHeight
-                + QuotaAlertThresholdSelector.shared.expandedPickerHeight
         case .agents:
             // 智能体页可展开的有：三个保护档位（问什么 / 应用未运行时 / 有待处理请求时自动展开）
             // 与 **某个 Agent 行内的目录编辑器**（同一时刻只开一个，展开高度是单份的）。
@@ -403,7 +403,6 @@ class NotchViewModel: ObservableObject {
         observeSizeAffecting(QuietHoursSelector.shared)
         observeSizeAffecting(NotificationScopeSelector.shared)
         observeSizeAffecting(CompletionBadgeSelector.shared)
-        observeSizeAffecting(QuotaAlertThresholdSelector.shared)
         observeSizeAffecting(ApprovalAskScopeSelector.shared)
         observeSizeAffecting(ApprovalDegradationSelector.shared)
         observeSizeAffecting(ApprovalAutoExpandSelector.shared)

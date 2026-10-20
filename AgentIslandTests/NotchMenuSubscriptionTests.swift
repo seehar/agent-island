@@ -77,7 +77,6 @@ struct NotchMenuSubscriptionTests {
             ("安静时段", .notifications, QuietHoursSelector.shared),
             ("提示音范围", .notifications, NotificationScopeSelector.shared),
             ("完成提示", .notifications, CompletionBadgeSelector.shared),
-            ("余额提醒", .notifications, QuotaAlertThresholdSelector.shared),
 
             ("运行前询问什么", .agents, ApprovalAskScopeSelector.shared),
             ("应用未运行时", .agents, ApprovalDegradationSelector.shared),

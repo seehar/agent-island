@@ -7892,23 +7892,6 @@
         }
       }
     },
-    "Below %@" : {
-      "comment" : "余额提醒阈值档：数字按环境 locale 渲染（口径与额度页一致）",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Below %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "低于 %@"
-          }
-        }
-      }
-    },
     "Below the balance alert threshold" : {
       "comment" : "额度页低额读数旁的警示形状（辅助功能标签）",
       "localizations" : {
@@ -7943,19 +7926,19 @@
         }
       }
     },
-    "Checks your New API balances in the background and pops the notch up once when an account drops below this. A balance that stays low is not repeated; it alerts again after it recovers and drops again. Amounts follow each instance's own display setting; nothing is fetched while this is off." : {
-      "comment" : "通知页：余额提醒那一行的悬停说明",
+    "Checks your New API balances in the background and pops the notch up once when an account drops below this amount. Amounts follow each instance's own display setting. A balance that stays low is not repeated; it alerts again after it recovers and drops again. Leave it empty to turn the alert off — nothing is fetched while it is empty." : {
+      "comment" : "通知页：余额提醒金额那一行的悬停说明",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Checks your New API balances in the background and pops the notch up once when an account drops below this. A balance that stays low is not repeated; it alerts again after it recovers and drops again. Amounts follow each instance's own display setting; nothing is fetched while this is off."
+            "value" : "Checks your New API balances in the background and pops the notch up once when an account drops below this amount. Amounts follow each instance's own display setting. A balance that stays low is not repeated; it alerts again after it recovers and drops again. Leave it empty to turn the alert off — nothing is fetched while it is empty."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在后台检查 New API 余额：某个账号跌破这个值时限一次提醒（一直低着不会反复念；回到阈值之上后再跌破会再提醒）。金额口径跟随各实例自己的显示设置；关闭档不会发出任何请求。"
+            "value" : "在后台检查 New API 余额：某个账号跌破这个金额时限一次提醒（一直低着不会反复念；回到阈值之上后再跌破会再提醒）。金额口径跟随各实例自己的显示设置；留空即关闭这条提醒，也不发出任何请求。"
           }
         }
       }

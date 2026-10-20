@@ -458,6 +458,67 @@ struct SettingsSliderRow: View {
     }
 }
 
+/// 可直接键入数值的设置行（余额提醒阈值）：标签在左，数字输入框在右。
+///
+/// 与滑杆行的分工：滑杆表达「在一个固定区间里连续调」（音量），这一行表达「这个数由
+/// 用户自己定」（阈值）。行高仍是 `NotchMenuMetrics.rowHeight`——输入框画在行的右侧，
+/// 不另起一行，因此面板高度不必为它多算。
+struct SettingsNumberFieldRow: View {
+    let badge: SettingsBadge
+    let title: String
+    /// 输入框里的文本。**由调用方持有**：键入的字符要原样保留（不能每击一回写归一值，
+    /// 否则光标后面还要敲的字符会被一起改写掉）。
+    @Binding var text: String
+    /// 空值时的占位文案（余额提醒用「关闭」：留空这件事本身就表示关掉提醒）。
+    let placeholder: String
+    let helpText: String
+    var showsSeparator: Bool = true
+    /// 每一次键入（逐字符）。
+    let onChange: (String) -> Void
+    /// 失焦：调用方把文本归一成真正生效的值（去掉多余字符、补/去小数位）。
+    var onEditingEnded: (() -> Void)? = nil
+
+    /// 输入框宽度：7 位整数 + 小数点 + 2 位小数在 11pt 等宽下最宽约 66pt，留一点余量。
+    private static let fieldWidth: CGFloat = 78
+
+    @State private var isHovered = false
+    @FocusState private var isEditing: Bool
+
+    var body: some View {
+        SettingsRowLabel(badge: badge, title: title) {
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: AppTypeScale.footnote, weight: .medium).monospacedDigit())
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+                .foregroundColor(AppPalette.primaryText)
+                .frame(width: Self.fieldWidth)
+                .focused($isEditing)
+                .help(helpText)
+                .accessibilityLabel(Text(title))
+                .accessibilityValue(Text(text.isEmpty ? placeholder : text))
+                .onChange(of: text) { _, newValue in
+                    // **只在编辑中**写回：调用方也会程序性改这个文本（进页面时对齐、失焦时
+                    // 归一），那不是用户的输入，不能借道改成偏好域里的值（与
+                    // `SettingsStepperRow` 的 `isEditing` 守卫同一条理由）。
+                    guard isEditing else { return }
+                    onChange(newValue)
+                }
+                .onChange(of: isEditing) { _, editing in
+                    // 只在收起焦点时归一：编辑中改写文本会打断键入（见 `text` 的注释）。
+                    if !editing { onEditingEnded?() }
+                }
+        }
+        .frame(height: NotchMenuMetrics.rowHeight)
+        // 与开关行 / 滑杆行同一套悬停反馈：这一行的点击目标只有输入框与标签，
+        // 整行先亮起来告诉用户「光标在这一行上」。
+        .background(isHovered ? AppPalette.rowHover : Color.clear)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .settingsRowSeparator(showsSeparator)
+    }
+}
+
 /// 可展开的设置行：主行显示当前取值，展开后把选项插在同一张卡片里，
 /// 选项因此属于这一行，而不是另起一张卡片。
 struct SettingsPickerRow<Options: View>: View {

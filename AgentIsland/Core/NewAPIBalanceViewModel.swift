@@ -12,10 +12,10 @@
 //  停在旧值。
 //
 //  **余额提醒**（`QuotaAlertPolicy`）需要应用在后台也知道余额：用户不会一直开着额度页，
-//  而「余额见底」正是他没看着的时候发生的事。因此设了阈值（`QuotaAlertThresholdSelector`
-//  非关闭档）之后，这里多一条**慢轮询**（`alertPollInterval`，首轮 5 秒后起）——
+//  而「余额见底」正是他没看着的时候发生的事。因此设了阈值（`QuotaAlertSelector`
+//  非 0）之后，这里多一条**慢轮询**（`alertPollInterval`，首轮 5 秒后起）——
 //  这是应用**唯一**一个「页面没打开也联网」的路径，因此有三条纪律：
-//  ① 关闭阈值档就完全停掉（不设阈值 = 一个请求都不发）；
+//  ① 阈值留空就完全停掉（不设阈值 = 一个请求都不发）；
 //  ② 每个账号 × 每个槽**每跌一次只提醒一次**：一直低着的账号不会每轮都被念一遍，回到阈值
 //     之上（充了钱 / 换了 Key）之后再跌破会再提醒一次（见 `QuotaAlertTracker`）；
 //  ③ 失败不改变任何读数（`refresh()` 里的 fail-soft 仍然生效）；判据用的是各槽**最后一次
@@ -85,7 +85,7 @@ final class NewAPIBalanceViewModel: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     /// 阈值提醒的降沿状态（每个账号 × 每个槽一处）。
     private let alertTracker = QuotaAlertTracker()
-    /// 后台提醒轮询任务（只在阈值非关闭档时存在）。
+    /// 后台提醒轮询任务（只在阈值非 0 时存在）。
     private var alertPollTask: Task<Void, Never>?
     /// 轮询任务的代号（每起一次 +1）：任务退出时只摘**自己这一代**的引用，
     /// 避免「旧任务晚一步收尾」把新任务的引用擦掉。
@@ -94,6 +94,12 @@ final class NewAPIBalanceViewModel: ObservableObject {
     private static let alertPollInterval: TimeInterval = 120
     /// 首轮延迟：应用启动那几秒在装窗口、扫会话，余额不是这一刻最要紧的事。
     private static let alertPollFirstDelay: TimeInterval = 5
+    /// 阈值「稳定下来」的等待：设置里的输入框**逐字符**落盘（`1` → `10` → `100` 在几百
+    /// 毫秒内连着变三次），立刻起轮询会让首轮判据跑在中间那个 `1` 上——用户还没输完就先
+    /// 收到一条「余额低于 1」。等最后一次改动之后再开门。
+    private static let alertPollSettleDelay: TimeInterval = 1
+    /// 等阈值稳定的任务（每次改动取消上一次；停轮询时也取消）。
+    private var alertPollSettleTask: Task<Void, Never>?
     /// 每次刷新的自增序号：写回快照前必须仍是最新那一次——否则先发出的慢请求会覆盖掉
     /// 「用户改了配置后重新拉」回来的读数（与 `UsageStatsViewModel` 同一套防覆盖手法）。
     private var generation = 0
@@ -162,7 +168,7 @@ final class NewAPIBalanceViewModel: ObservableObject {
             snapshot = Self.unavailableSnapshot(for: accounts)
             // 一个能查的都没有：这一轮同样要判一次——清空凭据 / 删掉最后一个账号之后，
             // 上一轮的「已在低位」武装状态与那条提醒都不该继续顶着（否则用户会看到一条
-            // 描述着已经不存在的读数的提醒，直到下次阈值档变动）。
+            // 描述着已经不存在的读数的提醒，直到下次阈值变动）。
             evaluateAlerts()
             return
         }
@@ -254,12 +260,12 @@ final class NewAPIBalanceViewModel: ObservableObject {
     /// 按当前阈值判一遍「有没有账号跌破了」，跌破就发一条提醒（刘海据此弹出 + 响提示音）。
     ///
     /// 判据全在 `QuotaAlertPolicy`（纯函数）、降沿状态在 `QuotaAlertTracker`（每个账号只响
-    /// 一次），这里只负责把两边接起来并算好账号显示名。判到关闭档就**顺带复位全部状态**：
+    /// 一次），这里只负责把两边接起来并算好账号显示名。判到阈值留空就**顺带复位全部状态**：
     /// 再打开时按当时的余额重新判一次降沿，而不是沿用几小时前那个「还在低位」的标记。
     ///
-    /// 复位发生在**判据被调用的那一刻**（关闭档时视图层会停掉轮询，因此这一支主要由
+    /// 复位发生在**判据被调用的那一刻**（阈值留空时视图层会停掉轮询，因此这一支主要由
     /// `refresh()` 的每轮收尾与额度页相关动作触发）——`QuotaAlertPreference` 是偏好域读，
-    /// 这里读到的永远是当前值，不存在「沿用旧档位」的窗口。
+    /// 这里读到的永远是当前值，不存在「沿用旧阈值」的窗口。
     func evaluateAlerts() {
         guard let threshold = QuotaAlertPreference.value(defaults: defaults) else {
             alertTracker.reset()
@@ -328,6 +334,27 @@ final class NewAPIBalanceViewModel: ObservableObject {
         mutedAlert = alert
     }
 
+    /// 阈值变了（视图层唯一的起停入口）：等它稳定下来再开门。
+    ///
+    /// 逐字符落盘的输入框会在一次输入里发好几次值，因此这里**取消上一次**、等最后一次改动
+    /// 之后 `alertPollSettleDelay` 再起轮询；清空（0）则立刻停——停没有副作用，不用等。
+    /// `amount > 0` 与轮询门 `isAlertPollingActive` 是同一个判断（0 就是关闭），不在这里
+    /// 再解一遍偏好域。
+    func alertThresholdChanged(to amount: Double) {
+        alertPollSettleTask?.cancel()
+        alertPollSettleTask = nil
+        guard amount > 0 else {
+            stopAlertPolling()
+            return
+        }
+        guard !AppEnvironment.isRunningTests else { return }
+        alertPollSettleTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.alertPollSettleDelay))
+            guard !Task.isCancelled, let self else { return }
+            self.startAlertPolling()
+        }
+    }
+
     /// 起「余额提醒」的后台慢轮询（**阈值关掉时是空操作**；已经在跑就什么都不做）。
     ///
     /// 每一轮只做两件事：拉一次全部账号（与页面里那一次同一条路径），再判一遍阈值。
@@ -368,8 +395,11 @@ final class NewAPIBalanceViewModel: ObservableObject {
     }
 
     /// 停掉轮询（阈值关掉时也走这里；在途的那一轮不打断：它只是拉一次读数，判据会在
-    /// 下一轮读到关闭档）。
+    /// 下一轮读到阈值留空）。
     func stopAlertPolling() {
+        // 还在等「阈值稳定」的那一次也取消：否则清空输入框之后，它会按旧值把轮询拉起来。
+        alertPollSettleTask?.cancel()
+        alertPollSettleTask = nil
         // 先换代：旧任务随后的收尾因此认不出自己，不会去动引用（这里已经置 nil）。
         alertPollGeneration &+= 1
         alertPollTask?.cancel()
@@ -377,7 +407,10 @@ final class NewAPIBalanceViewModel: ObservableObject {
     }
 
     /// 阈值还开着吗（轮询每一轮都重读偏好域：用户在设置里关掉提醒后，最多再跑一轮就停）。
-    private var isAlertPollingActive: Bool {
+    ///
+    /// 不标 `private`：**这就是轮询的门**，用例要直接断言它（测试宿主里任务本身不会起，
+    /// 见 `AppEnvironment.isRunningTests`，能验证的只剩这个判据）。
+    var isAlertPollingActive: Bool {
         QuotaAlertPreference.value(defaults: defaults) != nil
     }
 

@@ -32,8 +32,8 @@ struct NotchView: View {
  @StateObject private var usageStatsViewModel = UsageStatsViewModel()
  /// 额度页的视图模型：同样由内容根持有——头部额度按钮与设置面板两个入口共用一份配置与读数。
  @StateObject private var balanceViewModel = NewAPIBalanceViewModel()
- /// 余额提醒阈值档：本视图据此开关后台轮询（见 `handleQuotaAlertThresholdChange`）。
- @ObservedObject private var quotaAlertThreshold = QuotaAlertThresholdSelector.shared
+ /// 余额提醒阈值：本视图据此开关后台轮询（见 `handleQuotaAlertThresholdChange`）。
+ @ObservedObject private var quotaAlert = QuotaAlertSelector.shared
  @StateObject private var activityCoordinator = NotchActivityCoordinator.shared
  @ObservedObject private var updateManager = UpdateManager.shared
  @ObservedObject private var textSizeSelector = TextSizeSelector.shared
@@ -281,10 +281,10 @@ struct NotchView: View {
   .onChange(of: balanceViewModel.mutedAlert) { _, alert in
    handleBalanceAlert(alert)
   }
-  // 阈值档就是「后台轮询」的开关（视图模型 `init` 只按启动那一刻的档位起一次）：打开
-  // 要立刻起得起来、关掉要立刻停得掉，否则改了设置却什么都没发生。
-  .onChange(of: quotaAlertThreshold.option) { _, option in
-   handleQuotaAlertThresholdChange(option)
+  // 阈值就是「后台轮询」的开关（视图模型 `init` 只按启动那一刻的阈值起一次）：设上
+  // 要起得起来、清空要立刻停得掉，否则改了设置却什么都没发生。
+  .onChange(of: quotaAlert.amount) { _, amount in
+   handleQuotaAlertAmountChange(amount)
   }
  }
 
@@ -789,16 +789,12 @@ struct NotchView: View {
   playNotificationSound()
  }
 
- /// 阈值档变了：非关闭档就把后台轮询拉起来（已经在跑时是空操作），关闭档立刻停。
+ /// 阈值变了：交给视图模型（它等值稳定下来再起轮询，清空则立刻停）。
  ///
- /// 判据与视图模型里的 `isAlertPollingActive` 同源（都问 `QuotaAlertPreference`），不在这里
- /// 自己解一遍档位——否则「有没有设阈值」这件事会出现第二处口径。
- private func handleQuotaAlertThresholdChange(_ option: QuotaAlertThreshold) {
-  if option.value == nil {
-   balanceViewModel.stopAlertPolling()
-  } else {
-   balanceViewModel.startAlertPolling()
-  }
+ /// 这里**不做判断**：开门条件（`amount > 0`）与轮询门（`isAlertPollingActive`）都在视图
+ /// 模型里，否则「有没有设阈值」会出现第二处口径。
+ private func handleQuotaAlertAmountChange(_ amount: Double) {
+  balanceViewModel.alertThresholdChanged(to: amount)
  }
 
  private func handleWaitingForInputChange(_ instances: [SessionState]) {

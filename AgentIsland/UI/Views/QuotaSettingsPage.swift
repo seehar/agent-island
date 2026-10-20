@@ -15,9 +15,9 @@
 //
 //  应用不轮询：进页触一次（30 秒节流）+ 手动刷新，页眉的时间戳就是读数的新鲜度。
 //
-//  余额提醒（`QuotaAlertThreshold`）在这一页上有两处可见：低于阈值的主读数改用警示色 +
+//  余额提醒（`QuotaAlertSelector`）在这一页上有两处可见：低于阈值的主读数改用警示色 +
 //  一枚警示形状（见 `QuotaLowBalanceHighlight`），以及详情卡脚注里写明「低于多少会提醒」
-//  ——阈值就是用户在这里读到的那个量，不该只存在于通知页的一行档位里。
+//  ——阈值就是用户在这里读到的那个量，不该只存在于通知页的一行输入框里。
 //
 
 import SwiftUI
@@ -26,8 +26,8 @@ import SwiftUI
 struct QuotaSettingsPage: View {
     @ObservedObject var viewModel: NewAPIBalanceViewModel
     @ObservedObject private var pageState = NewAPIAccountPageState.shared
-    /// 阈值档：这一页的高亮与脚注都跟着它变（在通知页改了档，切回来要立刻是高亮后的样子）。
-    @ObservedObject private var alertThreshold = QuotaAlertThresholdSelector.shared
+    /// 阈值：这一页的高亮与脚注都跟着它变（在通知页改了金额，切回来要立刻是高亮后的样子）。
+    @ObservedObject private var alertThreshold = QuotaAlertSelector.shared
     @ObservedObject private var l10n = LocalizationManager.shared
 
     /// 「减少动态效果」系统偏好：凭据表单的展开动画据此换成不动的版本（见 `AppMotion`）。
@@ -413,16 +413,16 @@ struct QuotaSettingsPage: View {
     /// 某个账号的低额高亮：判据只有 `QuotaAlertPolicy` 一处（列表行与详情卡因此不会说两套）。
     private func highlight(for account: NewAPIAccount) -> QuotaLowBalanceHighlight {
         QuotaLowBalanceHighlight(
-            threshold: alertThreshold.option.value, reading: viewModel.reading(for: account))
+            threshold: alertThreshold.threshold, reading: viewModel.reading(for: account))
     }
 
     /// 详情卡的脚注：金额口径那句之外，阈值开着时再写一句「低于多少会提醒」。
     ///
-    /// 两句话可能都不短且脚注只排一行（超长会被截断），因此阈值档的那句**优先**：
+    /// 两句话可能都不短且脚注只排一行（超长会被截断），因此阈值那句**优先**：
     /// 金额口径是常驻说明（用户读过一次就知道），而「现在会不会提醒、按多少算」是
     /// 打开这一页最想确认的事。
     private var detailFootnote: String {
-        guard let value = alertThreshold.option.value else {
+        guard let value = alertThreshold.threshold else {
             return l10n.t(
                 "Amounts follow the instance's own currency setting; credentials are kept in this app's preferences."
             )
