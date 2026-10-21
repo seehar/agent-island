@@ -3,9 +3,9 @@
 //  AgentIsland
 //
 //  Pi / Oh My Pi 的像素角色：一台小终端，屏幕上是一枚像素 π（π 的左右两竖就是它的眼睛），
-//  头顶顶着一片青色的叶子。**Pi 与 Oh My Pi 共用这一份画法、配色是入参**（`Palette`）：
-//  Pi 是它自己的深青绿，Oh My Pi 是 omp.sh 图标渐变里的紫（与 `AgentPalette` 的
-//  `brandColor` 同色）。
+//  头顶顶着一片珊瑚色的叶子。**Pi 与 Oh My Pi 共用这一份画法、配色是入参**（`Palette`）：
+//  Pi 用 pi 自己字标的三色（珊瑚 / 蓝 / 黄），Oh My Pi 是 omp.sh 图标渐变里的紫（与
+//  `AgentPalette` 的 `brandColor` 同色）。
 //    · 空闲：坐在地上打盹——两个互不整除的漂移周期把机身托起又放下，眼睛每 4 秒眯一下，
 //      头顶飘三个 Z；
 //    · 处理中：坐在键盘前打字——机身随按键起伏，键帽上有一格在亮，眼睛叠自然眨眼；
@@ -16,7 +16,8 @@
 //  起跳 16×14（上边缘 y=3）——视口不同只影响这一套场景里角色的位置与大小。
 //
 //  移植自 CodeIsland（MIT，Copyright (c) 2026 wxtsky）的 `Sources/CodeIsland/PiView.swift`，
-//  坐标常量与配色逐值保留；时间改为显式传参（`t`），每一帧因此都是 `t` 的纯函数。
+//  坐标常量逐值保留；配色改取 pi 自己的品牌三色（见 `Palette.pi`），时间改为显式传参
+//  （`t`），每一帧因此都是 `t` 的纯函数。
 //
 
 import SwiftUI
@@ -43,15 +44,21 @@ struct PiMascot: View {
         /// 警报色：状态色（待审批的瞪眼与惊叹号），与品牌无关，两套配色共用。
         static let alert = Color(red: 1.0, green: 0.35, blue: 0.14)
 
-        /// Pi：上游 `PiView.swift` 的配色逐值保留（深青绿外壳 + 亮青叶面）。
+        /// Pi：取 pi 自己字标的三色——珊瑚 #E48A7A / 蓝 #4F8EB3 / 黄 #EAB65D（出处见
+        /// `AgentPalette` 的 pi 档）：机身蓝（与品牌主色同一支）、叶面珊瑚（字标里顶在
+        /// 蓝脊上的那一横，搬到角色上就是头顶的叶子）、键帽亮格黄。
+        ///
+        /// 暗档与键盘**按机身压暗**（保持色相，明度与彩度按 omp 那一档的同一组比例），
+        /// 因此黄只出现在亮格上——整枚角色仍是「蓝机身 + 一支暖色点缀」，不会散成三块。
+        /// 上游 `PiView.swift` 的深青绿在这套品牌里没有对应色，随之退役。
         static let pi = Palette(
-            shell: Color(red: 0.14, green: 0.49, blue: 0.53),
-            shellDark: Color(red: 0.09, green: 0.30, blue: 0.34),
-            leaf: Color(red: 0.44, green: 0.90, blue: 0.95),
-            face: Color(red: 0.05, green: 0.12, blue: 0.13),
-            keyboardBase: Color(red: 0.08, green: 0.13, blue: 0.16),
-            keyboardKey: Color(red: 0.13, green: 0.23, blue: 0.27),
-            keyboardFlash: Color(red: 0.72, green: 0.96, blue: 1.0))
+            shell: Color(mascotHex: 0x4F8EB3),
+            shellDark: Color(mascotHex: 0x2E576D),
+            leaf: Color(mascotHex: 0xE48A7A),
+            face: Color(mascotHex: 0x0D161A),
+            keyboardBase: Color(mascotHex: 0x131B20),
+            keyboardKey: Color(mascotHex: 0x24353E),
+            keyboardFlash: Color(mascotHex: 0xEAB65D))
 
         /// Oh My Pi：外壳取品牌主色 **#9B4DFF**（`AgentPalette` 的 omp 档，也是刘海计数徽标
         /// 用的那个色），叶面取同一条渐变里的**粉端 #ED4ABF**（omp.sh 图标是

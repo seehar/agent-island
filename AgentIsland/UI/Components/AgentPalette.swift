@@ -33,11 +33,17 @@ extension AgentKind {
             // （最近邻：Gemini ΔE 11）
             return Color(red: 0.608, green: 0.302, blue: 1.0)
         case .pi:
-            // pi.dev 站点 logo 是 #F09082 / #4D9ABF / #F1BE58 三色。取蓝 #4D9ABF：
-            // 面积最大的那只珊瑚色与 Claude 橙的 ΔE2000 只有 9.7，14pt 下几乎分不出来；
-            // 黄 #F1BE58 与「待审批」的琥珀色 ΔE 只有 6.8，会与状态色混淆。
-            // （最近邻：Codex ΔE 14）
-            return Color(red: 0.302, green: 0.604, blue: 0.749)
+            // pi 自己的像素字标是三色：珊瑚 #E48A7A / 蓝 #4F8EB3 / 黄 #EAB65D。出处是
+            // pi 上游 `packages/coding-agent/src/modes/interactive/components/pi-logo.ts`
+            // 的 CORAL/BLUE/YELLOW（注释原文「品牌色不随主题变」），并由 pi.dev 的官方
+            // 演示录像 `/recordings/*.cast` 逐字节证实（启动头那枚 4×4 的 π 就是这三支）。
+            // 取蓝 #4F8EB3：蓝与珊瑚是字标里占比最大的两色，但珊瑚 #E48A7A 与 Claude 橙的
+            // ΔE2000 只有 7.5，14pt 下几乎分不出来；黄 #EAB65D 与「待审批」的琥珀色 ΔE 只有
+            // 7.6，会与状态色混淆。
+            // （pi.dev 站点首屏那张 logo 还用着更亮的一档 #F09082 / #4D9ABF / #F1BE58；
+            // 本表与角色都按产品自己渲染的那一档取，两档的蓝相差 ΔE 4.2。）
+            // （最近邻：Codex ΔE 13）
+            return Color(red: 0.310, green: 0.557, blue: 0.702)
         case .opencode:
             // opencode.ai 的标识本身是白/灰单色（图标为暗底白框），没有彩色品牌色，
             // 取其站点里出现最多的 #8E8B8B 作中性灰。（最近邻：Grok ΔE 9）

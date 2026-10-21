@@ -247,15 +247,15 @@ struct AgentMascotRenderTests {
 
     @Test("睡眠 Z 的提亮档：黑舞台上读得出来、不换色相、不被洗成灰")
     func sleepZTintStaysReadableAndOnHue() {
-        // 输入是各角色 `sleepZ` 实际会传的那几支：19 个品牌色（中性档的几个角色直接用它），
-        // 外加三支与品牌色不同的角色机身色。判据是**值域**性质——具体谁配哪一支由接触表人工核对
-        // （像素角色是手绘方块，颜色搭配没法用断言证明「像不像那个角色」）。
+        // 输入是各角色 `sleepZ` 实际会传的那几支：19 个品牌色（中性档的几个角色直接用它，
+        // pi 的机身现在也是它的品牌色），外加两支与品牌色不同的角色机身色。判据是**值域**性质
+        // ——具体谁配哪一支由接触表人工核对（像素角色是手绘方块，颜色搭配没法用断言证明
+        // 「像不像那个角色」）。
         let samples: [(name: String, color: Color)] =
             AgentKind.allCases.map { ($0.rawValue, $0.brandColor) }
             + [
                 ("cline 机身绿", Color(mascotHex: 0x00B37D)),
                 ("copilot 机身玫红", Color(mascotHex: 0xCC3366)),
-                ("pi 机身青绿", Color(red: 0.14, green: 0.49, blue: 0.53)),
             ]
 
         func hue(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat) -> CGFloat? {
