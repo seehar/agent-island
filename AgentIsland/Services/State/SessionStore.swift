@@ -1371,6 +1371,27 @@ actor SessionStore {
                 continue
             }
 
+            // 「处理中」的心跳兜底：Stop 丢了（CLI 被杀、omp 把会话 dispose 掉）时相位
+            // 会永远停在处理中，只要进程还活着就没人体面地收它——关闭态徽标的分子因此虚高。
+            // 判据见 `SessionLiveness`（纯函数，可单测）。
+            if SessionLiveness.shouldDemoteProcessing(
+                session: session,
+                transcriptModifiedAt: session.transcriptPath.flatMap {
+                    TranscriptFileReader.modificationDate(of: URL(fileURLWithPath: $0))
+                },
+                now: now)
+            {
+                let idleMinutes = Int(SessionLiveness.processingHeartbeatTimeout / 60)
+                Self.logger.info(
+                    "Session \(key.rawValue, privacy: .public) has no heartbeat for \(idleMinutes)m, dropping stale processing phase"
+                )
+                var demoted = session
+                demoted.phase = .idle
+                sessions[key] = demoted
+                stateChanged = true
+                continue
+            }
+
             let needsSync: Bool
             switch session.phase {
             case .processing, .waitingForApproval:
