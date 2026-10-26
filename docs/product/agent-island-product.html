@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>AgentIsland 产品说明</title>
+<style>
+  :root{
+    --ink:#111114;
+    --muted:#6b6b76;
+    --line:#e3e3ea;
+    --line-strong:#c9c9d4;
+    --accent:#6c5ce7;
+    --accent-soft:#f1efff;
+    --surface:#f6f6f9;
+    --dark:#0a0a0d;
+    --ok:#2e9e6b;
+    --warn:#c8871a;
+    --bad:#d0454c;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Helvetica Neue",Arial,sans-serif;
+    font-size:9.9pt;
+    line-height:1.58;
+    color:var(--ink);
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+    font-feature-settings:"palt" 1;
+  }
+  @page{size:A4;margin:12mm 12mm 13mm}
+  @page:first{margin:0}
+  p{margin:0 0 7pt}
+  ul,ol{margin:0 0 7pt;padding-left:15pt}
+  li{margin:0 0 3pt}
+  h1,h2,h3,h4{margin:0;font-weight:700;letter-spacing:.2pt}
+  h2{font-size:15pt;margin:0 0 9pt;padding-left:9pt;border-left:3.4pt solid var(--accent);line-height:1.25}
+  h3{font-size:10.8pt;margin:12pt 0 4pt;color:#1c1c22}
+  h4{font-size:9.9pt;margin:8pt 0 3pt}
+  strong{font-weight:700}
+  em{font-style:normal;color:var(--muted)}
+  code,.mono{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:8.4pt}
+  code{background:var(--surface);border:0.4pt solid var(--line);border-radius:2pt;padding:0 2pt}
+  pre{margin:6pt 0 8pt;padding:8pt 10pt;background:#f5f5f8;border:0.5pt solid var(--line);
+      border-radius:4pt;font-family:"SF Mono",Menlo,Consolas,monospace;font-size:8.1pt;
+      line-height:1.5;white-space:pre-wrap;break-inside:avoid}
+  pre code{background:none;border:0;padding:0;font-size:inherit}
+  blockquote{margin:7pt 0;padding:6pt 10pt;border-left:2.4pt solid var(--line-strong);
+             color:#3a3a44;background:#fafafc;break-inside:avoid}
+  a{color:inherit;text-decoration:none}
+
+  /* ---------- 封面 ---------- */
+  .cover{
+    width:210mm;height:297mm;background:var(--dark);color:#f5f5f8;
+    padding:16mm 15mm 14mm;display:flex;flex-direction:column;
+    break-after:page;position:relative;overflow:hidden;
+  }
+  .cover .notchbar{width:100%;margin-top:2mm}
+  .cover .notchbar{width:108mm;margin:0 auto}
+  .cover .notchbar img{width:100%;display:block}
+  .cover .kicker{margin-top:20mm;font-size:8.4pt;letter-spacing:3pt;color:#8f8fa4;text-transform:uppercase}
+  .cover h1{font-size:47pt;line-height:1.02;margin:3mm 0 0;letter-spacing:-.6pt}
+  .cover .sub{font-size:15pt;line-height:1.45;color:#c9c9d8;margin-top:5mm;max-width:150mm}
+  .cover .sub b{color:#fff;font-weight:600}
+  .cover .meta{margin-top:6mm;font-size:8.6pt;color:#8a8a9c;letter-spacing:.4pt}
+  .cover .metrics{display:flex;gap:6mm;margin-top:12mm;border-top:0.6pt solid #26262f;padding-top:6mm}
+  .cover .metric{flex:1}
+  .cover .metric .n{font-size:22pt;font-weight:700;letter-spacing:-.3pt}
+  .cover .metric .l{font-size:7.8pt;color:#8a8a9c;margin-top:1.5mm;letter-spacing:.3pt}
+  .cover .quote{margin-top:11mm;font-size:17pt;line-height:1.5;color:#e9e9f2;letter-spacing:.2pt}
+  .cover .quote span{display:block;font-size:10.5pt;color:#9c9cb0;margin-top:2.5mm;letter-spacing:.3pt}
+  .cover .hero{margin-top:auto;padding-top:8mm}
+  .cover .hero img{width:104mm;display:block;margin:0 auto;border-radius:5mm;
+                   box-shadow:0 6mm 16mm rgba(0,0,0,.55)}
+  .cover .hero .cap{text-align:center;font-size:7.6pt;color:#77778a;margin-top:4mm;letter-spacing:.4pt}
+  .cover .foot{margin-top:8mm;display:flex;justify-content:space-between;font-size:7.6pt;color:#6f6f82}
+
+  /* ---------- 正文 ---------- */
+  .chapter{break-before:page}
+  .chapter.first{break-before:auto}
+  .lead{font-size:10.6pt;line-height:1.6;color:#2a2a33;margin-bottom:9pt}
+  .lede-line{height:2.2pt;width:26mm;background:var(--accent);margin:0 0 8pt}
+  .small{font-size:8.5pt;color:var(--muted)}
+  .tiny{font-size:7.8pt;color:var(--muted)}
+
+  .metrics-row{display:flex;gap:4mm;margin:0 0 10pt}
+  .metrics-row .cell{flex:1;background:var(--surface);border:0.5pt solid var(--line);
+    border-radius:4pt;padding:6pt 8pt}
+  .metrics-row .n{font-size:16pt;font-weight:700;line-height:1.15}
+  .metrics-row .l{font-size:7.8pt;color:var(--muted);margin-top:1pt}
+
+  table{width:100%;border-collapse:collapse;margin:5pt 0 9pt;font-size:8.25pt;line-height:1.42}
+  th{text-align:left;font-weight:600;color:#3b3b46;background:#f2f2f6;
+     border-bottom:0.7pt solid var(--line-strong);padding:4pt 5pt}
+  td{border-bottom:0.5pt solid var(--line);padding:3.6pt 5pt;vertical-align:top}
+  tr{break-inside:avoid}
+  td.mono,th.mono{font-family:"SF Mono",Menlo,monospace;font-size:7.6pt}
+  table.compact{font-size:7.65pt;line-height:1.36}
+  table.compact th,table.compact td{padding:2.9pt 4pt}
+  .tag{display:inline-block;font-size:7pt;line-height:1;padding:2.2pt 4pt;border-radius:2.5pt;
+       background:#eeeef4;color:#4b4b58;border:0.4pt solid #dcdce4;white-space:nowrap}
+  .tag.hot{background:#fdeeee;color:#a8323a;border-color:#f3cccc}
+  .tag.ok{background:#eaf6ef;color:#24714c;border-color:#cfe8d9}
+  .tag.brand{background:var(--accent-soft);color:#4536c9;border-color:#ddd7ff}
+
+  .fig{margin:5pt 0 9pt;break-inside:avoid}
+  .fig img{display:block;width:100%;border-radius:5pt;border:0.5pt solid #d6d6de;background:var(--dark)}
+  .fig .cap{font-size:7.8pt;color:var(--muted);margin-top:3.2pt;line-height:1.45}
+  .fig .cap b{color:#3a3a44;font-weight:600}
+  .figrow{display:flex;gap:6mm;align-items:flex-start;break-inside:avoid;margin:4pt 0 9pt}
+  .figrow .fig{flex:1;margin:0}
+  .figrow .fig img{width:100%}
+
+  .callout{border:0.5pt solid var(--line);border-left:2.6pt solid var(--accent);
+    background:#fbfbfe;border-radius:3pt;padding:6pt 9pt;margin:7pt 0 9pt;break-inside:avoid}
+  .callout .t{font-weight:700;font-size:9pt;margin-bottom:2pt}
+  .grid2{display:flex;gap:6mm;align-items:flex-start}
+  .grid2 > *{flex:1}
+  .kv{font-size:8.6pt}
+  .kv b{display:inline-block;min-width:18mm}
+
+  .toc{columns:2;column-gap:12mm;font-size:9.2pt}
+  .toc div{break-inside:avoid;margin:0 0 4.5pt;display:flex;justify-content:space-between;gap:6pt}
+  .toc .num{color:var(--accent);font-weight:700;width:7mm;flex:none}
+  .toc .name{flex:1}
+  .toc .pg{color:var(--muted);font-size:8pt}
+
+  .phase{display:inline-block;width:7pt;height:7pt;border-radius:50%;border:1.4pt solid #8f8f9e;vertical-align:-.5pt}
+  .phase.run{border-color:#e0672f;background:#fff}
+  .phase.ask{border-color:#e0a02f;background:#fff}
+
+  .divider{height:0.5pt;background:var(--line);margin:10pt 0}
+  .chapter-end{font-size:7.4pt;color:#a5a5b2;text-align:right;margin-top:6pt}
+
+  .doc-footer{margin-top:10pt;border-top:0.5pt solid var(--line);padding-top:5pt;
+              font-size:7.4pt;color:#9a9aa8;display:flex;justify-content:space-between}
+</style>
+</head>
+<body>
+
+<!-- ================= 封面 ================= -->
+<div class="cover">
+  <div class="notchbar"><img src="img/closed.png" alt="关闭态胶囊"></div>
+
+  <div class="kicker">macOS · 刘海浮层 · 本地优先</div>
+  <h1>AgentIsland</h1>
+  <div class="sub">你的编码 Agent，<b>就挂在 MacBook 刘海上。</b><br>
+    实时会话状态、渲染后的对话、用量统计，以及可以直接在刘海上给出的工具审批。</div>
+  <div class="meta">产品说明　·　版本 1.4.0（build 8）　·　2026 年 10 月　·　代码快照 e1a7b41</div>
+
+  <div class="metrics">
+    <div class="metric"><div class="n">19</div><div class="l">个编码 Agent</div></div>
+    <div class="metric"><div class="n">711</div><div class="l">个自动测试</div></div>
+    <div class="metric"><div class="n">9</div><div class="l">个设置面</div></div>
+    <div class="metric"><div class="n">0</div><div class="l">个监听端口</div></div>
+  </div>
+
+  <div class="quote">抬眼即见。<span>不用切窗口，也不用猜谁在等你。</span></div>
+
+  <div class="hero">
+    <img src="img/sessions.png" alt="会话列表实拍">
+    <div class="cap">实拍：把鼠标移到刘海上，一张列表收起所有 Agent 的会话</div>
+  </div>
+
+  <div class="foot">
+    <span>AgentIsland 产品说明</span>
+    <span>Apache-2.0　·　macOS 15.6+　·　Apple Silicon</span>
+  </div>
+</div>
+
+<!-- ================= 目录 ================= -->
+<section class="chapter first">
+  <h2>目录与关于本文档</h2>
+  <div class="toc">
+    <div><span class="num">01</span><span class="name">为什么是刘海</span><span class="pg">03</span></div>
+    <div><span class="num">02</span><span class="name">三种形态：胶囊、列表、对话</span><span class="pg">04</span></div>
+    <div><span class="num">03</span><span class="name">在刘海上审批</span><span class="pg">06</span></div>
+    <div><span class="num">04</span><span class="name">支持的 19 个 Agent</span><span class="pg">07</span></div>
+    <div><span class="num">05</span><span class="name">用量统计</span><span class="pg">09</span></div>
+    <div><span class="num">06</span><span class="name">设置：5 个配置页</span><span class="pg">10</span></div>
+    <div><span class="num">07</span><span class="name">标记动画：19 枚像素角色</span><span class="pg">12</span></div>
+    <div><span class="num">08</span><span class="name">工作原理</span><span class="pg">13</span></div>
+    <div><span class="num">09</span><span class="name">隐私与安全</span><span class="pg">14</span></div>
+    <div><span class="num">10</span><span class="name">安装、构建与发布</span><span class="pg">15</span></div>
+    <div><span class="num">11</span><span class="name">边界与取舍</span><span class="pg">16</span></div>
+    <div><span class="num">A</span><span class="name">附录：快捷键、集成写入面、术语</span><span class="pg">17</span></div>
+  </div>
+
+  <div class="divider"></div>
+
+  <h3>本文档说明什么</h3>
+  <p class="lead">AgentIsland 是一个 macOS 菜单栏应用（<code>LSUIElement</code>，没有 Dock 图标）：它把 19 个编码 Agent CLI 的会话状态搬到 MacBook 刘海处的浮层里，让你抬眼就能看到谁在等你、谁在干活、谁刚答完。</p>
+
+  <p>本文覆盖产品形态、支持的 Agent 与能力边界、关键交互（会话列表、对话、审批、统计、设置、像素角色）、工作原理、隐私设计，以及安装与发布流程。所有数字都在本仓代码与其记录上现场核对过，不沿用旧文案。</p>
+
+  <h3>关于截图</h3>
+  <ul>
+    <li><b>真机实拍。</b>截图来自一台 1512×982 的内置 Retina 屏（带物理刘海），面板宽随内容 498–604pt（列表/设置 498pt，对话页更宽），系统语言为简体中文；关闭态、设置、统计、角色画廊为真实使用状态。</li>
+    <li><b>演示工作区。</b>会话列表、对话页与审批卡片使用一个三到五会话的演示工作区，便于展示「处理中 / 就绪 / 待审批」三种相位；不含任何真实项目内容。</li>
+    <li><b>数据口径。</b>统计页的数字来自本机真实使用记录（含 OMP、Claude、WorkBuddy 等），截图为 2026-10-26 当次索引后的读数。</li>
+  </ul>
+
+  <h3>术语</h3>
+  <table class="compact">
+    <tr><th style="width:26mm">术语</th><th>含义</th></tr>
+    <tr><td>会话（session）</td><td>某个 Agent 的一次对话记录。身份由「Agent + 会话 id」构成（<code>SessionKey</code>）。</td></tr>
+    <tr><td>相位（phase）</td><td>会话此刻的状态：空闲 / 处理中 / 等待输入 / 等待审批 / 压缩上下文 / 已结束。</td></tr>
+    <tr><td>集成（integration）</td><td>写进 Agent 自己的配置里的 hook 脚本、扩展或插件，把事件送到本应用的 socket。</td></tr>
+    <tr><td>读数面</td><td>占满面板宽度的独立页面：统计与额度。它们不在设置侧栏里，分别由顶部的图表与信用卡按钮进入。</td></tr>
+    <tr><td>角色（mascot）</td><td>每个 Agent 的运行时像素小人：空闲打盹、干活做招牌动作、需要你时跳起来。</td></tr>
+  </table>
+
+  <div class="doc-footer"><span>AgentIsland · 产品说明</span><span>1.4.0 (8)</span></div>
+</section>
+
+<!-- ================= 01 为什么是刘海 ================= -->
+<section class="chapter">
+  <h2>01　为什么是刘海</h2>
+  <p class="lead">同时开两个 Agent，你就要在两个 pane 之间切来切去；开到五个，一个权限提示能在你读代码时晾上十分钟。</p>
+
+  <p>这不是工具不够强，而是<b>状态没有出口</b>。每个 CLI 都把自己的进度、待批、错误写在自己的终端里；当你同时使用多个 Agent，注意力被分散到多个窗口，任何「等你决定」的瞬间都变成隐形的队列。</p>
+
+  <p>刘海是屏幕上你永远不会离开的那一条。AgentIsland 把它变成一块状态灯：</p>
+  <ul>
+    <li><b>不打扰。</b>没有 Dock 图标、没有菜单栏图标、没有常驻窗口。关闭态只在挖孔旁边留一枚极小的计数徽标。</li>
+    <li><b>抬眼即见。</b>悬停或单击展开成一张跨所有 Agent 的实时列表；双击进入渲染后的对话。</li>
+    <li><b>就地决策。</b>需要授权的工具调用会在面板里展开成「允许 / 拒绝」，决定经同一条本地 socket 回传给 Agent。</li>
+  </ul>
+
+  <div class="fig">
+    <img src="img/closed.png" alt="关闭态完整胶囊" style="width:92mm;margin:0 auto">
+    <div class="cap"><b>关闭态（完整胶囊）。</b>左侧是当前最需要你注意的 Agent 的像素角色，右侧是「活跃 / 总数」计数（图中 2/5）。默认档更克制：只在挖孔右侧留计数，左侧完全不碰菜单栏。</div>
+  </div>
+
+  <h3>谁适合用</h3>
+  <ul>
+    <li><b>同时开两个以上 Agent 的人。</b>把 Claude / Codex / omp 分派到不同项目，需要一眼看出谁在等你。</li>
+    <li><b>长时间跑任务的人。</b>跑测试、做迁移、等构建时不必盯终端；有结果或待批时刘海会自己动。</li>
+    <li><b>已经在用 tmux / Paseo 的人。</b>消息与中断直接写进 pane 或 pty，不需要额外配置终端复用。</li>
+  </ul>
+
+  <blockquote><b>三条设计原则：</b>① 不打扰 —— 默认只在挖孔右侧放计数；② 单一事实源 —— 所有状态只经过一个 actor；③ 本地优先 —— 不开端口、不发遥测、记录只读。</blockquote>
+
+  <h3>为什么不是菜单栏</h3>
+  <p class="small">菜单栏图标是「应用入口」，要一直占位、还要处理点击与右键菜单；刘海面板是「状态表面」，只在需要时展开，关闭态可以缩到只剩一枚计数。相机挖孔本身画不进去，所以关闭态的信息必须落在挖孔两侧的菜单栏表面——三档「关闭态刘海」就是这道取舍的三个答案。</p>
+
+  <h3>它不是什么</h3>
+  <table class="compact">
+    <tr><th style="width:34mm">不是</th><th>原因</th></tr>
+    <tr><td>不是终端替代品</td><td>它不接管你的 shell、不解析 ANSI、不模拟键盘输入。真正执行工具的是 Agent 自己。</td></tr>
+    <tr><td>不是编排器</td><td>它不决定哪个 Agent 干活、也不合并结果；它只呈现已有会话并转发你的决定。</td></tr>
+    <tr><td>不是云服务</td><td>没有账号、没有服务端、没有遥测；所有状态在本机内存里，聚合计数存在本机数据库里。</td></tr>
+    <tr><td>不是「全自动」</td><td>审批是显式的人类决定；超时按拒绝处理，不会因为「没人答」而默认放行。</td></tr>
+  </table>
+
+  <div class="doc-footer"><span>01　为什么是刘海</span><span>03</span></div>
+</section>
+
+<!-- ================= 02 三种形态 ================= -->
+<section class="chapter">
+  <h2>02　三种形态：胶囊、列表、对话</h2>
+  <p class="lead">同一个面板，三种信息密度。关闭态回答「有没有事」，列表回答「谁在干什么」，对话回答「它到底做了什么」。</p>
+
+  <h3>关闭态：一枚计数徽标</h3>
+  <p>没有活动时，面板收成贴着挖孔的胶囊。三档由「关闭态刘海」决定：</p>
+  <table class="compact">
+    <tr><th style="width:28mm">档位</th><th>画什么</th><th>适合</th></tr>
+    <tr><td>只留计数（默认）</td><td>仅在挖孔右侧画「活跃 / 总数」，左侧完全不占菜单栏</td><td>菜单栏已经很挤</td></tr>
+    <tr><td>只留挖孔</td><td>连计数都不画，关闭态只剩相机挖孔的剪影</td><td>追求绝对安静</td></tr>
+    <tr><td>完整胶囊</td><td>左侧像素角色 + 右侧计数（封面与上图即此档）</td><td>想用余光看 Agent 状态</td></tr>
+  </table>
+  <p class="small">计数颜色与角色同源（取该 Agent 的品牌色）；状态由角色的动作（打盹 / 干活 / 跳起来）与琥珀色审批指示表达，而不是用颜色编码状态。</p>
+
+  <h3>会话列表：一张跨 Agent 的实时列表</h3>
+  <p>单击刘海展开。每一行回答四件事：谁（Agent 品牌标记）、什么任务（会话标题）、花了多少（本轮 token）、什么时候动的（相对时间）；第二行是最后一条消息或正在跑的工具。行内还可以直接打开聊天、定位终端、隐藏该会话。</p>
+
+  <div class="fig">
+    <img src="img/sessions.png" alt="会话列表" style="width:112mm;margin:0 auto">
+    <div class="cap"><b>会话列表。</b>5 个会话中 2 个正在处理（橙色指示）、3 个就绪。计数「2/5」与关闭态同源；子代理运行会额外计入分子。</div>
+  </div>
+
+  <h3>相位怎么读</h3>
+  <table class="compact">
+    <tr><th style="width:26mm">相位</th><th style="width:22mm">行首标记</th><th>含义</th></tr>
+    <tr><td>处理中</td><td>橙色星芒</td><td>Agent 正在跑（工具或生成）；第二行是正在执行的工具。</td></tr>
+    <tr><td>等待审批</td><td>琥珀色感叹号</td><td>有工具调用在等你的决定；行内会出现允许 / 拒绝。</td></tr>
+    <tr><td>等待输入</td><td>空心圆</td><td>Agent 已答完，或在等你补充信息。</td></tr>
+    <tr><td>空闲 / 已结束</td><td>虚线圆</td><td>没有活动；已结束的会话按「已结束会话保留」档定时移出。</td></tr>
+  </table>
+
+  <h3>行内动作</h3>
+  <ul class="small">
+    <li><b>单击</b>按「单击动作」执行（默认打开聊天；可改为定位终端或什么都不做）；<b>双击</b>始终打开对话。</li>
+    <li><b>打开聊天 / 定位终端 / 隐藏</b> 三个图标在行尾；没有 pid、也不在 tmux 里的会话，「定位终端」不可用。</li>
+  </ul>
+  <p class="small">子代理运行计入关闭态的分子，但<b>不计入会话总数</b>；它挂在派发它的 task 卡片下面。</p>
+
+  <p class="small">未安装集成的 Agent 也能出现：应用扫描它们自己的记录目录（JSONL 或 SQLite），从内容推断状态；代价是新会话要等一个刷新周期才出现。</p>
+
+  <div class="doc-footer"><span>02　三种形态：胶囊、列表、对话</span><span>04</span></div>
+</section>
+
+<section class="chapter">
+  <h2>02　对话页：渲染后的记录</h2>
+
+  <p class="lead">双击任意会话（或点行内的「打开聊天」）进入对话页。它读的是 Agent 自己写的会话记录，因此退出应用、重启 Mac 之后历史仍在。</p>
+
+  <ul>
+    <li><b>Markdown 渲染。</b>标题、列表、表格、行内代码、代码块、粗体与引用按各自语法排版。</li>
+    <li><b>工具调用卡片。</b>每次工具调用是一行可展开的卡片：名称、参数摘要、结果、耗时状态；差异编辑会渲染成红绿 diff。</li>
+    <li><b>子代理内联。</b>Claude Code 的子代理工具调用、以及 <code>omp</code>/<code>pi</code> 的 <code>task</code> 运行，挂在派发它的卡片下面。</li>
+    <li><b>就地发消息 / 中断。</b>会话在 tmux 或 Paseo 托管终端里时，输入框可用：消息写进对应的 pty，中断等价于 Ctrl-C。</li>
+  </ul>
+
+  <div class="fig">
+    <img src="img/chat.png" alt="对话页" style="width:136mm;margin:0 auto">
+    <div class="cap"><b>对话页实拍。</b>上方是差异编辑（<code>findByOrder</code> → <code>claimOnce</code>）、Markdown 小标题与代码块；下方是正在跑的工具与输入框（演示会话挂了一个 Paseo 终端标识，因此输入框可用）。</div>
+  </div>
+
+  <div class="callout">
+    <div class="t">为什么强调「记录」而不是「截屏终端」</div>
+    记录是结构化的事实：消息、工具、结果、token、时间戳都在里面，能搜索、能折叠、能跨重启复用。截屏只能看，不能查；也不能在应用不运行时补历史。
+  </div>
+
+  <div class="doc-footer"><span>02　三种形态：胶囊、列表、对话</span><span>05</span></div>
+</section>
+
+<!-- ================= 03 审批 ================= -->
+<section class="chapter">
+  <h2>03　在刘海上审批</h2>
+  <p class="lead">审批是请求 / 应答，而不是通知：集成会一直握着连接等你决定，决定再经同一条 socket 回传。</p>
+
+  <div class="grid2">
+    <div>
+      <h3>一次审批的完整往返</h3>
+      <ol>
+        <li>Agent 要跑一个有副作用的工具（写文件、执行命令），把请求交给集成。</li>
+        <li>集成把请求发到 <code>/tmp/agent-island.sock</code>，<b>不关闭连接</b>，等一个决定。</li>
+        <li>面板展开成审批条：工具名、完整命令或路径、原始入参（可展开）。</li>
+        <li>你按「允许」或「拒绝」；决定写回 socket。</li>
+        <li>集成按自己的协议把决定翻译给 Agent：Claude 系写 stdout、<code>omp</code>/<code>pi</code> 解除阻塞、OpenCode 调它的 HTTP reply 端点。</li>
+      </ol>
+    </div>
+    <div>
+      <h3>失败语义</h3>
+      <ul>
+        <li><b>应用没在跑：</b>集成不挡路，回落到 Agent 自己的原生提示（<code>omp</code>/<code>pi</code> 按降级档处理）。</li>
+        <li><b>应用在跑但超时：</b>一律<b>拒绝</b>。没人应答不等于同意。</li>
+        <li><b>危险命令：</b><code>rm -rf /</code>、<code>sudo rm</code>、<code>mkfs</code>、<code>dd … of=/dev/…</code>、<code>curl … | sh</code>、反弹 shell 等会标红；除「始终允许」档外，它们永远不会走「不可达就放行」。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="fig">
+    <img src="img/approval.png" alt="审批卡片" style="width:136mm;margin:0 auto">
+    <div class="cap"><b>审批实拍。</b>工具名、完整命令、拒绝 / 允许；「显示」可展开原始入参 JSON。上方的对话与工具卡片保持可见，决定前能看清上下文。</div>
+  </div>
+
+  <h3>哪些 Agent 能在刘海上审批</h3>
+  <p>凡是能把决定回传的 Agent 都支持：<b>Claude Code</b>（及其分支 Qoder）、<b>Oh My Pi</b> / <b>Pi</b>（扩展闸门）、<b>OpenCode</b>（插件）、<b>Codex</b>、<b>Gemini CLI</b>、<b>Trae CLI</b>。其余 Agent 照常出现在列表里，审批留在它们自己的终端完成——这是能力边界，不是遗漏。</p>
+
+  <p class="small"><code>omp</code>/<code>pi</code> 的闸门随 Agent 启用，没有第二个开关。启用它会同时抬高 <code>omp</code> 的扩展 handler 预算，好让工具调用等得及你；不想被打断时，把「运行前询问什么」改成「始终允许」——那才是出口，而不是关掉闸门。</p>
+
+  <div class="doc-footer"><span>03　在刘海上审批</span><span>06</span></div>
+</section>
+
+<!-- ================= 04 Agent 表 ================= -->
+<section class="chapter">
+  <h2>04　支持的 19 个 Agent</h2>
+  <p class="lead">接入面有三层：读得到记录（历史与状态）、装得上集成（实时事件）、回得去决定（审批）。不是每个 Agent 三层都齐。</p>
+
+  <table class="compact">
+    <tr>
+      <th style="width:30mm">Agent</th>
+      <th style="width:40mm">会话记录</th>
+      <th style="width:36mm">实时集成</th>
+      <th style="width:21mm">刘海审批</th>
+      <th>子代理</th>
+    </tr>
+    <tr><td><b>Claude Code</b> <span class="tag">claude</span></td><td class="mono">~/.claude/projects/**/*.jsonl</td><td>共用 hook 脚本 + <code>settings.json</code></td><td>支持</td><td>内部工具调用</td></tr>
+    <tr><td><b>Oh My Pi</b> <span class="tag">omp</span></td><td class="mono">~/.omp/agent/sessions/**</td><td><code>extensions/agent-island-state.ts</code></td><td>支持</td><td><code>task</code> 运行</td></tr>
+    <tr><td><b>Pi</b> <span class="tag">pi</span></td><td class="mono">~/.pi/agent/sessions/**</td><td>同上（另一份扩展）</td><td>支持</td><td><code>task</code> 运行</td></tr>
+    <tr><td><b>OpenCode</b> <span class="tag">opencode</span></td><td class="mono">~/.local/share/opencode/opencode.db</td><td><code>plugins/agent-island-state.js</code></td><td>支持</td><td><code>task</code> 运行</td></tr>
+    <tr><td><b>Codex</b> <span class="tag">codex</span></td><td class="mono">$CODEX_HOME/sessions/**</td><td><code>hooks.json</code> + <code>[features] hooks</code></td><td>支持</td><td>—</td></tr>
+    <tr><td><b>Gemini CLI</b> <span class="tag">gemini</span></td><td class="mono">~/.gemini/tmp/**/chats/*.jsonl</td><td><code>settings.json</code></td><td>支持</td><td>—</td></tr>
+    <tr><td><b>Cursor</b> <span class="tag">cursor</span></td><td class="mono">~/.cursor/projects/**/agent-transcripts/**</td><td><code>hooks.json</code></td><td>—</td><td>—</td></tr>
+    <tr><td><b>Copilot</b> <span class="tag">copilot</span></td><td class="mono">~/.copilot/jb/&lt;id&gt;/partition-*.jsonl</td><td><code>hooks/agent-island.json</code></td><td>—</td><td>—</td></tr>
+    <tr><td><b>Qoder</b> <span class="tag">qoder</span></td><td class="mono">~/.qoder/projects/**/*.jsonl</td><td><code>settings.json</code></td><td>支持</td><td>Claude 式子代理</td></tr>
+    <tr><td><b>Factory</b> <span class="tag">droid</span></td><td class="mono">~/.factory/sessions/**</td><td><code>settings.json</code></td><td>—</td><td>Claude 式子代理</td></tr>
+    <tr><td><b>CodeBuddy</b> <span class="tag">codebuddy</span></td><td class="mono">~/.codebuddy/projects/**</td><td><code>settings.json</code></td><td>—</td><td>Claude 式子代理</td></tr>
+    <tr><td><b>WorkBuddy</b> <span class="tag">workbuddy</span></td><td class="mono">~/.workbuddy/projects/**</td><td><code>settings.json</code></td><td>—</td><td>Claude 式子代理</td></tr>
+    <tr><td><b>Kimi Code CLI</b> <span class="tag">kimi</span></td><td class="mono">~/.kimi-code/sessions/**</td><td><code>config.toml</code> 的 <code>[[hooks]]</code></td><td>—</td><td>—</td></tr>
+    <tr><td><b>Cline</b> <span class="tag">cline</span></td><td>VS Code 全局存储</td><td><code>~/Documents/Cline/Hooks/&lt;事件&gt;</code></td><td>—</td><td>—</td></tr>
+    <tr><td><b>Grok CLI</b> <span class="tag">grok</span></td><td class="mono">$GROK_HOME/sessions/**/chat_history.jsonl</td><td><code>hooks/agent-island.json</code></td><td>—</td><td>—</td></tr>
+    <tr><td><b>Trae</b> <span class="tag">trae</span></td><td>没有可解析记录</td><td><code>hooks.json</code></td><td>—</td><td>—</td></tr>
+    <tr><td><b>Trae CLI</b> <span class="tag">traecli</span></td><td>没有可解析记录</td><td><code>traecli.yaml</code> 托管块</td><td>支持</td><td>—</td></tr>
+    <tr><td><b>DeepSeek Harness</b> <span class="tag">dsh</span></td><td>记录为 zstd 压缩，不解析</td><td>不装：由外部插件直写 socket</td><td>—</td><td>—</td></tr>
+    <tr><td><b>Hermes</b> <span class="tag">hermes</span></td><td class="mono">~/.hermes/state.db</td><td><code>config.yaml</code> 的 <code>hooks:</code></td><td>—</td><td><code>delegate_task</code> 运行</td></tr>
+  </table>
+
+  <p class="small">读表提示：<b>「实时集成」列是事件通道</b>（有它才有实时相位与审批）；<b>「会话记录」列是历史来源</b>（有它才有对话页与统计）。两列都可能独立缺失——例如 Trae 有集成但没有可解析记录。</p>
+  <p class="small">每一行的 raw id（<code>claude</code> / <code>omp</code> / <code>droid</code> …）同时是集成脚本的 <code>--source</code> 与事件归属键：两侧必须逐字一致，且不能含冒号（会话键按第一个冒号切分）。</p>
+
+  <p class="tiny">记录路径里的 <code>~</code> 指该 Agent 自己的配置根；环境变量（<code>CODEX_HOME</code> / <code>GROK_HOME</code> / <code>CLAUDE_CONFIG_DIR</code>）优先于界面里选的目录。</p>
+
+  <div class="doc-footer"><span>04　支持的 19 个 Agent</span><span>07</span></div>
+</section>
+
+<section class="chapter">
+  <h2>04　证据等级与首次接入的坑</h2>
+
+  <p class="lead">19 个 Agent 里，本机真实装过的只有一部分。因此这一块的证据分三档——动手改之前，先认清手里是哪一档。</p>
+
+  <table class="compact">
+    <tr><th style="width:26mm">档位</th><th style="width:52mm">含义</th><th>涉及</th></tr>
+    <tr><td><b>本机实测</b></td><td>用真机记录与配置逐字核对过字段</td><td>Codex、Qoder、CodeBuddy / WorkBuddy、Hermes；Claude / omp / Pi / OpenCode 长期使用</td></tr>
+    <tr><td><b>上游源码</b></td><td>逐条照参考实现，但本机无法复跑</td><td>Gemini / Cursor / Copilot / Kimi / Cline / Grok / Trae / Trae CLI 的配置路径与事件表</td></tr>
+    <tr><td><b>合成载荷</b></td><td>只有验证矩阵造的信封能证明</td><td>事件名归一与回写形状（31 个 case / 337 条断言）</td></tr>
+  </table>
+
+  <h3>两个必须由用户完成的一次性动作</h3>
+  <div class="callout">
+    <div class="t">Codex：跑一次 <code>/hooks</code></div>
+    Codex 不会运行未经它审核的 hook。装好后先启动一次 Codex 并执行 <code>/hooks</code>，审核并信任 AgentIsland 的条目——在那之前 Codex 会<b>静默忽略</b>它们，看起来就像「不支持 Codex」。若某次更新重写了 <code>hooks.json</code>，需要再确认一次。
+  </div>
+  <div class="callout">
+    <div class="t">Hermes：逐事件授权</div>
+    Hermes 只运行用户允许过的 shell hook。首次使用时会逐个事件提示授权，记录落在 <code>~/.hermes/shell-hooks-allowlist.json</code>；只批一部分就是半死状态（未批的静默不跑）。授权按「事件 + 命令」精确匹配、长期有效；升级脚本后只有 <code>hermes hooks doctor</code> 会提示「脚本已变」，此时 revoke 再批准即可。
+  </div>
+
+  <h3>尚未在本机验证的清单（改这块前先看）</h3>
+  <ul class="small">
+    <li>Gemini 事件里的 <code>session_id</code> 是否等于记录首行的 <code>sessionId</code>——不等时状态正常但历史为空；Provider 已按两种口径兜底，仍需真机确认。</li>
+    <li>Gemini / Kimi / Cline / Grok 的工具调用字段：本批<b>故意</b>不抽（没有可核对的字段名），因此它们不出现在统计页的工具榜里。</li>
+    <li>Trae CLI 的 <code>permission_request</code> 回写形状按 Claude 信封实现，未真机验证。</li>
+    <li>WorkBuddy 是否真的执行写进 <code>~/.workbuddy/settings.json</code> 的 hooks（该文件同时是它自己的配置，含 sandbox 与插件开关）；本机已验证前半段：信封能让记录路径与会话登记都正确。</li>
+    <li>WorkBuddy 的进程归属会同时命中主进程与内嵌 CLI，拿不到唯一 pid；这类会话靠空闲超时回收。</li>
+  </ul>
+
+  <h3>新增一个 Agent 要动的 7 处</h3>
+  <ol class="small">
+    <li><code>AgentKind</code> 加一个 case（rawValue 即集成侧 source id），补显示名、二进制名、审批能力、子代理与交互式工具名。</li>
+    <li><code>AgentHooks</code> 的 <code>hookSpec</code> 补一行：写入格式、配置路径、事件表、回写协议；没有配置文件型 hook 的填 <code>nil</code>。</li>
+    <li>实现 <code>AgentProvider</code>（记录位置、会话 id、cwd、子代理文件、集成状态）并在注册表登记；home 必须过路径归一。</li>
+    <li>写记录解析：Claude 系直接复用其 schema；其它格式实现 <code>AgentTranscriptSchema</code>（JSONL 增量或整文档指纹）。</li>
+    <li>事件归一表补该工具的原生事件名，并用 31 个 case 的验证矩阵跑一遍。</li>
+    <li>UI：品牌色、静态字形、一枚像素角色（两处穷举 switch 会提示你漏了）。</li>
+    <li>跑 <code>gate.sh --with-tests</code>：表完整性用例会抓漏填、rawValue 重名、阻塞事件却不许回传决定。</li>
+  </ol>
+  <p class="small">这 7 处之所以值得，是因为它们把「一个新 CLI」变成<b>可审批、可统计、可回看</b>的会话——而不是只多一个图标。</p>
+
+  <p class="small">这些不是「已知缺陷」，而是<b>证据边界</b>：装上真机后应优先复核；它们也是后续版本最明确的验证任务。</p>
+
+  <div class="doc-footer"><span>04　支持的 19 个 Agent</span><span>08</span></div>
+</section>
+
+<!-- ================= 05 统计 ================= -->
+<section class="chapter">
+  <h2>05　用量统计</h2>
+  <p class="lead">统计页是一条独立读数面：顶部图表按钮一点直达，占满面板宽度。数字来自对 Agent 自身会话记录的索引。</p>
+
+  <div class="fig">
+    <img src="img/stats.png" alt="用量统计" style="width:96mm;margin:0 auto">
+    <div class="cap"><b>统计实拍（今天）。</b>总量、输入/输出/缓存读写与命中率；近 53 周的每日热力图；按 Agent 与模型拆分；右上角 ↻ 可全量重扫。</div>
+  </div>
+
+  <h3>口径</h3>
+  <table class="compact">
+    <tr><th style="width:30mm">指标</th><th>怎么算</th></tr>
+    <tr><td>总 token</td><td>输入 + 输出 + 缓存读 + 缓存写；只算记录里<b>核对过</b> token 字段的 Agent。</td></tr>
+    <tr><td>缓存命中率</td><td>缓存读 ÷（输入 + 缓存读 + 缓存写）。</td></tr>
+    <tr><td>会话数</td><td>按会话去重，子代理不计入会话数（但它的 token 计入总量）。</td></tr>
+    <tr><td>工具调用</td><td>按各 Agent 自己的记录格式提取；无字段则不出现。</td></tr>
+    <tr><td>范围</td><td>今天 / 本周 / 本月 / 全部；热力图固定近 53 周，<b>不跟范围选择器</b>。</td></tr>
+  </table>
+
+  <div class="grid2">
+    <div>
+      <h3>覆盖范围</h3>
+      <ul class="small">
+        <li><b>token：</b>Claude 系（Claude / Qoder / Factory / CodeBuddy / WorkBuddy）、omp / Pi、Codex、OpenCode、Hermes。</li>
+        <li><b>工具调用：</b>上述 Claude 系、omp / Pi、Codex、Cursor、Copilot、Hermes。</li>
+        <li><b>不出现：</b>Gemini、Kimi、Cline、Grok、Trae、Trae CLI、DSH——没有可核对字段或没有记录。</li>
+      </ul>
+    </div>
+    <div>
+      <h3>数字对不上怎么办</h3>
+      <ul class="small">
+        <li>范围切换右侧的 <b>↻</b> 会把每个 Agent 的记录从头重读一遍并重算已经统计过的数字。</li>
+        <li>日常索引只读记录尾部（增量），刚结束的会话可能延迟一轮。</li>
+        <li>聚合计数存在应用自己的 <code>usage.sqlite</code> 里，会话记录始终只读。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="doc-footer"><span>05　用量统计</span><span>09</span></div>
+</section>
+
+<!-- ================= 06 设置 ================= -->
+<section class="chapter">
+  <h2>06　设置：5 个配置页，2 条读数面</h2>
+  <p class="lead">侧栏是固定的五个配置页与收尾的「关于」；统计与额度不在侧栏里，它们是读数面。「标记动画」从智能体页进入，「快捷键」从关于页进入。</p>
+
+  <table class="compact">
+    <tr><th style="width:24mm">页面</th><th>内容</th></tr>
+    <tr><td><b>通用</b></td><td>语言、屏幕、胶囊高度与宽度（可步进微调，也可键入精确磅值）、内容字号、面板尺寸 · 登录时启动、辅助功能状态、展开时是否接管键盘焦点、投屏 / 录屏 / 截屏中是否显示面板。</td></tr>
+    <tr><td><b>行为</b></td><td>悬停展开、空闲胶囊、关闭态刘海三档 · 已结束会话保留、行信息密度、单击动作、状态复核与会话扫描间隔 · 对话里的子代理明细、隐藏闲置会话。</td></tr>
+    <tr><td><b>通知</b></td><td>音效（点一下即试听）、音量、安静时段、提示音范围（仅就绪 / 就绪与审批）、完成提示，以及余额提醒（自填金额，留空即关闭）。</td></tr>
+    <tr><td><b>智能体</b></td><td>逐 Agent 启用 / 关闭与集成状态、配置目录、工具调用保护范围与离线策略；第一行是「标记动画」入口。</td></tr>
+    <tr><td><b>关于</b></td><td>版本、检查更新、自动检查更新、加星、快捷键、退出。</td></tr>
+    <tr><td><b>统计</b></td><td>Token / 会话 / 工具调用、趋势、Agent 与模型拆分、53 周热力图、全量重扫（顶部图表按钮进入）。</td></tr>
+    <tr><td><b>额度</b></td><td>多个 New API 账号的余额、身份与倍率、密钥额度、实例地址与版本；只在打开这一页时取数（外加余额提醒的慢速后台检查）。</td></tr>
+    <tr><td><b>标记动画</b></td><td>19 枚角色一次铺开；状态（空闲 / 工作中 / 待审批）与速度（静止 / 0.5× / 1× / 2×）；从智能体页进入。</td></tr>
+    <tr><td><b>快捷键</b></td><td>可改绑的键盘动作与冲突检测；从关于页进入。</td></tr>
+  </table>
+
+  <div class="figrow">
+    <div class="fig">
+      <img src="img/set-general.png" alt="通用设置">
+      <div class="cap"><b>通用。</b>胶囊宽度带实时剪影预览；「投屏时显示」决定面板是否参与屏幕捕获。</div>
+    </div>
+    <div class="fig">
+      <img src="img/set-behavior.png" alt="行为设置">
+      <div class="cap"><b>行为。</b>悬停 / 空闲 / 关闭态三档、会话保留与行密度、刷新节奏。</div>
+    </div>
+  </div>
+
+  <p class="small">展开一个选择器时，选项就地展开、面板随之长高，整份选项都可见，因此不会有「最后一个档位掉到可视区外」。窄档（面板尺寸「紧凑」）下侧栏退回纯图标。</p>
+
+  <div class="doc-footer"><span>06　设置：5 个配置页，2 条读数面</span><span>10</span></div>
+</section>
+
+<section class="chapter">
+  <h2>06　通知、智能体与关于</h2>
+
+  <div class="figrow">
+    <div class="fig">
+      <img src="img/set-notifications.png" alt="通知设置">
+      <div class="cap"><b>通知。</b>试听、音量、安静时段、提示音范围与完成提示；最下方是余额提醒。</div>
+    </div>
+    <div class="fig">
+      <img src="img/set-about.png" alt="关于页">
+      <div class="cap"><b>关于。</b>版本、更新、加星、快捷键入口与退出；侧栏收尾不再钉到栏底。</div>
+    </div>
+  </div>
+
+  <h3>通知：只在该响的时候响</h3>
+  <ul>
+    <li><b>提示音范围</b>默认「仅就绪」，另有「就绪与审批」；安静时段只静音，刘海与卡片照常显示。</li>
+    <li><b>余额提醒：</b>填一个金额（单位是额度页上印出来的数）后，应用按每两分钟一次的慢速后台计时器检查 New API 余额；某个账号跌破阈值时提醒一次，面板收起就展开到额度页，面板开着只响一声。同一次下跌只提醒一次，回到阈值之上再跌破会再提醒。清空金额即停止轮询。</li>
+  </ul>
+
+  <h3>智能体：显式启用，按行安装</h3>
+  <p>所有 Agent 初始都是关闭的 —— 应用不会自己接管任何工具。打开某一行，或点「全部启用并安装」，才会在那一刻为它写 hook 条目；每个被改写的配置文件旁留 <code>&lt;文件名&gt;.agent-island-backup</code>。关闭某个 Agent 只摘掉它的条目，共用脚本保留（别的工具还在用）。</p>
+
+  <div class="fig">
+    <img src="img/set-agents.png" alt="智能体设置" style="width:72mm;margin:0 auto">
+    <div class="cap"><b>智能体页。</b>逐行启用 / 关闭、集成状态与配置目录；第一行是「标记动画」入口（轮播角色缩略图）。列表在卡片内滚动。</div>
+  </div>
+
+  <p class="small">状态显示「已过期 — 请重装」表示磁盘上那份不是本构建期望的版本（手改过，或升级后尚未重写）：把该 Agent 关掉再打开即可重写。</p>
+
+  <div class="doc-footer"><span>06　设置：5 个配置页，2 条读数面</span><span>11</span></div>
+</section>
+
+<!-- ================= 07 角色 ================= -->
+<section class="chapter">
+  <h2>07　标记动画：19 枚像素角色</h2>
+  <p class="lead">Agent 的「运行时标记」是像素角色，不是品牌字形：19 个 Agent 各有一枚会打盹、会干活、会跳起来喊你的小人。</p>
+
+  <div class="fig">
+    <img src="img/gallery.png" alt="标记动画画廊" style="width:112mm;margin:0 auto">
+    <div class="cap"><b>标记动画页实拍。</b>19 枚角色一次铺开；状态与速度可在顶部切换，整台画廊只跑一个时钟，每格按定帧时刻渲染。</div>
+  </div>
+
+  <div class="grid2">
+    <div>
+      <h3>三套场景</h3>
+      <ul>
+        <li><b>空闲 = 打盹：</b>趴下 / 摊平、呼吸、头顶飘 Z。</li>
+        <li><b>处理中 = 招牌动作：</b>打字、走、转。</li>
+        <li><b>待审批 = 起跳：</b>三跳，一跳比一跳矮，顶上惊叹号——统一的应用级信号。</li>
+      </ul>
+    </div>
+    <div>
+      <h3>工程事实</h3>
+      <ul>
+        <li>16 个角色文件覆盖 19 个 Agent：Pi / Oh My Pi、Trae / Trae CLI、CodeBuddy / WorkBuddy 各共用一枚（共用画法，配色是入参）。</li>
+        <li>运动是<b>时间的纯函数</b>：同一 <code>t</code> 永远画出同一帧，所以能离屏定帧逐帧比对。</li>
+        <li>周期统一 3.5 秒；起跳幅度按「身体顶边到视口上边缘」等比缩放，避免顶点被裁掉。</li>
+      </ul>
+    </div>
+  </div>
+
+  <table class="compact">
+    <tr><th style="width:42mm">共用一枚的角色</th><th>差异</th></tr>
+    <tr><td>Pi / Oh My Pi</td><td>画法一份、配色是入参：Pi 取自己字标的三色，omp 取品牌紫与相邻的粉端。</td></tr>
+    <tr><td>Trae / Trae CLI</td><td>同一产品线，共用标记与动作。</td></tr>
+    <tr><td>CodeBuddy / WorkBuddy</td><td>WorkBuddy 内嵌 CodeBuddy CLI，角色与记录方言都共用。</td></tr>
+  </table>
+
+  <blockquote><b>为什么强调「时间是纯函数」：</b>动画的每一帧只由 <code>t</code> 决定，定帧可以离屏逐帧比对；环境变量一旦没传到，就静默退回「按当前时刻现算」——那会成为随机画面的来源。</blockquote>
+
+  <p class="small">品牌字形仍然在，但只当静态身份标记：会话角标、设置行的 Agent 图标这类 10–12pt 的密集场合。分工是「字形认身份、角色表达状态」。</p>
+
+  <div class="doc-footer"><span>07　标记动画：19 枚像素角色</span><span>12</span></div>
+</section>
+
+<!-- ================= 08 原理 ================= -->
+<section class="chapter">
+  <h2>08　工作原理</h2>
+  <p class="lead">一条本地 Unix socket、一块贴在刘海上的 <code>NSPanel</code>、以及 Agent 自己的文件；没有守护进程，不开端口。</p>
+
+  <div class="fig">
+    <svg viewBox="0 0 1000 400" width="100%" xmlns="http://www.w3.org/2000/svg" style="display:block;border:0.5pt solid #d6d6de;border-radius:5pt;background:#fbfbfd">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#5b5b6b"/>
+        </marker>
+        <marker id="arp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#6c5ce7"/>
+        </marker>
+      </defs>
+
+      <!-- Agent CLI -->
+      <rect x="24" y="96" width="212" height="104" rx="10" fill="#ffffff" stroke="#cfcfdb"/>
+      <text x="130" y="126" text-anchor="middle" font-size="15" font-weight="700" fill="#17171d">19 个 Agent CLI</text>
+      <text x="130" y="150" text-anchor="middle" font-size="11.5" fill="#5b5b6b">claude · omp · pi · codex</text>
+      <text x="130" y="168" text-anchor="middle" font-size="11.5" fill="#5b5b6b">opencode · cursor · …</text>
+      <text x="130" y="188" text-anchor="middle" font-size="10.5" fill="#8a8a99">在用户自己的终端里运行</text>
+
+      <!-- Integration -->
+      <rect x="292" y="96" width="214" height="104" rx="10" fill="#f4f2ff" stroke="#cfc8ff"/>
+      <text x="399" y="126" text-anchor="middle" font-size="15" font-weight="700" fill="#17171d">集成</text>
+      <text x="399" y="150" text-anchor="middle" font-size="11.5" fill="#5b5b6b">hook 脚本 / 扩展 / 插件</text>
+      <text x="399" y="170" text-anchor="middle" font-size="10.5" fill="#6c5ce7">每个事件一个 JSON 对象</text>
+      <text x="399" y="188" text-anchor="middle" font-size="10.5" fill="#6c5ce7">阻塞型事件保持连接等决定</text>
+
+      <!-- Socket -->
+      <rect x="562" y="96" width="186" height="104" rx="10" fill="#0d0d12" stroke="#2a2a36"/>
+      <text x="655" y="128" text-anchor="middle" font-size="14" font-weight="700" fill="#f2f2f7">Unix socket</text>
+      <text x="655" y="152" text-anchor="middle" font-size="11.5" fill="#c9c9d8">/tmp/agent-island.sock</text>
+      <text x="655" y="174" text-anchor="middle" font-size="10.5" fill="#9a9aae">没有 TCP 端口</text>
+      <text x="655" y="190" text-anchor="middle" font-size="10.5" fill="#9a9aae">每条连接一个事件</text>
+
+      <!-- Store -->
+      <rect x="804" y="76" width="172" height="144" rx="10" fill="#f4f2ff" stroke="#cfc8ff"/>
+      <text x="890" y="108" text-anchor="middle" font-size="15" font-weight="700" fill="#17171d">SessionStore</text>
+      <text x="890" y="132" text-anchor="middle" font-size="10.8" fill="#5b5b6b">actor，唯一状态入口</text>
+      <text x="890" y="156" text-anchor="middle" font-size="10.8" fill="#5b5b6b">事件 → 相位 / 工具 / 子代理</text>
+      <text x="890" y="180" text-anchor="middle" font-size="10.8" fill="#5b5b6b">持久化聚合用量</text>
+      <text x="890" y="202" text-anchor="middle" font-size="10.8" fill="#5b5b6b">Combine 发布给视图</text>
+
+      <!-- Records -->
+      <rect x="292" y="266" width="214" height="104" rx="10" fill="#ffffff" stroke="#cfcfdb"/>
+      <text x="399" y="296" text-anchor="middle" font-size="14" font-weight="700" fill="#17171d">会话记录</text>
+      <text x="399" y="320" text-anchor="middle" font-size="11.5" fill="#5b5b6b">JSONL · SQLite</text>
+      <text x="399" y="340" text-anchor="middle" font-size="10.5" fill="#8a8a99">由 Agent 自己写入</text>
+      <text x="399" y="358" text-anchor="middle" font-size="10.5" fill="#8a8a99">应用只读，从不修改</text>
+
+      <!-- Parser -->
+      <rect x="562" y="266" width="186" height="104" rx="10" fill="#ffffff" stroke="#cfcfdb"/>
+      <text x="655" y="296" text-anchor="middle" font-size="14" font-weight="700" fill="#17171d">解析与发现</text>
+      <text x="655" y="320" text-anchor="middle" font-size="11" fill="#5b5b6b">JSONL 增量 / 库查询</text>
+      <text x="655" y="340" text-anchor="middle" font-size="10.5" fill="#8a8a99">未装集成的会话</text>
+      <text x="655" y="358" text-anchor="middle" font-size="10.5" fill="#8a8a99">按记录尾部的写入发现</text>
+
+      <!-- Panel -->
+      <rect x="804" y="266" width="172" height="104" rx="10" fill="#0d0d12" stroke="#2a2a36"/>
+      <text x="890" y="296" text-anchor="middle" font-size="14" font-weight="700" fill="#f2f2f7">刘海面板</text>
+      <text x="890" y="320" text-anchor="middle" font-size="10.8" fill="#c9c9d8">NSPanel + SwiftUI</text>
+      <text x="890" y="342" text-anchor="middle" font-size="10.8" fill="#9a9aae">关闭态 / 列表 / 对话</text>
+      <text x="890" y="360" text-anchor="middle" font-size="10.8" fill="#9a9aae">审批决定写回 socket</text>
+
+      <!-- arrows -->
+      <path d="M 236 148 L 288 148" stroke="#5b5b6b" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+      <path d="M 506 148 L 558 148" stroke="#5b5b6b" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+      <path d="M 748 148 L 800 148" stroke="#5b5b6b" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+      <path d="M 236 300 L 288 300" stroke="#5b5b6b" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+      <path d="M 506 300 L 558 300" stroke="#5b5b6b" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+      <path d="M 655 262 L 655 224" stroke="#5b5b6b" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+      <path d="M 876 224 L 876 262" stroke="#5b5b6b" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+      <path d="M 906 262 L 906 224" stroke="#6c5ce7" stroke-width="1.6" fill="none" marker-end="url(#arp)"/>
+
+      <text x="270" y="138" text-anchor="middle" font-size="10" fill="#8a8a99">事件</text>
+      <text x="532" y="138" text-anchor="middle" font-size="10" fill="#8a8a99">socket</text>
+      <text x="774" y="138" text-anchor="middle" font-size="10" fill="#8a8a99">入站</text>
+      <text x="262" y="290" text-anchor="middle" font-size="10" fill="#8a8a99">写入</text>
+      <text x="532" y="290" text-anchor="middle" font-size="10" fill="#8a8a99">读取</text>
+      <text x="668" y="240" font-size="10" fill="#8a8a99">补登 / 同步</text>
+      <text x="918" y="246" font-size="10" fill="#6c5ce7">决定</text>
+      <text x="862" y="246" font-size="10" fill="#8a8a99">状态</text>
+    </svg>
+    <div class="cap"><b>数据流。</b>实线为事件与记录，紫色为审批决定的回传路径。所有状态变化只经过 <code>SessionStore.process(_:)</code>，视图从不直接改状态。</div>
+  </div>
+
+  <h3>为什么是这个形状</h3>
+  <ul>
+    <li><b>事件驱动 + 记录兜底。</b>装了集成：毫秒级事件；没装：按记录目录扫描补登。两条路都汇到同一个 actor，视图只订阅一个状态源。</li>
+    <li><b>socket 而不是 HTTP。</b>本地进程间通信不需要端口、不需要鉴权、不会被防火墙或代理干扰；阻塞型审批天然适合「保持连接等决定」。</li>
+    <li><b>单入口。</b>任何状态变化都走 <code>process(_:)</code>：相位冲突时以「服务端持有待批连接」这个事实为准，而不是让一条迟到的状态上报把卡片顶掉。</li>
+    <li><b>只读记录。</b>应用从不修改 Agent 的文件；OpenCode 的库虽是读写打开，但只设 <code>PRAGMA query_only</code>，不写数据。</li>
+  </ul>
+
+  <h3>相位与触发</h3>
+  <table class="compact">
+    <tr><th style="width:26mm">相位</th><th>进入条件</th><th>退出</th></tr>
+    <tr><td>空闲</td><td>会话登记后尚无活动</td><td>任何处理事件</td></tr>
+    <tr><td>处理中</td><td>提示提交、工具开始、流式生成</td><td>Stop / 待批 / 心跳判定空闲</td></tr>
+    <tr><td>等待审批</td><td>阻塞型审批请求（服务端持有连接）</td><td>允许 / 拒绝 / 超时</td></tr>
+    <tr><td>等待输入</td><td>Agent 答完或主动提问</td><td>下一条提示</td></tr>
+    <tr><td>压缩上下文</td><td>PreCompact</td><td>PostCompact</td></tr>
+    <tr><td>已结束</td><td>SessionEnd / 进程消失 / 记录长时间无写入</td><td>同一会话被恢复时重开</td></tr>
+  </table>
+  <p class="small">「等待审批」是唯一由<b>事实</b>而非上报决定的相位：只要服务端还持有那条连接，迟到的状态上报就不能把它推回处理中。</p>
+
+  <div class="doc-footer"><span>08　工作原理</span><span>13</span></div>
+</section>
+
+<!-- ================= 09 隐私 ================= -->
+<section class="chapter">
+  <h2>09　隐私与安全</h2>
+  <p class="lead">本地优先不是口号：应用没有服务端、不开端口、不发遥测，联网只有两处、且都是只读。</p>
+
+  <h3>数据留在哪里</h3>
+  <table class="compact">
+    <tr><th style="width:36mm">数据</th><th>位置 / 处理</th></tr>
+    <tr><td>会话内容</td><td>Agent 自己的记录文件（JSONL / SQLite）。应用只读。</td></tr>
+    <tr><td>会话状态</td><td>应用内存。退出即消失；下次启动由记录与事件重建。</td></tr>
+    <tr><td>用量聚合</td><td>本机 <code>usage.sqlite</code>，只存计数（token / 工具 / 会话），不含消息正文。</td></tr>
+    <tr><td>偏好</td><td>偏好域 <code>com.celestial.AgentIsland</code>（UserDefaults）。</td></tr>
+    <tr><td>集成文件</td><td>Agent 自己的配置目录；被改写的文件旁留 <code>.agent-island-backup</code>。</td></tr>
+  </table>
+
+  <h3>联网行为</h3>
+  <ul>
+    <li><b>查更新：</b>Sparkle 读取本仓 GitHub Pages 上的 appcast（只读）。</li>
+    <li><b>额度页：</b>你填了服务器之后、打开那一页时，对<b>你自己的</b> New API 实例发 GET（按账号：token 用量、用户信息、令牌、分组倍率；某个槽位没填凭据时那个端点根本不发）。另有一台服务器一次的 <code>/api/status</code>（公开端点、不带凭据），用来读额度单位与版本。</li>
+    <li><b>余额提醒：</b>只有在你填了金额之后，才会在面板关着时每两分钟查一次上面那几个端点；清空金额即停止。</li>
+  </ul>
+  <p class="small">除此之外不向任何地方发送数据；没有埋点、没有崩溃上报、没有账号体系。</p>
+
+  <h3>屏幕捕获与权限</h3>
+  <ul>
+    <li>面板默认在系统层被排除在屏幕捕获之外：截屏、录屏、屏幕共享里都不会出现它（代价是该窗口不参与窗口共享类系统服务）。</li>
+    <li><b>设置 → 通用 → 投屏时显示</b> 可以关掉这一行为（需要展示时）。</li>
+    <li>「定位终端」优先用 yabai 精确定位窗口；没有 yabai 时激活终端所在应用并把窗口带到前面。既没有进程、也不在 tmux 里的会话没有可聚焦目标，改用对话页查看。</li>
+  </ul>
+
+  <div class="callout">
+    <div class="t">审批是安全边界，不是装饰</div>
+    危险命令永不走「不可达就放行」；超时拒绝；关闭某个 Agent 会同时撤掉它的闸门与事件入口。<b>「已安装」不等于「可用」</b>——Codex 需要你审核 hook，Hermes 需要你逐事件授权，WorkBuddy 的 hook 是否被执行仍待真机确认；这三处看起来都像「不支持」，实则等你点一下。
+  </div>
+
+  <h3>如何彻底删除</h3>
+  <ol class="small">
+    <li>在「关于」页退出应用，把 <code>AgentIsland.app</code> 从 Applications 拖走。</li>
+    <li>在「智能体」页逐行关闭 Agent（摘掉对应集成），或手动删除 <code>~/.agent-island/hooks/agent-island-state.py</code> 与各工具配置里的条目。</li>
+    <li><code>defaults delete com.celestial.AgentIsland</code> 清偏好；删除 <code>~/Library/Application Support/AgentIsland/usage.sqlite</code> 清用量聚合。</li>
+    <li>会话记录属于各 Agent 自己——应用从未修改它们，按需在各工具里清理。</li>
+  </ol>
+  <p class="small"><b>系统权限：</b>「通用」页会显示「辅助功能」授权状态——全局事件监听与终端定位依赖它；未授权时这部分能力受限，而 tmux / Paseo 通道的消息与中断仍可用。</p>
+
+  <div class="doc-footer"><span>09　隐私与安全</span><span>14</span></div>
+</section>
+
+<!-- ================= 10 安装 ================= -->
+<section class="chapter">
+  <h2>10　安装、构建与发布</h2>
+  <p class="lead">系统要求：macOS 15.6 及以上，Apple Silicon。产物是 ad-hoc 签名、未经 Apple 公证。</p>
+
+  <h3>安装</h3>
+  <ol>
+    <li>从 Releases 页面下载最新的 <code>AgentIsland-x.y.z.dmg</code>。</li>
+    <li>打开后把 <b>AgentIsland</b> 拖进 <code>Applications</code>。</li>
+    <li>首次打开会被 Gatekeeper 拦下：右键应用选「打开」，或一次性清掉隔离属性：</li>
+  </ol>
+  <pre><code>xattr -dr com.apple.quarantine /Applications/AgentIsland.app</code></pre>
+  <p class="small">这不是文件损坏：ad-hoc 签名没有 Developer ID 证书链，因此无法公证。这个取舍换来的是「任何人都能自己构建同一份产物并校验」。</p>
+
+  <h3>自己构建</h3>
+  <p>走与发布同一套流程，需要 Xcode：</p>
+  <pre><code>git clone &lt;仓库地址&gt; &amp;&amp; cd agent-island
+
+./scripts/build-and-install.sh               # 门禁 → 归档 → ad-hoc 重签 → 安装 → 启动
+./scripts/build-and-install.sh --build-only  # 只产出 build/export/AgentIsland.app 与 releases/*.dmg
+./scripts/build-and-install.sh --no-launch   # 只安装，不启动</code></pre>
+  <p>脚本第一步会跑 <code>scripts/gate.sh</code>：本地化守卫 + Release 编译必须 0 诊断，不达标即中止。</p>
+
+  <h3>质量门禁</h3>
+  <table class="compact">
+    <tr><th style="width:40mm">命令</th><th>判据</th></tr>
+    <tr><td class="mono">./scripts/gate.sh</td><td><code>BUILD SUCCEEDED</code> + 编译诊断 0 条 + 本地化守卫 0 错误 0 警告；任一步不达标即 exit 非 0。</td></tr>
+    <tr><td class="mono">./scripts/gate.sh --with-tests</td><td>追加 <code>build-for-testing</code> + <code>test-without-building</code>，跑 <code>AgentIslandTests</code>（当前 73 个测试文件 / 711 个用例）。</td></tr>
+    <tr><td class="mono">python3 scripts/check-localization.py --strict</td><td>缺键、格式符不一致、绕过自研查表、未引用键（当前 448 条文案，en / zh-Hans 双侧）。</td></tr>
+  </table>
+
+  <h3>发布</h3>
+  <ul>
+    <li>发版前必须 bump <code>CURRENT_PROJECT_VERSION</code>：appcast 里的 <code>sparkle:version</code> 就是它；不变则已装用户收不到更新提示。</li>
+    <li>更新走 Sparkle：appcast 托管在 GitHub Pages，EdDSA 公钥在 <code>Info.plist</code>，私钥不入库。</li>
+    <li>发布验收要独立复核：release 附件字节与本地 DMG 一致、appcast 的 length 与签名与产物一致、<code>sign_update --verify</code> 通过。</li>
+  </ul>
+
+  <h3>产物与目录</h3>
+  <table class="compact">
+    <tr><th style="width:46mm">路径</th><th>内容</th></tr>
+    <tr><td class="mono">build/export/AgentIsland.app</td><td>归档并重签后的应用包</td></tr>
+    <tr><td class="mono">releases/*.dmg</td><td>本地产出的安装镜像</td></tr>
+    <tr><td class="mono">docs/product/</td><td>本文档的打印版 HTML 与截图（可自行重出片）</td></tr>
+  </table>
+  <p class="small"><b>常见失败：</b>门禁报本地化错误 → 先跑 <code>check-localization.py --strict</code>；归档签名失败 → 确认 <code>codesign --force --deep --sign -</code> 可用；装上但界面没变 → 确认读的是新构建（版本号或 catalog 里的新键）。</p>
+
+  <div class="doc-footer"><span>10　安装、构建与发布</span><span>15</span></div>
+</section>
+
+<!-- ================= 11 边界 ================= -->
+<section class="chapter">
+  <h2>11　边界与取舍</h2>
+  <p class="lead">一张表说清「现在是什么、为什么这样、代价是什么」。读者最信的往往是这一段。</p>
+
+  <table class="compact">
+    <tr><th style="width:34mm">事项</th><th style="width:52mm">现状</th><th>代价 / 理由</th></tr>
+    <tr><td>签名与分发</td><td>ad-hoc 签名，不公证</td><td>首次打开需要右键「打开」或清隔离属性；换来无需证书即可自建与复现。</td></tr>
+    <tr><td>形态</td><td>没有 Dock 图标、没有菜单栏图标、没有常驻守护进程</td><td>刘海面板是唯一界面；应用不在时集成不挡路，回落到 Agent 自己的提示。</td></tr>
+    <tr><td>平台</td><td>macOS 15.6+，Apple Silicon</td><td>只构建本机 arm64 产物；依赖刘海或菜单栏几何与系统材质。</td></tr>
+    <tr><td>启用口径</td><td>默认全关，显式启用才写集成</td><td>首次使用需要逐行打开（或一次「全部启用并安装」）；不会替用户接管工具。</td></tr>
+    <tr><td>审批能力</td><td>8 个 Agent 可回传决定</td><td>其余 Agent 只在列表与对话里可见，审批留在各自终端（它们没有阻塞式权限 hook）。</td></tr>
+    <tr><td>统计口径</td><td>只统计记录里可核对的字段</td><td>Gemini / Kimi / Cline / Grok / Trae / Trae CLI / DSH 不出现在统计页；宁缺毋滥。</td></tr>
+    <tr><td>DSH 接入</td><td>记录为 zstd 压缩，应用不解析</td><td>状态依赖外部 dsh 插件直写 socket；不装插件就没有事件。</td></tr>
+    <tr><td>屏幕捕获</td><td>默认不参与截屏 / 录屏 / 共享</td><td>该窗口也不参与窗口共享类系统服务；需要时用「投屏时显示」关掉。</td></tr>
+    <tr><td>会话发现</td><td>未装集成时靠扫描记录目录</td><td>新会话要等一个刷新周期；记录也只有 Agent 自己写了才有。</td></tr>
+    <tr><td>空闲回收</td><td>无进程的会话在记录两分钟无写入后结束；带 pid 的按进程存活回收</td><td>列表不会无限累积；继续该会话时记录再次增长，会被重新发现。</td></tr>
+    <tr><td>状态一致性</td><td>单入口 actor；待批事实优先于状态上报</td><td>相位冲突时以「服务端持有待批连接」为准，避免卡片被迟到事件顶掉。</td></tr>
+    <tr><td>调试</td><td>日志统一走 <code>os.Logger</code>（subsystem <code>com.celestial.AgentIsland</code>）</td><td>debug 行默认不落盘，只能实时流式观察；排障需要 <code>log stream</code>。</td></tr>
+  </table>
+
+  <div class="callout">
+    <div class="t">一句话总结取舍</div>
+    它刻意做小：一个本地 socket、一块贴在刘海上的面板、以及 Agent 自己的文件。凡是需要「替用户做决定」或「把数据带出本机」的能力，都放在边界之外。
+  </div>
+
+  <h3>什么时候不该用</h3>
+  <ul class="small">
+    <li><b>只在 IDE 里用一个 Agent。</b>IDE 已有内联状态与权限弹窗，刘海只是多一层；可以只留统计与关闭态。</li>
+    <li><b>需要团队共享会话状态。</b>这是单机工具：没有账号、没有云同步，换机不会带走历史。</li>
+    <li><b>需要合规审计留痕。</b>它有日志与用量聚合，但不是审计系统；审批决定只回传给 Agent，不做集中存档。</li>
+  </ul>
+  <h3>下一版的优先级</h3>
+  <ul class="small">
+    <li>补齐未验证 Agent 的真机接线（Gemini 会话 id、Trae CLI 回写、WorkBuddy hook 执行）。</li>
+    <li>把「已安装但不可用」的三处一次性动作做成可检测状态（Codex 审核、Hermes 授权、WorkBuddy 沙箱）。</li>
+    <li>在字段可核对之后扩展统计口径，并增加按项目维度聚合。</li>
+  </ul>
+
+  <h3>迁移到另一台 Mac</h3>
+  <ul class="small">
+    <li>应用本身没有账号：复制 <code>AgentIsland.app</code> 后，在新机器上重新授权辅助功能即可。</li>
+    <li>偏好用 <code>defaults export / import com.celestial.AgentIsland</code> 迁移；用量聚合在 <code>usage.sqlite</code>，可一并复制。</li>
+    <li>集成文件在各 Agent 自己的目录：在新机器上重新启用一次，会按当前路径重写。</li>
+    <li>会话记录不迁移——它们属于各 Agent，按那些工具自己的方式同步。</li>
+  </ul>
+
+  <div class="doc-footer"><span>11　边界与取舍</span><span>16</span></div>
+</section>
+
+<!-- ================= 附录 ================= -->
+<section class="chapter">
+  <h2>附录 A　快捷键、集成写入面与术语</h2>
+
+  <h3>默认快捷键（面板内生效）</h3>
+  <table class="compact">
+    <tr><th style="width:34mm">动作</th><th style="width:30mm">默认组合</th><th>说明</th></tr>
+    <tr><td>返回 / 收起</td><td class="mono">Esc</td><td>对话 → 列表、设置 → 列表、列表 → 收起面板。</td></tr>
+    <tr><td>打开设置</td><td class="mono">⌘ ,</td><td>再按一次回到列表；从统计 / 额度回来时回到上次的设置分组。</td></tr>
+    <tr><td>打开统计</td><td class="mono">⌘ ⇧ S</td><td>统计页与列表之间切换。</td></tr>
+    <tr><td>允许待批</td><td class="mono">⌘ ↩</td><td>批准最靠前的待处理请求。</td></tr>
+    <tr><td>拒绝待批</td><td class="mono">⌘ ⌫</td><td>拒绝最靠前的请求；交互式提问按「跳过」处理。</td></tr>
+    <tr><td>选择 / 打开</td><td class="mono">↑ ↓ · ↩</td><td>列表内上下选择，回车打开对话；⇧↩ 定位终端。</td></tr>
+  </table>
+  <p class="small">全部动作可在「关于 → 快捷键」里改绑，并做冲突检测；只有「唤出 / 收起」允许注册成全局热键。</p>
+
+  <h3>集成会写入哪些文件</h3>
+  <table class="compact">
+    <tr><th style="width:34mm">Agent</th><th>写入位置（仅在被启用时）</th></tr>
+    <tr><td>Claude Code</td><td><code>~/.agent-island/hooks/agent-island-state.py</code> + <code>~/.claude/settings.json</code> 的 hook 条目</td></tr>
+    <tr><td>Oh My Pi / Pi</td><td><code>&lt;agent 目录&gt;/extensions/agent-island-state.ts</code></td></tr>
+    <tr><td>OpenCode</td><td><code>~/.config/opencode/plugins/agent-island-state.js</code></td></tr>
+    <tr><td>Codex</td><td><code>$CODEX_HOME/hooks.json</code>；另在 <code>config.toml</code> 的 <code>[features]</code> 下设 <code>hooks = true</code></td></tr>
+    <tr><td>Gemini CLI / Cursor / Copilot / Qoder / Factory / CodeBuddy / WorkBuddy</td><td>各自的 <code>settings.json</code> / <code>hooks.json</code>（共用同一份 hook 脚本）</td></tr>
+    <tr><td>Kimi Code CLI</td><td><code>~/.kimi-code/config.toml</code> 的 <code>[[hooks]]</code>（旧配置回退 <code>~/.kimi/config.toml</code>）</td></tr>
+    <tr><td>Cline</td><td><code>~/Documents/Cline/Hooks/&lt;事件名&gt;</code>，每事件一个可执行文件</td></tr>
+    <tr><td>Grok CLI / Trae / Trae CLI</td><td><code>$GROK_HOME/hooks/agent-island.json</code> / <code>~/.trae/hooks.json</code> / <code>~/.trae/traecli.yaml</code></td></tr>
+    <tr><td>Hermes</td><td><code>~/.hermes/config.yaml</code> 的 <code>hooks:</code> 映射（共用 hook 脚本）</td></tr>
+    <tr><td>DeepSeek Harness</td><td>不写：由外部 dsh 插件直接写 socket</td></tr>
+  </table>
+  <p class="small">除 Claude 外都引用同一份脚本：一份实现、一处升级。单个 Agent 卸载只摘自己的条目，脚本本身保留。</p>
+
+  <h3>验收清单（发版前）</h3>
+  <ul class="small">
+    <li><code>./scripts/gate.sh --with-tests</code>：编译 0 诊断、本地化 0 错误 0 警告、711 个用例通过。</li>
+    <li>刘海可见行为（关闭态形态、动效、计数、面板高度）实机观察并截图取证。</li>
+    <li>集成安装 / 卸载：确认 Agent 侧文件确实写入 / 删除，且未破坏用户既有配置。</li>
+    <li>发布：build 号已 bump、附件与本地产物字节一致、appcast 签名校验通过。</li>
+  </ul>
+
+  <h3>术语速查</h3>
+  <table class="compact">
+    <tr><th style="width:30mm">术语</th><th>一句话</th></tr>
+    <tr><td>source id</td><td>Agent 的稳定标识（如 <code>omp</code> / <code>droid</code>），集成侧与事件归属都用它。</td></tr>
+    <tr><td>闸门（gate）</td><td><code>omp</code>/<code>pi</code> 扩展把工具调用拦住、等刘海决定的机制。</td></tr>
+    <tr><td>降级档</td><td>应用不可达时闸门的处置：默认放行并提示 / 一律拒绝 / 只读放行。</td></tr>
+    <tr><td>读数面</td><td>统计与额度两条占满面板的独立页面。</td></tr>
+  </table>
+  <p class="tiny">文档版本：2026-10-26 · 对应代码快照 e1a7b41 · 截图与数字均在当次核对。</p>
+
+  <div class="doc-footer"><span>附录 A</span><span>17</span></div>
+</section>
+
+</body>
+</html>
