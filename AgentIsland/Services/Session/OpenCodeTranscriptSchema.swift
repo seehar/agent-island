@@ -45,9 +45,12 @@ nonisolated final class OpenCodeTranscriptSchema: AgentTranscriptSchema {
         }
 
         // 游标之后、且尚未产出过的消息才是新内容。
-        let fresh = window.filter {
-            !state.emittedMessageIds.contains($0.id) && progress.isAfter($0.id)
-        }
+        //
+        // 只用「是否产出过」判定，不比较 id 大小：v2 的 `session_message.id` 与
+        // `seq` 并不严格同序（系统消息会拿到比下一条用户消息更大的 id），按 id
+        // 过滤会把这类消息永久跳过。窗口本身已经由 SQL 的 `time_created >= 游标`
+        // 收紧，重复扫描的一律由 `emittedMessageIds` 去掉。
+        let fresh = window.filter { !state.emittedMessageIds.contains($0.id) }
         guard !fresh.isEmpty || !scanned.isEmpty else { return result }
         scanned.append(contentsOf: fresh)
 
@@ -275,9 +278,10 @@ nonisolated final class OpenCodeTranscriptSchema: AgentTranscriptSchema {
 /// 的消息。
 ///
 /// 编码成 `v1|<毫秒>|<消息 id>|<本轮结束消息 id>`：毫秒是查询下界（走索引），
-/// 消息 id 用来做 id 差集；`finish` 是消息写完后才补上的，所以「本轮结束」
-/// 需要独立去重，否则每次重扫都会重复上报。OpenCode 的消息 id 前缀就是创建
-/// 时间，因此同格式下字典序与创建顺序一致。
+/// 消息 id 只用来找回「游标所在的那条」以补齐后到的分片——**不拿它做新消息差集**：
+/// v2 的消息 id 与 `seq` 并不严格同序（系统消息会拿到比下一条用户消息更大的 id），
+/// 按 id 过滤会把这类消息永久跳过。`finish` 是消息写完后才补上的，所以「本轮结束」
+/// 需要独立去重，否则每次重扫都会重复上报。
 nonisolated private struct OpenCodeProgress {
     var createdAt: Date?
     var messageId: String?
@@ -292,12 +296,6 @@ nonisolated private struct OpenCodeProgress {
         }
         self.messageId = fields[1].isEmpty ? nil : fields[1]
         self.finishedTurnId = fields[2].isEmpty ? nil : fields[2]
-    }
-
-    /// 给定消息是否排在游标之后（没有游标时全部算新）。
-    func isAfter(_ candidateId: String) -> Bool {
-        guard let messageId else { return true }
-        return candidateId > messageId
     }
 
     /// 这条消息的「本轮结束」是否已经上报过。

@@ -236,10 +236,13 @@ nonisolated enum OpenCodeSessionStore {
     private static func databaseSessions(sinceMilliseconds: Int64, limit: Int)
         -> [DiscoveredAgentSession]?
     {
-        withStatement(
+        // OpenCode 2.x 把会话表换成了 `session_v2`（旧的 `session` 表停更）。
+        // 表结构差异只在表名，列与语义一致。
+        let table = hasVersionTwoSchema() ? "session_v2" : "session"
+        return withStatement(
             """
             SELECT id, directory, title, time_updated
-            FROM session
+            FROM \(table)
             WHERE parent_id IS NULL AND time_updated >= ?
             ORDER BY time_updated DESC
             LIMIT ?
@@ -260,7 +263,98 @@ nonisolated enum OpenCodeSessionStore {
         }
     }
 
+    /// 数据库当前是否是 OpenCode 2.x 的 v2 表结构（供集成安装器选择插件变体）。
+    static func usesVersionTwoSchema() -> Bool {
+        hasVersionTwoSchema()
+    }
+
+    /// 表结构探测结果的缓存。
+    ///
+    /// `integrationStatus()` 会在记录同步（每 100ms 的去抖读）与界面刷新里被反复调用，
+    /// 每次都开短连接查两条 `PRAGMA` 没必要。正向缓存久一点；负向短一点——用户升级
+    /// OpenCode 后库会迁到 v2，别让「还不是 v2」这个结论拖太久。
+    private static let schemaCacheLock = NSLock()
+    nonisolated(unsafe) private static var schemaCache:
+        (path: String, checkedAt: Date, isVersionTwo: Bool)?
+    private static let versionTwoSchemaCacheTTL: TimeInterval = 30
+    private static let legacySchemaCacheTTL: TimeInterval = 5
+
+    /// 数据库是否是 OpenCode 2.x 的 v2 表结构。
+    ///
+    /// 判据是 `session_message` 与 `session_v2` 两张表都存在：v2 把「消息」与
+    /// 「分片」合成了一张表（`session_message.data` 里的 `content` 数组），旧表
+    /// 从此不再写入。结论按库文件路径缓存（见 `schemaCache`）。
+    private static func hasVersionTwoSchema() -> Bool {
+        guard let database = databaseURL else { return false }
+        let path = database.path
+        schemaCacheLock.lock()
+        if let cache = schemaCache, cache.path == path {
+            let ttl =
+                cache.isVersionTwo ? versionTwoSchemaCacheTTL : legacySchemaCacheTTL
+            if Date().timeIntervalSince(cache.checkedAt) < ttl {
+                schemaCacheLock.unlock()
+                return cache.isVersionTwo
+            }
+        }
+        schemaCacheLock.unlock()
+
+        let isVersionTwo =
+            columns(ofTable: "session_message") != nil && columns(ofTable: "session_v2") != nil
+        schemaCacheLock.lock()
+        schemaCache = (path, Date(), isVersionTwo)
+        schemaCacheLock.unlock()
+        return isVersionTwo
+    }
+
     private static func databaseMessages(
+        sessionId: String, sinceCreated: Date?, limit: Int
+    ) -> [OpenCodeMessageRecord]? {
+        // v2：消息与分片都在 `session_message` 里（`type` 列是角色）。
+        if hasVersionTwoSchema() {
+            if let messages = databaseMessagesV2(
+                sessionId: sessionId, sinceCreated: sinceCreated, limit: limit),
+                !messages.isEmpty
+            {
+                return messages
+            }
+        }
+        return databaseMessagesV1(
+            sessionId: sessionId, sinceCreated: sinceCreated, limit: limit)
+    }
+
+    /// v2 的消息查询：只取用户与助手两种类型（其余类型没有可见内容）。
+    private static func databaseMessagesV2(
+        sessionId: String, sinceCreated: Date?, limit: Int
+    ) -> [OpenCodeMessageRecord]? {
+        let sinceMilliseconds = sinceCreated.map { Self.milliseconds(of: $0) } ?? 0
+        return withStatement(
+            """
+            SELECT id, time_created, type, data
+            FROM session_message
+            WHERE session_id = ? AND time_created >= ? AND type IN ('user', 'assistant')
+            ORDER BY time_created ASC, seq ASC
+            LIMIT ?
+            """,
+            values: [.text(sessionId), .integer(sinceMilliseconds), .integer(Int64(limit))]
+        ) { statement in
+            rows(statement) { () -> OpenCodeMessageRecord? in
+                guard let id = text(statement, 0) else { return nil }
+                let type = text(statement, 2) ?? "assistant"
+                var json = text(statement, 3).flatMap(Self.jsonObject(from:)) ?? [:]
+                // v2 把角色放在表列 `type` 里；解析器统一读 `data.role`。
+                json["role"] = type
+                return OpenCodeMessageRecord(
+                    id: id,
+                    role: type,
+                    createdAt: Self.date(milliseconds: sqlite3_column_int64(statement, 1)),
+                    json: json
+                )
+            }
+        }
+    }
+
+    /// v1（旧 schema）的消息查询。
+    private static func databaseMessagesV1(
         sessionId: String, sinceCreated: Date?, limit: Int
     ) -> [OpenCodeMessageRecord]? {
         guard let columns = columns(ofTable: "message") else { return nil }
@@ -297,6 +391,107 @@ nonisolated enum OpenCodeSessionStore {
     }
 
     private static func databaseParts(messageIds: [String]) -> [String: [OpenCodePartRecord]]? {
+        guard hasVersionTwoSchema() else {
+            return databasePartsV1(messageIds: messageIds)
+        }
+        guard let v2 = databasePartsV2(messageIds: messageIds) else {
+            return databasePartsV1(messageIds: messageIds)
+        }
+        // 只在旧表里出现过的消息（v2 迁移没有覆盖到的历史会话）继续读旧 `part`。
+        let missing = messageIds.filter { v2[$0] == nil }
+        guard !missing.isEmpty else { return v2 }
+        // 旧表不存在（纯 v2 新装）时退回已冻结的旧版 JSON 目录。
+        let legacy = databasePartsV1(messageIds: missing) ?? legacyParts(messageIds: missing)
+        var merged = v2
+        for (messageId, records) in legacy { merged[messageId] = records }
+        return merged
+    }
+
+    /// v2 的「分片」内嵌在 `session_message.data` 里：
+    /// 用户消息是 `text`，助手消息是 `content`（`text` / `reasoning` / `tool`）。
+    private static func databasePartsV2(messageIds: [String])
+        -> [String: [OpenCodePartRecord]]?
+    {
+        var grouped: [String: [OpenCodePartRecord]] = [:]
+        var offset = 0
+        while offset < messageIds.count {
+            let chunk = Array(messageIds[offset..<min(offset + parameterChunkSize, messageIds.count)])
+            offset += parameterChunkSize
+
+            let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ",")
+            let records: [(String, Int64, [OpenCodePartRecord])]? = withStatement(
+                """
+                SELECT id, time_created, type, data
+                FROM session_message
+                WHERE id IN (\(placeholders))
+                """,
+                values: chunk.map { SQLiteValue.text($0) }
+            ) { statement in
+                rows(statement) { () -> (String, Int64, [OpenCodePartRecord])? in
+                    guard let id = text(statement, 0) else { return nil }
+                    let created = sqlite3_column_int64(statement, 1)
+                    let type = text(statement, 2) ?? ""
+                    let json = text(statement, 3).flatMap(Self.jsonObject(from:)) ?? [:]
+                    return (id, created, Self.partsV2(from: json, type: type, messageId: id, created: created))
+                }
+            }
+            guard let records else { return nil }
+            for (messageId, _, parts) in records {
+                grouped[messageId] = parts
+            }
+        }
+        return grouped.mapValues { records in
+            records.sorted { ($0.sortTime, $0.id) < ($1.sortTime, $1.id) }
+        }
+    }
+
+    /// 把一条 v2 消息拆成解析器认识的分片形状。
+    private static func partsV2(
+        from json: [String: Any], type: String, messageId: String, created: Int64
+    ) -> [OpenCodePartRecord] {
+        if type == "user" {
+            let text = json["text"] as? String ?? ""
+            return [
+                OpenCodePartRecord(
+                    id: "\(messageId)#text",
+                    messageId: messageId,
+                    type: "text",
+                    sortTime: created,
+                    json: ["type": "text", "text": text]
+                )
+            ]
+        }
+        guard type == "assistant", let content = json["content"] as? [[String: Any]] else {
+            return []
+        }
+        return content.enumerated().compactMap { index, element in
+            guard let partType = element["type"] as? String else { return nil }
+            var normalized = element
+            // 旧版分片的字段名（`callID` / `tool`）与 v2 的 `id` / `name` 对齐，
+            // 这样解析器只认一套字段。
+            if partType == "tool" {
+                if let id = element["id"] as? String { normalized["callID"] = id }
+                if let name = element["name"] as? String { normalized["tool"] = name }
+            }
+            // 分片的顺序就是 `content` 数组的顺序（text → reasoning → tool 可能交错，
+            // 各段的时间戳也不保证单调）。因此 id 用补零的序号，排序键用消息时间：
+            // 同一消息内按数组顺序排，不依赖内容自带的时间戳。
+            let partId = "\(messageId)#\(String(format: "%04d", index))"
+            return OpenCodePartRecord(
+                id: partId,
+                messageId: messageId,
+                type: partType,
+                sortTime: created,
+                json: normalized
+            )
+        }
+    }
+
+    /// 旧版 `part` 表的分片查询（v1 schema，或 v2 库里未被迁移的历史消息）。
+    private static func databasePartsV1(messageIds: [String])
+        -> [String: [OpenCodePartRecord]]?
+    {
+        guard !messageIds.isEmpty else { return [:] }
         guard let columns = columns(ofTable: "part") else { return nil }
         let jsonColumn = columns.contains("data") ? "data" : "NULL"
         let typeColumn = columns.contains("type") ? "type" : "NULL"

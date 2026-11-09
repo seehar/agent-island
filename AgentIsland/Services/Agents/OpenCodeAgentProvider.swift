@@ -83,7 +83,9 @@ nonisolated struct OpenCodeAgentProvider: AgentProvider {
         let pluginDir = configDir.appendingPathComponent("plugins")
         let pluginFile = pluginDir.appendingPathComponent(
             AgentIntegrationInstaller.openCodePluginName)
-        let installed = FileManager.default.fileExists(atPath: pluginFile.path)
+        // 只看「文件在不在」不够：2.x 的库要求 2.x 变体（setup API），1.x 的文件在
+        // 2.x 里会加载失败。这里与安装器共用同一个判据。
+        let installed = AgentIntegrationInstaller.isOpenCodePluginCurrent()
         return AgentIntegrationStatus(
             health: installed ? .installed : .missing,
             installedFiles: [pluginFile]

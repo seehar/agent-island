@@ -73,7 +73,7 @@ The page lives in the panel's **Statistics** page (the chart button in the panel
 |**Claude Code**|`~/.claude/projects/**/*.jsonl`|`~/.agent-island/hooks/agent-island-state.py` (shared) + entries in `~/.claude/settings.json`|yes — hook `PermissionRequest`|tool calls inside subagents|
 |**Oh My Pi** (`omp`)|`~/.omp/agent/sessions/**`|`~/.omp/agent/extensions/agent-island-state.ts`|yes — extension gate (with the agent enabled)|`task` runs|
 |**Pi**|`~/.pi/agent/sessions/**`|`~/.pi/agent/extensions/agent-island-state.ts`|yes — extension gate (with the agent enabled)|`task` runs|
-|**OpenCode**|`~/.local/share/opencode/opencode.db`|`~/.config/opencode/plugins/agent-island-state.js`|yes — plugin|`task` runs|
+|**OpenCode**|`~/.local/share/opencode/opencode.db` (1.x and 2.x schemas)|`~/.config/opencode/plugins/agent-island-state.js`|yes — plugin|`task` runs|
 |**Codex**|`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`|`$CODEX_HOME/hooks.json` (+ `[features] hooks = true` in `config.toml`)|yes — hook `PermissionRequest`|—|
 |**Gemini CLI**|`~/.gemini/tmp/<project>/chats/session-*.jsonl`|`~/.gemini/settings.json`|yes — hook `BeforeTool`|—|
 |**Cursor**|`~/.cursor/projects/**/agent-transcripts/**`|`~/.cursor/hooks.json`|—|—|

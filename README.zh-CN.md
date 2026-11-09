@@ -73,7 +73,7 @@ tmux 里开两个 Agent，你就得在两个 pane 之间切来切去看谁在等
 |**Claude Code**|`~/.claude/projects/**/*.jsonl`|`~/.agent-island/hooks/agent-island-state.py`（共用）+ 写进 `~/.claude/settings.json` 的 hook 条目|支持 —— hook `PermissionRequest`|子代理内部的工具调用|
 |**Oh My Pi**（`omp`）|`~/.omp/agent/sessions/**`|`~/.omp/agent/extensions/agent-island-state.ts`|支持 —— 扩展闸门（随 Agent 启用）|`task` 运行|
 |**Pi**|`~/.pi/agent/sessions/**`|`~/.pi/agent/extensions/agent-island-state.ts`|支持 —— 扩展闸门（随 Agent 启用）|`task` 运行|
-|**OpenCode**|`~/.local/share/opencode/opencode.db`|`~/.config/opencode/plugins/agent-island-state.js`|支持 —— 插件|`task` 运行|
+|**OpenCode**|`~/.local/share/opencode/opencode.db`（1.x 与 2.x 两种表结构）|`~/.config/opencode/plugins/agent-island-state.js`|支持 —— 插件|`task` 运行|
 |**Codex**|`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`|`$CODEX_HOME/hooks.json`（另需 `config.toml` 的 `[features] hooks = true`）|支持 —— hook `PermissionRequest`|—|
 |**Gemini CLI**|`~/.gemini/tmp/<项目>/chats/session-*.jsonl`|`~/.gemini/settings.json`|支持 —— hook `BeforeTool`|—|
 |**Cursor**|`~/.cursor/projects/**/agent-transcripts/**`|`~/.cursor/hooks.json`|—|—|

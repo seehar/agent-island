@@ -244,6 +244,152 @@ struct OpenCodeUsageStatsTests {
     #expect(try snapshot(store).totals.input == 25)
   }
 
+  // MARK: - v2 假库
+
+  /// 在同一个库里补上 OpenCode 2.x 的两张表（模拟 1.x → 2.x 迁移后的库）。
+  private func addVersionTwoTables(at url: URL) throws {
+    try exec(
+      """
+      CREATE TABLE session_v2 (
+        id TEXT PRIMARY KEY, parent_id TEXT, directory TEXT NOT NULL, title TEXT,
+        time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL);
+      CREATE TABLE session_message (
+        id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL,
+        seq INTEGER NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL,
+        data TEXT NOT NULL);
+      """, at: url)
+  }
+
+  private func insertVersionTwoSession(
+    _ id: String, parentId: String?, at url: URL
+  ) throws {
+    let parent = parentId.map { "'\($0)'" } ?? "NULL"
+    try exec(
+      """
+      INSERT INTO session_v2 (id, parent_id, directory, title, time_created, time_updated)
+      VALUES ('\(id)', \(parent), '/tmp/work', 'v2', 0, 0);
+      """, at: url)
+  }
+
+  /// 插入一条 v2 消息（`session_message`）。assistant 的 tokens/model/content 都在 data 里。
+  private func insertVersionTwoMessage(
+    id: String, session: String, type: String, seq: Int, created: Int64, updated: Int64,
+    tokens: (input: Int, output: Int, cacheRead: Int, cacheWrite: Int)? = nil,
+    modelID: String? = nil, tools: [String] = [], at url: URL
+  ) throws {
+    var object: [String: Any] = ["time": ["created": created]]
+    if let tokens {
+      object["tokens"] = [
+        "input": tokens.input, "output": tokens.output,
+        "cache": ["read": tokens.cacheRead, "write": tokens.cacheWrite],
+      ]
+    }
+    if let modelID {
+      object["model"] = ["id": modelID, "providerID": "opencode"]
+    }
+    object["content"] = tools.map { tool in
+      [
+        "type": "tool", "id": "call_\(tool)", "name": tool,
+        "state": ["status": "completed", "input": [String: Any](), "output": "ok"],
+      ] as [String: Any]
+    }
+    let data = String(
+      data: try JSONSerialization.data(withJSONObject: object), encoding: .utf8) ?? "{}"
+    try exec(
+      """
+      INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data)
+      VALUES ('\(id)', '\(session)', '\(type)', \(seq), \(created), \(updated), '\(data)');
+      """, at: url)
+  }
+
+  @Test("v2 表结构：内嵌 content 的 token 与工具、旧表历史消息、同一 id 只计一次")
+  func indexesVersionTwoSchema() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("usage-opencode-v2-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let database = try makeDatabase(in: root)
+    try addVersionTwoTables(at: database)
+
+    try insertVersionTwoSession("ses_v2", parentId: nil, at: database)
+    try insertVersionTwoSession("ses_v2_child", parentId: "ses_v2", at: database)
+
+    // 用户消息：只占游标，不产生桶。
+    try insertVersionTwoMessage(
+      id: "u1", session: "ses_v2", type: "user", seq: 1, created: 1_000, updated: 1_000,
+      at: database)
+    // 根会话助手消息：token + 两个工具（其中一个带 mcp 前缀，归一后与另一个同名）。
+    try insertVersionTwoMessage(
+      id: "a1", session: "ses_v2", type: "assistant", seq: 2, created: 2_000, updated: 2_000,
+      tokens: (10, 1, 100, 0), modelID: "glm-5.3", tools: ["read", "mcp__x__bash"],
+      at: database)
+    // 子代理会话的消息：用量计入、会话数不计。
+    try insertVersionTwoMessage(
+      id: "a2", session: "ses_v2_child", type: "assistant", seq: 3, created: 3_000,
+      updated: 3_000, tokens: (5, 1, 0, 0), modelID: "glm-5.3", at: database)
+
+    // 迁移没有覆盖到的旧表消息：仍要计入。
+    try insertSession("ses_v1", parentId: nil, at: database)
+    try insertMessage(
+      id: "legacy1", session: "ses_v1", created: 500, updated: 500,
+      tokens: (2, 2, 0, 0), at: database)
+    // 同一个 id 同时出现在两张表里：以 v2 为准，不能计两次。
+    try insertMessage(
+      id: "a1", session: "ses_v2", created: 2_000, updated: 2_500,
+      tokens: (999, 999, 999, 999), at: database)
+
+    let store = try makeStore(in: root)
+    let pass = UsageStatsPass(store: store, calendar: .current, openCodeBatchLimit: 2)
+    try pass.ingestOpenCode(databaseURL: database)
+
+    let first = try snapshot(store)
+    #expect(first.totals.input == 17)  // 10 + 5 + 2（重复的 a1 只算 v2 那份）
+    #expect(first.totals.output == 4)
+    #expect(first.totals.cacheRead == 100)
+    #expect(first.totals.calls == 2)  // read + mcp__x__bash（归一成 bash）
+    #expect(first.totals.sessions == 2)  // ses_v2 + ses_v1，子代理会话不计
+    #expect(first.tools.map { "\($0.name):\($0.calls)" } == ["bash:1", "read:1"])
+
+    // 重复扫描不重复计数。
+    try pass.ingestOpenCode(databaseURL: database)
+    let second = try snapshot(store)
+    #expect(first.totals == second.totals)
+    #expect(first.tools == second.tools)
+  }
+
+  @Test("纯 v2 新装：没有旧 message/part 表也能索引（不因 prepare 失败整轮报错）")
+  func indexesVersionTwoWithoutLegacyTables() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("usage-opencode-v2-only-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let database = root.appendingPathComponent("opencode.db")
+    // 全新的 2.x 安装不会建 1.x 的 message / part 表。
+    try exec(
+      """
+      CREATE TABLE session_v2 (
+        id TEXT PRIMARY KEY, parent_id TEXT, directory TEXT NOT NULL, title TEXT,
+        time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL);
+      CREATE TABLE session_message (
+        id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL,
+        seq INTEGER NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL,
+        data TEXT NOT NULL);
+      """, at: database)
+    try insertVersionTwoSession("ses_new", parentId: nil, at: database)
+    try insertVersionTwoMessage(
+      id: "a1", session: "ses_new", type: "assistant", seq: 1, created: 1_000, updated: 1_000,
+      tokens: (12, 3, 30, 0), modelID: "glm-5.3", tools: ["bash"], at: database)
+
+    let store = try makeStore(in: root)
+    let pass = UsageStatsPass(store: store, calendar: .current, openCodeBatchLimit: 10)
+    try pass.ingestOpenCode(databaseURL: database)
+
+    let snapshot = try snapshot(store)
+    #expect(snapshot.totals.input == 12)
+    #expect(snapshot.totals.output == 3)
+    #expect(snapshot.totals.calls == 1)
+    #expect(snapshot.totals.sessions == 1)
+    #expect(snapshot.models.map { $0.name } == ["glm-5.3"])
+  }
+
   @Test("游标只向前走")
   func cursorsOnlyMoveForward() {
     let start = OpenCodeUsageCursor.empty

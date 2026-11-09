@@ -37,6 +37,19 @@ nonisolated enum AgentIntegrationInstaller {
   /// 4 = 上报 Paseo 托管终端身份（`PASEO_TERMINAL_ID` / `PASEO_HOOK_CLI`）。
   static let openCodePluginVersion = 4
 
+  /// OpenCode 2.x 插件变体的版本戳。
+  ///
+  /// 2.x 换了插件 API（默认导出 `{ id, setup(ctx) }`，事件走 `ctx.event.subscribe`，
+  /// 审批回写走 `ctx.permission.reply`），1.x 的文件在 2.x 里会直接加载失败
+  /// （`Plugin must export a default definition…`）。两个变体是两份资源，安装时按
+  /// 磁盘上的库是否已是 v2 表结构选一份写进去；2.x 的库对 1.x 插件文件不认，
+  /// 因此这里不能只靠「文件在不在」判断是否已安装。
+  static let openCodePluginVersionVersionTwo = 5
+
+  /// 两份随包资源：1.x（v1 hooks）与 2.x（`setup(ctx)`）。
+  private static let openCodePluginResourceVersionOne = "agent-island-opencode-plugin"
+  private static let openCodePluginResourceVersionTwo = "agent-island-opencode-plugin-v2"
+
   /// 6 = 闸门不可用（含「该 Agent 已被关闭」）改走降级档，而不是把服务端关闭读成拒绝。
   /// 7 = 上报 Paseo 托管终端身份（`PASEO_TERMINAL_ID` / `PASEO_HOOK_CLI`），
   ///     使非 tmux 会话（如「我的机器」里的终端）也能从刘海发消息。
@@ -238,9 +251,9 @@ nonisolated enum AgentIntegrationInstaller {
 
   /// 磁盘上的 OpenCode 插件是不是「当前该装的那一份」。
   ///
-  /// 只比版本戳：插件是**单一份**（没有闸门版 / 只上报版两态），也没有把闸门策略烘焙进文件
-  /// （它的降级语义由插件自持），因此变体与降级档都不参与比对——多比只会把「不该重装的」
-  /// 判成「需重装」。
+  /// 只比版本戳，但**版本戳取决于库的表结构**：1.x 与 2.x 的插件 API 不兼容，装错一份
+  /// 会直接加载失败（2.x 报 `Plugin must export a default definition…`）。插件不把闸门
+  /// 策略烘焙进文件（降级语义由插件自持），因此档位不参与比对。
   static func isOpenCodePluginCurrent() -> Bool {
     guard let file = openCodePluginFile(),
       let contents = try? String(contentsOf: file, encoding: .utf8)
@@ -248,7 +261,27 @@ nonisolated enum AgentIntegrationInstaller {
       return false
     }
     return markerValue(in: contents, prefix: openCodeVersionMarkerPrefix)
-      == String(openCodePluginVersion)
+      == String(expectedOpenCodePluginVersion)
+  }
+
+  /// 当前该装哪一份 OpenCode 插件：库是 v2 表结构就装 2.x 变体。
+  ///
+  /// 判据取「磁盘上的库结构」而不是 `opencode --version`：库在 2.x 首次启动时就会
+  /// 迁到新表，而版本命令要额外起进程、还会受 PATH 影响。1.x 的库没有
+  /// `session_message` / `session_v2`，因此不会误判。
+  private static var expectsVersionTwoPlugin: Bool {
+    OpenCodeSessionStore.usesVersionTwoSchema()
+  }
+
+  /// 当前变体的版本戳。
+  private static var expectedOpenCodePluginVersion: Int {
+    expectsVersionTwoPlugin ? openCodePluginVersionVersionTwo : openCodePluginVersion
+  }
+
+  /// 当前变体的随包资源名。
+  private static var openCodePluginResourceName: String {
+    expectsVersionTwoPlugin
+      ? openCodePluginResourceVersionTwo : openCodePluginResourceVersionOne
   }
 
   /// 磁盘上的扩展是不是「当前该装的那一份」：版本戳、变体标记、以及两个策略档位都要对上。
@@ -394,10 +427,11 @@ nonisolated enum AgentIntegrationInstaller {
     guard let destination = openCodePluginFile() else { return false }
     guard
       let source = Bundle.main.url(
-        forResource: "agent-island-opencode-plugin", withExtension: "js"),
+        forResource: openCodePluginResourceName, withExtension: "js"),
       let contents = try? String(contentsOf: source, encoding: .utf8)
     else {
-      logger.error("缺少内置的 OpenCode 插件资源，无法安装集成")
+      logger.error(
+        "缺少内置的 OpenCode 插件资源（\(openCodePluginResourceName)），无法安装集成")
       return false
     }
 
