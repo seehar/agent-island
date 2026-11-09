@@ -479,6 +479,11 @@ class HookSocketServer {
  static let shared = HookSocketServer()
  static let socketPath = "/tmp/agent-island.sock"
 
+ /// 单条事件的最大体积。`tool_input` 里可能带整段文件内容，但一条真实的 hook 信封
+ /// 远小于此；超过即判为坏消息并断开——读循环最多跑 2 秒，本地 socket 上一条洪泛
+ /// 足够把内存吃到几百 MB。
+ private static let maximumEventBytes = 4 * 1024 * 1024
+
  /// 本进程是否赢得了这条 socket 的归属（`bind` 成功才算）。败者不启动服务。
  /// 见 `startServer()` 的 bind 分支：这条 socket 是**单实例资源**，跑测试的宿主进程
  /// 绝不能把它抢走。
@@ -673,13 +678,6 @@ class HookSocketServer {
   queue.async { [weak self] in
    self?.sendPermissionResponse(
     key: key, toolUseId: toolUseId, decision: decision, answers: answers, reason: reason)
-  }
- }
-
- /// Respond to permission by session (finds the most recent pending for that session)
- func respondToPermissionBySession(key: SessionKey, decision: String, reason: String? = nil) {
-  queue.async { [weak self] in
-   self?.sendPermissionResponseBySession(key: key, decision: decision, reason: reason)
   }
  }
 
@@ -1074,6 +1072,7 @@ class HookSocketServer {
   var allData = Data()
   var buffer = [UInt8](repeating: 0, count: 131072)
   var pollFd = pollfd(fd: clientSocket, events: Int16(POLLIN), revents: 0)
+  var oversized = false
 
   // 读窗口：首个字节到达后 50ms 静默即结束读，总预算 2s。此前「从连接建立起
   // 0.5s」会让「连上后稍晚才写」的客户端丢事件（多 Agent 并发下更易发生）。
@@ -1086,6 +1085,10 @@ class HookSocketServer {
 
     if bytesRead > 0 {
      allData.append(contentsOf: buffer[0..<bytesRead])
+     if allData.count > Self.maximumEventBytes {
+      oversized = true
+      break
+     }
     } else if bytesRead == 0 {
      break
     } else if errno != EAGAIN && errno != EWOULDBLOCK {
@@ -1098,6 +1101,13 @@ class HookSocketServer {
    } else {
     break
    }
+  }
+
+  if oversized {
+   logger.error(
+    "Dropping oversized hook event (\(allData.count, privacy: .public) bytes) from a client")
+   closeClient(clientSocket)
+   return
   }
 
   guard !allData.isEmpty else {
@@ -1309,50 +1319,6 @@ class HookSocketServer {
   }
  }
 
- private func sendPermissionResponseBySession(
-  key: SessionKey, decision: String, answers: [String: [String]]? = nil, reason: String?
- ) {
-  permissionsLock.lock()
-  let matchingPending = pendingPermissions.values
-   .filter { $0.key == key }
-   .sorted { $0.receivedAt > $1.receivedAt }
-   .first
-
-  guard let pending = matchingPending else {
-   permissionsLock.unlock()
-   logger.debug(
-    "No pending permission for session: \(key.sessionId.prefix(8), privacy: .public) agent:\(key.agent.rawValue, privacy: .public)"
-   )
-   return
-  }
-
-  pendingPermissions.removeValue(
-   forKey: PendingPermissionKey(key: pending.key, toolUseId: pending.toolUseId))
-  permissionsLock.unlock()
-
-  let response = AskAnswerBuilder.normalized(
-   decision: decision, answers: answers, reason: reason)
-  guard let data = try? Self.responseEncoder.encode(response) else {
-   closeClient(pending.clientSocket)
-   permissionFailureHandler?(pending.key, pending.toolUseId)
-   return
-  }
-
-  let age = Date().timeIntervalSince(pending.receivedAt)
-  logger.info(
-   "Sending response: \(decision, privacy: .public) for \(key.sessionId.prefix(8), privacy: .public) agent:\(key.agent.rawValue, privacy: .public) tool:\(pending.toolUseId.prefix(12), privacy: .public) (age: \(String(format: "%.1f", age), privacy: .public)s)"
-  )
-
-  let writeSuccess = writeAll(
-   data, to: pending.clientSocket,
-   context: "response \(decision) for \(key.agent.rawValue)")
-
-  closeClient(pending.clientSocket)
-
-  if !writeSuccess {
-   permissionFailureHandler?(pending.key, pending.toolUseId)
-  }
- }
 }
 
 // MARK: - AnyCodable for tool_input
