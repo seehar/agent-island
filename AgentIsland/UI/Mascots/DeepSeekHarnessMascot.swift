@@ -222,16 +222,7 @@ struct DeepSeekHarnessMascot: View {
 
     private var alertScene: some View {
         ZStack {
-            RadialGradient(
-                colors: [
-                    Self.alert.opacity(0.05 + 0.07 * (0.5 + 0.5 * sin(t * 2 * .pi / 1.0))),
-                    Self.alert.opacity(0),
-                ],
-                center: .center,
-                startRadius: 0,
-                endRadius: size * 0.45
-            )
-            .frame(width: size * 0.9, height: size * 0.9)
+            MascotAlertGlow(color: Self.alert, t: t, size: size)
 
             Canvas { context, canvas in
                 drawAlert(&context, MascotSprite(canvas, svgWidth: 16, svgHeight: 14, svgTop: 3))
@@ -241,7 +232,7 @@ struct DeepSeekHarnessMascot: View {
     }
 
     private func drawAlert(_ context: inout GraphicsContext, _ sprite: MascotSprite) {
-        let pct = t.truncatingRemainder(dividingBy: 3.5) / 3.5
+        let pct = MascotMotion.alertPhase(t)
 
         // 三连跳：一跳比一跳矮，落地时压扁。位移按视口高度截顶（身体不许飞出画布）。
         let jumpY = MascotMotion.lerp(
@@ -258,16 +249,8 @@ struct DeepSeekHarnessMascot: View {
         let scaleX: CGFloat = jumpY > 0.5 ? 1.0 + jumpY * 0.05 : 1.0
         let scaleY: CGFloat = jumpY > 0.5 ? 1.0 - jumpY * 0.04 : 1.0
 
-        let bangOpacity = MascotMotion.lerp(
-            [
-                (at: 0, value: 0), (at: 0.03, value: 1), (at: 0.10, value: 1),
-                (at: 0.55, value: 1), (at: 0.62, value: 0), (at: 1.0, value: 0),
-            ], at: pct)
-        let bangScale = MascotMotion.lerp(
-            [
-                (at: 0, value: 0.3), (at: 0.03, value: 1.3), (at: 0.10, value: 1.0),
-                (at: 0.55, value: 1.0), (at: 0.62, value: 0.6), (at: 1.0, value: 0.6),
-            ], at: pct)
+        let bangOpacity = MascotMotion.lerp(MascotMotion.alertBangOpacity, at: pct)
+        let bangScale = MascotMotion.lerp(MascotMotion.alertBangScale, at: pct)
 
         // 影子留在地上，跳得越高越窄越淡。
         let shadowWidth: CGFloat = 9 * (1.0 - abs(min(0, rise)) * 0.04)

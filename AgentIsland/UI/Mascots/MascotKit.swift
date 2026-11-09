@@ -317,3 +317,30 @@ extension Color {
             blue: Double(hex & 0xFF) / 255)
     }
 }
+
+// MARK: - 待审批场景的共用外壳
+
+/// 警报光晕：常亮一点余晖、随安静段慢慢呼吸。用径向渐变而不是 `blur`
+/// （20fps 下模糊的离屏渲染太贵），强度是 `t` 的纯函数。
+///
+/// 16 枚角色的 `alertScene` 原来是同一段 10 行视图叠一份（只有品牌色不同）；
+/// 抽到这里之后「光晕怎么呼吸」只有一处。
+struct MascotAlertGlow: View {
+    /// 该角色的警报色（一般是它自己的品牌强调色）。
+    let color: Color
+    let t: CGFloat
+    let size: CGFloat
+
+    var body: some View {
+        RadialGradient(
+            colors: [
+                color.opacity(0.05 + 0.07 * (0.5 + 0.5 * sin(t * 2 * .pi / 1.0))),
+                color.opacity(0),
+            ],
+            center: .center,
+            startRadius: 0,
+            endRadius: size * 0.45
+        )
+        .frame(width: size * 0.9, height: size * 0.9)
+    }
+}

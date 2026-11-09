@@ -131,16 +131,7 @@ struct GrokMascot: View {
         ZStack {
             // 警报光晕：常亮一点余晖、随安静段慢慢呼吸。用径向渐变而不是 `blur`
             // （20fps 下模糊的离屏渲染太贵），强度是 `t` 的纯函数。
-            RadialGradient(
-                colors: [
-                    Self.alert.opacity(0.05 + 0.07 * (0.5 + 0.5 * sin(t * 2 * .pi / 1.0))),
-                    Self.alert.opacity(0),
-                ],
-                center: .center,
-                startRadius: 0,
-                endRadius: size * 0.45
-            )
-            .frame(width: size * 0.9, height: size * 0.9)
+            MascotAlertGlow(color: Self.alert, t: t, size: size)
 
             Canvas { context, canvas in
                 drawAlert(&context, MascotSprite(canvas, svgWidth: 16, svgHeight: 14, svgTop: 3))
@@ -152,19 +143,10 @@ struct GrokMascot: View {
     /// 起跳：3.5 秒一轮，跳三次、一次比一次矮（与其余角色同一套节奏），然后安静到下一轮。
     /// 标记只跟着位移走（影子留在地上），惊叹号挂在头顶右上方。
     private func drawAlert(_ context: inout GraphicsContext, _ sprite: MascotSprite) {
-        let pct = t.truncatingRemainder(dividingBy: 3.5) / 3.5
+        let pct = MascotMotion.alertPhase(t)
 
         // 三连跳的位移表（-8 / -6 / -4 / -2 是三次起跳的顶点）。
-        let jumpY = MascotMotion.lerp(
-            [
-                (at: 0, value: 0), (at: 0.03, value: 0), (at: 0.10, value: -1),
-                (at: 0.15, value: 1.5),
-                (at: 0.175, value: -8), (at: 0.20, value: -8), (at: 0.25, value: 1.5),
-                (at: 0.275, value: -6), (at: 0.30, value: -6), (at: 0.35, value: 1.0),
-                (at: 0.375, value: -4), (at: 0.40, value: -4), (at: 0.45, value: 0.8),
-                (at: 0.475, value: -2), (at: 0.50, value: -2), (at: 0.55, value: 0.3),
-                (at: 0.62, value: 0), (at: 1.0, value: 0),
-            ], at: pct)
+        let jumpY = MascotMotion.lerp(MascotMotion.standardAlertJump, at: pct)
 
         let side = 16 * Self.markScale
         // 静息时标记落在接地线上（底边 y = 15）。最大跳幅 8 个单位，截顶到标记顶边
@@ -183,16 +165,8 @@ struct GrokMascot: View {
 
         // 惊叹号：起跳一开始亮起，安静下来淡出；纵向位移只有跳跃的 15%（不会飞出画布），
         // 横向落在标记右缘之外（标记最宽处到 x = 13.44），因此不会压在标记上。
-        let bangOpacity = MascotMotion.lerp(
-            [
-                (at: 0, value: 0), (at: 0.03, value: 1), (at: 0.10, value: 1), (at: 0.55, value: 1),
-                (at: 0.62, value: 0), (at: 1.0, value: 0),
-            ], at: pct)
-        let bangScale = MascotMotion.lerp(
-            [
-                (at: 0, value: 0.3), (at: 0.03, value: 1.3), (at: 0.10, value: 1.0),
-                (at: 0.55, value: 1.0), (at: 0.62, value: 0.6), (at: 1.0, value: 0.6),
-            ], at: pct)
+        let bangOpacity = MascotMotion.lerp(MascotMotion.alertBangOpacity, at: pct)
+        let bangScale = MascotMotion.lerp(MascotMotion.alertBangScale, at: pct)
         if bangOpacity > 0.01 {
             let width: CGFloat = 2 * bangScale
             let x: CGFloat = 13.4

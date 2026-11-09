@@ -238,16 +238,7 @@ struct PiMascot: View {
         ZStack {
             // 警报光晕：常亮一点余晖，随安静段慢慢呼吸。用径向渐变而不是 `blur`
             // （20fps 下模糊的离屏渲染太贵），强度是 `t` 的纯函数。
-            RadialGradient(
-                colors: [
-                    Palette.alert.opacity(0.05 + 0.07 * (0.5 + 0.5 * sin(t * 2 * .pi / 1.0))),
-                    Palette.alert.opacity(0),
-                ],
-                center: .center,
-                startRadius: 0,
-                endRadius: size * 0.45
-            )
-            .frame(width: size * 0.9, height: size * 0.9)
+            MascotAlertGlow(color: Palette.alert, t: t, size: size)
 
             Canvas { context, canvas in
                 drawAlert(&context, MascotSprite(canvas, svgWidth: 16, svgHeight: 14, svgTop: 3))
@@ -259,7 +250,7 @@ struct PiMascot: View {
     /// 起跳：3.5 秒一轮，跳三次、一次比一次矮，然后安静到下一轮。
     /// 影子与脚留在地上，π 脸在惊慌时转成警报橙，惊叹号按跳跃高度做 15% 的阻尼位移。
     private func drawAlert(_ context: inout GraphicsContext, _ sprite: MascotSprite) {
-        let pct = t.truncatingRemainder(dividingBy: 3.5) / 3.5
+        let pct = MascotMotion.alertPhase(t)
 
         let jumpY = MascotMotion.lerp(
             [

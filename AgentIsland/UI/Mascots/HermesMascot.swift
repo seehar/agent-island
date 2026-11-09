@@ -137,16 +137,7 @@ struct HermesMascot: View {
         ZStack {
             // 警报光晕：常亮一点余晖、随安静段慢慢呼吸。用径向渐变而不是 `blur`
             // （20fps 下模糊的离屏渲染太贵），强度是 `t` 的纯函数。
-            RadialGradient(
-                colors: [
-                    Self.alertC.opacity(0.05 + 0.07 * (0.5 + 0.5 * sin(t * 2 * .pi / 1.0))),
-                    Self.alertC.opacity(0),
-                ],
-                center: .center,
-                startRadius: 0,
-                endRadius: size * 0.45
-            )
-            .frame(width: size * 0.9, height: size * 0.9)
+            MascotAlertGlow(color: Self.alertC, t: t, size: size)
 
             Canvas { context, canvas in
                 drawAlert(&context, MascotSprite(canvas, svgWidth: 16, svgHeight: 14, svgTop: 3))
@@ -158,7 +149,7 @@ struct HermesMascot: View {
     /// 起跳：3.5 秒一轮，跳三次、一次比一次矮，跳到顶点时整只左右抖动。
     /// 影子留在地上（只有机身与腿跟着跳），惊叹号的位置按跳跃高度做阻尼。
     private func drawAlert(_ context: inout GraphicsContext, _ sprite: MascotSprite) {
-        let pct = t.truncatingRemainder(dividingBy: 3.5) / 3.5
+        let pct = MascotMotion.alertPhase(t)
 
         // 三连跳：一跳比一跳矮。
         let jumpY = MascotMotion.lerp(

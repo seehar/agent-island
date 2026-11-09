@@ -204,16 +204,7 @@ struct ClaudeMascot: View {
         ZStack {
             // 警报光晕：常亮一点余晖、随安静段慢慢呼吸。用径向渐变而不是 `blur`
             // （20fps 下模糊的离屏渲染太贵），强度是 `t` 的纯函数。
-            RadialGradient(
-                colors: [
-                    Self.alert.opacity(0.05 + 0.07 * (0.5 + 0.5 * sin(t * 2 * .pi / 1.0))),
-                    Self.alert.opacity(0),
-                ],
-                center: .center,
-                startRadius: 0,
-                endRadius: size * 0.45
-            )
-            .frame(width: size * 0.9, height: size * 0.9)
+            MascotAlertGlow(color: Self.alert, t: t, size: size)
 
             Canvas { context, canvas in
                 drawAlert(&context, MascotSprite(canvas, svgWidth: 15, svgHeight: 12, svgTop: 4))
@@ -225,7 +216,7 @@ struct ClaudeMascot: View {
     /// 起跳：3.5 秒一轮，跳三次、一次比一次矮，然后安静到下一轮。
     /// 影子留在地上（只有躯干与手臂跟着跳），惊叹号的位置按跳跃高度做阻尼。
     private func drawAlert(_ context: inout GraphicsContext, _ sprite: MascotSprite) {
-        let pct = t.truncatingRemainder(dividingBy: 3.5) / 3.5
+        let pct = MascotMotion.alertPhase(t)
 
         let jumpY = MascotMotion.lerp(
             [
@@ -269,16 +260,8 @@ struct ClaudeMascot: View {
         let eyeShift: CGFloat = (pct > 0.03 && pct < 0.15) ? -0.5 : 0
 
         // 惊叹号：起跳一开始亮起，安静下来淡出。
-        let bangOpacity = MascotMotion.lerp(
-            [
-                (at: 0, value: 0), (at: 0.03, value: 1), (at: 0.10, value: 1), (at: 0.55, value: 1),
-                (at: 0.62, value: 0), (at: 1.0, value: 0),
-            ], at: pct)
-        let bangScale = MascotMotion.lerp(
-            [
-                (at: 0, value: 0.3), (at: 0.03, value: 1.3), (at: 0.10, value: 1.0),
-                (at: 0.55, value: 1.0), (at: 0.62, value: 0.6), (at: 1.0, value: 0.6),
-            ], at: pct)
+        let bangOpacity = MascotMotion.lerp(MascotMotion.alertBangOpacity, at: pct)
+        let bangScale = MascotMotion.lerp(MascotMotion.alertBangScale, at: pct)
 
         // 影子：跳得越高越窄越淡，但**留在原地**。
         let shadowWidth: CGFloat = 9 * (1.0 - abs(min(0, rise)) * 0.04)

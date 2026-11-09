@@ -142,16 +142,7 @@ struct CursorMascot: View {
         ZStack {
             // 警报光晕：常亮一点余晖、随安静段慢慢呼吸。用径向渐变而不是 `blur`
             // （20fps 下模糊的离屏渲染太贵），强度是 `t` 的纯函数。
-            RadialGradient(
-                colors: [
-                    Self.alertC.opacity(0.05 + 0.07 * (0.5 + 0.5 * sin(t * 2 * .pi / 1.0))),
-                    Self.alertC.opacity(0),
-                ],
-                center: .center,
-                startRadius: 0,
-                endRadius: size * 0.45
-            )
-            .frame(width: size * 0.9, height: size * 0.9)
+            MascotAlertGlow(color: Self.alertC, t: t, size: size)
 
             Canvas { context, canvas in
                 drawAlert(&context, MascotSprite(canvas, svgWidth: 16, svgHeight: 14, svgTop: 3))
@@ -163,18 +154,9 @@ struct CursorMascot: View {
     /// 起跳：3.5 秒一轮，跳三次、一次比一次矮，然后安静到下一轮。跳起来时左右抖、
     /// 高光狂闪、眼睛瞪大并闪红；影子与腿留在地上，只有身体与惊叹号跟着跳。
     private func drawAlert(_ context: inout GraphicsContext, _ sprite: MascotSprite) {
-        let pct = t.truncatingRemainder(dividingBy: 3.5) / 3.5
+        let pct = MascotMotion.alertPhase(t)
 
-        let jumpY = MascotMotion.lerp(
-            [
-                (at: 0, value: 0), (at: 0.03, value: 0), (at: 0.10, value: -1),
-                (at: 0.15, value: 1.5),
-                (at: 0.175, value: -8), (at: 0.20, value: -8), (at: 0.25, value: 1.5),
-                (at: 0.275, value: -6), (at: 0.30, value: -6), (at: 0.35, value: 1.0),
-                (at: 0.375, value: -4), (at: 0.40, value: -4), (at: 0.45, value: 0.8),
-                (at: 0.475, value: -2), (at: 0.50, value: -2), (at: 0.55, value: 0.3),
-                (at: 0.62, value: 0), (at: 1.0, value: 0),
-            ], at: pct)
+        let jumpY = MascotMotion.lerp(MascotMotion.standardAlertJump, at: pct)
 
         // 上游的顶点会把身体整个抛出视口（实拍只剩腿与影子）：整条曲线等比缩到身体
         // 顶边不越出视口上边缘——宝石的顶顶点在 y=5.5，视口上边缘在 y=3。
@@ -186,16 +168,8 @@ struct CursorMascot: View {
         let shimmer: CGFloat = (pct > 0.03 && pct < 0.55) ? sin(pct * 30) * 0.5 + 0.5 : 0
 
         // 惊叹号：起跳一开始亮起，安静下来淡出。
-        let bangOpacity = MascotMotion.lerp(
-            [
-                (at: 0, value: 0), (at: 0.03, value: 1), (at: 0.10, value: 1), (at: 0.55, value: 1),
-                (at: 0.62, value: 0), (at: 1.0, value: 0),
-            ], at: pct)
-        let bangScale = MascotMotion.lerp(
-            [
-                (at: 0, value: 0.3), (at: 0.03, value: 1.3), (at: 0.10, value: 1.0),
-                (at: 0.55, value: 1.0), (at: 0.62, value: 0.6), (at: 1.0, value: 0.6),
-            ], at: pct)
+        let bangOpacity = MascotMotion.lerp(MascotMotion.alertBangOpacity, at: pct)
+        let bangScale = MascotMotion.lerp(MascotMotion.alertBangScale, at: pct)
 
         // 影子：跳得越高越窄越淡，但**留在原地**。
         let shadowWidth: CGFloat = 8 * (1.0 - abs(min(0, rise)) * 0.04)

@@ -177,6 +177,42 @@ enum MascotMotion {
         return c < 0.5 ? 2 * c * c : 1 - pow(-2 * c + 2, 2) / 2
     }
 
+    // MARK: - 待审批场景（14 枚角色共用）
+
+    /// 待审批场景的统一周期（秒）：三跳、一跳比一跳矮、顶上惊叹号。
+    ///
+    /// 「有事等你」是**应用级**信号：19 枚角色在同一时刻看起来在做同一件事。周期原先写死在
+    /// 16 个 `drawAlert` 里，改一次要改 16 处；现在只有这一份。
+    static let alertPeriod: CGFloat = 3.5
+
+    /// 待审批场景的进度（0…1）：`drawAlert` 里的 `pct`。
+    static func alertPhase(_ t: CGFloat) -> CGFloat {
+        t.truncatingRemainder(dividingBy: alertPeriod) / alertPeriod
+    }
+
+    /// 12 枚角色共用的起跳位移表（SVG 单位）：顶点 -8 / -6 / -4 / -2，一跳比一跳矮。
+    /// Claude（顶点 -10）、DeepSeek Harness、Pi、Hermes 用自己的表，写在各自文件里。
+    static let standardAlertJump: [(at: CGFloat, value: CGFloat)] = [
+        (at: 0, value: 0), (at: 0.03, value: 0), (at: 0.10, value: -1), (at: 0.15, value: 1.5),
+        (at: 0.175, value: -8), (at: 0.20, value: -8), (at: 0.25, value: 1.5),
+        (at: 0.275, value: -6), (at: 0.30, value: -6), (at: 0.35, value: 1.0),
+        (at: 0.375, value: -4), (at: 0.40, value: -4), (at: 0.45, value: 0.8),
+        (at: 0.475, value: -2), (at: 0.50, value: -2), (at: 0.55, value: 0.3),
+        (at: 0.62, value: 0), (at: 1.0, value: 0),
+    ]
+
+    /// 惊叹号的透明度表（14 枚共用）：起跳一开始亮起、安静下来淡出。
+    static let alertBangOpacity: [(at: CGFloat, value: CGFloat)] = [
+        (at: 0, value: 0), (at: 0.03, value: 1), (at: 0.10, value: 1), (at: 0.55, value: 1),
+        (at: 0.62, value: 0), (at: 1.0, value: 0),
+    ]
+
+    /// 惊叹号的缩放表（14 枚共用）。
+    static let alertBangScale: [(at: CGFloat, value: CGFloat)] = [
+        (at: 0, value: 0.3), (at: 0.03, value: 1.3), (at: 0.10, value: 1.0),
+        (at: 0.55, value: 1.0), (at: 0.62, value: 0.6), (at: 1.0, value: 0.6),
+    ]
+
     // MARK: - 待审批的起跳幅度
 
     /// 起跳关键帧的**截顶系数**：把上游那套「一跳比一跳矮」的位移等比缩到身体不会飞出视口。
