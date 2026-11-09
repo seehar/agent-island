@@ -57,19 +57,53 @@ final class AgentSessionDiscovery {
 
     // MARK: - 单轮扫描
 
+    /// 一轮扫描的「磁盘侧事实」：进程表 + 每个 Agent 的候选会话。
+    private nonisolated struct ScanFacts: Sendable {
+        let processes: [AgentProcess]
+        let candidates: [AgentKind: [DiscoveredAgentSession]]
+    }
+
+    /// 取一轮扫描要用的磁盘事实，**整个在后台执行**。
+    ///
+    /// 这两步都是同步阻塞：`ps` 是一次 fork + `waitUntilExit`（本机实测中位 ~74 ms），
+    /// 记录目录枚举是同步文件 I/O。本类型在主 actor 上（文件默认隔离开关），
+    /// 放在 `tick()` 里就等于每 2–4 秒把主线程按住一次——面板动画与输入会掉帧。
+    /// 同类重活的正确写法在 `UsageStatsIndexer.runPass`（`Task.detached(priority: .utility)`）。
+    private nonisolated static func scanDiskState(
+        sources: [(kind: AgentKind, source: any AgentSessionDiscoverySource)],
+        since: Date,
+        limit: Int
+    ) async -> ScanFacts {
+        await Task.detached(priority: .utility) {
+            // 只取进程名与 tty（不跑 lsof：每轮给每个进程解析 cwd 太贵，
+            // 会话与进程的对应关系用「该 Agent 是否只有一个进程」来近似）。
+            let processes = AgentProcessScanner.shared.processes()
+            var candidates: [AgentKind: [DiscoveredAgentSession]] = [:]
+            for entry in sources {
+                candidates[entry.kind] = entry.source.recentSessions(since: since, limit: limit)
+            }
+            return ScanFacts(processes: processes, candidates: candidates)
+        }.value
+    }
+
     private func tick() async {
         let now = Date()
-        // 只取进程名与 tty（不跑 lsof：每轮给每个进程解析 cwd 太贵，
-        // 会话与进程的对应关系用「该 Agent 是否只有一个进程」来近似）。
-        let processes = AgentProcessScanner.shared.processes()
+        // 发现源在这里构造（只是 provider 值，便宜）；磁盘那一半交给后台。
+        let sources = AgentRegistry.enabledAndInstalled.compactMap { kind in
+            AgentDiscoverySources.source(for: kind).map { (kind: kind, source: $0) }
+        }
+        guard !sources.isEmpty else { return }
 
-        for kind in AgentRegistry.enabledAndInstalled {
-            guard let source = AgentDiscoverySources.source(for: kind) else { continue }
-            let agentProcesses = processes.filter { $0.agent == kind }
-            let candidates = source.recentSessions(
-                since: now.addingTimeInterval(-lookbackWindow),
-                limit: perAgentLimit
-            )
+        let facts = await Self.scanDiskState(
+            sources: sources,
+            since: now.addingTimeInterval(-lookbackWindow),
+            limit: perAgentLimit
+        )
+
+        for entry in sources {
+            let kind = entry.kind
+            let agentProcesses = facts.processes.filter { $0.agent == kind }
+            let candidates = facts.candidates[kind] ?? []
 
             for candidate in candidates {
                 let recentlyWritten = candidate.updatedAt > now.addingTimeInterval(-liveWindow)

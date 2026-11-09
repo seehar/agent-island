@@ -19,7 +19,10 @@ nonisolated struct AgentProcess: Sendable, Equatable {
 
 /// 通过 `ps` 查找运行中的 Agent CLI。结果短期缓存，使每次发现扫描只产生
 /// 一个子进程，而不是每个会话一个。
-final class AgentProcessScanner: @unchecked Sendable {
+/// 必须 `nonisolated`：它是一次阻塞的 `ps` 子进程调用，调用方（发现循环）会把它放到
+/// 后台任务里跑。留成默认的主 actor 隔离，跨隔离域调用会退化成隐式 async
+/// （Swift 6 模式下是编译错误），而「在主 actor 上执行」正是要避免的那件事。
+nonisolated final class AgentProcessScanner: @unchecked Sendable {
   static let shared = AgentProcessScanner()
 
   private let lock = NSLock()
