@@ -720,91 +720,50 @@ actor SessionStore {
             Self.logger.debug("Clear reconciliation: kept \(session.chatItems.count) of \(previousCount) items")
         }
 
-        if payload.isIncremental {
-            let existingIds = Set(session.chatItems.map { $0.id })
+        let existingIds = Set(session.chatItems.map { $0.id })
 
-            for message in payload.messages {
-                for (blockIndex, block) in message.content.enumerated() {
-                    if case .toolUse(let tool) = block {
-                        if let idx = session.chatItems.firstIndex(where: { $0.id == tool.id }) {
-                            if case .toolCall(let existingTool) = session.chatItems[idx].type {
-                                session.chatItems[idx] = ChatHistoryItem(
-                                    id: tool.id,
-                                    type: .toolCall(ToolCallItem(
-                                        name: tool.name,
-                                        input: tool.input,
-                                        status: existingTool.status,
-                                        result: existingTool.result,
-                                        structuredResult: existingTool.structuredResult,
-                                        subagentTools: existingTool.subagentTools,
-                                        subagentRuns: existingTool.subagentRuns
-                                    )),
-                                    timestamp: message.timestamp
-                                )
-                            }
-                            continue
+        for message in payload.messages {
+            for (blockIndex, block) in message.content.enumerated() {
+                if case .toolUse(let tool) = block {
+                    if let idx = session.chatItems.firstIndex(where: { $0.id == tool.id }) {
+                        if case .toolCall(let existingTool) = session.chatItems[idx].type {
+                            session.chatItems[idx] = ChatHistoryItem(
+                                id: tool.id,
+                                type: .toolCall(ToolCallItem(
+                                    name: tool.name,
+                                    input: tool.input,
+                                    status: existingTool.status,
+                                    result: existingTool.result,
+                                    structuredResult: existingTool.structuredResult,
+                                    subagentTools: existingTool.subagentTools,
+                                    subagentRuns: existingTool.subagentRuns
+                                )),
+                                timestamp: message.timestamp
+                            )
                         }
-                    }
-
-                    let item = createChatItem(
-                        from: block,
-                        message: message,
-                        blockIndex: blockIndex,
-                        existingIds: existingIds,
-                        completedTools: payload.completedToolIds,
-                        toolResults: payload.toolResults,
-                        structuredResults: payload.structuredResults,
-                        toolTracker: &session.toolTracker
-                    )
-
-                    if let item = item {
-                        session.chatItems.append(item)
+                        continue
                     }
                 }
-            }
-        } else {
-            let existingIds = Set(session.chatItems.map { $0.id })
 
-            for message in payload.messages {
-                for (blockIndex, block) in message.content.enumerated() {
-                    if case .toolUse(let tool) = block {
-                        if let idx = session.chatItems.firstIndex(where: { $0.id == tool.id }) {
-                            if case .toolCall(let existingTool) = session.chatItems[idx].type {
-                                session.chatItems[idx] = ChatHistoryItem(
-                                    id: tool.id,
-                                    type: .toolCall(ToolCallItem(
-                                        name: tool.name,
-                                        input: tool.input,
-                                        status: existingTool.status,
-                                        result: existingTool.result,
-                                        structuredResult: existingTool.structuredResult,
-                                        subagentTools: existingTool.subagentTools,
-                                        subagentRuns: existingTool.subagentRuns
-                                    )),
-                                    timestamp: message.timestamp
-                                )
-                            }
-                            continue
-                        }
-                    }
+                let item = createChatItem(
+                    from: block,
+                    message: message,
+                    blockIndex: blockIndex,
+                    existingIds: existingIds,
+                    completedTools: payload.completedToolIds,
+                    toolResults: payload.toolResults,
+                    structuredResults: payload.structuredResults,
+                    toolTracker: &session.toolTracker
+                )
 
-                    let item = createChatItem(
-                        from: block,
-                        message: message,
-                        blockIndex: blockIndex,
-                        existingIds: existingIds,
-                        completedTools: payload.completedToolIds,
-                        toolResults: payload.toolResults,
-                        structuredResults: payload.structuredResults,
-                        toolTracker: &session.toolTracker
-                    )
-
-                    if let item = item {
-                        session.chatItems.append(item)
-                    }
+                if let item = item {
+                    session.chatItems.append(item)
                 }
             }
+        }
 
+        // 全量同步（记录被重写或首次读取）要按时间重排；增量追加天然有序，不必排。
+        if !payload.isIncremental {
             session.chatItems.sort { $0.timestamp < $1.timestamp }
         }
 
@@ -1457,19 +1416,5 @@ actor SessionStore {
     /// Get a specific session
     func session(for key: SessionKey) -> SessionState? {
         sessions[key]
-    }
-
-    /// Check if there's an active permission for a session
-    func hasActivePermission(key: SessionKey) -> Bool {
-        guard let session = sessions[key] else { return false }
-        if case .waitingForApproval = session.phase {
-            return true
-        }
-        return false
-    }
-
-    /// Get all current sessions
-    func allSessions() -> [SessionState] {
-        Array(sessions.values)
     }
 }
