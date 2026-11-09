@@ -23,13 +23,54 @@ struct ProcessInfo: Sendable {
 }
 
 /// Builds and queries the system process tree
-struct ProcessTreeBuilder: Sendable {
+///
+/// 进程树带一份 0.5 秒的缓存：这张表只用来回答归属问题（这个 pid 在不在 tmux 里、
+/// 它的祖辈是哪个终端），半秒的陈旧无害；而 `buildTree()` 是一次 `ps` 子进程
+/// （本机实测 40–80ms）。原先每个 hook 事件都在 `SessionStore` 的 actor 里跑一次，
+/// 采样（2026-11-09，10s/4968 样本）里热线程的 180 个样本有 123 个落在
+/// `processHookEvent → buildTree → ps`（其中 81 个在读管道、42 个在 `waitUntilExit`），
+/// 即每个事件都会把会话状态机按住几十毫秒。
+nonisolated final class ProcessTreeBuilder: @unchecked Sendable {
     nonisolated static let shared = ProcessTreeBuilder()
 
-    private nonisolated init() {}
+    private let lock = NSLock()
+    private var cachedTree: [Int: ProcessInfo] = [:]
+    private var cachedAt: Date = .distantPast
 
-    /// Build a process tree mapping PID -> ProcessInfo
+    /// 缓存有效期：进程树的变化（起一个新进程）在半秒后可见，足够所有归属判定。
+    private let ttl: TimeInterval = 0.5
+
+    private init() {}
+
+    /// 进程树（`ttl` 内复用上一份）。
     nonisolated func buildTree() -> [Int: ProcessInfo] {
+        lock.lock()
+        let fresh = Date().timeIntervalSince(cachedAt) < ttl
+        let cached = cachedTree
+        lock.unlock()
+        if fresh { return cached }
+
+        let tree = scanTree()
+        store(tree)
+        return tree
+    }
+
+    /// 跳过缓存重扫（需要「此刻」视图时用；正常路径用 `buildTree()`）。
+    nonisolated func buildFreshTree() -> [Int: ProcessInfo] {
+        let tree = scanTree()
+        store(tree)
+        return tree
+    }
+
+    private nonisolated func store(_ tree: [Int: ProcessInfo]) {
+        lock.lock()
+        cachedTree = tree
+        cachedAt = Date()
+        lock.unlock()
+    }
+
+    /// 真正跑一次 `ps` 并把输出解析成树。
+    private nonisolated func scanTree() -> [Int: ProcessInfo] {
         guard let output = ProcessExecutor.shared.runSyncOrNil("/bin/ps", arguments: ["-eo", "pid,ppid,tty,comm"]) else {
             return [:]
         }
