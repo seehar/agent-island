@@ -344,3 +344,33 @@ struct MascotAlertGlow: View {
         .frame(width: size * 0.9, height: size * 0.9)
     }
 }
+
+// MARK: - 三套场景的舞台
+
+/// 按相位选一套场景画，并统一舞台尺寸与裁切。
+///
+/// 16 枚角色原来各自写这段（`ZStack { switch status … }` + `.frame` + `.clipped()`），
+/// 「舞台多大、是否裁切」要改就得改 16 处。三个分支按闭包传入，因此**只有被选中的那套
+/// 会被构建**——与原来的 `switch` 一致，不会多算两套 `Canvas`。
+struct MascotSceneStage<Idle: View, Working: View, Alert: View>: View {
+    let status: AgentMascotStatus
+    let size: CGFloat
+    @ViewBuilder let idle: () -> Idle
+    @ViewBuilder let working: () -> Working
+    @ViewBuilder let alert: () -> Alert
+
+    var body: some View {
+        ZStack {
+            switch status {
+            case .idle:
+                idle()
+            case .working:
+                working()
+            case .alert:
+                alert()
+            }
+        }
+        .frame(width: size, height: size)
+        .clipped()
+    }
+}

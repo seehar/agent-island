@@ -43,18 +43,9 @@ struct CodexMascot: View {
     static let alertSpec = MascotAlertSpec(maxRise: 8, bodyTop: 5, svgTop: 3)
 
     var body: some View {
-        ZStack {
-            switch status {
-            case .idle:
-                sleepScene
-            case .working:
-                workScene
-            case .alert:
-                alertScene
-            }
-        }
-        .frame(width: size, height: size)
-        .clipped()
+        MascotSceneStage(
+            status: status, size: size,
+            idle: { sleepScene }, working: { workScene }, alert: { alertScene })
     }
 
     // MARK: - 空闲：飘着打盹
