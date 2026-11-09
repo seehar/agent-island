@@ -923,9 +923,6 @@ class HookSocketServer {
   return encoder
  }()
 
- /// 收事件用的解码器（复用同一个实例：`JSONDecoder` 本身无状态，每次新建只是浪费）。
- private static let eventDecoder = JSONDecoder()
-
  /// Encoder with sorted keys for deterministic cache keys
  private static let sortedEncoder: JSONEncoder = {
   let encoder = JSONEncoder()
@@ -1064,6 +1061,18 @@ class HookSocketServer {
  ///
  /// 抽成静态函数是为了能单测这条策略：真实 socket 是单例、绑在固定的
  /// `/tmp/agent-island.sock` 上，用例里绑它会与正在运行的应用抢路径。
+ /// 累积到的字节是否已经构成**一条完整事件**；不完整（分片到达、或根本不是 JSON）
+ /// 返回 nil，调用方继续等。
+ ///
+ /// 抽成纯函数是为了能单测：这条判据决定「一条事件何时算收完」，而它直接连着审批回写；
+ /// 真实 socket 是单例、绑在 `/tmp/agent-island.sock` 上，用例里连它会和正在运行的应用
+ /// 抢路径（`startServer` 对测试宿主另有守卫）。`JSONDecoder` 对尾随垃圾是严格拒绝的，
+ /// 因此「一个对象 + 闭合括号之后又来了内容」不会被误判成完整。
+ nonisolated static func decodeCompleteEvent(_ data: Data) -> HookEvent? {
+  guard !data.isEmpty else { return nil }
+  return try? JSONDecoder().decode(HookEvent.self, from: data)
+ }
+
  nonisolated static func shouldIgnore(_ event: HookEvent) -> Bool {
   !AppSettings.isAgentEnabled(event.agentKind)
  }
@@ -1096,7 +1105,7 @@ class HookSocketServer {
      }
      // 一条完整的 JSON 对象已经到齐就立刻收工：一个对象不可能在闭合括号之后还有有效
      // 内容，再等 `poll` 的 50ms 静默窗口只是白等——那是每个事件的固定延迟。
-     if let complete = try? Self.eventDecoder.decode(HookEvent.self, from: allData) {
+     if let complete = Self.decodeCompleteEvent(allData) {
       decodedEvent = complete
       break
      }
@@ -1131,7 +1140,7 @@ class HookSocketServer {
   let event: HookEvent
   if let decodedEvent {
    event = decodedEvent
-  } else if let decoded = try? Self.eventDecoder.decode(HookEvent.self, from: data) {
+  } else if let decoded = Self.decodeCompleteEvent(data) {
    // 分片到达的客户端（一次 write 放不下、或写得很慢）：静默窗口到了才解析。
    event = decoded
   } else {

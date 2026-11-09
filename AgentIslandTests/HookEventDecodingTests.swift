@@ -266,3 +266,47 @@ struct HookEventDecodingTests {
         #expect(event.paseoCliPath == nil)
     }
 }
+
+/// 分帧判据：连接上累积的字节何时算「一条完整事件」。
+///
+/// 这条判据决定读循环能不能提前收工（省掉每个事件固定的 50ms 静默等待），判错的两种
+/// 代价都很实在：**误判完整** → 半截事件进状态机、审批卡片拿到残缺的工具名；
+/// **该收不收** → 每个事件白等 50ms，串行的 socket 队列被拖慢。
+@Suite("Hook 事件分帧")
+struct HookEventFramingTests {
+    private func envelope(event: String = "Stop") -> String {
+        """
+        {"session_id": "framing-test", "cwd": "/tmp", "event": "\(event)", \
+        "status": "waiting_for_input", "pid": 4242}
+        """
+    }
+
+    @Test("完整对象一次到齐就算收完")
+    func completeEnvelopeIsComplete() throws {
+        let event = try #require(HookSocketServer.decodeCompleteEvent(Data(envelope().utf8)))
+        #expect(event.event == "Stop")
+        #expect(event.sessionId == "framing-test")
+        #expect(event.pid == 4242)
+    }
+
+    @Test("分片到达（尾部被截断）不算收完")
+    func truncatedEnvelopeIsIncomplete() {
+        let bytes = Array(envelope().utf8)
+        for cut in [1, 2, 10, bytes.count / 2] {
+            let partial = Data(bytes[0..<(bytes.count - cut)])
+            #expect(HookSocketServer.decodeCompleteEvent(partial) == nil, "\(cut) 字节缺口被误判成完整")
+        }
+    }
+
+    @Test("闭合括号之后还有内容不算收完（一个连接只承载一条事件）")
+    func trailingGarbageIsRejected() {
+        let withTrailing = Data((envelope() + "{\"session_id\":\"second\"}").utf8)
+        #expect(HookSocketServer.decodeCompleteEvent(withTrailing) == nil)
+    }
+
+    @Test("空累积与纯空白不算收完")
+    func emptyIsIncomplete() {
+        #expect(HookSocketServer.decodeCompleteEvent(Data()) == nil)
+        #expect(HookSocketServer.decodeCompleteEvent(Data("   ".utf8)) == nil)
+    }
+}
