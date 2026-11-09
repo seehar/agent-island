@@ -923,6 +923,9 @@ class HookSocketServer {
   return encoder
  }()
 
+ /// 收事件用的解码器（复用同一个实例：`JSONDecoder` 本身无状态，每次新建只是浪费）。
+ private static let eventDecoder = JSONDecoder()
+
  /// Encoder with sorted keys for deterministic cache keys
  private static let sortedEncoder: JSONEncoder = {
   let encoder = JSONEncoder()
@@ -1073,6 +1076,8 @@ class HookSocketServer {
   var buffer = [UInt8](repeating: 0, count: 131072)
   var pollFd = pollfd(fd: clientSocket, events: Int16(POLLIN), revents: 0)
   var oversized = false
+  /// 读到完整 JSON 时立刻存下来，省掉后面的静默等待与第二次解码。
+  var decodedEvent: HookEvent?
 
   // 读窗口：首个字节到达后 50ms 静默即结束读，总预算 2s。此前「从连接建立起
   // 0.5s」会让「连上后稍晚才写」的客户端丢事件（多 Agent 并发下更易发生）。
@@ -1087,6 +1092,12 @@ class HookSocketServer {
      allData.append(contentsOf: buffer[0..<bytesRead])
      if allData.count > Self.maximumEventBytes {
       oversized = true
+      break
+     }
+     // 一条完整的 JSON 对象已经到齐就立刻收工：一个对象不可能在闭合括号之后还有有效
+     // 内容，再等 `poll` 的 50ms 静默窗口只是白等——那是每个事件的固定延迟。
+     if let complete = try? Self.eventDecoder.decode(HookEvent.self, from: allData) {
+      decodedEvent = complete
       break
      }
     } else if bytesRead == 0 {
@@ -1117,7 +1128,13 @@ class HookSocketServer {
 
   let data = allData
 
-  guard let event = try? JSONDecoder().decode(HookEvent.self, from: data) else {
+  let event: HookEvent
+  if let decodedEvent {
+   event = decodedEvent
+  } else if let decoded = try? Self.eventDecoder.decode(HookEvent.self, from: data) {
+   // 分片到达的客户端（一次 write 放不下、或写得很慢）：静默窗口到了才解析。
+   event = decoded
+  } else {
    logger.warning(
     "Failed to parse event: \(String(data: data, encoding: .utf8) ?? "?", privacy: .public)")
    closeClient(clientSocket)
