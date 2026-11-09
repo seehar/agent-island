@@ -1077,19 +1077,30 @@ class HookSocketServer {
   !AppSettings.isAgentEnabled(event.agentKind)
  }
 
- private func handleClient(_ clientSocket: Int32) {
-  let flags = fcntl(clientSocket, F_GETFL)
-  _ = fcntl(clientSocket, F_SETFL, flags | O_NONBLOCK)
+ /// 一次读取的结果。
+ private enum ReadOutcome {
+  /// 已经解出一条完整事件。
+  case event(HookEvent)
+  /// 累积字节超过上限（调用方丢弃并断开）。
+  case oversized(Int)
+  /// 一个字节都没读到。
+  case empty
+  /// 读到了字节但构不成事件（半截 / 不是 JSON）：带上原文便于记日志。
+  case malformed(Data)
+ }
 
+ /// 从这条连接上读一条事件。
+ ///
+ /// 读窗口：首个字节到达后 50ms 静默即结束读，总预算 2s。此前「从连接建立起 0.5s」
+ /// 会让「连上后稍晚才写」的客户端丢事件（多 Agent 并发下更易发生）。读到完整 JSON
+ /// 就提前收工（判据见 `decodeCompleteEvent`）。
+ private func readEvent(from clientSocket: Int32) -> ReadOutcome {
   var allData = Data()
   var buffer = [UInt8](repeating: 0, count: 131072)
   var pollFd = pollfd(fd: clientSocket, events: Int16(POLLIN), revents: 0)
-  var oversized = false
   /// 读到完整 JSON 时立刻存下来，省掉后面的静默等待与第二次解码。
   var decodedEvent: HookEvent?
 
-  // 读窗口：首个字节到达后 50ms 静默即结束读，总预算 2s。此前「从连接建立起
-  // 0.5s」会让「连上后稍晚才写」的客户端丢事件（多 Agent 并发下更易发生）。
   let startTime = Date()
   while Date().timeIntervalSince(startTime) < 2.0 {
    let pollResult = poll(&pollFd, 1, 50)
@@ -1100,8 +1111,7 @@ class HookSocketServer {
     if bytesRead > 0 {
      allData.append(contentsOf: buffer[0..<bytesRead])
      if allData.count > Self.maximumEventBytes {
-      oversized = true
-      break
+      return .oversized(allData.count)
      }
      // 一条完整的 JSON 对象已经到齐就立刻收工：一个对象不可能在闭合括号之后还有有效
      // 内容，再等 `poll` 的 50ms 静默窗口只是白等——那是每个事件的固定延迟。
@@ -1123,27 +1133,30 @@ class HookSocketServer {
    }
   }
 
-  if oversized {
-   logger.error(
-    "Dropping oversized hook event (\(allData.count, privacy: .public) bytes) from a client")
-   closeClient(clientSocket)
-   return
-  }
+  guard !allData.isEmpty else { return .empty }
+  if let decodedEvent { return .event(decodedEvent) }
+  // 分片到达的客户端（一次 write 放不下、或写得很慢）：静默窗口到了才解析。
+  if let decoded = Self.decodeCompleteEvent(allData) { return .event(decoded) }
+  return .malformed(allData)
+ }
 
-  guard !allData.isEmpty else {
-   closeClient(clientSocket)
-   return
-  }
-
-  let data = allData
+ private func handleClient(_ clientSocket: Int32) {
+  let flags = fcntl(clientSocket, F_GETFL)
+  _ = fcntl(clientSocket, F_SETFL, flags | O_NONBLOCK)
 
   let event: HookEvent
-  if let decodedEvent {
-   event = decodedEvent
-  } else if let decoded = Self.decodeCompleteEvent(data) {
-   // 分片到达的客户端（一次 write 放不下、或写得很慢）：静默窗口到了才解析。
+  switch readEvent(from: clientSocket) {
+  case .event(let decoded):
    event = decoded
-  } else {
+  case .oversized(let bytes):
+   logger.error(
+    "Dropping oversized hook event (\(bytes, privacy: .public) bytes) from a client")
+   closeClient(clientSocket)
+   return
+  case .empty:
+   closeClient(clientSocket)
+   return
+  case .malformed(let data):
    logger.warning(
     "Failed to parse event: \(String(data: data, encoding: .utf8) ?? "?", privacy: .public)")
    closeClient(clientSocket)
