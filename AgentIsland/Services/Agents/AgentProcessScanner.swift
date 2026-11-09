@@ -58,39 +58,35 @@ nonisolated final class AgentProcessScanner: @unchecked Sendable {
   // MARK: - 扫描实现
 
   private func scan() -> [AgentProcess] {
-    let result = ProcessExecutor.shared.runSync(
-      "/bin/ps",
-      arguments: ["-Ao", "pid=,tty=,comm="]
-    )
-    guard case .success(let output) = result else { return [] }
-    return parsePS(output)
-  }
-
-  /// 解析 `ps` 输出的 `pid tty comm` 行。
-  private func parsePS(_ output: String) -> [AgentProcess] {
+    // 复用进程树：那一份已经带了 0.5 秒缓存（hook 事件热路径靠它），字段也够用
+    // （pid / ppid / tty / comm）。原先这里自己跑一次 `ps -Ao pid=,tty=,comm=`，
+    // 与 `ProcessTreeBuilder` 的 `ps -eo pid,ppid,tty,comm` 是同一份数据跑两次、
+    // 各解析一遍——活跃会话下每轮发现扫描都在白扔一个子进程。
+    let tree = ProcessTreeBuilder.shared.buildTree()
     var found: [AgentProcess] = []
-    for line in output.split(separator: "\n") {
-      let fields = line.split(separator: " ", omittingEmptySubsequences: true)
-      guard fields.count >= 3,
-        let pid = Int32(fields[0])
-      else { continue }
-
-      let ttyField = String(fields[1])
-      let tty = (ttyField == "?" || ttyField == "-" || ttyField.isEmpty) ? nil : ttyField
-      // `comm` 理论上可能含空格，这里把剩余字段重新拼起来。
-      let comm = fields[2...].joined(separator: " ")
-      let executable = (comm as NSString).lastPathComponent
-
+    found.reserveCapacity(32)
+    for info in tree.values {
+      let command = info.command
+      let executable = (command as NSString).lastPathComponent
       guard
         let agent = AgentKind.allCases.first(where: {
-          Self.matches($0, executable: executable, command: comm)
+          Self.matches($0, executable: executable, command: command)
         })
-      else {
-        continue
-      }
-      found.append(AgentProcess(agent: agent, pid: pid, tty: tty))
+      else { continue }
+      found.append(
+        AgentProcess(agent: agent, pid: Int32(info.pid), tty: Self.normalizedTTY(info.tty)))
     }
     return found
+  }
+
+  /// `ps` 用 `?` / `??` / `-` 表示「没有控制终端」；统一折成 nil。
+  ///
+  /// 进程树里的 tty 原样保留（它还要给窗口/终端定位用），这里按本类型的口径归一：
+  /// `SessionState.tty` 为 nil 与「有 tty」会走不同的 tmux 定位分支，把 "??" 当 tty
+  /// 传下去只会让定位失败。
+  private static func normalizedTTY(_ raw: String?) -> String? {
+    guard let raw, raw.isEmpty == false, raw != "?", raw != "??", raw != "-" else { return nil }
+    return raw
   }
 
   /// 进程名经常被截断或改写（pi 实际以 node 运行），因此同时匹配可执行名
