@@ -1394,54 +1394,6 @@
         }
       }
     },
-    "%lldd" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lldd"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 天"
-          }
-        }
-      }
-    },
-    "%lldh" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lldh"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 小时"
-          }
-        }
-      }
-    },
-    "%lldm" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lldm"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 分"
-          }
-        }
-      }
-    },
     "%lldm %llds" : {
       "localizations" : {
         "en" : {
@@ -2370,22 +2322,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "紧凑"
-          }
-        }
-      }
-    },
-    "Compacting context..." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Compacting context..."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "压缩上下文中..."
           }
         }
       }
@@ -3965,22 +3901,6 @@
         }
       }
     },
-    "Ready for input" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ready for input"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "可以输入了"
-          }
-        }
-      }
-    },
     "Refresh Rate" : {
       "localizations" : {
         "en" : {
@@ -4723,22 +4643,6 @@
         }
       }
     },
-    "Waiting for approval: %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Waiting for approval: %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "等待批准：%@"
-          }
-        }
-      }
-    },
     "Waiting..." : {
       "localizations" : {
         "en" : {
@@ -4928,23 +4832,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "grep：%@"
-          }
-        }
-      }
-    },
-    "now" : {
-      "comment" : "相对时间文案：距今不足 5 秒",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "now"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "刚刚"
           }
         }
       }

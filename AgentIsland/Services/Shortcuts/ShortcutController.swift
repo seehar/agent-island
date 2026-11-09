@@ -86,7 +86,7 @@ final class ShortcutController: ObservableObject {
         statusCancellable = viewModel.$status
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
-                guard status == .closed || status == .popping else { return }
+                guard status == .closed else { return }
                 self?.restoreFocusIfNeeded()
             }
     }
@@ -237,7 +237,7 @@ final class ShortcutController: ObservableObject {
             viewModel.notchClose()
         case .opened:
             takeKeyboardFocus()
-        case .closed, .popping:
+        case .closed:
             viewModel.notchOpen(reason: .hotkey)
             takeKeyboardFocus()
         }

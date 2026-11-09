@@ -30,7 +30,7 @@ class EventMonitors {
     /// `NSEvent.mouseLocation`、一次 Combine 派发和若干次几何判定。因此这里把位置流压成
     /// **边界事件**：进入发一次、离开发一次，区内移动不发。
     ///
-    /// 写入方是 `NotchViewModel`：关闭 / popping 态写关闭态胶囊矩形、展开态写卡片矩形
+    /// 写入方是 `NotchViewModel`：关闭态写关闭态胶囊矩形、展开态写卡片矩形
     /// （见 `NotchViewModel.updatePointerInterest`），与行为判据取同一份几何。
     /// `nil`（默认）＝ 保持旧语义：每次移动都发布；单测与未接线时用。
     var interestRect: CGRect? {

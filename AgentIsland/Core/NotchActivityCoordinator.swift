@@ -83,15 +83,6 @@ class NotchActivityCoordinator: ObservableObject {
         }
     }
 
-    /// Toggle activity visibility
-    func toggleActivity(type: NotchActivityType, value: CGFloat = 0) {
-        if expandingActivity.show && expandingActivity.type == type {
-            hideActivity()
-        } else {
-            showActivity(type: type, value: value)
-        }
-    }
-
     // MARK: - Private
 
     private func scheduleActivityHide() {

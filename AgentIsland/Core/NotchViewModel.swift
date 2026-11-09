@@ -12,7 +12,6 @@ import SwiftUI
 enum NotchStatus: Equatable {
     case closed
     case opened
-    case popping
 }
 
 enum NotchOpenReason {
@@ -61,7 +60,7 @@ class NotchViewModel: ObservableObject {
 
     @Published var status: NotchStatus = .closed {
         didSet {
-            // 状态换了 = 指针兴趣区换了（关闭 / popping 态是胶囊、展开态是卡片），重写一次。
+            // 状态换了 = 指针兴趣区换了（关闭态是胶囊、展开态是卡片），重写一次。
             // 写在 didSet 里：读到的是新状态下的矩形（见 `updatePointerInterest`）。
             guard oldValue != status else { return }
             updatePointerInterest()
@@ -211,7 +210,7 @@ class NotchViewModel: ObservableObject {
         return openedCardScreenRect.contains(point)
     }
 
-    /// 指针兴趣区：关闭 / popping 态是关闭态胶囊、展开态是卡片——与
+    /// 指针兴趣区：关闭态是关闭态胶囊、展开态是卡片——与
     /// `isPointInClosedCapsule` / `isPointInCard` **取同一份矩形**（两处一旦各算一套，
     /// 事件层的边界判据与行为判据就会互相错位：看得见的胶囊收不到悬停，或空处也在收
     /// 边界事件）。事件层据此把位置流压成边界事件（见 `EventMonitors.interestRect`）。
@@ -480,7 +479,7 @@ class NotchViewModel: ObservableObject {
 
         // 悬停自动展开：延时按「悬停展开」档位；该档位为「从不」时不自动展开，
         // 点击刘海仍然可以展开（通知触发的自动展开也不受影响）。
-        if isHovering, status == .closed || status == .popping,
+        if isHovering, status == .closed,
             let delay = HoverExpandSelector.shared.option.delay
         {
             let workItem = DispatchWorkItem { [weak self] in
@@ -515,7 +514,7 @@ class NotchViewModel: ObservableObject {
         case .opened:
             guard geometry.isPointOutsidePanel(location, size: cardSize) else { return }
             notchClose()
-        case .closed, .popping:
+        case .closed:
             if isPointInClosedCapsule(location) {
                 notchOpen(reason: .click)
             }
@@ -627,16 +626,6 @@ class NotchViewModel: ObservableObject {
     /// 正在编辑器/终端里打的字会丢进面板，而面板里当时没有聚焦的输入框）。
     var takesKeyboardFocusOnOpen: Bool {
         openReason == .click || openReason == .hotkey
-    }
-
-    func notchPop() {
-        guard status == .closed else { return }
-        status = .popping
-    }
-
-    func notchUnpop() {
-        guard status == .popping else { return }
-        status = .closed
     }
 
     // MARK: - 内容面的入口

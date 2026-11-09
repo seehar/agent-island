@@ -116,7 +116,7 @@ class NotchWindowController: NSWindowController {
                     }
                     self.refreshFullScreenGuard()
                     self.updateMouseAcceptance()
-                case .closed, .popping:
+                case .closed:
                     self.window?.ignoresMouseEvents = true
                 }
             }

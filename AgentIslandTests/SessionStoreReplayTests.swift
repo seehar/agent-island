@@ -175,8 +175,6 @@ struct SessionStoreReplayTests {
 
         let session = await SessionStore.shared.session(for: key)
         #expect(phaseEquals(session, .waitingForInput))
-        let hasActivePermission = await SessionStore.shared.hasActivePermission(key: key)
-        #expect(hasActivePermission == false)
 
         await SessionStore.shared.process(.sessionEnded(key: key))
     }

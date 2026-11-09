@@ -261,11 +261,6 @@ nonisolated struct ToolTracker: Equatable, Sendable {
         seenIds.insert(id).inserted
     }
 
-    /// Check if a tool ID has been seen
-    nonisolated func hasSeen(_ id: String) -> Bool {
-        seenIds.contains(id)
-    }
-
     /// Start tracking a tool
     nonisolated mutating func startTool(id: String, name: String) {
         guard markSeen(id) else { return }

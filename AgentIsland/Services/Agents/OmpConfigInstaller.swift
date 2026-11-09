@@ -97,12 +97,6 @@ nonisolated enum OmpConfigInstaller {
 
     // MARK: - 读写
 
-    /// 读回当前生效的 handler 预算（拿不到时返回 nil）。
-    static func readConfiguredTimeout() -> String? {
-        guard let config = configFile(), let omp = executable() else { return nil }
-        return readTimeout(executable: omp, config: config)
-    }
-
     /// 抬 handler 预算：把 `extensionHandlers.toolCallTimeoutMs` 设成 5 分钟。
     ///
     /// 它由安装器在装闸门版扩展时调用（见 `AgentIntegrationInstaller.install`），因此

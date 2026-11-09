@@ -50,16 +50,4 @@ actor FileSyncScheduler {
         }
     }
 
-    /// Cancel all pending syncs
-    func cancelAll() {
-        for (_, task) in pendingSyncs {
-            task.cancel()
-        }
-        pendingSyncs.removeAll()
-    }
-
-    /// Check if a sync is pending for a session
-    func hasPendingSync(sessionId: String) -> Bool {
-        pendingSyncs[sessionId] != nil
-    }
 }

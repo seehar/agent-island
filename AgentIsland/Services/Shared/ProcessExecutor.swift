@@ -176,18 +176,6 @@ actor ProcessExecutor: ProcessExecuting {
 // MARK: - Convenience Extensions
 
 extension ProcessExecutor {
-    /// Run a command and return output, returning nil only if the command itself fails to execute
-    /// (as opposed to non-zero exit codes which may still have useful output)
-    func runOrNil(_ executable: String, arguments: [String]) async -> String? {
-        let result = await runWithResult(executable, arguments: arguments)
-        switch result {
-        case .success(let processResult):
-            return processResult.output
-        case .failure:
-            return nil
-        }
-    }
-
     /// Run a command synchronously, returning nil on failure (backwards compatible)
     nonisolated func runSyncOrNil(_ executable: String, arguments: [String]) -> String? {
         switch runSync(executable, arguments: arguments) {

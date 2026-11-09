@@ -45,38 +45,7 @@ class ChatHistoryManager: ObservableObject {
         await SessionStore.shared.process(.loadHistory(key: key, cwd: cwd))
     }
 
-    func syncFromFile(key: SessionKey, cwd: String) async {
-        let messages = await ConversationParser.shared.parseFullConversation(
-            sessionId: key.sessionId,
-            agent: key.agent,
-            cwd: cwd
-        )
-        let completedTools = await ConversationParser.shared.completedToolIds(sessionId: key.sessionId, agent: key.agent)
-        let toolResults = await ConversationParser.shared.toolResults(sessionId: key.sessionId, agent: key.agent)
-        let structuredResults = await ConversationParser.shared.structuredResults(sessionId: key.sessionId, agent: key.agent)
-
-        let payload = FileUpdatePayload(
-            key: key,
-            cwd: cwd,
-            messages: messages,
-            isIncremental: false,  // 全量同步
-            completedToolIds: completedTools,
-            toolResults: toolResults,
-            structuredResults: structuredResults
-        )
-
-        await SessionStore.shared.process(.fileUpdated(payload))
-    }
-
-    func clearHistory(for key: SessionKey) {
-        transcriptLoadedSessions.remove(key)
-        histories.removeValue(forKey: key)
-        Task {
-            await SessionStore.shared.process(.sessionEnded(key: key))
-        }
-    }
-
-    // MARK: - State Updates
+    // MARK: - State Updates    // MARK: - State Updates
 
     private func updateFromSessions(_ sessions: [SessionState]) {
         var newHistories: [SessionKey: [ChatHistoryItem]] = [:]
