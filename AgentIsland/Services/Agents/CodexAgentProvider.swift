@@ -63,6 +63,17 @@ nonisolated struct CodexAgentProvider: AgentProvider {
     /// 记录文件名里带着写入日期，与「会话属于哪个项目」无关，因此只能按
     /// `<会话 id>.jsonl` 后缀扫目录找回。
     func transcriptFile(sessionId: String, cwd: String) -> URL? {
+        // 记忆：这里的查找最多四层目录遍历，而本函数在每次增量读取时都会被调一次。
+        if let memoized = TranscriptPathMemo.shared.lookup(root: sessionsRoot, sessionId: sessionId) {
+            return memoized
+        }
+        guard let resolved = searchTranscriptFile(sessionId: sessionId) else { return nil }
+        TranscriptPathMemo.shared.store(resolved, root: sessionsRoot, sessionId: sessionId)
+        return resolved
+    }
+
+    /// 按文件名后缀在 `sessions/YYYY/MM/DD/` 里找回记录。
+    private func searchTranscriptFile(sessionId: String) -> URL? {
         let fm = FileManager.default
         guard
             let years = try? fm.contentsOfDirectory(at: sessionsRoot, includingPropertiesForKeys: nil)

@@ -42,9 +42,29 @@ nonisolated struct PiFamilyAgentProvider: AgentProvider {
 
     // MARK: - 会话记录
 
+    /// 记录文件路径（带记忆：同一个会话只解一次）。
+    ///
+    /// 兜底分支要遍历 `sessions/` 下**全部分桶**，而本函数在每次增量读取时都会被调一次
+    /// （采样 2026-11-09：解析路径上约三成样本落在 `contentsOfDirectoryAtURL`）。
+    /// 一个会话的记录文件在生命周期里不会移动——分桶目录由 cwd 决定、文件名由创建时刻
+    /// 决定——所以解出来的路径可以直接复用。
     func transcriptFile(sessionId: String, cwd: String) -> URL? {
         guard let sessionsDir = paths()?.sessionsDir else { return nil }
+        if let memoized = TranscriptPathMemo.shared.lookup(
+            root: sessionsDir, sessionId: sessionId)
+        {
+            return memoized
+        }
+        guard
+            let resolved = resolveTranscriptFile(
+                sessionId: sessionId, cwd: cwd, sessionsDir: sessionsDir)
+        else { return nil }
+        TranscriptPathMemo.shared.store(
+            resolved, root: sessionsDir, sessionId: sessionId)
+        return resolved
+    }
 
+    private func resolveTranscriptFile(sessionId: String, cwd: String, sessionsDir: URL) -> URL? {
         let fm = FileManager.default
         // 快路径：直接由 cwd 推出分桶目录名。
         for bucket in Self.bucketNames(forCwd: cwd) {
