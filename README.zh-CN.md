@@ -44,7 +44,7 @@ tmux 里开两个 Agent，你就得在两个 pane 之间切来切去看谁在等
 
 **所有 Agent 一张列表。** 19 个 CLI 的会话并排显示 —— Claude Code、Codex、Gemini CLI、Cursor、Copilot、Qoder、Factory、CodeBuddy、WorkBuddy（`workbuddy`）、Kimi Code CLI、Cline、Grok CLI、Trae、Trae CLI、DeepSeek Harness、Hermes（`hermes`）、Oh My Pi（`omp`）、Pi、OpenCode —— 各自带品牌标记与角标。不用的 Agent 关掉即从列表消失。
 
-**子代理也在列表里。** Claude Code 子代理内部的工具调用、以及 `omp`/`pi` 的子代理运行，都计入刘海计数，并列在派发它的 `task` 卡片下。
+**子代理也在列表里。** Claude Code 子代理内部的工具调用、以及 `omp`/`pi` 的子代理运行，都计入刘海计数，并列在派发它的 `task` 卡片下。一条子代理只在**持续上报**期间计数：二十分钟没有任何上报就不再算在跑，因此丢一条完成帧不会留下一个永远在跑的幽灵。
 
 **在刘海上审批。** 凡是能把决定回传的 Agent 都支持 Allow / Deny：Claude Code 及其分支（Qoder）、Codex、Gemini CLI、Trae CLI 走各自的权限 hook，`omp`/`pi` 走扩展的阻塞闸门（随 Agent 启用，没有单独的开关），OpenCode 走插件；其余 Agent 照常出现在列表里，审批在它们自己的终端完成。被判为危险的调用（`rm -rf /`、`sudo rm`、`mkfs`、`dd … of=/dev/…`、`curl … | sh`、反弹 shell、`kill -9 1` 等）会标红，且**永不**走「不可达就放行」这条降级路径。
 

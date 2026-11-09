@@ -44,7 +44,7 @@ The notch is the one strip of the screen you never leave. AgentIsland makes it t
 
 **One list for every agent.** 19 CLIs side by side — Claude Code, Codex, Gemini CLI, Cursor, Copilot, Qoder, Factory, CodeBuddy, WorkBuddy (`workbuddy`), Kimi Code CLI, Cline, Grok CLI, Trae, Trae CLI, DeepSeek Harness, Hermes (`hermes`), Oh My Pi (`omp`), Pi and OpenCode — each with its own brand mark and badge. Turn off the agents you don't run and they disappear from the list entirely.
 
-**Subagents included.** Claude Code tool calls inside subagents, and `omp`/`pi` subagent runs, count towards the notch badge and are listed under the `task` card that spawned them.
+**Subagents included.** Claude Code tool calls inside subagents, and `omp`/`pi` subagent runs, count towards the notch badge and are listed under the `task` card that spawned them. A run only counts while it keeps reporting: once nothing arrives for 20 minutes it stops counting, so a dropped completion frame cannot leave a permanent phantom.
 
 **Approvals on the notch.** Allow / Deny for every agent that can hand the decision back: Claude Code and its forks (Qoder), Codex, Gemini CLI and Trae CLI through their permission hooks, `omp`/`pi` through a blocking extension gate that comes with the agent (no separate switch), OpenCode through its plugin. The rest still show up and are approved in their own terminal. Calls classified as dangerous — `rm -rf /`, `sudo rm`, `mkfs`, `dd … of=/dev/…`, `curl … | sh`, reverse shells, `kill -9 1` — are flagged in red, and their fail-open path is never used.
 

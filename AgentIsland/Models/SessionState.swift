@@ -131,9 +131,17 @@ nonisolated struct SessionState: Equatable, Identifiable, Sendable {
     ///
     /// omp/pi 走子 Agent 生命周期（`subagentState.subagents`）；Claude 没有这条
     /// 通道，退回到「在飞的 Task 工具」计数。两者表达同一件事，界面不必区分。
-    var activeSubagentCount: Int {
-        let running = subagentState.runningSubagentCount
-        return running > 0 ? running : subagentState.activeTasks.count
+    ///
+    /// 计数带「证据窗口」：上报是 fire-and-forget，丢一条 settled 帧就会留下一个永远
+    /// 「运行中」的幽灵（实测运行十天后累计到一百多个）。因此只有窗口内还有上报的
+    /// 记录才算在跑；已结束的会话一律不计（宿主进程都没了，子 Agent 不可能还在跑）。
+    var activeSubagentCount: Int { activeSubagentCount(at: Date()) }
+
+    /// 按指定时刻计算正在运行的子 Agent 数（窗口判据见 `SubagentState.evidenceTimeout`）。
+    nonisolated func activeSubagentCount(at now: Date) -> Int {
+        guard phase != .ended else { return 0 }
+        let running = subagentState.runningSubagentCount(at: now)
+        return running > 0 ? running : subagentState.activeTaskCount(at: now)
     }
 
     /// The active permission context, if any
@@ -322,9 +330,51 @@ nonisolated struct SubagentState: Equatable, Sendable {
         self.subagentOrder = subagentOrder
     }
 
-    /// 正在运行的子 Agent 数（不含已结束的）。
+    /// 正在运行的子 Agent 数（不含已结束的，且只算窗口内还有上报的）。
     nonisolated var runningSubagentCount: Int {
-        subagents.values.filter { $0.status.isRunning }.count
+        runningSubagentCount(at: Date())
+    }
+
+    /// 按指定时刻统计正在运行的子 Agent。
+    ///
+    /// 「运行中」是一句**需要持续证据的断言**：上报链路丢一条 settled 帧（socket 超时、
+    /// 进程被杀、应用不在）就会让这条记录永远停在 started/running。窗口外的记录按
+    /// 「未知」处理——不再计入运行数；会话相位另有 `SessionLiveness` 的心跳兜底。
+    nonisolated func runningSubagentCount(at now: Date) -> Int {
+        subagents.values.filter { $0.isRunning(at: now) }.count
+    }
+
+    /// 在飞的 Task 工具数（Claude 系没有子 Agent 生命周期时的计数兜底），同样带证据窗口。
+    nonisolated func activeTaskCount(at now: Date) -> Int {
+        activeTasks.values.filter { now.timeIntervalSince($0.startTime) < Self.evidenceTimeout }
+            .count
+    }
+
+    /// 超过这个时长没有任何上报，就不再认为一条子 Agent 记录还在跑。
+    ///
+    /// 与 `SessionLiveness.processingHeartbeatTimeout` 取同一个窗口：omp 的进度帧按
+    /// 「状态 + 当前工具」去重，一个长工具调用期间可以完全安静，二十分钟能容下这种极端
+    /// 情况；而丢帧留下的幽灵最迟也会在一个窗口内消失。
+    static let evidenceTimeout: TimeInterval = SessionLiveness.processingHeartbeatTimeout
+
+    /// 把超过证据窗口的「运行中」记录落成终态（`unknown`：只是不再断言它在跑），
+    /// 并清掉同样陈旧的 Task 跟踪。返回是否发生了变更（供周期巡检决定是否重发状态）。
+    nonisolated mutating func expireStaleEvidence(now: Date) -> Bool {
+        var changed = false
+        for (id, run) in Array(subagents)
+        where run.status.isRunning && run.isRunning(at: now) == false {
+            subagents[id]?.status = .unknown
+            subagents[id]?.currentTool = nil
+            changed = true
+        }
+        let staleTasks = activeTasks.filter {
+            now.timeIntervalSince($0.value.startTime) >= Self.evidenceTimeout
+        }
+        for id in staleTasks.keys {
+            activeTasks.removeValue(forKey: id)
+            changed = true
+        }
+        return changed
     }
 
     /// 记录或更新一个子 Agent。
@@ -337,7 +387,8 @@ nonisolated struct SubagentState: Equatable, Sendable {
         currentTool: String? = nil,
         task: String? = nil,
         sessionFile: String? = nil,
-        parentToolCallId: String? = nil
+        parentToolCallId: String? = nil,
+        now: Date = Date()
     ) {
         let resolvedTool = status.isRunning ? currentTool : nil
         if var run = subagents[id] {
@@ -347,6 +398,7 @@ nonisolated struct SubagentState: Equatable, Sendable {
             run.task = task ?? run.task
             run.sessionFile = sessionFile ?? run.sessionFile
             run.parentToolCallId = parentToolCallId ?? run.parentToolCallId
+            run.lastEvidence = now
             subagents[id] = run
         } else {
             subagentOrder.append(id)
@@ -357,7 +409,8 @@ nonisolated struct SubagentState: Equatable, Sendable {
                 currentTool: resolvedTool,
                 task: task,
                 sessionFile: sessionFile,
-                parentToolCallId: parentToolCallId
+                parentToolCallId: parentToolCallId,
+                lastEvidence: now
             )
         }
     }
@@ -487,6 +540,13 @@ nonisolated struct SubagentRun: Equatable, Identifiable, Sendable {
     var sessionFile: String?
     /// 派生它的父会话工具调用（task 工具的 tool_use_id）。
     var parentToolCallId: String?
+    /// 最后一次收到这条记录上报的时刻：`running` 状态只在这个时刻之后的一个窗口内成立。
+    var lastEvidence: Date
+
+    /// 在指定时刻是否仍然算「运行中」（终态永远不算）。
+    nonisolated func isRunning(at now: Date) -> Bool {
+        status.isRunning && now.timeIntervalSince(lastEvidence) < SubagentState.evidenceTimeout
+    }
 
     /// 任务描述首行，供密集行展示（omp 的 task 正文是完整 brief，太长）。
     nonisolated var taskSummary: String? {

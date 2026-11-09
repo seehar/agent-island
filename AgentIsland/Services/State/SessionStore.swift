@@ -426,6 +426,7 @@ actor SessionStore {
         let existing = session.subagentState.subagents[subagentId]?.status
         // 上报值不认识时沿用已知状态；首次进度事件早于生命周期事件时按「已开跑」处理。
         let status: SubagentRunStatus = reported == .unknown ? (existing ?? .running) : reported
+        let now = Date()
 
         session.subagentState.upsertSubagent(
             id: subagentId,
@@ -434,10 +435,11 @@ actor SessionStore {
             currentTool: event.subagentCurrentTool,
             task: event.subagentTask,
             sessionFile: event.subagentSessionFile,
-            parentToolCallId: event.parentToolCallId
+            parentToolCallId: event.parentToolCallId,
+            now: now
         )
 
-        if session.subagentState.runningSubagentCount > 0 {
+        if session.subagentState.runningSubagentCount(at: now) > 0 {
             // 同上：待批在手时，子 Agent 的进度也不许把「等待审批」拉走。
             if session.phase.canTransition(to: .processing), !event.hasLivePending {
                 session.phase = .processing
@@ -903,7 +905,10 @@ actor SessionStore {
                     currentTool: nil,
                     task: nil,
                     sessionFile: nil,
-                    parentToolCallId: session.chatItems[index].id
+                    parentToolCallId: session.chatItems[index].id,
+                    // 记录侧兜底没有独立时间戳：以卡片的时刻为「证据时刻」，卡片一直
+                    // 停在运行时，超过窗口同样不再计入运行数。
+                    lastEvidence: session.chatItems[index].timestamp
                 )
             }
             session.chatItems[index] = ChatHistoryItem(
@@ -1342,6 +1347,20 @@ actor SessionStore {
                 cancelPendingSync(key: key)
                 stateChanged = true
                 continue
+            }
+
+            // 子 Agent 的「运行中」需要持续证据：丢一条 settled 帧就会留下永远在跑的
+            // 幽灵（实测运行十天后累计到一百多个）。窗口外的记录在这里落成终态，
+            // 并同步回卡片，让徽标与列表行都不再显示它们还在跑。
+            var session = session
+            let runningBeforeExpiry = session.subagentState.runningSubagentCount(at: now)
+            if session.subagentState.expireStaleEvidence(now: now) {
+                syncSubagentRunsToChatItems(session: &session)
+                sessions[key] = session
+                stateChanged = true
+                Self.logger.info(
+                    "Expired stale subagent evidence for \(key.rawValue, privacy: .public) (running in window: \(runningBeforeExpiry))"
+                )
             }
 
             if let pid = session.pid {

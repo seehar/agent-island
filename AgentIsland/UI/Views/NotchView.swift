@@ -97,9 +97,11 @@ struct NotchView: View {
 
  /// 正在跑的 subAgent 总数（跨会话求和）。
  /// omp/pi 走子 Agent 生命周期（`task:subagent:*`），Claude 退回「在飞的 Task 工具」，
- /// 两者收敛在 `SessionState.activeSubagentCount`。
+ /// 两者收敛在 `SessionState.activeSubagentCount`；同一时刻取一次 `now`，避免跨越
+ /// 证据窗口边界时各会话用不同判据。
  private var activeSubagentCount: Int {
-  sessionMonitor.instances.reduce(0) { $0 + $1.activeSubagentCount }
+  let now = Date()
+  return sessionMonitor.instances.reduce(0) { $0 + $1.activeSubagentCount(at: now) }
  }
 
  /// 计数徽标的取色：与左侧标记**同一个来源**（headerAgent 的品牌色），
