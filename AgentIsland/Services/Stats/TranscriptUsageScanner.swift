@@ -467,146 +467,174 @@ nonisolated enum TranscriptUsageScanner {
   ///
   /// - Parameter model: 由调用方按文件顺序记住的模型（只有 codex 需要：它的 token 行
   ///   不带模型名，模型写在同一个 `turn_context` 行里）。
+  /// 按 Agent 记录格式取一行用量/工具调用。
+  ///
+  /// 每个 Agent 的字段布局各写一份（本机实测或上游源码为据），因此这里只做分派——
+  /// 各族的口径（哪些字段、要不要减去缓存命中）留在各自的函数里，改一族不牵动别族。
   private static func extract(
     json: [String: Any], agent: AgentKind, fallbackDate: Date, model: String
   ) -> RecordUsage? {
     switch agent {
     case .claudeCode, .qoder, .factory:
-      // Claude 系记录（Qoder / Factory 与 Claude 同格式）。
-      guard (json["type"] as? String) == "assistant",
-        let message = json["message"] as? [String: Any]
-      else { return nil }
-      let date =
-        (json["timestamp"] as? String).flatMap { isoFormatter.date(from: $0) }
-        ?? fallbackDate
-      var record = RecordUsage(date: date)
-      // Claude 系把用量写在 assistant 行上：这条记录就是 token 行。
-      record.carriesTokens = true
-      record.isSubagent = (json["isSidechain"] as? Bool) ?? false
-      record.model = (message["model"] as? String) ?? ""
-      if let usage = message["usage"] as? [String: Any] {
-        record.input = intValue(usage["input_tokens"])
-        record.output = intValue(usage["output_tokens"])
-        record.cacheRead = intValue(usage["cache_read_input_tokens"])
-        record.cacheWrite = intValue(usage["cache_creation_input_tokens"])
-      }
-      record.tools = toolNames(in: message, blockType: "tool_use")
-      return record
-
+      return claudeRecord(json: json, fallbackDate: fallbackDate)
     case .codeBuddy, .workBuddy:
-      // 两类行（本机实测，毫秒 epoch 时间戳）：
-      //   · `type == "function_call"`：一次工具调用（顶层 `name`），并且**同时是 token 行**
-      //     —— `message.usage` 是这次调用的增量（`input_tokens` 含缓存命中，要减去
-      //     `cache_read_input_tokens`，与 Codex / Claude 的口径一致）；
-      //   · `type == "message"` + 顶层 `role == "assistant"`：助手文本行，同样带
-      //     `message.usage`；旧外壳里工具块写在 `content[].tool_use`。
-      guard let type = json["type"] as? String else { return nil }
-      let model =
-        (json["providerData"] as? [String: Any])?["model"] as? String ?? ""
-
-      if type == "function_call" {
-        guard let name = json["name"] as? String, !name.isEmpty else { return nil }
-        var record = RecordUsage(
-          date: millisecondsTimestamp(json["timestamp"]) ?? fallbackDate)
-        record.tools = [name]
-        record.model = model
-        // 只有真的带 `message.usage` 才算 token 行：不带 usage 的调用（旧记录里常见）
-        // 若也建 token 桶，会落一行「模型非空、token 全零」的空桶，把模型榜与会话读数搞脏。
-        applyCodeBuddyUsage(json["message"], into: &record)
-        return record
-      }
-
-      guard type == "message", (json["role"] as? String) == "assistant" else { return nil }
-      var record = RecordUsage(
-        date: millisecondsTimestamp(json["timestamp"]) ?? fallbackDate)
-      record.tools = toolNames(in: json, blockType: "tool_use")
-      applyCodeBuddyUsage(json["message"], into: &record)
-      guard record.carriesTokens || !record.tools.isEmpty else { return nil }
-      record.model = model
-      return record
-
+      return codeBuddyRecord(json: json, fallbackDate: fallbackDate)
     case .ohMyPi, .pi:
-      guard (json["type"] as? String) == "message",
-        let message = json["message"] as? [String: Any],
-        (message["role"] as? String) == "assistant"
-      else { return nil }
-      var record = RecordUsage(date: timestamp(json: json, message: message) ?? fallbackDate)
-      // omp / pi 同样把用量写在 assistant 行上。
-      record.carriesTokens = true
-      if let usage = message["usage"] as? [String: Any] {
-        record.input = intValue(usage["input"])
-        record.output = intValue(usage["output"])
-        record.cacheRead = intValue(usage["cacheRead"])
-        record.cacheWrite = intValue(usage["cacheWrite"])
-      }
-      record.model = (message["model"] as? String) ?? ""
-      record.tools = toolNames(in: message, blockType: "toolCall")
-      return record
-
+      return piRecord(json: json, fallbackDate: fallbackDate)
     case .codex:
-      // 两类行各有各的用途（顶层 `type` 不同，必须分别匹配）：
-      //   · `event_msg` / `token_count`：`payload.info.last_token_usage` 是**本次调用**的
-      //     增量（`total_token_usage` 是整会话累计值，用它会把统计放大若干倍）；
-      //   · `response_item` / `function_call`（含 `custom_tool_call`）：工具调用。
-      guard let payload = json["payload"] as? [String: Any] else { return nil }
-      var record = RecordUsage(
-        date: isoDate(json["timestamp"]) ?? fallbackDate)
-      switch (json["type"] as? String, payload["type"] as? String) {
-      case ("event_msg", "token_count"):
-        guard let info = payload["info"] as? [String: Any],
-          let last = info["last_token_usage"] as? [String: Any]
-        else { return nil }
-        let cached = intValue(last["cached_input_tokens"])
-        // `input_tokens` 含缓存读，相减才是非缓存输入（否则总量会重复计入缓存）。
-        record.input = max(0, intValue(last["input_tokens"]) - cached)
-        record.cacheRead = cached
-        record.output = intValue(last["output_tokens"])
-        // 模型只出现在 `turn_context` 行里，由调用方按文件顺序记住后传进来。
-        record.model = model
-        record.carriesTokens = true
-      case ("response_item", "function_call"), ("response_item", "custom_tool_call"):
-        guard let name = payload["name"] as? String, !name.isEmpty else { return nil }
-        record.tools = [name]
-      case ("response_item", "web_search_call"):
-        // 没有 `name`：按 `action.type` 分类（search / open_page / find_in_page；
-        // 缺 type 的行按通用的 web_search 计）。与 `event_msg/web_search_end` 不是一回事
-        // ——后者没有 call_id，无法与调用配对，绝不能当成第二个计数。
-        record.tools = [Self.codexWebSearchTool(payload["action"])]
-      case ("response_item", "tool_search_call"):
-        // 按需检索工具目录（`arguments.query`），与真正的调用分开计。
-        record.tools = ["tool_search"]
-      default:
-        return nil
-      }
-      guard record.hasTokens || !record.tools.isEmpty else { return nil }
-      return record
-
+      return codexRecord(json: json, fallbackDate: fallbackDate, model: model)
     case .cursor:
-      // 记录行按顶层 `role` 区分，工具调用在 `message.content[].type == "tool_use"`。
-      // 没有 token 字段（CodeIsland 也只读文本）⇒ 这行只携带工具调用，不建 token 桶。
-      let message = json["message"] as? [String: Any] ?? json
-      var record = RecordUsage(date: fallbackDate)
-      record.tools = toolNames(in: message, blockType: "tool_use")
-      guard !record.tools.isEmpty else { return nil }
-      return record
-
+      return cursorRecord(json: json, fallbackDate: fallbackDate)
     case .copilot:
-      // 事件信封：`{"type":…,"data":{…}}`；工具调用在 `tool.execution_start.data.toolName`。
-      // 本机 9 个事件文件里没有任何 token 字段 ⇒ 这行只携带工具调用，不建 token 桶。
-      guard (json["type"] as? String) == "tool.execution_start",
-        let data = json["data"] as? [String: Any],
-        let name = data["toolName"] as? String, !name.isEmpty
-      else { return nil }
-      var record = RecordUsage(date: isoDate(json["timestamp"]) ?? fallbackDate)
-      record.tools = [name]
-      return record
-
+      return copilotRecord(json: json, fallbackDate: fallbackDate)
     case .opencode, .gemini, .kimi, .cline, .grok, .trae, .traeCli, .deepSeekHarness, .hermes:
       // 不产出用量，理由见 `markers(for:)`：OpenCode 与 Hermes 走 SQLite 路径，gemini 的
       // token 字段本机无法核对（字段名与语义都未知），kimi / cline / grok 的记录里没有
       // token 字段，Trae / Trae CLI / DSH 没有可解析的记录。
       return nil
     }
+  }
+
+  /// claudeRecord 对应的那一族记录。
+  private static func claudeRecord(json: [String: Any], fallbackDate: Date) -> RecordUsage? {
+    // Claude 系记录（Qoder / Factory 与 Claude 同格式）。
+    guard (json["type"] as? String) == "assistant",
+      let message = json["message"] as? [String: Any]
+    else { return nil }
+    let date =
+      (json["timestamp"] as? String).flatMap { isoFormatter.date(from: $0) }
+      ?? fallbackDate
+    var record = RecordUsage(date: date)
+    // Claude 系把用量写在 assistant 行上：这条记录就是 token 行。
+    record.carriesTokens = true
+    record.isSubagent = (json["isSidechain"] as? Bool) ?? false
+    record.model = (message["model"] as? String) ?? ""
+    if let usage = message["usage"] as? [String: Any] {
+      record.input = intValue(usage["input_tokens"])
+      record.output = intValue(usage["output_tokens"])
+      record.cacheRead = intValue(usage["cache_read_input_tokens"])
+      record.cacheWrite = intValue(usage["cache_creation_input_tokens"])
+    }
+    record.tools = toolNames(in: message, blockType: "tool_use")
+    return record
+  }
+
+  /// codeBuddyRecord 对应的那一族记录。
+  private static func codeBuddyRecord(json: [String: Any], fallbackDate: Date) -> RecordUsage? {
+    // 两类行（本机实测，毫秒 epoch 时间戳）：
+    //   · `type == "function_call"`：一次工具调用（顶层 `name`），并且**同时是 token 行**
+    //     —— `message.usage` 是这次调用的增量（`input_tokens` 含缓存命中，要减去
+    //     `cache_read_input_tokens`，与 Codex / Claude 的口径一致）；
+    //   · `type == "message"` + 顶层 `role == "assistant"`：助手文本行，同样带
+    //     `message.usage`；旧外壳里工具块写在 `content[].tool_use`。
+    guard let type = json["type"] as? String else { return nil }
+    let model =
+      (json["providerData"] as? [String: Any])?["model"] as? String ?? ""
+
+    if type == "function_call" {
+      guard let name = json["name"] as? String, !name.isEmpty else { return nil }
+      var record = RecordUsage(
+        date: millisecondsTimestamp(json["timestamp"]) ?? fallbackDate)
+      record.tools = [name]
+      record.model = model
+      // 只有真的带 `message.usage` 才算 token 行：不带 usage 的调用（旧记录里常见）
+      // 若也建 token 桶，会落一行「模型非空、token 全零」的空桶，把模型榜与会话读数搞脏。
+      applyCodeBuddyUsage(json["message"], into: &record)
+      return record
+    }
+
+    guard type == "message", (json["role"] as? String) == "assistant" else { return nil }
+    var record = RecordUsage(
+      date: millisecondsTimestamp(json["timestamp"]) ?? fallbackDate)
+    record.tools = toolNames(in: json, blockType: "tool_use")
+    applyCodeBuddyUsage(json["message"], into: &record)
+    guard record.carriesTokens || !record.tools.isEmpty else { return nil }
+    record.model = model
+    return record
+  }
+
+  /// piRecord 对应的那一族记录。
+  private static func piRecord(json: [String: Any], fallbackDate: Date) -> RecordUsage? {
+    guard (json["type"] as? String) == "message",
+      let message = json["message"] as? [String: Any],
+      (message["role"] as? String) == "assistant"
+    else { return nil }
+    var record = RecordUsage(date: timestamp(json: json, message: message) ?? fallbackDate)
+    // omp / pi 同样把用量写在 assistant 行上。
+    record.carriesTokens = true
+    if let usage = message["usage"] as? [String: Any] {
+      record.input = intValue(usage["input"])
+      record.output = intValue(usage["output"])
+      record.cacheRead = intValue(usage["cacheRead"])
+      record.cacheWrite = intValue(usage["cacheWrite"])
+    }
+    record.model = (message["model"] as? String) ?? ""
+    record.tools = toolNames(in: message, blockType: "toolCall")
+    return record
+  }
+
+  /// codexRecord 对应的那一族记录。
+  private static func codexRecord(json: [String: Any], fallbackDate: Date, model: String) -> RecordUsage? {
+    // 两类行各有各的用途（顶层 `type` 不同，必须分别匹配）：
+    //   · `event_msg` / `token_count`：`payload.info.last_token_usage` 是**本次调用**的
+    //     增量（`total_token_usage` 是整会话累计值，用它会把统计放大若干倍）；
+    //   · `response_item` / `function_call`（含 `custom_tool_call`）：工具调用。
+    guard let payload = json["payload"] as? [String: Any] else { return nil }
+    var record = RecordUsage(
+      date: isoDate(json["timestamp"]) ?? fallbackDate)
+    switch (json["type"] as? String, payload["type"] as? String) {
+    case ("event_msg", "token_count"):
+      guard let info = payload["info"] as? [String: Any],
+        let last = info["last_token_usage"] as? [String: Any]
+      else { return nil }
+      let cached = intValue(last["cached_input_tokens"])
+      // `input_tokens` 含缓存读，相减才是非缓存输入（否则总量会重复计入缓存）。
+      record.input = max(0, intValue(last["input_tokens"]) - cached)
+      record.cacheRead = cached
+      record.output = intValue(last["output_tokens"])
+      // 模型只出现在 `turn_context` 行里，由调用方按文件顺序记住后传进来。
+      record.model = model
+      record.carriesTokens = true
+    case ("response_item", "function_call"), ("response_item", "custom_tool_call"):
+      guard let name = payload["name"] as? String, !name.isEmpty else { return nil }
+      record.tools = [name]
+    case ("response_item", "web_search_call"):
+      // 没有 `name`：按 `action.type` 分类（search / open_page / find_in_page；
+      // 缺 type 的行按通用的 web_search 计）。与 `event_msg/web_search_end` 不是一回事
+      // ——后者没有 call_id，无法与调用配对，绝不能当成第二个计数。
+      record.tools = [Self.codexWebSearchTool(payload["action"])]
+    case ("response_item", "tool_search_call"):
+      // 按需检索工具目录（`arguments.query`），与真正的调用分开计。
+      record.tools = ["tool_search"]
+    default:
+      return nil
+    }
+    guard record.hasTokens || !record.tools.isEmpty else { return nil }
+    return record
+  }
+
+  /// cursorRecord 对应的那一族记录。
+  private static func cursorRecord(json: [String: Any], fallbackDate: Date) -> RecordUsage? {
+    // 记录行按顶层 `role` 区分，工具调用在 `message.content[].type == "tool_use"`。
+    // 没有 token 字段（CodeIsland 也只读文本）⇒ 这行只携带工具调用，不建 token 桶。
+    let message = json["message"] as? [String: Any] ?? json
+    var record = RecordUsage(date: fallbackDate)
+    record.tools = toolNames(in: message, blockType: "tool_use")
+    guard !record.tools.isEmpty else { return nil }
+    return record
+  }
+
+  /// copilotRecord 对应的那一族记录。
+  private static func copilotRecord(json: [String: Any], fallbackDate: Date) -> RecordUsage? {
+    // 事件信封：`{"type":…,"data":{…}}`；工具调用在 `tool.execution_start.data.toolName`。
+    // 本机 9 个事件文件里没有任何 token 字段 ⇒ 这行只携带工具调用，不建 token 桶。
+    guard (json["type"] as? String) == "tool.execution_start",
+      let data = json["data"] as? [String: Any],
+      let name = data["toolName"] as? String, !name.isEmpty
+    else { return nil }
+    var record = RecordUsage(date: isoDate(json["timestamp"]) ?? fallbackDate)
+    record.tools = [name]
+    return record
   }
 
   /// CodeBuddy 的用量块（挂在顶层 `message.usage` 上）。
