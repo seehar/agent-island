@@ -1227,9 +1227,14 @@ actor SessionStore {
         return now.timeIntervalSince(lastActivity) >= retention.window
     }
 
-    /// Check if a process is still running
+    /// 进程是否还活着。
+    ///
+    /// `kill(pid, 0)` 的 `EPERM` 表示「进程存在但无权限发信号」——pid 1（launchd）就是这种。
+    /// 只认 `== 0` 会把这类进程判成已退出，会话被空闲回收误删（CI 上实测：会话在断言前
+    /// 就被 integral 掉，`session(for:)` 返回 nil）。
     private nonisolated func isProcessRunning(pid: Int) -> Bool {
-        return kill(Int32(pid), 0) == 0
+        if kill(Int32(pid), 0) == 0 { return true }
+        return errno == EPERM
     }
 
     // MARK: - State Publishing

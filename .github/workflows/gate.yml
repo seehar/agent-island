@@ -21,7 +21,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: 工具链版本（排障用）
         run: |
@@ -44,7 +44,7 @@ jobs:
 
       - name: 失败时上传日志
         if: failure()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: gate-logs
           # 只传日志：门禁目录里还有整份派生数据（产物 + 索引），全传会变成几百 MB

@@ -81,7 +81,8 @@ struct ShortcutRecorderRowRenderTests {
         // 标题固定成一段中等长度的英文：默认标题按界面语言取，英文名（如
         // 「Open the selected session's chat」）会长到右半行里，像素簇判据因此随语言漂。
         let row = ShortcutRecorderRow(
-            action: action, showsSeparator: false, bindings: bindings, title: "Shortcut action")
+            action: action, showsSeparator: false, bindings: bindings, title: "Shortcut action",
+            emptyChordText: "None")
 
         bindings.set(action.defaultChord, for: action)
         let bound = rightHalfInkClusters(of: row)

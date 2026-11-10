@@ -37,6 +37,8 @@ struct ShortcutRecorderRow: View {
     /// 标题覆盖（只给渲染用例用：默认标题按界面语言取名，长度随语言变，
     /// 英文标题会长到右半行里，像素判据因此不可复现）。
     let titleOverride: String?
+    /// 空态文案覆盖（同上：英文「Not Set」中间的空格会把一行染成两个墨迹簇）。
+    let emptyChordOverride: String?
 
     @ObservedObject private var bindings: ShortcutBindings
     @ObservedObject private var controller = ShortcutController.shared
@@ -46,11 +48,12 @@ struct ShortcutRecorderRow: View {
     /// 绑定表可注入：设置页传共享实例，渲染用例传独立偏好域（避免动用户真实设置）。
     init(
         action: ShortcutAction, showsSeparator: Bool, bindings: ShortcutBindings,
-        title: String? = nil
+        title: String? = nil, emptyChordText: String? = nil
     ) {
         self.action = action
         self.showsSeparator = showsSeparator
         self.titleOverride = title
+        self.emptyChordOverride = emptyChordText
         self._bindings = ObservedObject(wrappedValue: bindings)
     }
 
@@ -105,7 +108,7 @@ struct ShortcutRecorderRow: View {
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundColor(AppPalette.secondaryText)
         } else {
-            Text(l10n.t("Not Set"))
+            Text(emptyChordOverride ?? l10n.t("Not Set"))
                 .font(.system(size: 11))
                 .foregroundColor(AppPalette.tertiaryText)
         }
