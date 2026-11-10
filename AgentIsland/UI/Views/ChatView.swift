@@ -45,8 +45,8 @@ struct ChatView: View {
   self._viewModel = ObservedObject(wrappedValue: viewModel)
   self._session = State(initialValue: initialSession)
 
-  // Initialize from cache if available (prevents loading flicker on view recreation)
-  let cachedHistory = ChatHistoryManager.shared.history(for: key)
+  // 首帧直接用当前会话的条目（防止视图重建时闪一下加载态）
+  let cachedHistory = ChatHistoryProjection.items(for: initialSession)
   let alreadyLoaded = !cachedHistory.isEmpty
   self._history = State(initialValue: cachedHistory)
   self._isLoading = State(initialValue: !alreadyLoaded)
@@ -56,6 +56,38 @@ struct ChatView: View {
  /// Whether we're waiting for approval
  private var isWaitingForApproval: Bool {
   session.phase.isWaitingForApproval
+ }
+
+ /// 把新的条目列表接进视图状态：变化判据、暂停自动滚动时的新消息计数与自动滚动
+ /// 都只在这里判一次（原先散在 `$histories` 的订阅闭包里）。
+ private func applyHistory(_ newHistory: [ChatHistoryItem]) {
+  guard newHistory != history else { return }
+
+  let countChanged = newHistory.count != history.count
+  // 流式回复期间条目数不变、只有最后一条的正文在长大：那也算「尾部在动」。
+  // 少了这条判据，正在输出的答案会在视口里一点点漂走（用户得手动往下追）。
+  let lastItemContentChanged =
+   newHistory.last?.id == history.last?.id && newHistory.last != history.last
+
+  if isAutoscrollPaused && newHistory.count > previousHistoryCount {
+   newMessageCount += newHistory.count - previousHistoryCount
+   previousHistoryCount = newHistory.count
+  }
+
+  history = newHistory
+
+  if MessageAutoscroll.shouldFollow(
+   isAutoscrollPaused: isAutoscrollPaused,
+   countChanged: countChanged,
+   lastItemContentChanged: lastItemContentChanged)
+  {
+   shouldScrollToBottom = true
+  }
+
+  // If we have data, skip loading state (handles view recreation)
+  if isLoading && !newHistory.isEmpty {
+   isLoading = false
+  }
  }
 
  /// Extract the tool name if waiting for approval
@@ -106,71 +138,54 @@ struct ChatView: View {
    guard !hasLoadedOnce else { return }
    hasLoadedOnce = true
 
-   // Check if already loaded (from previous visit)
+   // 这两处赋值只是兜底：条目真正的来源是 `sessionMonitor.$instances` 的发布。若发布
+   // 已经先到（读记录那一跳是异步的），`history` 就是新的，不能被这份可能更旧的
+   // `session` 覆盖回去。
    if ChatHistoryManager.shared.isLoaded(key: key) {
-    history = ChatHistoryManager.shared.history(for: key)
+    if history.isEmpty {
+     history = ChatHistoryProjection.items(for: session)
+    }
     isLoading = false
     return
    }
 
    // Load in background, show loading state
    await ChatHistoryManager.shared.loadFromFile(key: key, cwd: session.cwd)
-   history = ChatHistoryManager.shared.history(for: key)
+   if history.isEmpty {
+    history = ChatHistoryProjection.items(for: session)
+   }
 
    withAnimation(.easeOut(duration: 0.2)) {
     isLoading = false
    }
   }
-  .onReceive(ChatHistoryManager.shared.$histories) { histories in
-   // Update when count changes, last item differs, or content changes (e.g., tool status)
-   if let newHistory = histories[key] {
-    let countChanged = newHistory.count != history.count
-    let lastItemChanged = newHistory.last?.id != history.last?.id
-    // 流式回复期间条目数不变、只有最后一条的正文在长大：那也算「尾部在动」。
-    // 少了这条判据，正在输出的答案会在视口里一点点漂走（用户得手动往下追）。
-    let lastItemContentChanged =
-     newHistory.last?.id == history.last?.id && newHistory.last != history.last
-    // Always update - the @Published ensures we only get notified on real changes
-    // This allows tool status updates (waitingForApproval -> running) to reflect
-    if countChanged || lastItemChanged || newHistory != history {
-     // Track new messages when autoscroll is paused
-     if isAutoscrollPaused && newHistory.count > previousHistoryCount {
-      let addedCount = newHistory.count - previousHistoryCount
-      newMessageCount += addedCount
-      previousHistoryCount = newHistory.count
-     }
-
-     history = newHistory
-
-     // Auto-scroll to bottom only if autoscroll is NOT paused
-     if MessageAutoscroll.shouldFollow(
-      isAutoscrollPaused: isAutoscrollPaused,
-      countChanged: countChanged,
-      lastItemContentChanged: lastItemContentChanged)
-     {
-      shouldScrollToBottom = true
-     }
-
-     // If we have data, skip loading state (handles view recreation)
-     if isLoading && !newHistory.isEmpty {
-      isLoading = false
-     }
-    }
-   } else if hasLoadedOnce {
-    // Session was loaded but is now gone (removed via /clear) - navigate back
-    viewModel.exitChat()
-   }
-  }
   .onReceive(sessionMonitor.$instances) { sessions in
+   // 会话消失（/clear 或回收）：对话页跟着退回去。原先这条判据挂在第二个发布通道上，
+   // 现在条目与会话状态来自同一次发布，两条分支只在这里各写一次。
+   guard let updated = sessions.first(where: { $0.sessionKey == key }) else {
+    if hasLoadedOnce {
+     viewModel.exitChat()
+    }
+    return
+   }
+
+   // 条目：投影规则在 `ChatHistoryProjection`（子 Agent 内部工具已折叠进容器卡片）。
+   applyHistory(ChatHistoryProjection.items(for: updated))
+
    // 展示档位随 pending 生命周期刷新：每次会话发布都重查一次，否则「同会话补发了
-   // 让位信号但 SessionState 没变」时卡片不会更新。
-   let isWaiting =
-    sessions.first(where: { $0.sessionKey == key })?.phase.isWaitingForApproval == true
-   approvalDisplay = isWaiting ? sessionMonitor.approvalDisplay(for: key) : nil
-   pendingAsk = isWaiting ? sessionMonitor.pendingAsk(for: key) : nil
-   if let updated = sessions.first(where: { $0.sessionKey == key }),
-    updated != session
-   {
+   // 让位信号但 SessionState 没变」时卡片不会更新。等值不写：@State 赋值会唤醒视图，
+   // 而这类发布在流式输出时每秒好几次。
+   let isWaiting = updated.phase.isWaitingForApproval
+   let nextDisplay = isWaiting ? sessionMonitor.approvalDisplay(for: key) : nil
+   if approvalDisplay != nextDisplay {
+    approvalDisplay = nextDisplay
+   }
+   let nextAsk = isWaiting ? sessionMonitor.pendingAsk(for: key) : nil
+   if pendingAsk != nextAsk {
+    pendingAsk = nextAsk
+   }
+
+   if updated != session {
     // Check if permission was just accepted (transition from waitingForApproval to processing)
     let wasWaiting = isWaitingForApproval
     session = updated
@@ -358,7 +373,7 @@ struct ChatView: View {
      }
 
      ForEach(history.reversed()) { item in
-      MessageItemView(item: item, key: key)
+      MessageItemView(item: item, agentDescriptions: session.subagentState.agentDescriptions)
        .padding(.horizontal, 16)
        .scaleEffect(x: 1, y: -1)
        .transition(
@@ -789,7 +804,8 @@ nonisolated enum LatestJumpIndicator: Equatable {
 
 struct MessageItemView: View {
  let item: ChatHistoryItem
- let key: SessionKey
+ /// 子 Agent 的 job 名 → 任务描述（`AgentOutputTool` 行显示用）。
+ let agentDescriptions: [String: String]
 
  var body: some View {
   switch item.type {
@@ -798,7 +814,7 @@ struct MessageItemView: View {
   case .assistant(let text):
    AssistantMessageView(text: text)
   case .toolCall(let tool):
-   ToolCallView(tool: tool, key: key)
+   ToolCallView(tool: tool, agentDescriptions: agentDescriptions)
   case .thinking(let text):
    ThinkingView(text: text)
   case .image(let block):
@@ -963,7 +979,8 @@ struct ProcessingIndicatorView: View {
 
 struct ToolCallView: View {
  let tool: ToolCallItem
- let key: SessionKey
+ /// 子 Agent 的 job 名 → 任务描述；由会话状态透传（不再读第二份镜像）。
+ let agentDescriptions: [String: String]
  @ObservedObject private var l10n = LocalizationManager.shared
  /// 子代理明细开关（行为页）：关掉后只留摘要行，不列子代理内部工具。
  @ObservedObject private var subagentDetails = SessionDisplayPreferences.showSubagentDetails
@@ -1013,12 +1030,11 @@ struct ToolCallView: View {
 
  private var agentDescription: String? {
   guard tool.name == "AgentOutputTool",
-   let agentId = tool.input["agentId"],
-   let sessionDescriptions = ChatHistoryManager.shared.agentDescriptions[key]
+   let agentId = tool.input["agentId"]
   else {
    return nil
   }
-  return sessionDescriptions[agentId]
+  return agentDescriptions[agentId]
  }
 
  var body: some View {

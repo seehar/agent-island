@@ -3,35 +3,26 @@
 //  AgentIsland
 //
 
-import Combine
 import Foundation
 
+/// 「这个会话的记录读过没有」+ 触发读取。
+///
+/// 它曾经还是聊天条目的**第二份状态**（`histories` / `agentDescriptions` 两个
+/// `@Published` 字典，每轮会话发布会整表重建一遍）。那份镜像没有存在的必要：
+/// 条目本来就在 `SessionState.chatItems` 里，视图订阅 `sessionMonitor.$instances`
+/// 就能拿到最新值，投影规则也已经在 `ChatHistoryProjection`（纯函数、有单测）。
+/// 留着它只会多一条发布通道、多一处可能与真源不一致的副本。
 @MainActor
-class ChatHistoryManager: ObservableObject {
+final class ChatHistoryManager {
     static let shared = ChatHistoryManager()
-
-    @Published private(set) var histories: [SessionKey: [ChatHistoryItem]] = [:]
-    @Published private(set) var agentDescriptions: [SessionKey: [String: String]] = [:]
 
     /// 本次运行中已经让 SessionStore 读过记录的会话。只由 `loadFromFile`
     /// 标记：实时事件只带来工具调用，没有完整的用户/助手文本对话。
     private var transcriptLoadedSessions: Set<SessionKey> = []
-    private var cancellables = Set<AnyCancellable>()
 
-    private init() {
-        SessionStore.shared.sessionsPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] sessions in
-                self?.updateFromSessions(sessions)
-            }
-            .store(in: &cancellables)
-    }
+    private init() {}
 
     // MARK: - Public API
-
-    func history(for key: SessionKey) -> [ChatHistoryItem] {
-        histories[key] ?? []
-    }
 
     /// 本次运行中是否已经读过该会话的记录。实时事件不会把它标记为已加载，
     /// 只有显式调用 `loadFromFile` 才会。
@@ -45,14 +36,6 @@ class ChatHistoryManager: ObservableObject {
         await SessionStore.shared.process(.loadHistory(key: key, cwd: cwd))
     }
 
-    // MARK: - State Updates
-
-    /// 每轮会话状态发布会走到这里：投影规则在 `ChatHistoryProjection`（纯函数、有单测）。
-    private func updateFromSessions(_ sessions: [SessionState]) {
-        let projected = ChatHistoryProjection.project(sessions)
-        histories = projected.histories
-        agentDescriptions = projected.agentDescriptions
-    }
 }
 
 // MARK: - Models
