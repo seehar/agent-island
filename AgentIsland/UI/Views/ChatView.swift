@@ -485,8 +485,13 @@ struct ChatView: View {
  // MARK: - Input Bar
 
  /// 能否往该会话写东西：tmux（原有通道）或 Paseo 托管终端（`PASEO_TERMINAL_ID`）。
+ /// 输入框是否可用：与发送/中断共用同一份通道判据（`ChatSendRoute`）。
  private var canSendMessages: Bool {
-  (session.isInTmux && session.tty != nil) || session.paseoTerminalId != nil
+  sendRoute.isAvailable
+ }
+
+ private var sendRoute: ChatSendRoute {
+  ChatSendRoute(session: session)
  }
 
  private var inputBar: some View {
@@ -685,19 +690,17 @@ struct ChatView: View {
  /// 以前这个返回值被丢弃：「找不到 pane / tmux 路径不可用 / 发送失败」在界面上完全一样，
  /// 用户看到的是消息凭空消失。
  private func sendToSession(_ text: String) async -> Bool {
-  if session.isInTmux, let tty = session.tty,
+  let route = sendRoute
+  if let tty = route.tmuxTTY,
    let target = await findTmuxTarget(tty: tty),
    await ToolApprovalHandler.shared.sendMessage(text, to: target)
   {
    return true
   }
 
-  if let terminalId = session.paseoTerminalId {
-   return await PaseoCli.shared.sendMessage(
-    text, toTerminal: terminalId, cliPath: session.paseoCliPath)
-  }
-
-  return false
+  guard let terminalId = route.paseoTerminalId else { return false }
+  return await PaseoCli.shared.sendMessage(
+   text, toTerminal: terminalId, cliPath: session.paseoCliPath)
  }
 
  private func findTmuxTarget(tty: String) async -> TmuxTarget? {
@@ -743,14 +746,15 @@ struct ChatView: View {
   Task {
    defer { isInterrupting = false }
 
-   if session.isInTmux, let tty = session.tty,
+   let route = sendRoute
+   if let tty = route.tmuxTTY,
     let target = await findTmuxTarget(tty: tty),
     await ToolApprovalHandler.shared.sendInterrupt(to: target)
    {
     return
    }
 
-   if let terminalId = session.paseoTerminalId,
+   if let terminalId = route.paseoTerminalId,
     await PaseoCli.shared.sendInterrupt(
      toTerminal: terminalId, cliPath: session.paseoCliPath)
    {
