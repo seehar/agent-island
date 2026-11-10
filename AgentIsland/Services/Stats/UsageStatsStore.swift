@@ -213,7 +213,10 @@ nonisolated final class UsageStatsStore {
             FROM indexed_source WHERE source_id = ?;
             """,
             values: [.text(sourceId)]
-        ) { statement in
+        ) { statement -> UsageSourceRecord? in
+            // 显式标注闭包返回类型：`query` 的泛型 `T` 只能从闭包返回类型推出来，
+            // Xcode 26 的编译器在「闭包里有 guard-return nil」时会推不出 T
+            // （报 generic parameter 'T' could not be inferred），Xcode 27 上能推。
             guard let agentRaw = self.text(statement, 0), let agent = AgentKind(rawValue: agentRaw)
             else {
                 return nil

@@ -21,7 +21,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 工具链版本（排障用）
         run: |
@@ -35,7 +35,7 @@ jobs:
 
       - name: 失败时上传日志
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: gate-logs
           path: ${{ runner.temp }}/agent-island-gate

@@ -189,7 +189,11 @@ nonisolated enum SessionPhase: Sendable {
 
 // MARK: - Equatable
 
-extension SessionPhase: Equatable {
+/// 显式 `nonisolated`：工程默认隔离是 MainActor，不标注时这个**一致性实现**会被判成
+/// 主 actor 隔离，于是所有 nonisolated 上下文里的 `==`/`!=` 都报
+/// 「main actor-isolated conformance ... cannot be used in nonisolated context」
+/// （Xcode 26 / Swift 6.2 的编译器会把它当诊断，Xcode 27 上不报——不能依赖后者）。
+nonisolated extension SessionPhase: Equatable {
     nonisolated static func == (lhs: SessionPhase, rhs: SessionPhase) -> Bool {
         switch (lhs, rhs) {
         case (.idle, .idle): return true
