@@ -57,11 +57,9 @@ nonisolated final class CopilotTranscriptSchema: JSONLTranscriptSchema {
                 timestamp: Self.timestamp(of: json),
                 content: [.text(text)]
             )
-            state.messages.append(message)
-            result.newMessages.append(message)
-            state.lastMessage = TranscriptParsing.truncate(text)
-            state.lastMessageRole = ChatRole.assistant.rawValue
-            state.lastToolName = nil
+            TranscriptEmission.chatMessage(
+                message, isUser: false, text: text, timestamp: message.timestamp,
+                state: &state, result: &result)
 
         case "tool.execution_start":
             consumeToolStart(data, state: &state, result: &result)
@@ -97,17 +95,9 @@ nonisolated final class CopilotTranscriptSchema: JSONLTranscriptSchema {
             timestamp: timestamp,
             content: [.text(text)]
         )
-        state.messages.append(message)
-        result.newMessages.append(message)
-
-        if state.firstUserMessage == nil {
-            state.firstUserMessage = TranscriptParsing.truncate(text, maxLength: 50)
-        }
-        state.lastUserMessageDate = timestamp
-        state.lastMessage = TranscriptParsing.truncate(text)
-        state.lastMessageRole = ChatRole.user.rawValue
-        state.lastToolName = nil
-        result.activity.append(.promptSubmitted(text: text))
+        TranscriptEmission.chatMessage(
+            message, isUser: true, text: text, timestamp: timestamp, state: &state,
+            result: &result)
     }
 
     // MARK: - 工具

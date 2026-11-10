@@ -92,23 +92,10 @@ nonisolated final class GeminiTranscriptSchema: JSONLTranscriptSchema {
                 timestamp: timestamp,
                 content: content
             )
-            state.messages.append(message)
-            result.newMessages.append(message)
-
             let text = TranscriptParsing.firstText(in: content)
-            if isUser, let text {
-                if state.firstUserMessage == nil {
-                    state.firstUserMessage = TranscriptParsing.truncate(text, maxLength: 50)
-                }
-                state.lastUserMessageDate = timestamp
-                result.activity.append(.promptSubmitted(text: text))
-            }
-            if let text {
-                state.lastMessage = TranscriptParsing.truncate(text)
-                state.lastMessageRole =
-                    isUser ? ChatRole.user.rawValue : ChatRole.assistant.rawValue
-                state.lastToolName = nil
-            }
+            TranscriptEmission.chatMessage(
+                message, isUser: isUser, text: text, timestamp: timestamp, state: &state,
+                result: &result)
         }
 
         for call in toolCalls {

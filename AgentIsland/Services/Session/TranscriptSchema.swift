@@ -296,6 +296,49 @@ nonisolated enum TranscriptParsing {
     }
 }
 
+// MARK: - 消息的记账（schema 共用）
+
+/// 「产出一条消息」的记账：气泡入队、标题兜底（`firstUserMessage`）、末条消息
+/// （`lastMessage` / `lastMessageRole` / `lastToolName`）与「用户提交提示词」事件。
+///
+/// 这几句原先在每个 schema 里各写一遍，语义容易写漏：`firstUserMessage` 只在为空时写
+/// （它同时是列表标题的兜底），`lastUserMessageDate` 只随用户文本更新（会话排序依赖它），
+/// `lastToolName` 必须与 `lastMessageRole` 同时清掉，否则列表会挂着过期的工具名。
+///
+/// **不是所有站点都能套用**。以下站点顺序或条件与本函数不同，各自保留原样：
+/// - Claude：`updateConversationInfo` 只维护元信息、不产出气泡，且字符串形态的 content
+///   才有时间戳与事件；
+/// - ClaudeFamily：末条消息取内容的最后一个块（`updateLastMessage`），工具调用会写成
+///   「工具」角色，不是首段文本；
+/// - Hermes / OpenCode：气泡由调用方统一装配（`state.messages = conversation`），提示词
+///   事件受「首次发射」门控，写序也不同；
+/// - Kimi 的 `emitUser`：重复提示词是原地替换上一条用户气泡，不是追加；
+/// - Pi / OpenCode 助手侧：末条消息在块循环里取（工具调用写工具名），与首段文本不同。
+nonisolated enum TranscriptEmission {
+    /// 记一条消息：先入队气泡，再按「是否用户文本」维护标题与末条消息。
+    static func chatMessage(
+        _ message: ChatMessage, isUser: Bool, text: String?, timestamp: Date,
+        state: inout TranscriptParseState, result: inout TranscriptReadResult
+    ) {
+        state.messages.append(message)
+        result.newMessages.append(message)
+
+        if isUser, let text {
+            if state.firstUserMessage == nil {
+                state.firstUserMessage = TranscriptParsing.truncate(text, maxLength: 50)
+            }
+            state.lastUserMessageDate = timestamp
+            result.activity.append(.promptSubmitted(text: text))
+        }
+
+        if let text {
+            state.lastMessage = TranscriptParsing.truncate(text)
+            state.lastMessageRole = message.role.rawValue
+            state.lastToolName = nil
+        }
+    }
+}
+
 // MARK: - 工具调用的记账（8 个 schema 共用）
 
 /// 「工具开始 / 结束」的记账：登记 id → 名字与入参、生成统一的结构化结果、上报活动事件。

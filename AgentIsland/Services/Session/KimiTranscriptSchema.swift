@@ -155,11 +155,9 @@ nonisolated final class KimiTranscriptSchema: JSONLTranscriptSchema {
             timestamp: Date(),
             content: [.text(text)]
         )
-        state.messages.append(message)
-        result.newMessages.append(message)
-        state.lastMessage = TranscriptParsing.truncate(text)
-        state.lastMessageRole = ChatRole.assistant.rawValue
-        state.lastToolName = nil
+        TranscriptEmission.chatMessage(
+            message, isUser: false, text: text, timestamp: message.timestamp, state: &state,
+            result: &result)
     }
 
     private func emitUser(

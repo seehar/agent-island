@@ -129,21 +129,9 @@ nonisolated class ClineTranscriptSchema: AgentTranscriptSchema {
                 timestamp: timestamp,
                 content: content
             )
-            state.messages.append(chatMessage)
-            result.newMessages.append(chatMessage)
-
-            if role == "user", let text {
-                if state.firstUserMessage == nil {
-                    state.firstUserMessage = TranscriptParsing.truncate(text, maxLength: 50)
-                }
-                state.lastUserMessageDate = timestamp
-                result.activity.append(.promptSubmitted(text: text))
-            }
-            if let text {
-                state.lastMessage = TranscriptParsing.truncate(text)
-                state.lastMessageRole = role
-                state.lastToolName = nil
-            }
+            TranscriptEmission.chatMessage(
+                chatMessage, isUser: role == "user", text: text, timestamp: timestamp,
+                state: &state, result: &result)
         }
 
         for call in toolCalls where !state.seenToolIds.contains(call.id) {
