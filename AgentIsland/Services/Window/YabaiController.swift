@@ -107,14 +107,9 @@ actor YabaiController {
                 "list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index}|#{pane_pid}"
             ])
 
-            let panes = panesOutput.components(separatedBy: "\n").filter { !$0.isEmpty }
-
-            for pane in panes {
-                let parts = pane.components(separatedBy: "|")
-                guard parts.count >= 2,
-                      let panePid = Int(parts[1]) else { continue }
-
-                let targetString = parts[0]
+            for entry in TmuxPaneList.entries(panesOutput, separator: "|") {
+                guard let panePid = Int(entry.value) else { continue }
+                let target = entry.target
 
                 // Check if this pane has a Claude child with matching cwd
                 for (pid, info) in tree {
@@ -127,13 +122,11 @@ actor YabaiController {
                           cwd == workingDir else { continue }
 
                     // Found matching pane - switch to it
-                    if let target = TmuxTarget(from: targetString) {
-                        _ = await TmuxController.shared.switchToPane(target: target)
+                    _ = await TmuxController.shared.switchToPane(target: target)
 
-                        // Focus the terminal window for this session
-                        if let terminalPid = await findTmuxClientTerminal(forSession: target.session, tree: tree, windows: windows) {
-                            return await WindowFocuser.shared.focusTmuxWindow(terminalPid: terminalPid, windows: windows)
-                        }
+                    // Focus the terminal window for this session
+                    if let terminalPid = await findTmuxClientTerminal(forSession: target.session, tree: tree, windows: windows) {
+                        return await WindowFocuser.shared.focusTmuxWindow(terminalPid: terminalPid, windows: windows)
                     }
                     return true
                 }

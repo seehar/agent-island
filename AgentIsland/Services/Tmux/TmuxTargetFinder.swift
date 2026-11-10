@@ -27,15 +27,12 @@ actor TmuxTargetFinder {
 
         let tree = ProcessTreeBuilder.shared.buildTree()
 
-        for line in output.components(separatedBy: "\n") {
-            let parts = line.split(separator: " ", maxSplits: 1)
-            guard parts.count == 2,
-                  let panePid = Int(parts[1]) else { continue }
-
-            let targetString = String(parts[0])
-
-            if ProcessTreeBuilder.shared.isDescendant(targetPid: claudePid, ofAncestor: panePid, tree: tree) {
-                return TmuxTarget(from: targetString)
+        for entry in TmuxPaneList.entries(output) {
+            guard let panePid = Int(entry.value) else { continue }
+            if ProcessTreeBuilder.shared.isDescendant(
+                targetPid: claudePid, ofAncestor: panePid, tree: tree)
+            {
+                return entry.target
             }
         }
 
@@ -54,16 +51,8 @@ actor TmuxTargetFinder {
             return nil
         }
 
-        for line in output.components(separatedBy: "\n") {
-            let parts = line.split(separator: " ", maxSplits: 1)
-            guard parts.count == 2 else { continue }
-
-            let targetString = String(parts[0])
-            let panePath = String(parts[1])
-
-            if panePath == workingDir {
-                return TmuxTarget(from: targetString)
-            }
+        for entry in TmuxPaneList.entries(output) where entry.value == workingDir {
+            return entry.target
         }
 
         return nil
