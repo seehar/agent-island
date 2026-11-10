@@ -229,10 +229,13 @@ except Exception:
 
         if [ "$TEST_EXIT" -ne 0 ] || [ "$TEST_PASSED" != true ]; then
             echo "ERROR: 门禁未通过 —— 测试未成功（退出码 ${TEST_EXIT}，摘要 ${TEST_SUMMARY:-无}）"
-            # 先打失败用例的**断言文本**：xcodebuild 的摘要只列用例名，真正的原因
-            # （期望值 vs 实际值、以及是哪个 #expect 挂的）在日志更靠前的位置。
-            # 没有这一行时，CI 上只能看到一串用例名，得回头下载几百 MB 的产物才知道为什么。
-            grep -nE '✘|recorded an issue|Expectation failed|error: ' "$TEST_LOG" 2>/dev/null                 | head -60 || true
+            # 先打失败用例的**断言文本**：xcodebuild 的 stdout 只列用例名，`#expect` 的
+            # 期望值/实际值只存在 xcresult 里（`test.log` 里也没有）。没有这一步时，CI 上
+            # 只能看到一串用例名，得回头下载几百 MB 产物才知道为什么失败。
+            if [ -n "${XCRESULT:-}" ]; then
+                echo "--- 失败用例明细（xcresult） ---"
+                python3 "$SCRIPT_DIR/xcresult-failures.py" "$XCRESULT" || true
+            fi
             echo "--- 日志尾部（120 行） ---"
             # 用例自己的诊断 `print`（例如离屏渲染量到的像素/几何）出现在测试运行阶段，
             # 距离日志尾部通常有几十到上百行；40 行不够定位渲染类失败。
