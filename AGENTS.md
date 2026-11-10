@@ -48,7 +48,7 @@ python3 scripts/check-localization.py --strict
 ```
 AgentIsland/
   App/          # 入口（AgentIslandApp @main）、AppDelegate（生命周期/单实例/偏好迁移/装集成/Sparkle）、ScreenObserver、WindowManager
-  Core/         # 应用状态与版面：NotchViewModel（@Observable UI 状态）、NotchGeometry（纯几何）、NotchMenuLayout、Settings（UserDefaults）、Localization、各 Selector（语言/屏幕/声音/高度/Claude 目录）
+  Core/         # 应用状态与版面：NotchViewModel（`ObservableObject` + Combine 的 UI 状态；本仓状态对象统一这一套，没有 `@Observable`）、AppRadius（圆角档位）、NotchGeometry（纯几何）、NotchMenuLayout、Settings（UserDefaults）、Localization、各 Selector（语言/屏幕/声音/高度/Claude 目录）
   Models/       # AgentKind、SessionState、SessionPhase（状态机）、SessionEvent、ChatMessage、SubagentToolInfo、TmuxTarget
   Events/       # 全局鼠标事件监听（悬停/点击命中刘海）
   Services/
@@ -93,7 +93,7 @@ Agent 侧集成（Claude hook 脚本 / omp·pi 扩展 / opencode 插件）
 
 - 所有会话状态变化都只经过 `SessionStore.process(_:)`；视图不直接改状态。
 - 权限审批是请求/响应：`HookSocketServer` 收到需要响应的事件后保持连接，等刘海上的批准/拒绝，再**由 socket 回写决定**（因此对非 tmux 会话同样有效）。`PermissionRequest` 不带 `tool_use_id`，靠 `PreToolUse` 的 `sessionId:toolName:tool_input` 缓存做关联。
-- 「用户主动发消息 / 中断」是另一条通道，按会话宿主分两路（`ChatView.sendToSession` / `interruptSession` 先试 tmux、再退到 Paseo，两条都不可用才置灰输入框）：
+- 「用户主动发消息 / 中断」是另一条通道，按会话宿主分两路（`ChatView` 只解析通道依据与把失败翻成提示，真正的回退在 `Services/Chat/SessionMessageRouter` 的 `send` / `interrupt`：先试 tmux、再退到 Paseo，两条都不可用才置灰输入框）：
   tmux 会话走 `ToolApprovalHandler`（`tmux send-keys` 到按 tty 解析出的 pane）；
   **Paseo（`@getpaseo/server`，即「我的机器」的宿主）用它自己的 node-pty 起终端、不经过 tmux**，这类会话走 `PaseoCli`（`paseo terminal send-keys <终端 id> …`）。终端 id 无法从 daemon 反查（列表只有 `{id, cwd, name}`），只能由集成读 `PASEO_TERMINAL_ID` 上报（`PASEO_HOOK_CLI` 一并上报，供应用定位 CLI）。
 
@@ -204,11 +204,11 @@ Cursor / Copilot / Factory / CodeBuddy / Kimi / Cline / Grok / Trae / Trae CLI /
 ## 约束
 
 - **注释一律中文**：新增文件、被改动代码的注释（含 `///` 文档注释与 `// MARK:` 标题）。文件头保留既有「文件路径 + 中文简述」注释块风格。
-- 并发：跨隔离域使用的类型/协议/值类型显式 `nonisolated`（工程默认 `MainActor` 隔离，漏标会出隔离错误或整树告警）；共享可变状态用 actor 或 `@Observable`；UI 相关协议与视图代码留在主 actor。
+- 并发：跨隔离域使用的类型/协议/值类型显式 `nonisolated`（工程默认 `MainActor` 隔离，漏标会出隔离错误或整树告警）；共享可变状态用 actor 或 `ObservableObject`（本仓两套都用，不要为新建状态再引入第三种）；UI 相关协议与视图代码留在主 actor；纯逻辑折算（只吃事件与 `inout` 值）抽成 `nonisolated` 命名空间，别塞进 actor——`Services/State/SessionHookReducers.swift` 是本仓的样板。
 - 日志用 `os.Logger`，subsystem 统一 `com.celestial.AgentIsland`，category 取组件名（`Session`/`Hooks`/`Integration`/`Discovery`/`OpenCode`/`Window`/`ProcessExecutor`…）。新代码不用 `print`（`AppDelegate` 里几处是遗留，别跟着写）。
 - 资源命名：`.ts` 会被 Xcode 判成源码而不进 Resources，所以随包资源叫 `agent-island-pi-extension.ts.txt`，安装时再写成 `agent-island-state.ts`。
 - 偏好域跟着 bundle id（`com.celestial.AgentIsland`）。改名/换 id 时必须保留并扩展 `AppSettings.migrateLegacyDefaultsIfNeeded()`、`HookInstaller.legacyHookScriptNames` 这类迁移入口 —— 它们是兼容层，不是待清理的残留。
-- 版面常量集中在 `Core/NotchGeometry.swift` / `Core/NotchMenuLayout.swift` / `UI/Components/SettingsKit.swift` / `UI/Components/AppTheme.swift`（`AppPalette` 调色 + `AppRadius` 圆角），Agent 品牌色在 `UI/Components/AgentPalette.swift`，不要散落魔法数字；关闭态与展开态的尺寸是对齐像素调出来的，改动要有截图取证。
+- 版面常量集中在 `Core/NotchGeometry.swift` / `Core/NotchMenuLayout.swift` / `UI/Components/SettingsKit.swift` / `UI/Components/AppTheme.swift`（`AppPalette` 调色）/ `Core/AppRadius.swift`（圆角档位——放在 Core 是因为 `NotchMenuLayout` 这类版面常量要用，Core 不该反向依赖 UI），Agent 品牌色在 `UI/Components/AgentPalette.swift`，不要散落魔法数字；关闭态与展开态的尺寸是对齐像素调出来的，改动要有截图取证。
 
 ## 已知坑
 

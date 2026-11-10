@@ -1,0 +1,38 @@
+name: gate
+
+# 质量门禁：编译 0 诊断 + 本地化守卫 + 格式守卫 + 资源卫生 + AgentIslandTests 全绿。
+# 判据全部在 scripts/gate.sh 里（团队唯一入口），这里只负责在 macOS runner 上跑它。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 工具链版本（排障用）
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: 编译 + 测试门禁
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: ./scripts/gate.sh --with-tests
+
+      - name: 失败时上传日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-logs
+          path: ${{ runner.temp }}/agent-island-gate
+          if-no-files-found: ignore
