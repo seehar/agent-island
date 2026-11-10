@@ -10,7 +10,8 @@ import Foundation
 import os.log
 
 /// Logger for hook socket server
-private let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "Hooks")
+private nonisolated let logger = Logger(
+    subsystem: "com.celestial.AgentIsland", category: "Hooks")
 
 /// Event received from an agent's live integration (Claude Code hooks, pi/omp
 /// extension, OpenCode plugin).
@@ -435,13 +436,13 @@ nonisolated enum AskAnswerBuilder {
 
 /// 待批许可的字典键：会话（Agent + 会话 id）+ 会话内的工具调用 id。
 /// 只用裸 `toolUseId` 当键会让不同 Agent / 会话的同名 id 互相覆盖或误关。
-struct PendingPermissionKey: Hashable {
+nonisolated struct PendingPermissionKey: Hashable {
     let key: SessionKey
     let toolUseId: String
 }
 
 /// Pending permission request waiting for user decision
-struct PendingPermission: Sendable {
+nonisolated struct PendingPermission: Sendable {
     /// 该许可所属的会话；日志与失败回调都按它归属。
     let key: SessionKey
     let toolUseId: String
@@ -452,7 +453,7 @@ struct PendingPermission: Sendable {
 
 /// 待批卡片要用的展示档位。全部取自集成上报的信封；缺省表示老集成没报，
 /// 卡片按「普通档 + 闸门正常」渲染。
-struct PendingApprovalDisplay: Equatable, Sendable {
+nonisolated struct PendingApprovalDisplay: Equatable, Sendable {
     /// 危险命令档 → 卡片用警示色。
     let isCritical: Bool
     /// 需要在卡片上提示「闸门已降级」。
@@ -478,7 +479,14 @@ typealias PermissionFailureHandler = @Sendable (SessionKey, String) -> Void
 
 /// Unix domain socket server that receives events from Claude Code hooks
 /// Uses GCD DispatchSource for non-blocking I/O
-class HookSocketServer {
+/// 共享的 hook socket 服务。
+///
+/// 显式 `nonisolated final`：这个类型的状态**全部**由私有 `DispatchQueue` 与 `NSLock`
+/// 保护（`pendingPermissions` / `toolUseIdCache` / `openClientCount`），读写都发生在
+/// socket 队列上。工程默认隔离是 MainActor，不标注的话编译器会把它当成主线程类型，
+/// 而 `queue.async { startServer() }` 实际跑在私有队列上——并发检查因此与事实不符，
+/// 后续任何一次「顺手加个 @MainActor 状态」都会变成静默的数据竞争。
+nonisolated final class HookSocketServer: @unchecked Sendable {
     static let shared = HookSocketServer()
     static let socketPath = "/tmp/agent-island.sock"
 
@@ -1376,66 +1384,19 @@ class HookSocketServer {
 
 }
 
-// MARK: - AnyCodable for tool_input
+// MARK: - 工具入参拍平
 
-/// Type-erasing codable wrapper for heterogeneous values
-/// Used to decode JSON objects with mixed value types
-nonisolated struct AnyCodable: Codable, @unchecked Sendable {
-    /// The underlying value (nonisolated(unsafe) because Any is not Sendable)
-    nonisolated(unsafe) let value: Any
-
-    /// Initialize with any value
-    init(_ value: Any) {
-        self.value = value
-    }
-
-    /// Decode from JSON
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-
-        if container.decodeNil() {
-            value = NSNull()
-        } else if let bool = try? container.decode(Bool.self) {
-            value = bool
-        } else if let int = try? container.decode(Int.self) {
-            value = int
-        } else if let double = try? container.decode(Double.self) {
-            value = double
-        } else if let string = try? container.decode(String.self) {
-            value = string
-        } else if let array = try? container.decode([AnyCodable].self) {
-            value = array.map { $0.value }
-        } else if let dict = try? container.decode([String: AnyCodable].self) {
-            value = dict.mapValues { $0.value }
-        } else {
-            throw DecodingError.dataCorruptedError(
-                in: container, debugDescription: "Cannot decode value")
+nonisolated extension HookEvent {
+    /// 工具入参拍平成 `[String: String]`（`ToolCallItem.input` / `SubagentToolCall.input` 用）。
+    ///
+    /// 这段循环原先在 `SessionStore` 的工具跟踪与子 Agent 跟踪里各写一遍；两处口径必须一致，
+    /// 否则同一个工具在顶层卡片与子 Agent 卡片上会显示不同的入参。
+    var flattenedToolInput: [String: String] {
+        guard let toolInput else { return [:] }
+        var flattened: [String: String] = [:]
+        for (key, value) in toolInput {
+            if let scalar = value.scalarString { flattened[key] = scalar }
         }
-    }
-
-    /// Encode to JSON
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-
-        switch value {
-        case is NSNull:
-            try container.encodeNil()
-        case let bool as Bool:
-            try container.encode(bool)
-        case let int as Int:
-            try container.encode(int)
-        case let double as Double:
-            try container.encode(double)
-        case let string as String:
-            try container.encode(string)
-        case let array as [Any]:
-            try container.encode(array.map { AnyCodable($0) })
-        case let dict as [String: Any]:
-            try container.encode(dict.mapValues { AnyCodable($0) })
-        default:
-            throw EncodingError.invalidValue(
-                value,
-                EncodingError.Context(codingPath: [], debugDescription: "Cannot encode value"))
-        }
+        return flattened
     }
 }
