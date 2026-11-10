@@ -8,7 +8,11 @@
 import Foundation
 
 /// Represents a tmux target (session:window.pane)
-struct TmuxTarget: Sendable {
+///
+/// `nonisolated`：它跨 actor 传递（`TmuxTargetFinder` 是 actor、聊天页在主 actor），
+/// 而工程默认隔离是 MainActor —— 不标的话 `Equatable` 的一致性也会跟着被主 actor 隔离，
+/// 从非隔离上下文比较就是「main actor-isolated conformance ... cannot be used」。
+nonisolated struct TmuxTarget: Equatable, Sendable {
     let session: String
     let window: String
     let pane: String

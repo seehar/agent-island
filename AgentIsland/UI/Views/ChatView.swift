@@ -692,7 +692,7 @@ struct ChatView: View {
  private func sendToSession(_ text: String) async -> Bool {
   let route = sendRoute
   if let tty = route.tmuxTTY,
-   let target = await findTmuxTarget(tty: tty),
+   let target = await TmuxPaneList.locate(tty: tty),
    await ToolApprovalHandler.shared.sendMessage(text, to: target)
   {
    return true
@@ -703,37 +703,7 @@ struct ChatView: View {
    text, toTerminal: terminalId, cliPath: session.paseoCliPath)
  }
 
- private func findTmuxTarget(tty: String) async -> TmuxTarget? {
-  guard let tmuxPath = await TmuxPathFinder.shared.getTmuxPath() else {
-   return nil
-  }
 
-  do {
-   let output = try await ProcessExecutor.shared.run(
-    tmuxPath,
-    arguments: [
-     "list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index} #{pane_tty}",
-    ]
-   )
-
-   let lines = output.components(separatedBy: "\n")
-   for line in lines {
-    let parts = line.components(separatedBy: " ")
-    guard parts.count >= 2 else { continue }
-
-    let target = parts[0]
-    let paneTty = parts[1].replacingOccurrences(of: "/dev/", with: "")
-
-    if paneTty == tty {
-     return TmuxTarget(from: target)
-    }
-   }
-  } catch {
-   return nil
-  }
-
-  return nil
- }
 
  /// 中断当前会话：先按 tmux pane 发 Ctrl-C，退到 Paseo 托管终端。
  /// 两条通道与「发送消息」同源（都不自解析 pane、不直接跑 tmux 命令），
@@ -748,7 +718,7 @@ struct ChatView: View {
 
    let route = sendRoute
    if let tty = route.tmuxTTY,
-    let target = await findTmuxTarget(tty: tty),
+    let target = await TmuxPaneList.locate(tty: tty),
     await ToolApprovalHandler.shared.sendInterrupt(to: target)
    {
     return
