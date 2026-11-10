@@ -229,4 +229,76 @@ struct SessionHookReducersTests {
 
         #expect(session.phase.isWaitingForApproval)
     }
+
+    // MARK: - 相位推导
+
+    private func approvalSession() -> SessionState {
+        makeSession(
+            phase: .waitingForApproval(
+                PermissionContext(
+                    toolUseId: "t1", toolName: "Bash", toolInput: nil, receivedAt: Date())))
+    }
+
+    private func preToolUseEvent() throws -> HookEvent {
+        try makeEvent([
+            "event": "PreToolUse", "status": "running_tool", "tool": "Bash",
+            "tool_use_id": "t1",
+        ])
+    }
+
+    @Test("普通进度事件把空闲会话推到处理中")
+    func phaseMovesToProcessing() throws {
+        var session = makeSession()
+        let event = try makeEvent(["event": "UserPromptSubmit", "status": "processing"])
+
+        let held = SessionHookReducers.applyPhase(event: event, session: &session)
+
+        #expect(!held)
+        #expect(session.phase == .processing)
+    }
+
+    @Test("待批在手时 PreToolUse 不许把相位拉回处理中")
+    func livePendingHoldsApprovalPhase() throws {
+        var session = approvalSession()
+
+        let held = SessionHookReducers.applyPhase(
+            event: try preToolUseEvent().withLivePending(true), session: &session)
+
+        #expect(held)
+        #expect(session.phase.isWaitingForApproval)
+    }
+
+    @Test("没有活着的待批时同一条事件照常推进（消融对照）")
+    func withoutLivePendingSameEventAdvances() throws {
+        var session = approvalSession()
+
+        let held = SessionHookReducers.applyPhase(
+            event: try preToolUseEvent().withLivePending(false), session: &session)
+
+        #expect(!held)
+        #expect(session.phase == .processing)
+    }
+
+    @Test("已结束的会话被新一轮活动复活")
+    func endedSessionRevivesOnActivity() throws {
+        var session = makeSession(phase: .ended)
+
+        SessionHookReducers.applyPhase(event: try preToolUseEvent(), session: &session)
+
+        // `.ended` 是终态，必须先显式回 idle 才迁得动。
+        #expect(session.phase == .processing)
+    }
+
+    @Test("迁移表拒绝的组合保持原相位")
+    func invalidTransitionKeepsPhase() throws {
+        var session = makeSession(phase: .waitingForInput)
+        let event = try makeEvent([
+            "event": "PermissionRequest", "status": "waiting_for_approval",
+            "expects_response": true, "tool": "Bash", "tool_use_id": "t9",
+        ])
+
+        SessionHookReducers.applyPhase(event: event, session: &session)
+
+        #expect(session.phase == .waitingForInput)
+    }
 }

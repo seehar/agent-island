@@ -153,36 +153,8 @@ actor SessionStore {
             return
         }
 
-        // 已结束的行可以被新一轮活动复活：`--resume` 会用同一个会话 id 继续，
-        // 而相位表里 .ended 是终态（事件驱动转不出去）。这里显式做一次「重开」，
-        // 先回空闲态，再由下面那张表决定这次事件该去哪里。
-        if session.phase == .ended {
-            session.phase = .idle
-        }
-
-        let newPhase = event.determinePhase()
-
-        // 有活着的待批时，状态类事件不许把相位从「等待审批」拉走。
-        //
-        // 闸门版集成**先发闸门信封、后发 PreToolUse**（两条独立连接、彼此不保序）：实测
-        // PreToolUse 会在 74ms 后把相位推回 `processing`，卡片随之消失——而应用还攥着那条
-        // 连接等一个再也点不到的决定，工具一直挂到客户端预算耗尽被静默拒绝，用户侧毫无反馈
-        // （这正是「工具调用没反应」那条报障的根因）。待批是**已经发生的事实**（服务端持有
-        // 那条 fd），状态上报只是描述，冲突时以事实为准。
-        let heldByPending = SessionPhase.statusUpdateBlockedByPending(
-            current: session.phase, next: newPhase, hasLivePending: event.hasLivePending)
-
-        if heldByPending {
-            Self.logger.debug(
-                "Keeping waitingForApproval: \(event.event, privacy: .public) arrived while a pending decision is live"
-            )
-        } else if session.phase.canTransition(to: newPhase) {
-            session.phase = newPhase
-        } else {
-            Self.logger.debug(
-                "Invalid transition: \(String(describing: session.phase), privacy: .public) -> \(String(describing: newPhase), privacy: .public), ignoring"
-            )
-        }
+        // 相位推导与迁移（含「待批在手时不被状态上报拉走」的规则）见 `SessionHookReducers`。
+        SessionHookReducers.applyPhase(event: event, session: &session)
 
         if event.event == "PermissionRequest", let toolUseId = event.toolUseId {
             Self.logger.debug(

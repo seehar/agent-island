@@ -17,6 +17,46 @@ nonisolated enum SessionHookReducers {
     private static let logger = Logger(
         subsystem: "com.celestial.AgentIsland", category: "Session")
 
+    /// 按事件推导并落一次相位迁移。
+    ///
+    /// 三条规则的**顺序**有意义：
+    /// ① `--resume` 会用同一个会话 id 继续，而 `.ended` 在迁移表里是终态——先把相位
+    ///   显式放回 `.idle`，下面的迁移才走得动；
+    /// ② 有活着的待批时，状态类事件不许把相位从「等待审批」拉走：待批是已经发生的
+    ///   事实（服务端还攥着那条连接），状态上报只是描述，冲突时以事实为准；
+    /// ③ 迁移表拒绝的组合保持原相位（只记一条调试图）。
+    ///
+    /// - Returns: 是否因「待批钉住」而跳过了迁移。
+    @discardableResult
+    static func applyPhase(event: HookEvent, session: inout SessionState) -> Bool {
+        if session.phase == .ended {
+            session.phase = .idle
+        }
+
+        let next = event.determinePhase()
+        let heldByPending = SessionPhase.statusUpdateBlockedByPending(
+            current: session.phase, next: next, hasLivePending: event.hasLivePending)
+
+        if heldByPending {
+            logger.debug(
+                "Keeping waitingForApproval: \(event.event, privacy: .public) arrived while a pending decision is live"
+            )
+            return true
+        }
+        if session.phase.canTransition(to: next) {
+            session.phase = next
+        } else {
+            // 先取值再打日志：`Logger` 的插值是 escaping autoclosure，直接写 `session.phase`
+            // 会捕获 inout 参数（编译器直接报错）。
+            let from = String(describing: session.phase)
+            let to = String(describing: next)
+            logger.debug(
+                "Invalid transition: \(from, privacy: .public) -> \(to, privacy: .public), ignoring"
+            )
+        }
+        return false
+    }
+
     static func processToolTracking(event: HookEvent, session: inout SessionState) {
         switch event.event {
         case "PreToolUse":
