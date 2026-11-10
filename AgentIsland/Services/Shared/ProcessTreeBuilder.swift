@@ -55,13 +55,6 @@ nonisolated final class ProcessTreeBuilder: @unchecked Sendable {
         return tree
     }
 
-    /// 跳过缓存重扫（需要「此刻」视图时用；正常路径用 `buildTree()`）。
-    nonisolated func buildFreshTree() -> [Int: ProcessInfo] {
-        let tree = scanTree()
-        store(tree)
-        return tree
-    }
-
     private nonisolated func store(_ tree: [Int: ProcessInfo]) {
         lock.lock()
         cachedTree = tree

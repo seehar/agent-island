@@ -695,18 +695,6 @@ class HookSocketServer {
   return pendingPermissions.values.contains { $0.key == key }
  }
 
- /// Get the pending permission details for a session (if any)
- func getPendingPermission(key: SessionKey) -> (
-  toolName: String?, toolId: String?, toolInput: [String: AnyCodable]?
- )? {
-  permissionsLock.lock()
-  defer { permissionsLock.unlock() }
-  guard let pending = pendingPermissions.values.first(where: { $0.key == key }) else {
-   return nil
-  }
-  return (pending.event.tool, pending.toolUseId, pending.event.toolInput)
- }
-
  /// 待批卡片的展示档位（危险命令 / 闸门降级 / 让位）；该会话没有待批时返回 nil。
  func pendingApprovalDisplay(key: SessionKey) -> PendingApprovalDisplay? {
   permissionsLock.lock()

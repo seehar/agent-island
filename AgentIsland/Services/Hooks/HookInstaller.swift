@@ -438,24 +438,6 @@ nonisolated struct HookInstaller {
             return false
         }
     }
-
-    nonisolated private static func removingAgentIslandHooks(from entry: [String: Any]) -> [String: Any]? {
-        guard var entryHooks = entry["hooks"] as? [[String: Any]] else {
-            return entry
-        }
-
-        entryHooks.removeAll(where: isAgentIslandHook)
-        guard !entryHooks.isEmpty else { return nil }
-
-        var updatedEntry = entry
-        updatedEntry["hooks"] = entryHooks
-        return updatedEntry
-    }
-
-    nonisolated private static func isAgentIslandHook(_ hook: [String: Any]) -> Bool {
-        let cmd = hook["command"] as? String ?? ""
-        return isOwnHookCommand(cmd)
-    }
 }
 
 // MARK: - 备份
