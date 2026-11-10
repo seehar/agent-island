@@ -123,33 +123,54 @@ nonisolated final class HermesUsageReader {
   func contributions(
     sessionId: String, subagentSessions: Set<String>, calendar: Calendar
   ) throws -> [UsageBucketDelta] {
-    guard
-      let session = try query(
-        """
-        SELECT max(s.started_at, COALESCE(s.ended_at, 0),
-                   COALESCE(
-                     (SELECT max(m.timestamp) FROM messages m WHERE m.session_id = s.id), 0)),
-               COALESCE(s.model, ''), s.input_tokens, s.output_tokens, s.cache_read_tokens,
-               s.cache_write_tokens
-        FROM sessions s WHERE s.id = ?;
-        """,
-        values: [.text(sessionId)],
-        row: { statement in
-          (
-            updatedAt: sqlite3_column_double(statement, 0),
-            model: self.text(statement, 1) ?? "",
-            input: Int(sqlite3_column_int64(statement, 2)),
-            output: Int(sqlite3_column_int64(statement, 3)),
-            cacheRead: Int(sqlite3_column_int64(statement, 4)),
-            cacheWrite: Int(sqlite3_column_int64(statement, 5))
-          )
-        }
-      ).first
-    else { return [] }
-
+    guard let header = try sessionHeader(sessionId: sessionId) else { return [] }
     let hourKey = UsageStatsKey.hour(
-      for: Date(timeIntervalSince1970: session.updatedAt), calendar: calendar)
+      for: Date(timeIntervalSince1970: header.updatedAt), calendar: calendar)
     let isSubagent = subagentSessions.contains(sessionId)
+    return try tokenDeltas(
+      sessionId: sessionId, hourKey: hourKey, isSubagent: isSubagent, header: header)
+      + toolCallDeltas(sessionId: sessionId, hourKey: hourKey, isSubagent: isSubagent)
+  }
+
+  /// 会话头：最后一次活动时间（会话行 / 结束时间 / 最后一条消息三者取最大）、`model` 列，
+  /// 以及 `sessions` 上记的合计用量。
+  private struct SessionHeader {
+    let updatedAt: Double
+    let model: String
+    let input: Int
+    let output: Int
+    let cacheRead: Int
+    let cacheWrite: Int
+  }
+
+  private func sessionHeader(sessionId: String) throws -> SessionHeader? {
+    try query(
+      """
+      SELECT max(s.started_at, COALESCE(s.ended_at, 0),
+                 COALESCE(
+                   (SELECT max(m.timestamp) FROM messages m WHERE m.session_id = s.id), 0)),
+             COALESCE(s.model, ''), s.input_tokens, s.output_tokens, s.cache_read_tokens,
+             s.cache_write_tokens
+      FROM sessions s WHERE s.id = ?;
+      """,
+      values: [.text(sessionId)],
+      row: { statement in
+        SessionHeader(
+          updatedAt: sqlite3_column_double(statement, 0),
+          model: self.text(statement, 1) ?? "",
+          input: Int(sqlite3_column_int64(statement, 2)),
+          output: Int(sqlite3_column_int64(statement, 3)),
+          cacheRead: Int(sqlite3_column_int64(statement, 4)),
+          cacheWrite: Int(sqlite3_column_int64(statement, 5))
+        )
+      }
+    ).first
+  }
+
+  /// token 增量：优先按 `session_model_usage.model` 拆桶；没有记账行时回落到会话合计。
+  private func tokenDeltas(
+    sessionId: String, hourKey: String, isSubagent: Bool, header: SessionHeader
+  ) throws -> [UsageBucketDelta] {
     var deltas: [UsageBucketDelta] = []
 
     // token：按 `model` 拆（`billing_*` 列不是维度）。同一会话同一模型可能有多行——那是
@@ -189,20 +210,28 @@ nonisolated final class HermesUsageReader {
     // 列，没有就留空（空模型的桶不进模型榜）。按模型的行存在时**必须**走上面那支，否则
     // 同一批 token 会被计两次。
     if models.isEmpty,
-      session.input != 0 || session.output != 0 || session.cacheRead != 0
-        || session.cacheWrite != 0
+      header.input != 0 || header.output != 0 || header.cacheRead != 0
+        || header.cacheWrite != 0
     {
       var delta = UsageBucketDelta(
         hourKey: hourKey, sessionId: sessionId, isSubagent: isSubagent, tool: "")
       delta.records = 1
-      delta.model = session.model
-      delta.input = session.input
-      delta.output = session.output
-      delta.cacheRead = session.cacheRead
-      delta.cacheWrite = session.cacheWrite
+      delta.model = header.model
+      delta.input = header.input
+      delta.output = header.output
+      delta.cacheRead = header.cacheRead
+      delta.cacheWrite = header.cacheWrite
       deltas.append(delta)
     }
 
+    return deltas
+  }
+
+  /// 工具调用增量：`tool_name` 非空的行各计一次（口径见函数内的注释）。
+  private func toolCallDeltas(
+    sessionId: String, hourKey: String, isSubagent: Bool
+  ) throws -> [UsageBucketDelta] {
+    var deltas: [UsageBucketDelta] = []
     // 工具调用：`tool_name` 非空的行各计一次。
     //
     // **不限定 role**：Hermes 自己的口径是「role == 'tool' 或带 tool_calls 的消息」计入
