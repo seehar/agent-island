@@ -55,6 +55,8 @@ AgentIsland/
     Agents/     # Agent 接入面：AgentProvider 协议、AgentRegistry、各 Provider、集成安装/卸载、进程与记录扫描
                 #   AgentHooks.swift 是「配置文件型 hook」的描述表（格式/路径/事件/回写协议），
                 #   AgentConfigInstaller.swift + AgentConfigMerger.swift 按它写入各工具自己的配置
+                #   （按格式族拆：+Kimi/+TraeCLI/+Hermes；CodexHooksConfig.swift 是 Codex
+                #   `[features] hooks` 的行级开关，纯文本变换）
     Session/    # 记录解析：TranscriptSchema + 各 Agent schema、ConversationParser（JSONL 增量）、AgentFileWatcher、OpenCodeSessionStore（SQLite）、AgentSessionDiscovery
     State/      # SessionStore（actor，唯一状态入口）、FileSyncScheduler
     Hooks/      # HookSocketServer（/tmp/agent-island.sock）、HookInstaller
