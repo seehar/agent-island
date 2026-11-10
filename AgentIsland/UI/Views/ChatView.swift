@@ -23,10 +23,12 @@ struct ChatView: View {
     @State private var isLoading: Bool = true
     @State private var hasLoadedOnce: Bool = false
     @State private var shouldScrollToBottom: Bool = false
-    @State private var isAutoscrollPaused: Bool = false
-    @State private var newMessageCount: Int = 0
-    @State private var previousHistoryCount: Int = 0
+    /// 跟随到底的状态机（暂停 / 攒下的新消息数 / 基线）：判据与计数都在 `ChatScrollState`。
+    @State private var scroll = ChatScrollState()
     @State private var isBottomVisible: Bool = true
+
+    private var isAutoscrollPaused: Bool { scroll.isPaused }
+    private var newMessageCount: Int { scroll.newMessageCount }
     @State private var approvalDisplay: PendingApprovalDisplay?
     /// 待批工具若是 `ask`（交互式提问），这里持有它的问题集。
     @State private var pendingAsk: AskPayload?
@@ -63,24 +65,11 @@ struct ChatView: View {
     private func applyHistory(_ newHistory: [ChatHistoryItem]) {
         guard newHistory != history else { return }
 
-        let countChanged = newHistory.count != history.count
-        // 流式回复期间条目数不变、只有最后一条的正文在长大：那也算「尾部在动」。
-        // 少了这条判据，正在输出的答案会在视口里一点点漂走（用户得手动往下追）。
-        let lastItemContentChanged =
-            newHistory.last?.id == history.last?.id && newHistory.last != history.last
-
-        if isAutoscrollPaused && newHistory.count > previousHistoryCount {
-            newMessageCount += newHistory.count - previousHistoryCount
-            previousHistoryCount = newHistory.count
-        }
-
+        // 「要不要滚到底」与暂停期间的计数都在 `ChatScrollState`（纯值，有单测）。
+        let shouldFollow = scroll.noteHistoryChanged(from: history, to: newHistory)
         history = newHistory
 
-        if MessageAutoscroll.shouldFollow(
-            isAutoscrollPaused: isAutoscrollPaused,
-            countChanged: countChanged,
-            lastItemContentChanged: lastItemContentChanged)
-        {
+        if shouldFollow {
             shouldScrollToBottom = true
         }
 
@@ -626,15 +615,12 @@ struct ChatView: View {
 
     /// Pause autoscroll (user scrolled away from bottom)
     private func pauseAutoscroll() {
-        isAutoscrollPaused = true
-        previousHistoryCount = history.count
+        scroll.pause(atCount: history.count)
     }
 
     /// Resume autoscroll and reset new message count
     private func resumeAutoscroll() {
-        isAutoscrollPaused = false
-        newMessageCount = 0
-        previousHistoryCount = history.count
+        scroll.resume(atCount: history.count)
     }
 
     // MARK: - Actions
