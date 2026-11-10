@@ -931,17 +931,26 @@ run_case_tui_passthrough() {
 # ---------------------------------------------------------------------------
 
 # 证明两件事：① 只上报版**不拦任何工具**（普通命令照跑，且替身从未收到带 approval_kind 的
-# 闸门信封）；② `ask` 走影子路径：替身收到带完整 questions 的作答请求、把答案回灌模型。
+# 闸门信封）；② `ask` 走影子路径：替身收到**由表单折出的**问题集、把答案折回表单数据回灌模型
+# （omp 18.18.3 起原生参数是 `{html}`，`questions[]` 已经是历史形状）。
 # 影子 ask 只在 TUI 根会话接管（headless 交给原生，原生在 headless 下会拒绝），因此本 case 用真 TUI。
 
 # 与 Q1 的 e2e 同一句提示词（verbatim 参数，模型会照办）。
-# 混合场景：**一次调用、两个问题**（并行两次调用会变成两个单题 ask，拿不到多题摘要——实测踩到）
-MIXED_PROMPT_ASK='For this task call the ask tool exactly once with these verbatim parameters: questions=[{"id":"qa","question":"P1_QA?","options":[{"label":"P1_QA1"},{"label":"P1_QA2"}],"multi":true},{"id":"qb","question":"P1_QB?","options":[{"label":"Q1_OPT_ALPHA"},{"label":"P1_QB2"}]}]. After the tool returns, output its result text verbatim as your final line. Do not use any other tool.'''
-DUAL_PROMPT_ASK='For this task, in ONE assistant message, call the ask tool TWICE in parallel with exactly these two calls: 1) questions=[{"id":"qa","question":"P1_QA?","options":[{"label":"P1_QA1"},{"label":"P1_QA2"}],"multi":true}] 2) questions=[{"id":"qb","question":"P1_QB?","options":[{"label":"Q1_OPT_ALPHA"},{"label":"P1_QB2"}]}]. After both return, output each result text verbatim on its own line.'
-PROMPT_ASK='For this task call the ask tool exactly once with these verbatim parameters: questions=[{"id":"pick","question":"Q1_WHICH_COLOR?","header":"Q1_HDR","options":[{"label":"Q1_OPT_ALPHA","description":"Q1_DESC_ALPHA"},{"label":"Q1_OPT_BETA","description":"Q1_DESC_BETA"}]}]. After the tool returns, output its result text verbatim as your final line. Do not use any other tool.'
-# 零选必须打在多选问题上（multi: true）：单选零勾选在原生里不存在，
-# 我们的实现对它走「防御性 → User cancelled the selection」另一条文案。
-PROMPT_ASK_MULTI='For this task call the ask tool exactly once with these verbatim parameters: questions=[{"id":"pick","question":"P1_ZERO_SELECT?","header":"P1_HDR","options":[{"label":"P1_OPT_A"},{"label":"P1_OPT_B"}],"multi":true}]. After the tool returns, output its result text verbatim as your final line. Do not use any other tool.'''
+#
+# omp 18.18.3 起 `ask` 只收**一张 HTML 表单**：参数是 {"html": "<form>…</form>"}（旧版的
+# questions[] 已被原生删掉）。表单属性一律写单引号——整段要嵌进 JSON 字符串里，单引号不必
+# 转义（模型照抄 verbatim 参数时最容易在这里翻车）。
+#
+# 混合场景：**一次调用、两个场景**（并行两次调用会变成两次单题 ask——实测踩到）。
+MIXED_PROMPT_ASK="For this task call the ask tool exactly once with these verbatim parameters: {\"html\": \"<form><fieldset><legend>P1_QA?</legend><label><input type='checkbox' name='qa' value='P1_QA1'>P1_QA1</label><label><input type='checkbox' name='qa' value='P1_QA2'>P1_QA2</label></fieldset><fieldset><legend>P1_QB?</legend><label><input type='radio' name='qb' value='Q1_OPT_ALPHA' checked>Q1_OPT_ALPHA</label><label><input type='radio' name='qb' value='P1_QB2'>P1_QB2</label></fieldset></form>\"}. After the tool returns, output its result text verbatim as your final line. Do not use any other tool."
+PROMPT_ASK="For this task call the ask tool exactly once with these verbatim parameters: {\"html\": \"<form><fieldset><legend>Q1_WHICH_COLOR?</legend><label><input type='radio' name='pick' value='Q1_OPT_ALPHA' checked>Q1_OPT_ALPHA</label><label><input type='radio' name='pick' value='Q1_OPT_BETA'>Q1_OPT_BETA</label></fieldset></form>\"}. After the tool returns, output its result text verbatim as your final line. Do not use any other tool."
+# 零选：checkbox 组一个都不勾（旧契约里的 multi: true 零勾选；单选没有「零选」态）。
+PROMPT_ASK_MULTI="For this task call the ask tool exactly once with these verbatim parameters: {\"html\": \"<form><fieldset><legend>P1_ZERO_SELECT?</legend><label><input type='checkbox' name='pick' value='P1_OPT_A'>P1_OPT_A</label><label><input type='checkbox' name='pick' value='P1_OPT_B'>P1_OPT_B</label></fieldset></form>\"}. After the tool returns, output its result text verbatim as your final line. Do not use any other tool."
+
+# 结果文本在会话记录里是 **JSON 转义过的**：`"pick": []` 会存成 `\"pick\": []`。
+ASK_NEEDLE_ZERO='\"pick\": []'
+ASK_NEEDLE_MIXED_ZERO='\"qa\": []'
+ASK_NEEDLE_MIXED_PICK='\"qb\": \"Q1_OPT_ALPHA\"'
 
 wait_for_approval() {
   local run="$1" seconds="$2" i
@@ -1002,27 +1011,34 @@ run_case_ask_answers() {
   stop_server
 
   log "    ---- ask 结果的原始片段 ----"
-  grep -roE "User did not select any options|User selected: [^\"]{0,40}|[a-z_]+: \[\]|Ask tool was cancelled by the user" \
+  grep -roE "User answers:.{0,80}|Ask tool was cancelled by the user|undefined is not an object" \
     "$run/agent/sessions" 2>/dev/null | sort -u | head -8 | sed 's/^/    /'
 
   log "    ---- 断言 ----"
   assert_payload "$run" '"tool": "ask"' "${name} 影子 ask 请求"
+  assert_payload "$run" '"expects_response": true' "${name} 信封要求作答"
   case "$expect_kind" in
     zero)
-      assert_transcript "$run" "User did not select any options" "${name} 零选文案（原生逐字）"
+      assert_payload "$run" '"id": "pick"' "${name} 表单控件已折成问题（id=name）"
+      assert_transcript "$run" "$ASK_NEEDLE_ZERO" "${name} 零选写进表单数据（合法作答）"
       assert_absent "$run/out/server.jsonl" '"approval_kind"' "${name} 无闸门信封"
       assert_no_abort "$run" "${name}（零选不是取消）"
       ;;
     mixed)
-      assert_transcript "$run" "qa: []" "${name} 多题里的零选题（原生逐字）"
-      assert_transcript "$run" "qb: Q1_OPT_ALPHA" "${name} 另一题的选中结果"
+      assert_payload "$run" '"id": "qa"' "${name} 第一个 fieldset 折成问题 qa"
+      assert_payload "$run" '"id": "qb"' "${name} 第二个 fieldset 折成问题 qb"
+      assert_transcript "$run" "$ASK_NEEDLE_MIXED_ZERO" "${name} 多题里的零选组"
+      assert_transcript "$run" "$ASK_NEEDLE_MIXED_PICK" "${name} 另一题的选中结果"
       assert_no_abort "$run" "${name}"
       ;;
     deny)
+      assert_payload "$run" '"id": "pick"' "${name} 表单控件已折成问题（id=name）"
       assert_transcript "$run" "Ask tool was cancelled by the user" "${name} deny 仍是取消语义（既有行为不变）"
       assert_absent "$run/out/server.jsonl" '"approval_kind"' "${name} 无闸门信封"
       ;;
   esac
+  # 回归守卫：18.18.3 换契约时的真实故障——影子把旧参数原样交给原生，崩在它的 HTML 解析器里。
+  assert_transcript_absent "$run" "undefined is not an object" "${name} 没有解析器崩溃"
   assert_isolation "$run" "$name"
   log ""
 }

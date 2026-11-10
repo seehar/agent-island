@@ -218,6 +218,11 @@ interface SessionHeaderLike {
 interface ExtensionUILike {
   setStatus?(key: string, text: string | undefined): void;
   notify?(message: string, type?: "info" | "warning" | "error"): void;
+  /**
+   * omp 18.18.3 起才有：能把一张 HTML `<form>` 渲染成原生对话框。
+   * 影子 `ask` 用它判断宿主认哪种参数形状（旧版只认 `questions[]`）。
+   */
+  formDialog?(html: string, options?: { timeout?: number; signal?: AbortSignal }): unknown;
 }
 
 /** 扩展可见的最小上下文接口（pi / omp 运行时提供，此处只声明用到的部分）。 */
@@ -1069,24 +1074,28 @@ function subscribeSubagentBus(pi: ExtensionApi): void {
 // 影子 `ask`：让 omp 的交互式提问能在刘海上「选择并回复」
 //
 // 为什么必须是同名影子工具：原生 `ask` 的提问界面属于 omp 自己的 UI 上下文
-// （`AskTool.execute` 走 `context.ui.askDialog`，ask.ts:824-1165），扩展没有「从外部
-// 作答」的入口；`tool_approval_requested/resolved` 则只是 observability（wrapper.ts
+// （`AskTool.execute` 走 `ctx.ui.formDialog` / 逐字段回退，ask.ts:824-1180），扩展没有
+// 「从外部作答」的入口；`tool_approval_requested/resolved` 则只是 observability（wrapper.ts
 // 只 emit、丢弃返回值）。而 omp 的工具注册表是**后写覆盖**：扩展注册同名 `ask` 会顶掉
 // 内置实现（sdk.ts:2945-2950），内置实现仍留在 nativeToolsByName 里供 `ctx.invokeTool`
 // 委托（sdk.ts:2952-2956；文档 docs/extensions.md「Delegating to a native built-in」）。
 //
-// execute 并发两条路，先答者胜：
-//   ① 刘海：阻塞询问（复用闸门的 socket 写法），上行带完整 questions 与
-//      expects_response:true；
-//   ② 原生：`ctx.invokeTool(params, { signal })` —— 保留终端作答能力。
-// ①先答 → abort ②的 signal：原生 `untilAborted` 立刻抛 AbortError，被 ask.ts:1034-1036
-// 折成 `ToolAbortError("Ask input was cancelled")`（**不会** context.abort()，本轮不终止），
-// 同时 `#presentDialog` 的 abort 监听把对话框 dispose、编辑器还回来
-// （extension-ui-controller.ts:1272-1330）。②先答 → 关掉 ①的 socket。
+// **omp 18.18.3 起原生的 `ask` 参数从 `questions[]` 换成了一张 HTML 表单**（`{html}`；
+// 见 18.18.3 的 Breaking Changes）：模型写 `<form>`，提交的表单数据以 JSON 回到模型。
+// 影子工具必须跟着换，否则会出现这条真实故障——影子仍按 `questions[]` 收参数、再把原参数
+// 原样委托给新版原生：委托路径**不跑原生 strict 校验**，原生拿 `params.html === undefined`
+// 直接进 HTML 解析器，模型看到的是 `undefined is not an object (evaluating 'u.length')`
+// 而不是可读的参数错误（2026-11-10 在 omp 18.18.3 / 18.18.6 上 7 次提问 100% 复现）。
 //
-// 不退化：拿不到会话身份、非 TUI 根会话、原生不存在、应用不可达/超时 → 一律原生独占。
-// 纪律：与闸门一致，永不抛错；唯一例外是「用户取消」——那是**按原生语义**主动抛
-// `ToolAbortError`（ask.ts:1016 / 1125：原生取消 = `context.abort()` 后抛 `ToolAbortError`）。
+// execute 并发两条路，先答者胜：
+//   ① 刘海：阻塞询问（复用闸门的 socket 写法），上行带**由表单派生**的问题与
+//      expects_response:true（应用侧 `AskQuestion` 线上形状未变，卡片不用改）；
+//   ② 原生：`ctx.invokeTool(params, { signal })` —— 保留终端作答能力。
+// ①先答 → abort ②的 signal：原生那条立刻抛 AbortError（被折成取消，**不会**终止本轮），
+// 同时把终端对话框撤掉。②先答 → 关掉 ①的 socket（应用把卡片当「外部已裁决」）。
+//
+// 不退化：拿不到会话身份、非 TUI 根会话、原生不存在、应用不可达/超时 → 一律交给原生独占。
+// 纪律：与闸门一致，处理路径永不抛错；只有「用户取消」与「模型给错参数」按原生语义抛错。
 // ---------------------------------------------------------------------------
 
 /** 影子工具是否已注册（只有 omp 系才有原生 `ask` 可以委托，pi 0.85.1 没有 `ask`）。 */
@@ -1096,18 +1105,13 @@ let shadowAskRegistered = false;
  * ask 作答预算。
  *
  * 读题、权衡、点选比「许可/拒绝」慢得多，而原生询问本身没有超时
- * （`ask.timeout` 默认 0 = 关闭，settings-schema.ts:2281-2297），所以它比闸门给得宽。
- * 但它必须**严格小于**服务端预算，四层从外到内是：
+ * （`ask.timeout` 默认 0 = 关闭），所以它比闸门给得宽。但它必须**严格小于**服务端预算，
+ * 四层从外到内是：
  *
  *   应用 pending TTL 330s  >  omp 服务端 toolCallTimeoutMs 300s  >  ask 客户端 240s  >  闸门客户端 120s
  *
- * 服务端那 300s 由安装器写进用户配置（`extensionHandlers.toolCallTimeoutMs`，
- * `OmpConfigInstaller.gateHandlerTimeoutMs`；消费方是扩展 `tool_call` handler 的
- * active-work 预算，settings-schema.ts:6094-6104）。
  * 取 240s 而不是 300s：**相等时「谁先到点」不可判定**——客户端以为自己仍是裁决者，
- * 服务端却可能同时 fail-closed，用户看到的是不可读的 `Extension … timed out`；
- * 而且相等这种配置在真机上要等满那个时长才能证伪。留 60s 余量后，「本扩展总是先说话、
- * 理由可读」不再依赖竞态。应用侧 pending TTL 仍取 330s（> 300s），TTL 不变。
+ * 服务端却可能同时 fail-closed，用户看到的是不可读的 `Extension … timed out`。
  *
  * 可用 AGENT_ISLAND_ASK_TIMEOUT_MS 覆盖（验收靠它把超时改小）。
  */
@@ -1131,9 +1135,7 @@ interface AskWireQuestion {
 
 /**
  * 下行作答：键为问题 id，值为选中的 label（自由文本则是原文）。
- * **空数组是合法值**——多选的「零选」：`{"<id>": []}` 表示该题已作答且一项都没选，
- * 与「键缺失」（未作答）是两件事，映射到原生文案时分别是
- * `User did not select any options`（单题）/ `<id>: []`（多题）。
+ * **空数组是合法值**——多选的「零选」：`{"<id>": []}` 表示该题已作答且一项都没选。
  */
 type AskAnswers = Record<string, string[]>;
 
@@ -1152,202 +1154,532 @@ interface ShadowAskContextLike extends ExtensionContextLike {
   abort?(): unknown;
 }
 
-/** 从入参里取数组字段（`readObject` 会把数组也当对象返回，故另开一个）。 */
-function readArray(source: unknown, key: string): unknown[] | undefined {
-  if (typeof source !== "object" || source === null || !(key in source)) {
-    return undefined;
+/** 影子 ask 的入参形状（未解析的原始对象）。 */
+type ShadowAskParams = Record<string, unknown>;
+
+// ---------------------------------------------------------------------------
+// 表单：omp 18.18.3 起原生 `ask` 的唯一参数（`{html}`）
+//
+// 只解析「作答控件」这一层子集：`<fieldset>/<legend>` 分组、`<label for>` 与包裹式
+// `<label>`、`<input type=radio|checkbox|text|number|…>`、`<select>`（可 multiple）、
+// `<textarea>`。图片、链接、排版标签一律忽略（刘海不渲染富内容）。
+//
+// 语义对齐原生 `.ts` 实现的三条硬约束：
+//   1. **只有带 `name` 的控件才算作答项**（原生对「一个具名控件都没有」的表单报错）；
+//   2. 同名 radio / checkbox 合成一组（多选 = checkbox 或 `select[multiple]`）；
+//   3. `<legend>` 是一组问题的标题（原生 `fieldQuestions` 也按 `:scope > legend` 取名）。
+// 模型的提示词（`SHADOW_ASK_DESCRIPTION`）因此要求「一题一个 `<fieldset><legend>`」，
+// 否则标题只能退回 `name`。
+// ---------------------------------------------------------------------------
+
+/** 表单里的一个候选（radio / checkbox / option）。 */
+interface AskFormOption {
+  label: string;
+  value: string;
+}
+
+/** 表单里的一个具名作答项；同名 radio / checkbox 合成一组。 */
+interface AskFormField {
+  name: string;
+  kind: "choice" | "text";
+  multi: boolean;
+  required: boolean;
+  /** 展示标题：`<legend>` / `<label for>` / 包裹式 `<label>` / 控件名，依次退回。 */
+  question: string;
+  options: AskFormOption[];
+}
+
+/** 表单 → 刘海问题集的投影；`optionValues` 记住「线上 label → 真实 value」的映射。 */
+interface AskFormProjection {
+  questions: AskWireQuestion[];
+  optionValues: Map<string, Map<string, string>>;
+}
+
+/** 不参与作答的 `<input type>`（提交按钮、文件、隐藏域…）。 */
+const ASK_IGNORED_INPUT_TYPES: Record<string, true> = {
+  submit: true,
+  button: true,
+  reset: true,
+  image: true,
+  file: true,
+  hidden: true,
+};
+
+/** 标签扫描：跳过注释，属性允许带引号（属性值里可能含 `>`）。 */
+const ASK_TAG_SCAN = /<!--[\s\S]*?-->|<\s*(\/?)\s*([a-zA-Z][\w:-]*)((?:"[^"]*"|'[^']*'|[^>"'])*)>/g;
+
+/** HTML 实体表（只列表单里常见的；数字实体走下面单独分支）。 */
+const ASK_NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: "\"",
+  apos: "'",
+  nbsp: " ",
+  ndash: "–",
+  mdash: "—",
+  hellip: "…",
+  rarr: "→",
+  larr: "←",
+};
+
+/** 解码 HTML 实体；解不开的原样保留（宁可见 `&foo;` 也不要吞字）。 */
+function decodeAskEntities(text: string): string {
+  return text.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (match, body: string) => {
+    if (body.startsWith("#")) {
+      const hex = body[1] === "x" || body[1] === "X";
+      const code = Number.parseInt(hex ? body.slice(2) : body.slice(1), hex ? 16 : 10);
+      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
+    }
+    const named = ASK_NAMED_ENTITIES[body.toLowerCase()];
+    return named === undefined ? match : named;
+  });
+}
+
+/** 归一化可见文本：实体解码 + 空白折叠（标题与选项会显示在刘海上，不能带换行）。 */
+function normalizeAskText(text: string): string {
+  return decodeAskEntities(text).replace(/\s+/g, " ").trim();
+}
+
+/** 解析标签属性；同名属性只取第一个（HTML 语义）。 */
+function parseAskAttributes(raw: string): Record<string, string> {
+  const attributes: Record<string, string> = {};
+  const pattern = /([a-zA-Z_:][-\w:.]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
+  let match: RegExpExecArray | null = pattern.exec(raw);
+  while (match !== null) {
+    const name = (match[1] ?? "").toLowerCase();
+    const value = match[2] ?? match[3] ?? match[4] ?? "";
+    if (name !== "" && !(name in attributes)) {
+      attributes[name] = decodeAskEntities(value);
+    }
+    match = pattern.exec(raw);
   }
-  const value = (source as Record<string, unknown>)[key];
-  return Array.isArray(value) ? value : undefined;
+  return attributes;
+}
+
+/** `<label>` 的收集体：文本 + `for=` 指向的控件 id。 */
+interface AskLabelGroup {
+  text: string;
+  forId?: string;
+}
+
+/** 一个 `<fieldset>` 的收集体：`<legend>` 的文本（可能出现在控件之后，故最后才归一）。 */
+interface AskSectionGroup {
+  legend: string;
+  capturing: boolean;
+}
+
+/** 解析阶段的原始控件（之后才折成 `AskFormField`）。 */
+interface AskRawControl {
+  kind: "input" | "select" | "textarea";
+  name: string;
+  type: string;
+  attributes: Record<string, string>;
+  options: AskFormOption[];
+  /** 包裹它的 `<label>`（就近一个）。 */
+  label?: AskLabelGroup;
+  /** 所在的 `<fieldset>`（就近一个）。 */
+  section?: AskSectionGroup;
+}
+
+/** 打开中的 `<option>`。 */
+interface AskOpenOption {
+  text: string;
+  value: string;
 }
 
 /**
- * 把工具入参归一成上行形状；任何一题缺 `id`/`question` 就返回 undefined（退回原生）。
+ * 把一张表单解析成作答项。
  *
- * 字段语义逐条对齐原生 schema（ask.ts:51-71）：`id`/`question` 必有、`header` 可选、
- * `options[].label` 必有而 `description` 可选、`multi` 缺省按单选。
- * `free_text` **恒为 true**：原生每个问题都由 UI 自动补一行「Other (type your own)」
- * （ask.ts:42 的 OTHER_OPTION 与 prompts/tools/ask.md 的 critical 段），所以「能不能
- * 自由文本」在原生里恒真；上报成 false 会凭空砍掉一个原生有的入口。
+ * 单遍扫描 + 栈：文本按当前打开的 `<option>` / `<textarea>` / `<label>` / `<legend>` 分流，
+ * 控件在**开标签**处登记（因此 `label` / `fieldset` 的归属取自开标签那一刻的栈顶）。
+ * 畸形 HTML（未闭合标签）在这里被静默容忍：抢到的是「能不能作答」，不是「渲染得像不像」。
  */
-function normalizeAskQuestions(input: unknown): AskWireQuestion[] | undefined {
-  const rawQuestions = readArray(input, "questions");
-  if (rawQuestions === undefined || rawQuestions.length === 0) {
-    return undefined;
-  }
-  const questions: AskWireQuestion[] = [];
-  for (const rawQuestion of rawQuestions) {
-    const id = readString(rawQuestion, "id");
-    const question = readString(rawQuestion, "question");
-    if (id === undefined || question === undefined) {
-      return undefined;
+function parseAskForm(html: string): AskFormField[] {
+  const controls: AskRawControl[] = [];
+  const labels: AskLabelGroup[] = [];
+  const labelStack: AskLabelGroup[] = [];
+  const sectionStack: AskSectionGroup[] = [];
+  const openOptions: AskOpenOption[] = [];
+  const openSelects: AskRawControl[] = [];
+  const openTextareas: AskRawControl[] = [];
+
+  let buffer = "";
+
+  const flushText = () => {
+    if (buffer.length === 0) {
+      return;
     }
-    const options: AskWireOption[] = [];
-    for (const rawOption of readArray(rawQuestion, "options") ?? []) {
-      const label = readString(rawOption, "label");
-      if (label === undefined) {
+    const chunk = buffer;
+    buffer = "";
+    const option = openOptions[openOptions.length - 1];
+    if (option !== undefined) {
+      option.text += chunk;
+      return;
+    }
+    const textarea = openTextareas[openTextareas.length - 1];
+    if (textarea !== undefined) {
+      // textarea 的正文是初值，不是标题：吞掉即可，别让它污染外层 label 文本。
+      return;
+    }
+    const label = labelStack[labelStack.length - 1];
+    if (label !== undefined) {
+      label.text += chunk;
+    }
+    const section = sectionStack[sectionStack.length - 1];
+    if (section !== undefined && section.capturing) {
+      section.legend += chunk;
+    }
+  };
+
+  const registerControl = (control: AskRawControl) => {
+    controls.push(control);
+    const label = labelStack[labelStack.length - 1];
+    if (label !== undefined) {
+      control.label = label;
+    }
+    const section = sectionStack[sectionStack.length - 1];
+    if (section !== undefined) {
+      control.section = section;
+    }
+  };
+
+  const handleOpenTag = (tag: string, attributes: Record<string, string>) => {
+    switch (tag) {
+      case "label":
+        labelStack.push({ text: "", ...(attributes.for === undefined ? {} : { forId: attributes.for }) });
+        return;
+      case "fieldset":
+        sectionStack.push({ legend: "", capturing: false });
+        return;
+      case "legend": {
+        const section = sectionStack[sectionStack.length - 1];
+        if (section !== undefined) {
+          section.capturing = true;
+          section.legend = "";
+        }
+        return;
+      }
+      case "option":
+        openOptions.push({ text: "", value: attributes.value ?? "" });
+        return;
+      case "select": {
+        const control: AskRawControl = {
+          kind: "select",
+          name: attributes.name ?? "",
+          type: "select",
+          attributes,
+          options: [],
+        };
+        registerControl(control);
+        openSelects.push(control);
+        return;
+      }
+      case "textarea": {
+        const control: AskRawControl = {
+          kind: "textarea",
+          name: attributes.name ?? "",
+          type: "textarea",
+          attributes,
+          options: [],
+        };
+        registerControl(control);
+        openTextareas.push(control);
+        return;
+      }
+      case "input": {
+        const type = (attributes.type ?? "text").toLowerCase();
+        if (ASK_IGNORED_INPUT_TYPES[type] === true) {
+          return;
+        }
+        registerControl({
+          kind: "input",
+          name: attributes.name ?? "",
+          type,
+          attributes,
+          options: [],
+        });
+        return;
+      }
+      default:
+        return;
+    }
+  };
+
+  const handleCloseTag = (tag: string) => {
+    switch (tag) {
+      case "label": {
+        const label = labelStack.pop();
+        if (label !== undefined) {
+          labels.push(label);
+        }
+        return;
+      }
+      case "fieldset":
+        sectionStack.pop();
+        return;
+      case "legend": {
+        const section = sectionStack[sectionStack.length - 1];
+        if (section !== undefined) {
+          section.capturing = false;
+        }
+        return;
+      }
+      case "option": {
+        const option = openOptions.pop();
+        const select = openSelects[openSelects.length - 1];
+        if (option !== undefined && select !== undefined) {
+          const text = normalizeAskText(option.text);
+          const value = option.value !== "" ? option.value : text;
+          select.options.push({ label: text !== "" ? text : value, value });
+        }
+        return;
+      }
+      case "select":
+        openSelects.pop();
+        return;
+      case "textarea":
+        openTextareas.pop();
+        return;
+      default:
+        return;
+    }
+  };
+
+  ASK_TAG_SCAN.lastIndex = 0;
+  let cursor = 0;
+  let match: RegExpExecArray | null = ASK_TAG_SCAN.exec(html);
+  while (match !== null) {
+    buffer += html.slice(cursor, match.index);
+    flushText();
+    cursor = match.index + match[0].length;
+    const closing = match[1] === "/";
+    const tag = (match[2] ?? "").toLowerCase();
+    if (tag !== "") {
+      if (closing) {
+        handleCloseTag(tag);
+      } else {
+        handleOpenTag(tag, parseAskAttributes(match[3] ?? ""));
+      }
+    }
+    match = ASK_TAG_SCAN.exec(html);
+  }
+  buffer += html.slice(cursor);
+  flushText();
+
+  // `label[for=…]` 的映射（前向引用也要能命中：`<input id=x>` 常写在 `<label for=x>` 之前）。
+  const labelByForId = new Map<string, string>();
+  for (const label of labels) {
+    const text = normalizeAskText(label.text);
+    if (label.forId !== undefined && label.forId !== "" && text !== "") {
+      labelByForId.set(label.forId, text);
+    }
+  }
+
+  const fields: AskFormField[] = [];
+  const byName = new Map<string, AskFormField>();
+  const uniqueName = (name: string): string => {
+    if (!byName.has(name)) {
+      return name;
+    }
+    let suffix = 2;
+    while (byName.has(`${name} (${suffix})`)) {
+      suffix += 1;
+    }
+    return `${name} (${suffix})`;
+  };
+
+  for (const control of controls) {
+    if (control.name === "") {
+      continue;
+    }
+    const sectionText = control.section === undefined ? "" : normalizeAskText(control.section.legend);
+    const ownLabel = control.label === undefined ? "" : normalizeAskText(control.label.text);
+    const id = control.attributes.id ?? "";
+    const labelForId = id === "" ? "" : (labelByForId.get(id) ?? "");
+    const value = control.attributes.value ?? "";
+    const required = "required" in control.attributes;
+
+    if (control.kind === "input" && (control.type === "radio" || control.type === "checkbox")) {
+      const multi = control.type === "checkbox";
+      const optionLabel = labelForId !== "" ? labelForId : ownLabel !== "" ? ownLabel : value !== "" ? value : control.name;
+      const existing = byName.get(control.name);
+      if (existing !== undefined && existing.kind === "choice" && existing.multi === multi) {
+        existing.options.push({ label: optionLabel, value: value !== "" ? value : optionLabel });
+        existing.required = existing.required || required;
         continue;
       }
-      const description = readString(rawOption, "description");
-      options.push(description === undefined ? { label } : { label, description });
+      const field: AskFormField = {
+        name: uniqueName(control.name),
+        kind: "choice",
+        multi,
+        required,
+        question: sectionText !== "" ? sectionText : control.name,
+        options: [{ label: optionLabel, value: value !== "" ? value : optionLabel }],
+      };
+      fields.push(field);
+      byName.set(field.name, field);
+      continue;
     }
-    const header = readString(rawQuestion, "header");
-    questions.push({
-      id,
+
+    if (control.kind === "select") {
+      const question = labelForId !== "" ? labelForId : ownLabel !== "" ? ownLabel : sectionText !== "" ? sectionText : control.name;
+      const field: AskFormField = {
+        name: uniqueName(control.name),
+        kind: "choice",
+        multi: "multiple" in control.attributes,
+        required,
+        question,
+        options: control.options,
+      };
+      fields.push(field);
+      byName.set(field.name, field);
+      continue;
+    }
+
+    const question = labelForId !== "" ? labelForId : ownLabel !== "" ? ownLabel : sectionText !== "" ? sectionText : control.name;
+    const field: AskFormField = {
+      name: uniqueName(control.name),
+      kind: "text",
+      multi: false,
+      required,
       question,
-      ...(header === undefined ? {} : { header }),
-      multi_select: readBool(rawQuestion, "multi"),
+      options: [],
+    };
+    fields.push(field);
+    byName.set(field.name, field);
+  }
+
+  return fields;
+}
+
+/**
+ * 表单 → 刘海问题集。
+ *
+ * 三个映射决定：
+ * - **标题**取字段 `question`（`<legend>` 优先），空则退回 `name`；
+ * - **多选口径**：choice 组按 HTML 语义（checkbox / `select[multiple]`）；文本字段用
+ *   「非必填 ⇒ 多选」表达**可跳过**——应用侧 `AskSelection.canSubmit` 只对单选取输入，
+ *   所以非必填文本题不因此卡住提交（必填文本题仍按单选取文本，交空就提交不了）；
+ * - **重名选项**后缀消歧（label 是应用侧答案字典的键，重复会让两行选中互相串）。
+ */
+function projectAskForm(form: AskFormField[]): AskFormProjection {
+  const questions: AskWireQuestion[] = [];
+  const optionValues = new Map<string, Map<string, string>>();
+  for (const field of form) {
+    const labelToValue = new Map<string, string>();
+    const options: AskWireOption[] = [];
+    for (const option of field.options) {
+      const base = option.label !== "" ? option.label : option.value;
+      if (base === "") {
+        continue;
+      }
+      let label = base;
+      if (labelToValue.has(label)) {
+        label = option.value !== "" && !labelToValue.has(option.value) ? option.value : `${base} (${options.length + 1})`;
+      }
+      if (labelToValue.has(label)) {
+        continue;
+      }
+      labelToValue.set(label, option.value !== "" ? option.value : label);
+      options.push({ label });
+    }
+    optionValues.set(field.name, labelToValue);
+    questions.push({
+      id: field.name,
+      question: field.question !== "" ? field.question : field.name,
+      multi_select: field.kind === "choice" ? field.multi : !field.required,
       free_text: true,
       options,
     });
   }
-  return questions;
+  return { questions, optionValues };
 }
 
-/** 原生保留行标签（ask.ts:42-50）：命中说明这次调用只该由原生校验去拒绝。 */
-const RESERVED_ASK_LABELS = new Set(["Other (type your own)", "Chat about this", "Next →"]);
-
 /**
- * 这次调用是否该交给原生做校验。
+ * 刘海作答 → 表单数据（原生的 `data`：`name` → 字符串或字符串数组）。
  *
- * 原生 execute 内置三类 fail-closed 校验（保留标签冲突、问题 id 重复、同题选项重复，
- * ask.ts:844-921），影子路径不做这些校验就会把「居然被接受了的畸形调用」答出去，
- * 语义与终端不一致。判据命中即退回原生独占，由原生给出它自己那句错误文本——
- * 校验只有一处实现，不抄第二遍。
+ * 应用侧回来的是 **label**（自由文本是原文）；这里折回控件的真实 `value`，好让模型收到的
+ * JSON 与原生提交时一致。自由文本命中某选项 label 时按该选项算（与原生「Other」行同义）。
  */
-function needsNativeAskValidation(questions: AskWireQuestion[]): boolean {
-  const seenIds = new Set<string>();
-  for (const question of questions) {
-    if (seenIds.has(question.id)) {
-      return true;
+function askFormData(
+  form: AskFormField[],
+  projection: AskFormProjection,
+  answers: AskAnswers,
+): Record<string, string | string[]> {
+  const data: Record<string, string | string[]> = {};
+  for (const field of form) {
+    const values = answers[field.name] ?? [];
+    if (field.kind === "text") {
+      data[field.name] = values.length > 0 ? values[0] : "";
+      continue;
     }
-    seenIds.add(question.id);
-    const seenLabels = new Set<string>();
-    for (const option of question.options) {
-      if (RESERVED_ASK_LABELS.has(option.label) || seenLabels.has(option.label)) {
-        return true;
-      }
-      seenLabels.add(option.label);
+    const labelToValue = projection.optionValues.get(field.name);
+    const picked: string[] = [];
+    for (const value of values) {
+      const mapped = labelToValue?.get(value);
+      picked.push(mapped === undefined ? value : mapped);
     }
+    data[field.name] = field.multi ? picked : picked.length > 0 ? picked[0] : "";
   }
-  return false;
-}
-
-/** 一题的作答：原生 `QuestionResult` 的形状（选中项与自由文本分开）。 */
-interface AskAnswerItem {
-  id: string;
-  question: string;
-  options: string[];
-  multi: boolean;
-  selectedOptions: string[];
-  customInput?: string;
-}
-
-/**
- * 把刘海的作答折成原生形状：命中原生选项 label 的值进 `selectedOptions`，
- * 其余算自由文本（原生的 `customInput`，等价终端里的「Other」行）。
- */
-function toAskAnswers(questions: AskWireQuestion[], answers: AskAnswers): AskAnswerItem[] {
-  const items: AskAnswerItem[] = [];
-  for (const question of questions) {
-    const labels = question.options.map((option) => option.label);
-    const chosen = (answers[question.id] ?? []).filter((value) => typeof value === "string" && value.length > 0);
-    const selectedOptions = chosen.filter((value) => labels.includes(value));
-    const customValues = chosen.filter((value) => !labels.includes(value));
-    items.push({
-      id: question.id,
-      question: question.question,
-      options: labels,
-      multi: question.multi_select,
-      selectedOptions,
-      ...(customValues.length === 0 ? {} : { customInput: customValues.join("\n") }),
-    });
-  }
-  return items;
-}
-
-/** 多题作答里的一行；文案对齐原生 `formatQuestionResult`（ask.ts:682-696）。 */
-function formatAskAnswerLine(item: AskAnswerItem): string {
-  if (item.customInput === undefined) {
-    if (item.selectedOptions.length > 0) {
-      return item.multi ? `${item.id}: [${item.selectedOptions.join(", ")}]` : `${item.id}: ${item.selectedOptions[0]}`;
-    }
-    return item.multi ? `${item.id}: []` : `${item.id}: (cancelled)`;
-  }
-  return `${item.id}: "${item.customInput}"`;
-}
-
-/** 单题作答的正文；文案对齐原生 `formatSingleQuestionResponse`（ask.ts:696-733）。 */
-function formatSingleAskAnswer(item: AskAnswerItem): string {
-  const parts: string[] = [];
-  if (item.selectedOptions.length > 0) {
-    parts.push(
-      item.multi
-        ? `User selected: ${item.selectedOptions.join(", ")}`
-        : `User selected: ${item.selectedOptions[0]}`,
-    );
-  }
-  if (item.customInput !== undefined) {
-    const indented = item.customInput
-      .split("\n")
-      .map((line) => `  ${line}`)
-      .join("\n");
-    parts.push(
-      item.customInput.includes("\n")
-        ? `User provided custom input:\n${indented}`
-        : `User provided custom input: ${item.customInput}`,
-    );
-  }
-  if (parts.length > 0) {
-    return parts.join("\n");
-  }
-  return item.multi ? "User did not select any options" : "User cancelled the selection";
+  return data;
 }
 
 /**
  * 组装刘海作答的工具结果。
  *
- * `content` 是模型看到的东西（与原生同一套文案），`details` 沿用原生
- * `AskToolDetails` 的形状（单题是扁平字段、多题是 `results`），TUI 渲染因此与
- * 终端作答一致。
+ * `content` 与原生提交后的文案逐字一致（`User answers:` + 缩进 JSON），`details` 沿用原生
+ * `AskToolDetails` 的形状（`{ answers: [{ name, question, answer }] }`，TUI 渲染因此不变）。
  */
-/**
- * 该题在这次作答里有没有出现（键存在，值可以是空数组 = 零选）。
- * 未出现的题沿用既有语义（按 items 里已作答的题组装）。
- */
-function buildIslandAskResult(questions: AskWireQuestion[], answers: AskAnswers): AskToolResultLike {
-  const items = toAskAnswers(questions, answers);
-  if (items.length === 1) {
-    const item = items[0] as AskAnswerItem;
+function buildIslandAskResult(form: AskFormField[], data: Record<string, string | string[]>): AskToolResultLike {
+  const answers = form.map((field) => {
+    const value = data[field.name];
     return {
-      content: [{ type: "text", text: formatSingleAskAnswer(item) }],
-      details: {
-        question: item.question,
-        options: item.options,
-        multi: item.multi,
-        selectedOptions: item.selectedOptions,
-        ...(item.customInput === undefined ? {} : { customInput: item.customInput }),
-      },
+      name: field.name,
+      question: field.question !== "" ? field.question : field.name,
+      answer: Array.isArray(value) ? value.join(", ") : (value ?? ""),
     };
-  }
+  });
   return {
-    content: [
-      {
-        type: "text",
-        text: `User answers:\n${items.map(formatAskAnswerLine).join("\n")}`,
-      },
-    ],
-    details: {
-      results: items.map((item) => ({
-        id: item.id,
-        question: item.question,
-        options: item.options,
-        multi: item.multi,
-        selectedOptions: item.selectedOptions,
-        ...(item.customInput === undefined ? {} : { customInput: item.customInput }),
-      })),
-    },
+    content: [{ type: "text", text: `User answers:\n${JSON.stringify(data, null, 2)}` }],
+    details: { answers },
   };
+}
+
+/**
+ * 旧版 omp（<18.18.3）的原生 `ask` 只认 `questions[]`：把表单折回去再委托。
+ *
+ * 判据是宿主 TUI 是否具备 `ui.formDialog`（18.18.3 起才有）：新版宿主照原样收 `{html}`，
+ * 旧版宿主只能收 `questions[]`。两条都不会把「宿主不认识的那个形状」交给它自己。
+ */
+function legacyAskQuestions(form: AskFormField[]): Record<string, unknown>[] {
+  return form.map((field) => ({
+    id: field.name,
+    question: field.question !== "" ? field.question : field.name,
+    ...(field.multi ? { multi: true } : {}),
+    options: field.options.map((option) => ({ label: option.label })),
+  }));
+}
+
+/** 宿主 TUI 能不能把 HTML 表单渲染成原生对话框（omp 18.18.3 起才有 `ui.formDialog`）。 */
+function uiRendersForms(ctx: ShadowAskContextLike | undefined): boolean {
+  return typeof ctx?.ui?.formDialog === "function";
+}
+
+/**
+ * `ask` 的参数形状不对时的可读拒绝。
+ *
+ * 必须**自己抛**：委托给原生时它不做 strict 校验，会把缺 `html` 的调用直接喂进 HTML
+ * 解析器，模型看到的只是一句 JSC 的 `undefined is not an object`。
+ */
+function throwAskShapeError(hasLegacyQuestions: boolean): never {
+  const got = hasLegacyQuestions
+    ? "received `questions` (the pre-18.18.3 shape)"
+    : "received no `html`";
+  throw new Error(
+    `ask ${got}: pass one HTML form as {"html": "<form>…</form>"}. ` +
+      "Every control needs a `name`; put each question in a <fieldset> with a <legend>.",
+  );
 }
 
 /** 抛一个与 omp `ToolAbortError` 同名同文案的错误（扩展不 import omp 内部模块）。 */
@@ -1386,9 +1718,6 @@ async function takeNativeAskResult(
   return await native(params, options);
 }
 
-/** 影子 ask 的入参形状（未解析的原始对象）。 */
-type ShadowAskParams = Record<string, unknown>;
-
 /**
  * 并发执行两条路并取先答者；返回值**就是**要交给模型的结果。
  *
@@ -1399,14 +1728,15 @@ type ShadowAskParams = Record<string, unknown>;
  */
 async function raceIslandAndNativeAsk(args: {
   toolCallId: string;
-  params: ShadowAskParams;
-  questions: AskWireQuestion[];
+  nativeParams: Record<string, unknown>;
+  form: AskFormField[];
+  projection: AskFormProjection;
   native: NonNullable<ShadowAskContextLike["invokeTool"]>;
   signal?: AbortSignal;
   onUpdate?: unknown;
   context: ShadowAskContextLike;
 }): Promise<AskToolResultLike> {
-  const { toolCallId, params, questions, native, signal, onUpdate, context } = args;
+  const { toolCallId, nativeParams, form, projection, native, signal, onUpdate, context } = args;
   const body = buildBody(
     {
       event: "ToolApproval",
@@ -1414,14 +1744,14 @@ async function raceIslandAndNativeAsk(args: {
       expects_response: true,
       tool: "ask",
       tool_use_id: toolCallId,
-      message: questions[0]?.question,
-      ask: { questions },
+      message: projection.questions[0]?.question,
+      ask: { questions: projection.questions },
     },
     { sessionId: readSessionIdFrom(context), sessionFile: currentSessionFilePath(context) },
   );
   // 拿不到会话身份就发不出可回答的卡片：退回原生独占（与应用侧「没有 tool_use_id 不登记待批」一致）。
   if (body === undefined) {
-    return await takeNativeAskResult(native, params, { signal, onUpdate });
+    return await takeNativeAskResult(native, nativeParams, { signal, onUpdate });
   }
 
   const island = startDecisionRequest(body, ASK_TIMEOUT_MS);
@@ -1430,7 +1760,7 @@ async function raceIslandAndNativeAsk(args: {
   signal?.addEventListener("abort", onAbort);
   const nativeController = new AbortController();
   // 两条路都先折成「结局对象」：原生那条必须就地 catch，否则败者会变成未处理拒绝。
-  const nativeRace = native(params, { signal: nativeController.signal, onUpdate })
+  const nativeRace = native(nativeParams, { signal: nativeController.signal, onUpdate })
     .then((result) => ({ from: "native" as const, result }))
     .catch((error: unknown) => ({ from: "native-error" as const, error }));
   const settleNative = async (): Promise<AskToolResultLike> => {
@@ -1459,7 +1789,7 @@ async function raceIslandAndNativeAsk(args: {
         : undefined;
     if (answers !== undefined && Object.keys(answers).length > 0) {
       nativeController.abort();
-      return buildIslandAskResult(questions, answers);
+      return buildIslandAskResult(form, askFormData(form, projection, answers));
     }
     // `passthrough`（应用明确不处理这条 / 连接被应用收掉）不是「拒绝」：不掐原生那条，
     // 直接落到下面的 `settleNative()` 让用户在终端里作答。
@@ -1474,22 +1804,11 @@ async function raceIslandAndNativeAsk(args: {
   }
 }
 
-/** 影子 `ask` 的 zod 参数 schema；与原生 arkType schema 同形（ask.ts:51-74）。 */
+/** 影子 `ask` 的 zod 参数 schema：与原生逐字同形（`{ html: "one HTML <form>" }`）。 */
 function buildAskShadowSchema(zod: ExtensionZodLike): unknown {
-  const option = zod.object({
-    label: zod.string().describe("display label"),
-    description: zod.string().optional().describe("optional explanatory text displayed below the label"),
-    preview: zod.string().optional().describe("optional rich preview content for interactive ask dialogs"),
+  return zod.object({
+    html: zod.string().describe("one HTML <form>"),
   });
-  const question = zod.object({
-    id: zod.string().describe("question id"),
-    question: zod.string().describe("question text"),
-    header: zod.string().optional().describe("optional short display chip for rich ask dialogs"),
-    options: zod.array(option).describe("available options"),
-    multi: zod.boolean().optional().describe("allow multiple selections"),
-    recommended: zod.number().optional().describe("recommended option index"),
-  });
-  return zod.object({ questions: zod.array(question).min(1).describe("questions to ask") });
 }
 
 /** 影子 `ask` 给模型看的描述：与原生 prompts/tools/ask.md 同一套规则（浓缩）。 */
@@ -1498,35 +1817,38 @@ const SHADOW_ASK_DESCRIPTION = [
   "",
   "<conditions>",
   "- Multiple approaches with significantly different tradeoffs user should weigh.",
+  "- A piece of information only the user has (a value, a preference, a decision).",
   "</conditions>",
   "",
-  "<instruction>",
-  "- `recommended: <index>` marks default (0-indexed); \" (Recommended)\" added automatically.",
-  "- Use `questions` for related questions, not one at a time.",
-  "- Set `multi: true` on a question to allow multiple selections.",
-  "- Short option labels; explanatory tradeoffs in `description`, not labels.",
-  "</instruction>",
+  "<input>",
+  "Pass ONE HTML form: {\"html\": \"<form>…</form>\"}. The submitted form data comes back to you as JSON.",
+  "- One question per <fieldset>, its title in <legend> (that legend becomes the question title).",
+  "- Single choice: <input type=\"radio\" name=\"group\" value=\"…\" id=\"…\"><label for=\"…\">…</label>.",
+  "- Multiple choice: the same with type=\"checkbox\"; free-form answers: <input type=\"text\" name=\"…\"> or <textarea name=\"…\">.",
+  "- Selects: <select name=\"…\"><option value=\"…\">…</option></select> (add multiple for multi-select).",
+  "- Every control needs a `name`; mark the ones the user must answer with `required`.",
+  "- Preselect your recommendation with checked / selected.",
+  "</input>",
   "",
   "<caution>",
-  "- Provide 2-5 concise, distinct options.",
-  "</caution>",
+  "- Keep it small: 1-3 questions, 2-5 options each, short labels.",
+  "- Do NOT add your own \"Other\" row: the UI adds a free-text answer to every choice group.",
+  "</instruction>",
   "",
   "<critical>",
   "- Default to action. Resolve ambiguity via repo conventions, existing patterns, reasonable defaults.",
-  "- If multiple choices acceptable: pick most conservative/standard option; proceed; state choice.",
-  "- Do NOT include \"Other\"; the UI adds \"Other (type your own)\" to every question automatically.",
+  "- The user may answer in the notch panel or in the terminal; both send the same form data.",
   "</critical>",
 ].join("\n");
 
 /**
  * 注册影子 `ask`（只在 omp 且用户没关掉 ask 时）。
  *
- * `approval: "read"` 与原生一致（ask.ts:748），`strict` 与 `label`/`name` 也照抄原生，同时本文件的 `NEVER_ASK_TOOLS` 也把
- * `ask` 列为自动放行——两处一致，否则自己的 `tool_call` 闸门会把这次提问再拦一次。
- * `concurrency: "exclusive"` 与原生一致（ask.ts:799）：交互提问独占用一批，
- * 否则两条 ask 会同时抢刘海卡片与终端对话框。该字段不在 `ToolDefinition` 的公开
- * 形状里，但 omp 会把它从定义对象上按原型链透传到注册表项（applyToolProxy，
- * tool-proxy.ts:5-35；调度处 agent-loop.ts:3338-3356）。
+ * `approval: "read"` 与原生一致，`strict` 与 `label`/`name` 也照抄原生，同时本文件的
+ * `NEVER_ASK_TOOLS` 也把 `ask` 列为自动放行——两处一致，否则自己的 `tool_call` 闸门会把
+ * 这次提问再拦一次。`concurrency: "exclusive"` 与原生一致：交互提问独占用一批，
+ * 否则两条 ask 会同时抢刘海卡片与终端对话框。该字段不在 `ToolDefinition` 的公开形状里，
+ * 但 omp 会把它从定义对象上按原型链透传到注册表项（applyToolProxy，tool-proxy.ts:5-35）。
  */
 function registerShadowAsk(pi: ExtensionApi): void {
   if (AGENT !== "omp") {
@@ -1561,26 +1883,41 @@ function registerShadowAsk(pi: ExtensionApi): void {
         ctx?: ShadowAskContextLike,
       ): Promise<AskToolResultLike> {
         const native = ctx?.invokeTool;
-        const questions = normalizeAskQuestions(params);
         // 没有原生可委托：headless、子会话、老版 omp 没有 ask、或用户关了 ask.enabled。
         // 按原生语义拒绝（abort + ToolAbortError），绝不假装问过。
         if (typeof native !== "function") {
           refuseAskWithoutUI(ctx);
         }
+        const html = readString(params, "html");
+        if (html === undefined) {
+          throwAskShapeError(Array.isArray(params.questions));
+        }
+        const form = parseAskForm(html);
+        if (form.length === 0) {
+          // 没有具名控件：交给原生报它自己那句错（「the form has no named controls」），
+          // 提示词与文案只有一处实现。宿主不认识表单的旧版走下面那条 legacy 形状。
+          const emptyParams = ctx?.hasUI === true && !uiRendersForms(ctx)
+            ? { questions: [] }
+            : params;
+          return await takeNativeAskResult(native, emptyParams, { signal, onUpdate });
+        }
+        const projection = projectAskForm(form);
         // 只有「TUI 根会话」才走刘海：headless 与子 Agent 交给原生（原生自己会拒绝），
         // 免得在没有人看的会话里发一张点不动的卡片。
-        if (
-          questions === undefined ||
-          needsNativeAskValidation(questions) ||
-          ctx?.hasUI !== true ||
-          !isRootSession(ctx)
-        ) {
-          return await takeNativeAskResult(native, params, { signal, onUpdate });
+        if (ctx?.hasUI !== true || !isRootSession(ctx) || projection.questions.length === 0) {
+          const nativeParams = ctx?.hasUI === true && !uiRendersForms(ctx)
+            ? { questions: legacyAskQuestions(form) }
+            : params;
+          return await takeNativeAskResult(native, nativeParams, { signal, onUpdate });
         }
+        // 旧版 omp 的 TUI 没有 `ui.formDialog`：原生只认 `questions[]`，把 `{html}` 交给它
+        // 会崩在它的 HTML 解析器里，所以这里折回它认识的形状（新宿主照原样收 `{html}`）。
+        const nativeParams = uiRendersForms(ctx) ? params : { questions: legacyAskQuestions(form) };
         return await raceIslandAndNativeAsk({
           toolCallId,
-          params,
-          questions,
+          nativeParams,
+          form,
+          projection,
           native,
           signal,
           onUpdate,
@@ -1862,12 +2199,16 @@ export default function (pi: ExtensionApi) {
         ? ((args as Record<string, unknown>).questions as unknown[])
         : [];
     const first = questions.find((q) => typeof readString(q, "question") === "string");
+    // omp 18.18.3 起参数是一张表单：摘要取第一个 `<legend>`（没有就留空，应用显示工具名）。
+    const html = typeof args === "object" && args !== null ? (args as Record<string, unknown>).html : undefined;
+    const formQuestion =
+      typeof html === "string" && html.length > 0 ? parseAskForm(html)[0]?.question : undefined;
     void send({
       event: "ToolApproval",
       status: "waiting_for_approval",
       tool: "ask",
       tool_use_id: readString(event, "toolCallId"),
-      message: readString(first, "question"),
+      message: readString(first, "question") ?? formQuestion,
     });
   });
 
