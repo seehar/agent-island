@@ -8,7 +8,6 @@
 //
 
 import Foundation
-import SQLite3
 import os.log
 
 /// OpenCode 的一条消息记录。
@@ -72,12 +71,14 @@ nonisolated struct OpenCodePartRecord {
 ///
 /// 权威来源是 SQLite 数据库；数据库缺失或打不开时退回到已冻结的旧版 JSON
 /// 目录。所有查询都用独立短连接执行：打开 → 查 → 关闭，避免长期持锁。
-/// 参数一律走绑定值，SQL 文本里不出现任何外部数据。
+/// 参数一律走绑定值，SQL 文本里不出现任何外部数据；短连接与取值辅助在
+/// `SQLiteQueryRunner`（与 Hermes 共用）。
 nonisolated enum OpenCodeSessionStore {
     private static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "OpenCode")
 
-    /// 数据库拿不到锁时的等待上限；宁可返回空结果也不长时间阻塞调用方。
-    private static let busyTimeoutMilliseconds: Int32 = 500
+    /// 短连接的日志口径（短连接与取值走与 Hermes 共用的 `SQLiteQueryRunner`）。
+    private static let queryLog = SQLiteQueryRunner.Log(
+        logger: logger, label: "opencode", unavailableNotice: "降级到旧版 JSON 目录")
 
     /// 单条 SQL 里 `IN (...)` 的占位符个数上限。
     private static let parameterChunkSize = 400
@@ -145,89 +146,17 @@ nonisolated enum OpenCodeSessionStore {
 
     // MARK: - 数据库查询
 
-    /// 用独立的只读短连接执行一条语句；数据库不可用时返回 nil。
-    ///
-    /// `body` 返回 nil 表示本次查询失败（例如中途拿到 `SQLITE_BUSY`），
-    /// 调用方据此降级到旧版 JSON。
-    private static func withStatement<T>(
-        _ sql: String,
-        values: [SQLiteValue],
-        body: (OpaquePointer) -> T?
-    ) -> T? {
-        guard let databaseURL else { return nil }
-
-        // 打开方式与失败原因见 `OpenCodeDatabase`：WAL 库在没有 -shm 时纯只读连接会失败。
-        let database: OpaquePointer
-        do {
-            database = try OpenCodeDatabase.openReadOnly(
-                url: databaseURL, busyTimeoutMilliseconds: Self.busyTimeoutMilliseconds)
-        } catch {
-            logger.debug(
-                "opencode 数据库打不开，降级到旧版 JSON 目录：\(String(describing: error), privacy: .public)"
-            )
-            return nil
-        }
-        defer { sqlite3_close(database) }
-
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
-            let statement
-        else {
-            logger.debug("opencode 查询准备失败：\(String(cString: sqlite3_errmsg(database)))")
-            return nil
-        }
-        defer { sqlite3_finalize(statement) }
-
-        for (offset, value) in values.enumerated() {
-            let index = Int32(offset + 1)
-            switch value {
-            case .integer(let number):
-                sqlite3_bind_int64(statement, index, number)
-            case .text(let text):
-                sqlite3_bind_text(statement, index, text, -1, Self.transientDestructor)
-            }
-        }
-        return body(statement)
-    }
-
-    /// SQL 绑定值。目前只用到整数与文本两种。
-    private enum SQLiteValue {
-        case integer(Int64)
-        case text(String)
-    }
-
-    /// 告诉 SQLite 复制绑定的字符串，调用返回后即可释放。
-    private static let transientDestructor = unsafeBitCast(
-        -1, to: sqlite3_destructor_type.self)
-
-    /// 读取某一列的文本值。
-    private static func text(_ statement: OpaquePointer, _ index: Int32) -> String? {
-        guard let pointer = sqlite3_column_text(statement, index) else { return nil }
-        return String(cString: pointer)
-    }
-
-    /// 逐行执行查询；中途出错返回 nil（调用方降级）。
-    private static func rows<T>(
-        _ statement: OpaquePointer,
-        _ row: () -> T?
-    ) -> [T]? {
-        var values: [T] = []
-        while true {
-            let status = sqlite3_step(statement)
-            if status == SQLITE_DONE { return values }
-            guard status == SQLITE_ROW else { return nil }
-            guard let value = row() else { return nil }
-            values.append(value)
-        }
-    }
-
     /// 表实际拥有的列名。旧版本 schema 可能没有 `data`（消息/分片写在表列里）。
     private static func columns(ofTable table: String) -> Set<String>? {
         // 表名来自本文件内的字面量，不来自外部输入。
-        let names: [String]? = withStatement("PRAGMA table_info(\(table))", values: []) {
-            statement in
-            rows(statement) { () -> String? in
-                text(statement, 1)
+        let names: [String]? = SQLiteQueryRunner.withStatement(
+            "PRAGMA table_info(\(table))",
+            values: [],
+            databaseURL: Self.databaseURL,
+            log: queryLog
+        ) { statement in
+            SQLiteQueryRunner.rows(statement) { () -> String? in
+                SQLiteQueryRunner.text(statement, 1)
             }
         }
         return names.map(Set.init)
@@ -239,7 +168,7 @@ nonisolated enum OpenCodeSessionStore {
         // OpenCode 2.x 把会话表换成了 `session_v2`（旧的 `session` 表停更）。
         // 表结构差异只在表名，列与语义一致。
         let table = hasVersionTwoSchema() ? "session_v2" : "session"
-        return withStatement(
+        return SQLiteQueryRunner.withStatement(
             """
             SELECT id, directory, title, time_updated
             FROM \(table)
@@ -247,17 +176,20 @@ nonisolated enum OpenCodeSessionStore {
             ORDER BY time_updated DESC
             LIMIT ?
             """,
-            values: [.integer(sinceMilliseconds), .integer(Int64(limit))]
+            values: [.integer(sinceMilliseconds), .integer(Int64(limit))],
+            databaseURL: Self.databaseURL,
+            log: queryLog
         ) { statement in
-            rows(statement) { () -> DiscoveredAgentSession? in
-                guard let id = text(statement, 0) else { return nil }
+            SQLiteQueryRunner.rows(statement) { () -> DiscoveredAgentSession? in
+                guard let id = SQLiteQueryRunner.text(statement, 0) else { return nil }
                 return DiscoveredAgentSession(
                     agent: .opencode,
                     sessionId: id,
-                    cwd: text(statement, 1) ?? "",
-                    title: text(statement, 2),
+                    cwd: SQLiteQueryRunner.text(statement, 1) ?? "",
+                    title: SQLiteQueryRunner.text(statement, 2),
                     transcriptPath: nil,
-                    updatedAt: Self.date(milliseconds: sqlite3_column_int64(statement, 3))
+                    updatedAt: Self.date(
+                        milliseconds: SQLiteQueryRunner.integer(statement, 3))
                 )
             }
         }
@@ -327,7 +259,7 @@ nonisolated enum OpenCodeSessionStore {
         sessionId: String, sinceCreated: Date?, limit: Int
     ) -> [OpenCodeMessageRecord]? {
         let sinceMilliseconds = sinceCreated.map { Self.milliseconds(of: $0) } ?? 0
-        return withStatement(
+        return SQLiteQueryRunner.withStatement(
             """
             SELECT id, time_created, type, data
             FROM session_message
@@ -335,18 +267,22 @@ nonisolated enum OpenCodeSessionStore {
             ORDER BY time_created ASC, seq ASC
             LIMIT ?
             """,
-            values: [.text(sessionId), .integer(sinceMilliseconds), .integer(Int64(limit))]
+            values: [.text(sessionId), .integer(sinceMilliseconds), .integer(Int64(limit))],
+            databaseURL: Self.databaseURL,
+            log: queryLog
         ) { statement in
-            rows(statement) { () -> OpenCodeMessageRecord? in
-                guard let id = text(statement, 0) else { return nil }
-                let type = text(statement, 2) ?? "assistant"
-                var json = text(statement, 3).flatMap(Self.jsonObject(from:)) ?? [:]
+            SQLiteQueryRunner.rows(statement) { () -> OpenCodeMessageRecord? in
+                guard let id = SQLiteQueryRunner.text(statement, 0) else { return nil }
+                let type = SQLiteQueryRunner.text(statement, 2) ?? "assistant"
+                var json =
+                    SQLiteQueryRunner.text(statement, 3).flatMap(Self.jsonObject(from:)) ?? [:]
                 // v2 把角色放在表列 `type` 里；解析器统一读 `data.role`。
                 json["role"] = type
                 return OpenCodeMessageRecord(
                     id: id,
                     role: type,
-                    createdAt: Self.date(milliseconds: sqlite3_column_int64(statement, 1)),
+                    createdAt: Self.date(
+                        milliseconds: SQLiteQueryRunner.integer(statement, 1)),
                     json: json
                 )
             }
@@ -363,7 +299,7 @@ nonisolated enum OpenCodeSessionStore {
         let roleColumn = columns.contains("role") ? "role" : "NULL"
         let sinceMilliseconds = sinceCreated.map { Self.milliseconds(of: $0) } ?? 0
 
-        return withStatement(
+        return SQLiteQueryRunner.withStatement(
             """
             SELECT id, time_created, \(jsonColumn), \(roleColumn)
             FROM message
@@ -371,19 +307,23 @@ nonisolated enum OpenCodeSessionStore {
             ORDER BY time_created ASC, id ASC
             LIMIT ?
             """,
-            values: [.text(sessionId), .integer(sinceMilliseconds), .integer(Int64(limit))]
+            values: [.text(sessionId), .integer(sinceMilliseconds), .integer(Int64(limit))],
+            databaseURL: Self.databaseURL,
+            log: queryLog
         ) { statement in
-            rows(statement) { () -> OpenCodeMessageRecord? in
-                guard let id = text(statement, 0) else { return nil }
-                var json = text(statement, 2).flatMap(Self.jsonObject(from:)) ?? [:]
+            SQLiteQueryRunner.rows(statement) { () -> OpenCodeMessageRecord? in
+                guard let id = SQLiteQueryRunner.text(statement, 0) else { return nil }
+                var json =
+                    SQLiteQueryRunner.text(statement, 2).flatMap(Self.jsonObject(from:)) ?? [:]
                 // 旧版 schema 没有 `data` 列，角色在表列里。
-                if json["role"] == nil, let role = text(statement, 3) {
+                if json["role"] == nil, let role = SQLiteQueryRunner.text(statement, 3) {
                     json["role"] = role
                 }
                 return OpenCodeMessageRecord(
                     id: id,
                     role: json["role"] as? String ?? "assistant",
-                    createdAt: Self.date(milliseconds: sqlite3_column_int64(statement, 1)),
+                    createdAt: Self.date(
+                        milliseconds: SQLiteQueryRunner.integer(statement, 1)),
                     json: json
                 )
             }
@@ -420,25 +360,32 @@ nonisolated enum OpenCodeSessionStore {
             offset += parameterChunkSize
 
             let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ",")
-            let records: [(String, Int64, [OpenCodePartRecord])]? = withStatement(
-                """
-                SELECT id, time_created, type, data
-                FROM session_message
-                WHERE id IN (\(placeholders))
-                """,
-                values: chunk.map { SQLiteValue.text($0) }
-            ) { statement in
-                rows(statement) { () -> (String, Int64, [OpenCodePartRecord])? in
-                    guard let id = text(statement, 0) else { return nil }
-                    let created = sqlite3_column_int64(statement, 1)
-                    let type = text(statement, 2) ?? ""
-                    let json = text(statement, 3).flatMap(Self.jsonObject(from:)) ?? [:]
-                    return (
-                        id, created,
-                        Self.partsV2(from: json, type: type, messageId: id, created: created)
-                    )
+            let records: [(String, Int64, [OpenCodePartRecord])]? =
+                SQLiteQueryRunner.withStatement(
+                    """
+                    SELECT id, time_created, type, data
+                    FROM session_message
+                    WHERE id IN (\(placeholders))
+                    """,
+                    values: chunk.map { SQLiteValue.text($0) },
+                    databaseURL: Self.databaseURL,
+                    log: queryLog
+                ) { statement in
+                    SQLiteQueryRunner.rows(statement) {
+                        () -> (String, Int64, [OpenCodePartRecord])?
+                        in
+                        guard let id = SQLiteQueryRunner.text(statement, 0) else { return nil }
+                        let created = SQLiteQueryRunner.integer(statement, 1)
+                        let type = SQLiteQueryRunner.text(statement, 2) ?? ""
+                        let json =
+                            SQLiteQueryRunner.text(statement, 3)
+                            .flatMap(Self.jsonObject(from:)) ?? [:]
+                        return (
+                            id, created,
+                            Self.partsV2(from: json, type: type, messageId: id, created: created)
+                        )
+                    }
                 }
-            }
             guard let records else { return nil }
             for (messageId, _, parts) in records {
                 grouped[messageId] = parts
@@ -510,21 +457,27 @@ nonisolated enum OpenCodeSessionStore {
 
             // 占位符个数由本文件常量决定；id 值一律走绑定参数。
             let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ",")
-            let records: [OpenCodePartRecord]? = withStatement(
+            let records: [OpenCodePartRecord]? = SQLiteQueryRunner.withStatement(
                 """
                 SELECT id, \(messageColumn), time_created, \(jsonColumn), \(typeColumn)
                 FROM part
                 WHERE \(messageColumn) IN (\(placeholders))
                 ORDER BY time_created ASC, id ASC
                 """,
-                values: chunk.map { SQLiteValue.text($0) }
+                values: chunk.map { SQLiteValue.text($0) },
+                databaseURL: Self.databaseURL,
+                log: queryLog
             ) { statement in
-                rows(statement) { () -> OpenCodePartRecord? in
-                    guard let id = text(statement, 0), let messageId = text(statement, 1) else {
+                SQLiteQueryRunner.rows(statement) { () -> OpenCodePartRecord? in
+                    guard let id = SQLiteQueryRunner.text(statement, 0),
+                        let messageId = SQLiteQueryRunner.text(statement, 1)
+                    else {
                         return nil
                     }
-                    var json = text(statement, 3).flatMap(Self.jsonObject(from:)) ?? [:]
-                    if json["type"] == nil, let type = text(statement, 4) {
+                    var json =
+                        SQLiteQueryRunner.text(statement, 3)
+                        .flatMap(Self.jsonObject(from:)) ?? [:]
+                    if json["type"] == nil, let type = SQLiteQueryRunner.text(statement, 4) {
                         json["type"] = type
                     }
                     return OpenCodePartRecord(
@@ -532,7 +485,8 @@ nonisolated enum OpenCodeSessionStore {
                         messageId: messageId,
                         type: json["type"] as? String ?? "",
                         sortTime: Self.partSortTime(
-                            json: json, fallback: sqlite3_column_int64(statement, 2)),
+                            json: json,
+                            fallback: SQLiteQueryRunner.integer(statement, 2)),
                         json: json
                     )
                 }

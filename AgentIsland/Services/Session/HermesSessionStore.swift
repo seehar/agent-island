@@ -40,12 +40,14 @@ nonisolated struct HermesMessageRecord {
 ///
 /// 所有查询都用独立短连接执行：打开 → 查 → 关闭，避免长期持锁；参数一律走绑定值，
 /// SQL 文本里不出现任何外部数据。查询失败返回 nil，由调用方降级为「没有会话」——
-/// 库打不开、语句准备失败、中途拿到 `SQLITE_BUSY` 都算。
+/// 库打不开、语句准备失败、中途拿到 `SQLITE_BUSY` 都算。短连接与取值辅助在
+/// `SQLiteQueryRunner`（与 OpenCode 共用）。
 nonisolated enum HermesSessionStore {
     private static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "Hermes")
 
-    /// 数据库拿不到锁时的等待上限；宁可返回空结果也不长时间阻塞调用方。
-    private static let busyTimeoutMilliseconds: Int32 = 500
+    /// 短连接的日志口径（短连接与取值走与 OpenCode 共用的 `SQLiteQueryRunner`）。
+    private static let queryLog = SQLiteQueryRunner.Log(
+        logger: logger, label: "hermes", unavailableNotice: "本轮的会话与记录读取被跳过")
 
     // MARK: - 位置
 
@@ -93,7 +95,7 @@ nonisolated enum HermesSessionStore {
     private static func databaseSessions(since: Date, limit: Int, databaseURL: URL?)
         -> [DiscoveredAgentSession]?
     {
-        withStatement(
+        SQLiteQueryRunner.withStatement(
             """
             SELECT id, cwd, title,
                    max(started_at, coalesce(ended_at, 0),
@@ -107,17 +109,19 @@ nonisolated enum HermesSessionStore {
             LIMIT ?
             """,
             values: [.double(since.timeIntervalSince1970), .integer(Int64(limit))],
-            databaseURL: databaseURL
+            databaseURL: resolvedDatabaseURL(databaseURL),
+            log: queryLog
         ) { statement in
-            rows(statement) { () -> DiscoveredAgentSession? in
-                guard let id = text(statement, 0) else { return nil }
+            SQLiteQueryRunner.rows(statement) { () -> DiscoveredAgentSession? in
+                guard let id = SQLiteQueryRunner.nonEmptyText(statement, 0) else { return nil }
                 return DiscoveredAgentSession(
                     agent: .hermes,
                     sessionId: id,
-                    cwd: text(statement, 1) ?? "",
-                    title: text(statement, 2),
+                    cwd: SQLiteQueryRunner.nonEmptyText(statement, 1) ?? "",
+                    title: SQLiteQueryRunner.nonEmptyText(statement, 2),
                     transcriptPath: nil,
-                    updatedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 3))
+                    updatedAt: Date(
+                        timeIntervalSince1970: SQLiteQueryRunner.double(statement, 3))
                 )
             }
         }
@@ -126,7 +130,7 @@ nonisolated enum HermesSessionStore {
     private static func databaseMessages(
         sessionId: String, sinceRowId: Int64, limit: Int, databaseURL: URL?
     ) -> [HermesMessageRecord]? {
-        withStatement(
+        SQLiteQueryRunner.withStatement(
             """
             SELECT id, role, content, tool_call_id, tool_calls, tool_name, timestamp,
                    token_count, finish_reason, reasoning, reasoning_content
@@ -136,22 +140,25 @@ nonisolated enum HermesSessionStore {
             LIMIT ?
             """,
             values: [.text(sessionId), .integer(sinceRowId), .integer(Int64(limit))],
-            databaseURL: databaseURL
+            databaseURL: resolvedDatabaseURL(databaseURL),
+            log: queryLog
         ) { statement in
-            rows(statement) { () -> HermesMessageRecord? in
-                guard let role = text(statement, 1) else { return nil }
+            SQLiteQueryRunner.rows(statement) { () -> HermesMessageRecord? in
+                guard let role = SQLiteQueryRunner.nonEmptyText(statement, 1) else { return nil }
                 return HermesMessageRecord(
-                    id: sqlite3_column_int64(statement, 0),
+                    id: SQLiteQueryRunner.integer(statement, 0),
                     role: role,
-                    text: text(statement, 2),
-                    toolCalls: toolCalls(from: text(statement, 4)),
-                    toolCallId: text(statement, 3),
-                    toolName: text(statement, 5),
-                    timestamp: Date(timeIntervalSince1970: sqlite3_column_double(statement, 6)),
+                    text: SQLiteQueryRunner.nonEmptyText(statement, 2),
+                    toolCalls: toolCalls(from: SQLiteQueryRunner.nonEmptyText(statement, 4)),
+                    toolCallId: SQLiteQueryRunner.nonEmptyText(statement, 3),
+                    toolName: SQLiteQueryRunner.nonEmptyText(statement, 5),
+                    timestamp: Date(
+                        timeIntervalSince1970: SQLiteQueryRunner.double(statement, 6)),
                     tokenCount: sqlite3_column_type(statement, 7) == SQLITE_NULL
-                        ? nil : Int(sqlite3_column_int64(statement, 7)),
-                    finishReason: text(statement, 8),
-                    reasoning: text(statement, 9) ?? text(statement, 10)
+                        ? nil : Int(SQLiteQueryRunner.integer(statement, 7)),
+                    finishReason: SQLiteQueryRunner.nonEmptyText(statement, 8),
+                    reasoning: SQLiteQueryRunner.nonEmptyText(statement, 9)
+                        ?? SQLiteQueryRunner.nonEmptyText(statement, 10)
                 )
             }
         }
@@ -172,83 +179,6 @@ nonisolated enum HermesSessionStore {
                 let name = function["name"] as? String
             else { return nil }
             return (id: id, name: name, arguments: function["arguments"] as? String ?? "")
-        }
-    }
-
-    // MARK: - 短连接
-
-    /// 用独立的只读短连接执行一条语句；库不可用或查询失败时返回 nil。
-    private static func withStatement<T>(
-        _ sql: String,
-        values: [SQLiteValue],
-        databaseURL: URL?,
-        body: (OpaquePointer) -> T?
-    ) -> T? {
-        guard let url = resolvedDatabaseURL(databaseURL) else { return nil }
-
-        // 打开方式与失败原因见 `SQLiteReadOnlyConnection`：WAL 库没有 -shm 时纯只读连接会失败。
-        let database: OpaquePointer
-        do {
-            database = try SQLiteReadOnlyConnection.open(
-                url: url, busyTimeoutMilliseconds: Self.busyTimeoutMilliseconds)
-        } catch {
-            logger.debug(
-                "hermes 数据库打不开，本轮的会话与记录读取被跳过：\(String(describing: error), privacy: .public)"
-            )
-            return nil
-        }
-        defer { sqlite3_close(database) }
-
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
-            let statement
-        else {
-            logger.debug("hermes 查询准备失败：\(String(cString: sqlite3_errmsg(database)))")
-            return nil
-        }
-        defer { sqlite3_finalize(statement) }
-
-        for (offset, value) in values.enumerated() {
-            let index = Int32(offset + 1)
-            switch value {
-            case .double(let number):
-                sqlite3_bind_double(statement, index, number)
-            case .integer(let number):
-                sqlite3_bind_int64(statement, index, number)
-            case .text(let text):
-                sqlite3_bind_text(statement, index, text, -1, Self.transientDestructor)
-            }
-        }
-        return body(statement)
-    }
-
-    /// SQL 绑定值。目前只用到实数、整数与文本三种。
-    private enum SQLiteValue {
-        case double(Double)
-        case integer(Int64)
-        case text(String)
-    }
-
-    /// 告诉 SQLite 复制绑定的字符串，调用返回后即可释放。
-    private static let transientDestructor = unsafeBitCast(
-        -1, to: sqlite3_destructor_type.self)
-
-    /// 读取某一列的文本值；NULL 与空串都当作「没有值」。
-    private static func text(_ statement: OpaquePointer, _ index: Int32) -> String? {
-        guard let pointer = sqlite3_column_text(statement, index) else { return nil }
-        let value = String(cString: pointer)
-        return value.isEmpty ? nil : value
-    }
-
-    /// 逐行执行查询；中途出错返回 nil（调用方降级）。
-    private static func rows<T>(_ statement: OpaquePointer, _ row: () -> T?) -> [T]? {
-        var values: [T] = []
-        while true {
-            let status = sqlite3_step(statement)
-            if status == SQLITE_DONE { return values }
-            guard status == SQLITE_ROW else { return nil }
-            guard let value = row() else { return nil }
-            values.append(value)
         }
     }
 }
