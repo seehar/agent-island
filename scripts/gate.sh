@@ -233,8 +233,10 @@ except Exception:
             # （期望值 vs 实际值、以及是哪个 #expect 挂的）在日志更靠前的位置。
             # 没有这一行时，CI 上只能看到一串用例名，得回头下载几百 MB 的产物才知道为什么。
             grep -nE '✘|recorded an issue|Expectation failed|error: ' "$TEST_LOG" 2>/dev/null                 | head -60 || true
-            echo "--- 日志尾部 ---"
-            tail -40 "$TEST_LOG"
+            echo "--- 日志尾部（120 行） ---"
+            # 用例自己的诊断 `print`（例如离屏渲染量到的像素/几何）出现在测试运行阶段，
+            # 距离日志尾部通常有几十到上百行；40 行不够定位渲染类失败。
+            tail -120 "$TEST_LOG"
             echo "--- 完整日志：$TEST_LOG ---"
             exit 1
         fi
