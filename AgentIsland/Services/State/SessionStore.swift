@@ -147,7 +147,7 @@ actor SessionStore {
         // 子 Agent 总线事件描述的是「派出去的子 Agent」，不是会话自身的一轮活动，
         // 因此不参与相位推导与工具跟踪，只更新子 Agent 表。
         if event.event == "SubagentLifecycle" || event.event == "SubagentProgress" {
-            processSubagentBusEvent(event: event, session: &session)
+            SessionHookReducers.processSubagentBusEvent(event: event, session: &session)
             sessions[key] = session
             publishState()
             return
@@ -191,8 +191,8 @@ actor SessionStore {
             updateToolStatus(in: &session, toolId: toolUseId, status: .waitingForApproval)
         }
 
-        processToolTracking(event: event, session: &session)
-        processSubagentTracking(event: event, session: &session)
+        SessionHookReducers.processToolTracking(event: event, session: &session)
+        SessionHookReducers.processSubagentTracking(event: event, session: &session)
 
         if event.event == "Stop" {
             session.subagentState.finishTurn()
@@ -220,154 +220,6 @@ actor SessionStore {
             paseoTerminalId: event.paseoTerminalId,
             paseoCliPath: event.paseoCliPath
         )
-    }
-
-    private func processToolTracking(event: HookEvent, session: inout SessionState) {
-        switch event.event {
-        case "PreToolUse":
-            if let toolUseId = event.toolUseId, let toolName = event.tool {
-                session.toolTracker.startTool(id: toolUseId, name: toolName)
-
-                // Skip creating top-level placeholder for subagent tools
-                // They'll appear under their parent Task instead.
-                // 只对真正上报子 Agent 内部调用的 Agent 生效：其余 Agent（omp/pi/
-                // opencode）在 Task 运行期间报上来的工具属于根会话本体。
-                let isSubagentTool =
-                    session.agent.reportsSubagentInnerTools
-                    && session.subagentState.hasActiveSubagent
-                    && !ToolCallItem.isSubagentContainerName(toolName)
-                if isSubagentTool {
-                    return
-                }
-
-                let toolExists = session.chatItems.contains { $0.id == toolUseId }
-                if !toolExists {
-                    var input: [String: String] = [:]
-                    if let hookInput = event.toolInput {
-                        for (key, value) in hookInput {
-                            if let str = value.value as? String {
-                                input[key] = str
-                            } else if let num = value.value as? Int {
-                                input[key] = String(num)
-                            } else if let bool = value.value as? Bool {
-                                input[key] = bool ? "true" : "false"
-                            }
-                        }
-                    }
-
-                    let placeholderItem = ChatHistoryItem(
-                        id: toolUseId,
-                        type: .toolCall(
-                            ToolCallItem(
-                                name: toolName,
-                                input: input,
-                                status: .running,
-                                result: nil,
-                                structuredResult: nil,
-                                subagentTools: [],
-                                subagentRuns: []
-                            )),
-                        timestamp: Date()
-                    )
-                    session.chatItems.append(placeholderItem)
-                    Self.logger.debug(
-                        "Created placeholder tool entry for \(toolUseId.prefix(16), privacy: .public)"
-                    )
-                }
-            }
-
-        case "PostToolUse":
-            if let toolUseId = event.toolUseId {
-                session.toolTracker.completeTool(id: toolUseId, success: true)
-                // Update chatItem status - tool completed (possibly approved via terminal)
-                // Only update if still waiting for approval or running
-                for i in 0..<session.chatItems.count {
-                    if session.chatItems[i].id == toolUseId,
-                        case .toolCall(var tool) = session.chatItems[i].type,
-                        tool.status == .waitingForApproval || tool.status == .running
-                    {
-                        tool.status = .success
-                        session.chatItems[i] = ChatHistoryItem(
-                            id: toolUseId,
-                            type: .toolCall(tool),
-                            timestamp: session.chatItems[i].timestamp
-                        )
-                        break
-                    }
-                }
-            }
-
-        default:
-            break
-        }
-    }
-
-    private func processSubagentTracking(event: HookEvent, session: inout SessionState) {
-        switch event.event {
-        case "PreToolUse":
-            if ToolCallItem.isSubagentContainerName(event.tool), let toolUseId = event.toolUseId {
-                let description = event.toolInput?["description"]?.value as? String
-                session.subagentState.startTask(taskToolId: toolUseId, description: description)
-                Self.logger.debug(
-                    "Started Task/Agent subagent tracking: \(toolUseId.prefix(12), privacy: .public)"
-                )
-            } else if let toolName = event.tool,
-                let toolUseId = event.toolUseId,
-                session.agent.reportsSubagentInnerTools,
-                session.subagentState.hasActiveSubagent
-            {
-                // A subagent's inner tool is starting. Add it to the parent Task/Agent's
-                // subagent list and sync to chatItems so the UI updates live (rather
-                // than only after the parent Agent completes).
-                var input: [String: String] = [:]
-                if let hookInput = event.toolInput {
-                    for (key, value) in hookInput {
-                        if let str = value.value as? String {
-                            input[key] = str
-                        } else if let num = value.value as? Int {
-                            input[key] = String(num)
-                        } else if let bool = value.value as? Bool {
-                            input[key] = bool ? "true" : "false"
-                        }
-                    }
-                }
-                let subagentTool = SubagentToolCall(
-                    id: toolUseId,
-                    name: toolName,
-                    input: input,
-                    status: .running,
-                    timestamp: Date()
-                )
-                session.subagentState.addSubagentTool(subagentTool)
-                syncSubagentToolsToChatItems(session: &session)
-            }
-
-        case "PostToolUse":
-            if ToolCallItem.isSubagentContainerName(event.tool), let toolUseId = event.toolUseId {
-                // Agent tool returned — the subagent has finished. Stop
-                // tracking so subsequent tools in the parent turn don't get
-                // attached to this dead task.
-                session.subagentState.stopTask(taskToolId: toolUseId)
-                Self.logger.debug(
-                    "Stopped subagent tracking for \(toolUseId.prefix(12), privacy: .public)")
-            } else if let toolUseId = event.toolUseId,
-                session.agent.reportsSubagentInnerTools,
-                session.subagentState.hasActiveSubagent
-            {
-                // A subagent's inner tool completed. Update its status in the
-                // parent's subagent list and sync.
-                session.subagentState.updateSubagentToolStatus(toolId: toolUseId, status: .success)
-                syncSubagentToolsToChatItems(session: &session)
-            }
-
-        case "SubagentStop":
-            // SubagentStop fires when a subagent completes - stop tracking
-            // Subagent tools are populated from agent file in processFileUpdated
-            Self.logger.debug("SubagentStop received")
-
-        default:
-            break
-        }
     }
 
     /// 子代理总线事件的落点折算。
@@ -430,88 +282,6 @@ actor SessionStore {
         guard let path, !path.isEmpty else { return nil }
         let spawnerName = URL(fileURLWithPath: path).deletingLastPathComponent().lastPathComponent
         return session.subagentState.subagents[spawnerName]?.parentToolCallId
-    }
-
-    /// 处理父会话 `task:subagent:*` 总线事件（omp / pi 的子 Agent）。
-    ///
-    /// 相位规则：有子 Agent 在跑就把会话提到 `processing`（子 Agent 期间没有任何
-    /// 父会话事件的 headless 场景尤其需要）；子 Agent 全部结束时若相位还停在
-    /// `processing`，补一次收尾——根会话自身的事件会立即纠正，不会长期偏离。
-    private func processSubagentBusEvent(event: HookEvent, session: inout SessionState) {
-        guard let subagentId = event.subagentId else { return }
-
-        let reported = SubagentRunStatus(wire: event.subagentStatus)
-        let existing = session.subagentState.subagents[subagentId]?.status
-        // 上报值不认识时沿用已知状态；首次进度事件早于生命周期事件时按「已开跑」处理。
-        let status: SubagentRunStatus = reported == .unknown ? (existing ?? .running) : reported
-        let now = Date()
-
-        session.subagentState.upsertSubagent(
-            id: subagentId,
-            agent: event.subagentAgent ?? subagentId,
-            status: status,
-            currentTool: event.subagentCurrentTool,
-            task: event.subagentTask,
-            sessionFile: event.subagentSessionFile,
-            parentToolCallId: event.parentToolCallId,
-            now: now
-        )
-
-        if session.subagentState.runningSubagentCount(at: now) > 0 {
-            // 同上：待批在手时，子 Agent 的进度也不许把「等待审批」拉走。
-            if session.phase.canTransition(to: .processing), !event.hasLivePending {
-                session.phase = .processing
-            }
-        } else if session.phase == .processing, session.phase.canTransition(to: .waitingForInput) {
-            session.phase = .waitingForInput
-        }
-
-        syncSubagentRunsToChatItems(session: &session)
-        Self.logger.debug(
-            "Subagent \(subagentId, privacy: .public) -> \(String(describing: status), privacy: .public)"
-        )
-    }
-
-    /// 把子 Agent 表写进对应的 task 卡，供界面渲染。
-    ///
-    /// 会话里没有任何子 Agent 时直接返回：此时卡片上的子 Agent 行来自记录解析
-    /// （见 `populateSubagentRunsFromTaskResults`），不能被空状态擦掉。
-    private func syncSubagentRunsToChatItems(session: inout SessionState) {
-        guard !session.subagentState.subagents.isEmpty else { return }
-        for index in 0..<session.chatItems.count {
-            guard case .toolCall(var tool) = session.chatItems[index].type,
-                ToolCallItem.isSubagentContainerName(tool.name)
-            else { continue }
-            let runs = session.subagentState.subagents(forTask: session.chatItems[index].id)
-            guard runs != tool.subagentRuns else { continue }
-            tool.subagentRuns = runs
-            session.chatItems[index] = ChatHistoryItem(
-                id: session.chatItems[index].id,
-                type: .toolCall(tool),
-                timestamp: session.chatItems[index].timestamp
-            )
-        }
-    }
-
-    /// Push the current subagent tool lists from subagentState into the
-    /// corresponding ChatHistoryItem.subagentTools so the UI renders them live.
-    private func syncSubagentToolsToChatItems(session: inout SessionState) {
-        for (taskToolId, context) in session.subagentState.activeTasks {
-            guard !context.subagentTools.isEmpty else { continue }
-            for i in 0..<session.chatItems.count {
-                if session.chatItems[i].id == taskToolId,
-                    case .toolCall(var tool) = session.chatItems[i].type
-                {
-                    tool.subagentTools = context.subagentTools
-                    session.chatItems[i] = ChatHistoryItem(
-                        id: taskToolId,
-                        type: .toolCall(tool),
-                        timestamp: session.chatItems[i].timestamp
-                    )
-                    break
-                }
-            }
-        }
     }
 
     /// Parse ISO8601 timestamp string
@@ -1397,7 +1167,7 @@ actor SessionStore {
             var session = session
             let runningBeforeExpiry = session.subagentState.runningSubagentCount(at: now)
             if session.subagentState.expireStaleEvidence(now: now) {
-                syncSubagentRunsToChatItems(session: &session)
+                SessionHookReducers.syncSubagentRunsToChatItems(session: &session)
                 sessions[key] = session
                 stateChanged = true
                 Self.logger.info(
@@ -1492,8 +1262,17 @@ actor SessionStore {
 
     // MARK: - State Publishing
 
+    /// 上一次真正发出去的快照。
+    ///
+    /// 事件密度远高于「界面上有东西变了」的密度：一次工具调用会连着来 PreToolUse /
+    /// PostToolUse / Stop 好几帧，而多数帧只改时间戳或压根不改可见字段。整份列表
+    /// （排序后）逐值没变就不发，省掉 SwiftUI 一整轮 diff。
+    private var lastPublishedSessions: [SessionState]?
+
     private func publishState() {
         let sortedSessions = Array(sessions.values).sorted { $0.projectName < $1.projectName }
+        guard sortedSessions != lastPublishedSessions else { return }
+        lastPublishedSessions = sortedSessions
         sessionsSubject.send(sortedSessions)
     }
 
