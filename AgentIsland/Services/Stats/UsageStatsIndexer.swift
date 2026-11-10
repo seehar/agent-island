@@ -628,70 +628,34 @@ actor UsageStatsIndexer {
         var failures = 0
         var changed = 0
         var scanned = 0
-        while scanned < sources.count {
-          if Task.isCancelled { break }
-          let end = min(scanned + chunkLimit, sources.count)
-          let outcome = pass.ingest(
-            sources: Array(sources[scanned..<end]), progress: rebuilding ? [:] : progress,
-            rebuilding: rebuilding)
-          failures += outcome.failures
-          changed += outcome.changed
-          scanned = end
-          // 只有这一批真的读/写了才让出：一轮全是「没变化」的 stat 时不白等
-          // （本机 25 批 × 20 ms ≈ 0.5 秒纯延迟），也不必让页面白重取快照。
-          guard outcome.changed > 0 else { continue }
-          await self?.notifyProgress()
-          try? await Task.sleep(nanoseconds: chunkPause)
-        }
 
+        let ingest = await Self.ingestChunks(
+          pass: pass, sources: sources, progress: progress, rebuilding: rebuilding,
+          chunkLimit: chunkLimit, chunkPause: chunkPause,
+          onProgress: { [weak self] in await self?.notifyProgress() })
+        changed += ingest.changed
+        failures += ingest.failures
+        scanned = ingest.scanned
         mark("扫记录")
 
-        // 已经不存在于磁盘上的记录：清掉进度行（历史用量保留）。
-        do {
-          for sourceId in Self.missingSourceIds(progress: progress, sources: sources)
-          {
-            try store.forgetCursor(sourceId: sourceId)
-          }
-        } catch {
-          failures += 1
-          Self.logger.error("清理用量统计进度失败：\(String(describing: error), privacy: .public)")
-        }
-
+        failures += Self.pruneMissingSources(store: store, progress: progress, sources: sources)
+        mark("清理")
         mark("清理")
 
         var openCodeNote = "OpenCode 未启用"
         if let database = roots.openCodeDatabase {
-          let fingerprint = OpenCodeDatabaseFingerprint.read(databaseURL: database)
-          // 库与它的 -wal 都没被写过、且上一轮已经追平：跳过整轮 OpenCode 扫描。这两条
-          // 查询在 message / part 上是全表扫描（本机 2.29 GB 库、冷缓存约 2 秒读盘），
-          // 而 OpenCode 没在跑时它们永远查不出新东西。
-          let canSkip =
-            fingerprint != nil && fingerprint == openCodeFingerprintAtStart
-            && !openCodeCatchUpPendingAtStart && !rebuilding
-          if canSkip {
-            openCodeNote = "OpenCode 跳过（库没有变化）"
-            Self.logger.debug("用量统计：OpenCode 库没有变化，跳过这一轮扫描")
-          } else {
-            // 扫一轮时把当前指纹记下来：连续两行的差异就是「为什么没跳过」。
-            Self.logger.debug(
-              "用量统计：OpenCode 需要扫一轮（库有变化 / 还没追平 / 重建）：\(String(describing: fingerprint), privacy: .public)"
-            )
-            do {
-              let sweep = try pass.ingestOpenCode(databaseURL: database, rebuilding: rebuilding)
-              changed += sweep.messages
-              openCodeNote = "OpenCode 扫 \(sweep.messages) 条"
+          let sweep = await Self.sweepOpenCode(
+            pass: pass, database: database, rebuilding: rebuilding,
+            fingerprintAtStart: openCodeFingerprintAtStart,
+            catchUpPending: openCodeCatchUpPendingAtStart,
+            applied: { [weak self] fingerprint, morePagesRemain in
               await self?.finishOpenCodeSweep(
-                fingerprint: OpenCodeDatabaseFingerprint.read(databaseURL: database),
-                morePagesRemain: sweep.morePagesRemain)
-            } catch {
-              // 失败后不靠指纹跳过：下一轮必须重试（库可能正被写、或权限/热点问题）。
-              await self?.noteOpenCodeSweepFailed()
-              openCodeNote = "OpenCode 失败"
-              failures += 1
-              Self.logger.error(
-                "OpenCode 用量索引失败：\(String(describing: error), privacy: .public)")
-            }
-          }
+                fingerprint: fingerprint, morePagesRemain: morePagesRemain)
+            },
+            failed: { [weak self] in await self?.noteOpenCodeSweepFailed() })
+          openCodeNote = sweep.note
+          changed += sweep.changed
+          failures += sweep.failures
         }
 
         // Hermes 同理：库与它的 -wal 都没被写过、且上一轮已经追平时跳过整轮扫描。它的增量
@@ -699,53 +663,26 @@ actor UsageStatsIndexer {
         // 开销，顺手也免掉「没变化」那几轮的白扫。
         var hermesNote = "Hermes 未启用"
         if let database = roots.hermesDatabase {
-          let fingerprint = OpenCodeDatabaseFingerprint.read(databaseURL: database)
-          let canSkip =
-            fingerprint != nil && fingerprint == hermesFingerprintAtStart
-            && !hermesCatchUpPendingAtStart && !rebuilding
-          if canSkip {
-            hermesNote = "Hermes 跳过（库没有变化）"
-            Self.logger.debug("用量统计：Hermes 库没有变化，跳过这一轮扫描")
-          } else {
-            do {
-              let sweep = try pass.ingestHermes(databaseURL: database, rebuilding: rebuilding)
-              changed += sweep.sessions
-              hermesNote = "Hermes 扫 \(sweep.sessions) 条"
+          let sweep = await Self.sweepHermes(
+            pass: pass, database: database, rebuilding: rebuilding,
+            fingerprintAtStart: hermesFingerprintAtStart,
+            catchUpPending: hermesCatchUpPendingAtStart,
+            applied: { [weak self] fingerprint, morePagesRemain in
               await self?.finishHermesSweep(
-                fingerprint: OpenCodeDatabaseFingerprint.read(databaseURL: database),
-                morePagesRemain: sweep.morePagesRemain)
-            } catch {
-              // 失败后不靠指纹跳过：下一轮必须重试（库可能正被写、或权限/热点问题）。
-              await self?.noteHermesSweepFailed()
-              hermesNote = "Hermes 失败"
-              failures += 1
-              Self.logger.error(
-                "Hermes 用量索引失败：\(String(describing: error), privacy: .public)")
-            }
-          }
+                fingerprint: fingerprint, morePagesRemain: morePagesRemain)
+            },
+            failed: { [weak self] in await self?.noteHermesSweepFailed() })
+          hermesNote = sweep.note
+          changed += sweep.changed
+          failures += sweep.failures
         }
 
-        // 索引到底多贵，留一条可查的事实。两档：真干活/失败/重算时进持久日志（`info`），
-        // 空轮只进内存日志（`debug`，`log show --debug` 可见）——空轮每分钟一条，别把
-        // 持久日志灌满，但排查性能时又得量得到。
         mark("OpenCode")
         mark("Hermes")
-        let elapsed = Date().timeIntervalSince(startedAt)
-        let phase = rebuilding ? "（全量重算）" : ""
-        let breakdown = ["开库", "枚举", "读进度", "扫记录", "清理", "OpenCode", "Hermes"]
-          .map { "\($0) \(Int((phaseSeconds[$0] ?? 0) * 1000))" }
-          .joined(separator: " / ")
-        // 两档共用同一句文案，但 `Logger` 只吃字面插值（没法先把摘要拼成 String），所以
-        // 这里只能各写一遍。
-        if changed > 0 || failures > 0 || rebuilding || elapsed >= 2 {
-          Self.logger.info(
-            "用量统计本轮：源 \(scanned, privacy: .public)，写 \(changed, privacy: .public)，跳过 \(failures, privacy: .public)，用时 \(Int(elapsed * 1000), privacy: .public) ms\(phase, privacy: .public)，\(openCodeNote, privacy: .public)，\(hermesNote, privacy: .public)｜\(breakdown, privacy: .public)"
-          )
-        } else {
-          Self.logger.debug(
-            "用量统计本轮：源 \(scanned, privacy: .public)，写 \(changed, privacy: .public)，跳过 \(failures, privacy: .public)，用时 \(Int(elapsed * 1000), privacy: .public) ms\(phase, privacy: .public)，\(openCodeNote, privacy: .public)，\(hermesNote, privacy: .public)｜\(breakdown, privacy: .public)"
-          )
-        }
+        Self.logSummary(
+          scanned: scanned, changed: changed, failures: failures, rebuilding: rebuilding,
+          elapsed: Date().timeIntervalSince(startedAt), phaseSeconds: phaseSeconds,
+          openCodeNote: openCodeNote, hermesNote: hermesNote)
 
         if failures > 0 {
           Self.logger.error("用量统计本轮跳过 \(failures) 个数据源（详见上面各条日志）")
@@ -758,6 +695,140 @@ actor UsageStatsIndexer {
           summary: "整轮索引失败：\(String(describing: error))", failedAt: Date())
       }
       await self?.finishPass(failure: failure)
+    }
+  }
+
+  // MARK: - 一轮里的各阶段（从 `runPass` 里提出来的，逐段可读、可单独看）
+
+  /// 分块扫描记录源。每批之间让出：**只有这一批真的读/写了才让**——一轮全是「没变化」的
+  /// stat 时不白等（本机 25 批 × 20 ms ≈ 0.5 秒纯延迟），也不必让页面白重取快照。
+  private nonisolated static func ingestChunks(
+    pass: UsageStatsPass, sources: [UsageSourceFile],
+    progress: [String: UsageSourceRecord], rebuilding: Bool,
+    chunkLimit: Int, chunkPause: UInt64,
+    onProgress: @Sendable () async -> Void
+  ) async -> (changed: Int, failures: Int, scanned: Int) {
+    var failures = 0
+    var changed = 0
+    var scanned = 0
+    while scanned < sources.count {
+      if Task.isCancelled { break }
+      let end = min(scanned + chunkLimit, sources.count)
+      let outcome = pass.ingest(
+        sources: Array(sources[scanned..<end]), progress: rebuilding ? [:] : progress,
+        rebuilding: rebuilding)
+      failures += outcome.failures
+      changed += outcome.changed
+      scanned = end
+      guard outcome.changed > 0 else { continue }
+      await onProgress()
+      try? await Task.sleep(nanoseconds: chunkPause)
+    }
+    return (changed, failures, scanned)
+  }
+
+  /// 清掉「库里登记、磁盘上已不存在」的记录进度（历史用量保留）。返回失败数（0 / 1）。
+  private nonisolated static func pruneMissingSources(
+    store: UsageStatsStore, progress: [String: UsageSourceRecord], sources: [UsageSourceFile]
+  ) -> Int {
+    do {
+      for sourceId in missingSourceIds(progress: progress, sources: sources) {
+        try store.forgetCursor(sourceId: sourceId)
+      }
+      return 0
+    } catch {
+      Self.logger.error("清理用量统计进度失败：\(String(describing: error), privacy: .public)")
+      return 1
+    }
+  }
+
+  /// 一个「库型」数据源（OpenCode / Hermes）的清扫结果。
+  private struct SweepOutcome: Sendable {
+    var note: String
+    var changed: Int = 0
+    var failures: Int = 0
+  }
+
+  /// OpenCode 清扫。
+  ///
+  /// 库与它的 -wal 都没被写过、且上一轮已经追平时整轮跳过：这两条查询在 message / part 上
+  /// 是全表扫描（本机 2.29 GB 库、冷缓存约 2 秒读盘），而 OpenCode 没在跑时它们永远查不出
+  /// 新东西。指纹的回写仍然由调用方在 actor 上做（`applied` / `failed`）。
+  private nonisolated static func sweepOpenCode(
+    pass: UsageStatsPass, database: URL, rebuilding: Bool,
+    fingerprintAtStart: OpenCodeDatabaseFingerprint?, catchUpPending: Bool,
+    applied: @Sendable (OpenCodeDatabaseFingerprint?, Bool) async -> Void,
+    failed: @Sendable () async -> Void
+  ) async -> SweepOutcome {
+    let fingerprint = OpenCodeDatabaseFingerprint.read(databaseURL: database)
+    let canSkip =
+      fingerprint != nil && fingerprint == fingerprintAtStart && !catchUpPending && !rebuilding
+    if canSkip {
+      Self.logger.debug("用量统计：OpenCode 库没有变化，跳过这一轮扫描")
+      return SweepOutcome(note: "OpenCode 跳过（库没有变化）")
+    }
+    // 扫一轮时把当前指纹记下来：连续两行的差异就是「为什么没跳过」。
+    Self.logger.debug(
+      "用量统计：OpenCode 需要扫一轮（库有变化 / 还没追平 / 重建）：\(String(describing: fingerprint), privacy: .public)"
+    )
+    do {
+      let sweep = try pass.ingestOpenCode(databaseURL: database, rebuilding: rebuilding)
+      await applied(OpenCodeDatabaseFingerprint.read(databaseURL: database), sweep.morePagesRemain)
+      return SweepOutcome(note: "OpenCode 扫 \(sweep.messages) 条", changed: sweep.messages)
+    } catch {
+      // 失败后不靠指纹跳过：下一轮必须重试（库可能正被写、或权限/热点问题）。
+      await failed()
+      Self.logger.error("OpenCode 用量索引失败：\(String(describing: error), privacy: .public)")
+      return SweepOutcome(note: "OpenCode 失败", failures: 1)
+    }
+  }
+
+  /// Hermes 清扫：跳过判据同 OpenCode。它的增量查询按会话过滤（单页 400 条约 15 ms、
+  /// 冷缓存约 0.3 s），这一门省的是空轮的固定开销。
+  private nonisolated static func sweepHermes(
+    pass: UsageStatsPass, database: URL, rebuilding: Bool,
+    fingerprintAtStart: OpenCodeDatabaseFingerprint?, catchUpPending: Bool,
+    applied: @Sendable (OpenCodeDatabaseFingerprint?, Bool) async -> Void,
+    failed: @Sendable () async -> Void
+  ) async -> SweepOutcome {
+    let fingerprint = OpenCodeDatabaseFingerprint.read(databaseURL: database)
+    let canSkip =
+      fingerprint != nil && fingerprint == fingerprintAtStart && !catchUpPending && !rebuilding
+    if canSkip {
+      Self.logger.debug("用量统计：Hermes 库没有变化，跳过这一轮扫描")
+      return SweepOutcome(note: "Hermes 跳过（库没有变化）")
+    }
+    do {
+      let sweep = try pass.ingestHermes(databaseURL: database, rebuilding: rebuilding)
+      await applied(OpenCodeDatabaseFingerprint.read(databaseURL: database), sweep.morePagesRemain)
+      return SweepOutcome(note: "Hermes 扫 \(sweep.sessions) 条", changed: sweep.sessions)
+    } catch {
+      await failed()
+      Self.logger.error("Hermes 用量索引失败：\(String(describing: error), privacy: .public)")
+      return SweepOutcome(note: "Hermes 失败", failures: 1)
+    }
+  }
+
+  /// 本轮摘要。两档：真干活 / 失败 / 重算 / 超过 2 秒进持久日志（`info`），空轮只进内存日志
+  /// （`debug`，`log show --debug` 可见）——空轮每分钟一条，别把持久日志灌满，但排查性能时
+  /// 又得量得到。`Logger` 只吃字面插值，所以两档只能各写一遍。
+  private nonisolated static func logSummary(
+    scanned: Int, changed: Int, failures: Int, rebuilding: Bool,
+    elapsed: TimeInterval, phaseSeconds: [String: TimeInterval],
+    openCodeNote: String, hermesNote: String
+  ) {
+    let phase = rebuilding ? "（全量重算）" : ""
+    let breakdown = ["开库", "枚举", "读进度", "扫记录", "清理", "OpenCode", "Hermes"]
+      .map { "\($0) \(Int((phaseSeconds[$0] ?? 0) * 1000))" }
+      .joined(separator: " / ")
+    if changed > 0 || failures > 0 || rebuilding || elapsed >= 2 {
+      Self.logger.info(
+        "用量统计本轮：源 \(scanned, privacy: .public)，写 \(changed, privacy: .public)，跳过 \(failures, privacy: .public)，用时 \(Int(elapsed * 1000), privacy: .public) ms\(phase, privacy: .public)，\(openCodeNote, privacy: .public)，\(hermesNote, privacy: .public)｜\(breakdown, privacy: .public)"
+      )
+    } else {
+      Self.logger.debug(
+        "用量统计本轮：源 \(scanned, privacy: .public)，写 \(changed, privacy: .public)，跳过 \(failures, privacy: .public)，用时 \(Int(elapsed * 1000), privacy: .public) ms\(phase, privacy: .public)，\(openCodeNote, privacy: .public)，\(hermesNote, privacy: .public)｜\(breakdown, privacy: .public)"
+      )
     }
   }
 
