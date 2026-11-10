@@ -34,8 +34,14 @@ nonisolated enum AgentRegistry {
 
     /// 某个 Agent 的 Provider（与是否启用无关）。
     static func provider(for kind: AgentKind) -> any AgentProvider {
-        // `all` 覆盖全部 AgentKind；这里给个兜底实现以避免强制解包。
-        all[kind] ?? ClaudeAgentProvider()
+        // `all` 与 `AgentKind` 必须一一对应（`AgentKindTests` 钉着这一条）。这里**不兜底**：
+        // 漏注册时任何「看起来能用」的默认实现都会把该工具的事件算到别的 Agent 名下
+        // （相位、记录路径、集成安装全跟着错，且不报错），比开发期直接崩掉危险得多。
+        guard let provider = all[kind] else {
+            preconditionFailure(
+                "AgentKind.\(kind.rawValue) 没有注册 Provider：AgentRegistry.all 漏了它")
+        }
+        return provider
     }
 
     /// 用户开启监控的 Agent。

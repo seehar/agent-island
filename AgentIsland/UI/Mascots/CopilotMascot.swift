@@ -109,24 +109,9 @@ struct CopilotMascot: View {
         // 2. 腿（在键盘后面）
         drawLegs(&context, sprite)
 
-        // 3. 键盘 + 6 列 × 2 行的键帽
-        context.fill(Path(sprite.r(0, 13, 15, 3)), with: .color(Self.kbBase))
-        for row in 0..<2 {
-            for column in 0..<6 {
-                context.fill(
-                    Path(
-                        sprite.r(
-                            0.5 + CGFloat(column) * 2.4, 13.5 + CGFloat(row) * 1.2, 1.8, 0.7)),
-                    with: .color(Self.kbKey))
-            }
-        }
-        // 按下的那一格亮一下（拍号同时决定行列）
-        context.fill(
-            Path(
-                sprite.r(
-                    0.5 + CGFloat(keyPhase % 6) * 2.4, 13.5 + CGFloat(keyPhase / 3) * 1.2, 1.8,
-                    0.7)),
-            with: .color(Self.kbFlash.opacity(0.9)))
+        MascotDraw.keyboard(
+            in: &context, sprite: sprite, keyPhase: keyPhase,
+            base: Self.kbBase, key: Self.kbKey, flash: Self.kbFlash)
 
         // 4. 耳环 / 机身 / 眼睛（一起随按键起伏）
         drawEars(&context, sprite, dy: bounce, signal: earSignal)

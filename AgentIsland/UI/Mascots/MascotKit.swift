@@ -289,6 +289,33 @@ enum MascotDraw {
                 with: .color(color))
         }
     }
+
+    /// 键盘 + 6 列 × 2 行的键帽（Copilot 与 Kimi 共用同一份画法，逐值相同）。
+    ///
+    /// 几何是固定的：机身底边在 y=16，键盘占 13…16，键帽 1.8×0.7。配色由调用方传入
+    /// （两位角色的机身色不同），拍号 `keyPhase` 同时决定亮的是哪一格。
+    static func keyboard(
+        in context: inout GraphicsContext, sprite: MascotSprite, keyPhase: Int,
+        base: Color, key: Color, flash: Color
+    ) {
+        context.fill(Path(sprite.r(0, 13, 15, 3)), with: .color(base))
+        for row in 0..<2 {
+            for column in 0..<6 {
+                context.fill(
+                    Path(
+                        sprite.r(
+                            0.5 + CGFloat(column) * 2.4, 13.5 + CGFloat(row) * 1.2, 1.8, 0.7)),
+                    with: .color(key))
+            }
+        }
+        // 按下的那一格亮一下（拍号同时决定行列）
+        context.fill(
+            Path(
+                sprite.r(
+                    0.5 + CGFloat(keyPhase % 6) * 2.4, 13.5 + CGFloat(keyPhase / 3) * 1.2, 1.8,
+                    0.7)),
+            with: .color(flash.opacity(0.9)))
+    }
 }
 
 extension Color {
