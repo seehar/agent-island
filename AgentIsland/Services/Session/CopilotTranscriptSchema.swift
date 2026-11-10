@@ -123,10 +123,8 @@ nonisolated final class CopilotTranscriptSchema: JSONLTranscriptSchema {
         else { return }
 
         let input = TranscriptParsing.stringifyInput(data["arguments"] as? [String: Any])
-        state.seenToolIds.insert(toolCallId)
-        state.toolIdToName[toolCallId] = name
-        state.toolInputs[toolCallId] = input
-        result.activity.append(.toolStarted(id: toolCallId, name: name, input: input))
+        TranscriptToolLog.started(
+            id: toolCallId, name: name, input: input, state: &state, result: &result)
     }
 
     private func consumeToolEnd(

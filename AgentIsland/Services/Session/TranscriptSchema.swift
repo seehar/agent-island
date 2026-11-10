@@ -295,3 +295,43 @@ nonisolated enum TranscriptParsing {
     return cleaned
   }
 }
+
+// MARK: - 工具调用的记账（8 个 schema 共用）
+
+/// 「工具开始 / 结束」的记账：登记 id → 名字与入参、生成统一的结构化结果、上报活动事件。
+///
+/// 这几句原先在 8 个子类里各写一遍。漏登记一处的表现很隐蔽：结果行显示成「未知工具」，
+/// 结构化结果也建不出对应卡片——不会报错，只是界面上少东西。
+///
+/// 做成命名空间里的函数而不是基类方法：`ClineTranscriptSchema` 直接实现
+/// `AgentTranscriptSchema`（不是 `JSONLTranscriptSchema` 的子类），基类方法它拿不到。
+nonisolated enum TranscriptToolLog {
+  /// 记一条「工具开始」。
+  static func started(
+    id: String, name: String, input: [String: String],
+    state: inout TranscriptParseState, result: inout TranscriptReadResult
+  ) {
+    state.seenToolIds.insert(id)
+    state.toolIdToName[id] = name
+    state.toolInputs[id] = input
+    result.activity.append(.toolStarted(id: id, name: name, input: input))
+  }
+
+  /// 记一条「工具结束」：用登记过的名字/入参生成结构化结果，并上报 `toolFinished`。
+  ///
+  /// 只适用于「结果正文已在 `state.toolResults` 里、名字也登记过」的那批 schema
+  /// （cline / cursor / grok）。名字来自别处（Gemini 的 `output.name`、Pi 的 `toolName`）
+  /// 或还要另写 `completedToolIds` 的，各自保留自己的顺序。
+  static func finished(
+    id: String, isError: Bool,
+    state: inout TranscriptParseState, result: inout TranscriptReadResult
+  ) {
+    let name = state.toolIdToName[id]
+    state.structuredResults[id] = GenericToolResultBuilder.build(
+      toolName: name ?? "",
+      input: state.toolInputs[id] ?? [:],
+      output: state.toolResults[id]?.content,
+      isError: isError)
+    result.activity.append(.toolFinished(id: id, name: name, isError: isError))
+  }
+}

@@ -113,21 +113,14 @@ nonisolated final class GrokTranscriptSchema: JSONLTranscriptSchema {
 
         for call in toolCalls {
             guard !state.seenToolIds.contains(call.id) else { continue }
-            state.seenToolIds.insert(call.id)
-            state.toolIdToName[call.id] = call.name
-            state.toolInputs[call.id] = call.input
-            result.activity.append(.toolStarted(id: call.id, name: call.name, input: call.input))
+            TranscriptToolLog.started(
+                id: call.id, name: call.name, input: call.input, state: &state,
+                result: &result)
         }
 
         for output in toolOutputs {
-            let name = state.toolIdToName[output.id]
-            state.structuredResults[output.id] = GenericToolResultBuilder.build(
-                toolName: name ?? "",
-                input: state.toolInputs[output.id] ?? [:],
-                output: state.toolResults[output.id]?.content,
-                isError: output.isError
-            )
-            result.activity.append(.toolFinished(id: output.id, name: name, isError: output.isError))
+            TranscriptToolLog.finished(
+                id: output.id, isError: output.isError, state: &state, result: &result)
         }
     }
 

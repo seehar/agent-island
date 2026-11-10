@@ -149,11 +149,9 @@ nonisolated final class CodeBuddyTranscriptSchema: JSONLTranscriptSchema {
 
         for block in content {
             if case .toolUse(let tool) = block {
-                state.seenToolIds.insert(tool.id)
-                state.toolIdToName[tool.id] = tool.name
-                state.toolInputs[tool.id] = tool.input
-                result.activity.append(
-                    .toolStarted(id: tool.id, name: tool.name, input: tool.input))
+                TranscriptToolLog.started(
+                    id: tool.id, name: tool.name, input: tool.input,
+                    state: &state, result: &result)
             }
         }
 
@@ -185,10 +183,7 @@ nonisolated final class CodeBuddyTranscriptSchema: JSONLTranscriptSchema {
         guard let callId = json["callId"] as? String, !callId.isEmpty else { return false }
         let input = TranscriptParsing.stringifyInput(
             json["arguments"] as? [String: Any])
-        state.seenToolIds.insert(callId)
-        state.toolIdToName[callId] = name
-        state.toolInputs[callId] = input
-        result.activity.append(.toolStarted(id: callId, name: name, input: input))
+        TranscriptToolLog.started(id: callId, name: name, input: input, state: &state, result: &result)
         return true
     }
 

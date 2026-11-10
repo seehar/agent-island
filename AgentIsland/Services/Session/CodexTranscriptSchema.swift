@@ -210,10 +210,7 @@ nonisolated final class CodexTranscriptSchema: JSONLTranscriptSchema {
             input = ["input": raw]
         }
 
-        state.seenToolIds.insert(callId)
-        state.toolIdToName[callId] = name
-        state.toolInputs[callId] = input
-        result.activity.append(.toolStarted(id: callId, name: name, input: input))
+        TranscriptToolLog.started(id: callId, name: name, input: input, state: &state, result: &result)
     }
 
     /// 工具结果：登记结果与结构化结果，并上报「工具结束」。

@@ -111,11 +111,9 @@ nonisolated final class GeminiTranscriptSchema: JSONLTranscriptSchema {
 
         for call in toolCalls {
             guard !state.seenToolIds.contains(call.id) else { continue }
-            state.seenToolIds.insert(call.id)
-            state.toolIdToName[call.id] = call.name
-            state.toolInputs[call.id] = call.input
-            result.activity.append(
-                .toolStarted(id: call.id, name: call.name, input: call.input))
+            TranscriptToolLog.started(
+                id: call.id, name: call.name, input: call.input, state: &state,
+                result: &result)
         }
 
         for output in toolOutputs {
