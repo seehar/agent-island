@@ -397,91 +397,11 @@ nonisolated final class UsageStatsStore {
     let values = filter.values
     let windowClause = filter.clause.isEmpty ? "" : "WHERE \(filter.clause)"
 
-    snapshot.totals =
-      try query(
-        """
-        SELECT COALESCE(SUM(input), 0), COALESCE(SUM(output), 0),
-               COALESCE(SUM(cache_read), 0), COALESCE(SUM(cache_write), 0),
-               COALESCE(SUM(calls), 0),
-               COUNT(DISTINCT CASE WHEN is_subagent = 0 THEN session_id END)
-        FROM usage_bucket \(windowClause);
-        """, values: values
-      ) { statement in
-        UsageTotals(
-          input: Int(sqlite3_column_int64(statement, 0)),
-          output: Int(sqlite3_column_int64(statement, 1)),
-          cacheRead: Int(sqlite3_column_int64(statement, 2)),
-          cacheWrite: Int(sqlite3_column_int64(statement, 3)),
-          sessions: Int(sqlite3_column_int64(statement, 5)),
-          calls: Int(sqlite3_column_int64(statement, 4))
-        )
-      }.first ?? UsageTotals()
-
-    snapshot.agents =
-      try query(
-        """
-        SELECT agent, COALESCE(SUM(input), 0), COALESCE(SUM(output), 0),
-               COALESCE(SUM(cache_read), 0), COALESCE(SUM(cache_write), 0),
-               COALESCE(SUM(calls), 0),
-               COUNT(DISTINCT CASE WHEN is_subagent = 0 THEN session_id END)
-        FROM usage_bucket \(windowClause)
-        GROUP BY agent;
-        """, values: values
-      ) { statement in
-        guard let raw = self.text(statement, 0), let agent = AgentKind(rawValue: raw) else {
-          return nil
-        }
-        return AgentUsage(
-          agent: agent,
-          totals: UsageTotals(
-            input: Int(sqlite3_column_int64(statement, 1)),
-            output: Int(sqlite3_column_int64(statement, 2)),
-            cacheRead: Int(sqlite3_column_int64(statement, 3)),
-            cacheWrite: Int(sqlite3_column_int64(statement, 4)),
-            sessions: Int(sqlite3_column_int64(statement, 6)),
-            calls: Int(sqlite3_column_int64(statement, 5))
-          ))
-      }
-      .compactMap { $0 }
-      .sorted { $0.totals.total > $1.totals.total }
-
-    snapshot.models =
-      try query(
-        """
-        SELECT model, COALESCE(SUM(input), 0), COALESCE(SUM(output), 0),
-               COALESCE(SUM(cache_read), 0), COALESCE(SUM(cache_write), 0),
-               COALESCE(SUM(calls), 0),
-               COUNT(DISTINCT CASE WHEN is_subagent = 0 THEN session_id END)
-        FROM usage_bucket
-        WHERE model <> '' \(filter.clause.isEmpty ? "" : "AND \(filter.clause)")
-        GROUP BY model
-        ORDER BY (SUM(input) + SUM(output) + SUM(cache_read) + SUM(cache_write)) DESC, model ASC;
-        """, values: values
-      ) { statement in
-        guard let name = self.text(statement, 0) else { return nil }
-        return ModelUsage(
-          name: name,
-          totals: UsageTotals(
-            input: Int(sqlite3_column_int64(statement, 1)),
-            output: Int(sqlite3_column_int64(statement, 2)),
-            cacheRead: Int(sqlite3_column_int64(statement, 3)),
-            cacheWrite: Int(sqlite3_column_int64(statement, 4)),
-            sessions: Int(sqlite3_column_int64(statement, 6)),
-            calls: Int(sqlite3_column_int64(statement, 5))
-          ))
-      }.compactMap { $0 }
-
-    snapshot.tools =
-      try query(
-        """
-        SELECT tool, COALESCE(SUM(calls), 0) FROM usage_bucket
-        WHERE tool <> '' \(filter.clause.isEmpty ? "" : "AND \(filter.clause)")
-        GROUP BY tool ORDER BY 2 DESC;
-        """, values: values
-      ) { statement in
-        guard let name = self.text(statement, 0) else { return nil }
-        return ToolUsage(name: name, calls: Int(sqlite3_column_int64(statement, 1)))
-      }.compactMap { $0 }
+    snapshot.totals = try totals(windowClause: windowClause, values: values)
+    snapshot.agents = try agentUsages(windowClause: windowClause, values: values)
+    snapshot.models = try modelUsages(
+      windowClause: windowClause, values: values, filterClause: filter.clause)
+    snapshot.tools = try toolUsages(values: values, filterClause: filter.clause)
 
     snapshot.trend = try trend(window: window, filter: filter, calendar: calendar, now: now)
     // 热力图：近半年的每日总量。区间是**固定窗口**（与视图的格子同源，见
@@ -492,6 +412,102 @@ nonisolated final class UsageStatsStore {
       since: UsageStatsCalendar.heatmapStart(containing: now, calendar: calendar),
       calendar: calendar)
     return snapshot
+  }
+
+  // MARK: - 各分组查询（`snapshot` 的四个分区各一条 SQL）
+
+  private func totals(windowClause: String, values: [SQLiteValue]) throws -> UsageTotals {
+    try query(
+      """
+      SELECT COALESCE(SUM(input), 0), COALESCE(SUM(output), 0),
+             COALESCE(SUM(cache_read), 0), COALESCE(SUM(cache_write), 0),
+             COALESCE(SUM(calls), 0),
+             COUNT(DISTINCT CASE WHEN is_subagent = 0 THEN session_id END)
+      FROM usage_bucket \(windowClause);
+      """, values: values
+    ) { statement in
+      UsageTotals(
+        input: Int(sqlite3_column_int64(statement, 0)),
+        output: Int(sqlite3_column_int64(statement, 1)),
+        cacheRead: Int(sqlite3_column_int64(statement, 2)),
+        cacheWrite: Int(sqlite3_column_int64(statement, 3)),
+        sessions: Int(sqlite3_column_int64(statement, 5)),
+        calls: Int(sqlite3_column_int64(statement, 4))
+      )
+    }.first ?? UsageTotals()
+  }
+
+  private func agentUsages(windowClause: String, values: [SQLiteValue]) throws -> [AgentUsage] {
+    try query(
+      """
+      SELECT agent, COALESCE(SUM(input), 0), COALESCE(SUM(output), 0),
+             COALESCE(SUM(cache_read), 0), COALESCE(SUM(cache_write), 0),
+             COALESCE(SUM(calls), 0),
+             COUNT(DISTINCT CASE WHEN is_subagent = 0 THEN session_id END)
+      FROM usage_bucket \(windowClause)
+      GROUP BY agent;
+      """, values: values
+    ) { statement in
+      guard let raw = self.text(statement, 0), let agent = AgentKind(rawValue: raw) else {
+        return nil
+      }
+      return AgentUsage(
+        agent: agent,
+        totals: UsageTotals(
+          input: Int(sqlite3_column_int64(statement, 1)),
+          output: Int(sqlite3_column_int64(statement, 2)),
+          cacheRead: Int(sqlite3_column_int64(statement, 3)),
+          cacheWrite: Int(sqlite3_column_int64(statement, 4)),
+          sessions: Int(sqlite3_column_int64(statement, 6)),
+          calls: Int(sqlite3_column_int64(statement, 5))
+        ))
+    }
+    .compactMap { $0 }
+    .sorted { $0.totals.total > $1.totals.total }
+  }
+
+  /// 模型榜：空模型（工具调用计数行）`WHERE model <> ''` 排除掉，排序按总 token 降序。
+  private func modelUsages(
+    windowClause: String, values: [SQLiteValue], filterClause: String
+  ) throws -> [ModelUsage] {
+    try query(
+      """
+      SELECT model, COALESCE(SUM(input), 0), COALESCE(SUM(output), 0),
+             COALESCE(SUM(cache_read), 0), COALESCE(SUM(cache_write), 0),
+             COALESCE(SUM(calls), 0),
+             COUNT(DISTINCT CASE WHEN is_subagent = 0 THEN session_id END)
+      FROM usage_bucket
+      WHERE model <> '' \(filterClause.isEmpty ? "" : "AND \(filterClause)")
+      GROUP BY model
+      ORDER BY (SUM(input) + SUM(output) + SUM(cache_read) + SUM(cache_write)) DESC, model ASC;
+      """, values: values
+    ) { statement in
+      guard let name = self.text(statement, 0) else { return nil }
+      return ModelUsage(
+        name: name,
+        totals: UsageTotals(
+          input: Int(sqlite3_column_int64(statement, 1)),
+          output: Int(sqlite3_column_int64(statement, 2)),
+          cacheRead: Int(sqlite3_column_int64(statement, 3)),
+          cacheWrite: Int(sqlite3_column_int64(statement, 4)),
+          sessions: Int(sqlite3_column_int64(statement, 6)),
+          calls: Int(sqlite3_column_int64(statement, 5))
+        ))
+    }.compactMap { $0 }
+  }
+
+  /// 工具榜：`tool <> ''` 排除只带 token 的桶（工具名列空串）。
+  private func toolUsages(values: [SQLiteValue], filterClause: String) throws -> [ToolUsage] {
+    try query(
+      """
+      SELECT tool, COALESCE(SUM(calls), 0) FROM usage_bucket
+      WHERE tool <> '' \(filterClause.isEmpty ? "" : "AND \(filterClause)")
+      GROUP BY tool ORDER BY 2 DESC;
+      """, values: values
+    ) { statement in
+      guard let name = self.text(statement, 0) else { return nil }
+      return ToolUsage(name: name, calls: Int(sqlite3_column_int64(statement, 1)))
+    }.compactMap { $0 }
   }
 
   /// 热力图用：`since`（含）起每个本地自然日的两个读数（token 总量 + 工具调用次数），
