@@ -45,31 +45,13 @@ class ChatHistoryManager: ObservableObject {
         await SessionStore.shared.process(.loadHistory(key: key, cwd: cwd))
     }
 
-    // MARK: - State Updates    // MARK: - State Updates
+    // MARK: - State Updates
 
+    /// 每轮会话状态发布会走到这里：投影规则在 `ChatHistoryProjection`（纯函数、有单测）。
     private func updateFromSessions(_ sessions: [SessionState]) {
-        var newHistories: [SessionKey: [ChatHistoryItem]] = [:]
-        var newAgentDescriptions: [SessionKey: [String: String]] = [:]
-        for session in sessions {
-            let filteredItems = filterOutSubagentTools(session.chatItems)
-            newHistories[session.sessionKey] = filteredItems
-            newAgentDescriptions[session.sessionKey] = session.subagentState.agentDescriptions
-        }
-        histories = newHistories
-        agentDescriptions = newAgentDescriptions
-    }
-
-    private func filterOutSubagentTools(_ items: [ChatHistoryItem]) -> [ChatHistoryItem] {
-        var subagentToolIds = Set<String>()
-        for item in items {
-            if case .toolCall(let tool) = item.type, tool.isSubagentContainer {
-                for subagentTool in tool.subagentTools {
-                    subagentToolIds.insert(subagentTool.id)
-                }
-            }
-        }
-
-        return items.filter { !subagentToolIds.contains($0.id) }
+        let projected = ChatHistoryProjection.project(sessions)
+        histories = projected.histories
+        agentDescriptions = projected.agentDescriptions
     }
 }
 
