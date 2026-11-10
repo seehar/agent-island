@@ -229,6 +229,11 @@ except Exception:
 
         if [ "$TEST_EXIT" -ne 0 ] || [ "$TEST_PASSED" != true ]; then
             echo "ERROR: 门禁未通过 —— 测试未成功（退出码 ${TEST_EXIT}，摘要 ${TEST_SUMMARY:-无}）"
+            # 先打失败用例的**断言文本**：xcodebuild 的摘要只列用例名，真正的原因
+            # （期望值 vs 实际值、以及是哪个 #expect 挂的）在日志更靠前的位置。
+            # 没有这一行时，CI 上只能看到一串用例名，得回头下载几百 MB 的产物才知道为什么。
+            grep -nE '✘|recorded an issue|Expectation failed|error: ' "$TEST_LOG" 2>/dev/null                 | head -60 || true
+            echo "--- 日志尾部 ---"
             tail -40 "$TEST_LOG"
             echo "--- 完整日志：$TEST_LOG ---"
             exit 1

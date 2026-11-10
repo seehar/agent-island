@@ -38,5 +38,7 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: gate-logs
-          path: ${{ runner.temp }}/agent-island-gate
+          # 只传日志：门禁目录里还有整份派生数据（产物 + 索引），全传会变成几百 MB
+          path: |
+            ${{ runner.temp }}/agent-island-gate/*.log
           if-no-files-found: ignore

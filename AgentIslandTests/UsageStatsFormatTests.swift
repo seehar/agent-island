@@ -17,15 +17,19 @@ struct UsageStatsFormatTests {
     private let english = Locale(identifier: "en_US")
     private let chinese = Locale(identifier: "zh-Hans")
 
+    /// 夹具一律用**当前时区**：生产侧（`UsageStatsFormat` / `UsageStatsCalendar`）读的是
+    /// `Calendar.current` 与本地时区，夹具若钉在 Asia/Shanghai，跑在 UTC 机器（CI）上
+    /// 2026-09-01 00:00+0800 实际是 8 月 31 日 16:00 —— 标签整体退一天，断言全红。
     private func calendar(firstWeekday: Int = 2) -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .gmt
         calendar.firstWeekday = firstWeekday
         return calendar
     }
 
-    private func day(_ year: Int, _ month: Int, _ day: Int) -> Date {
-        calendar().date(from: DateComponents(year: year, month: month, day: day)) ?? Date()
+    /// 取某天的**正午**：避开夏令时与「零点落在前一日」的时区边角。
+    private func day(_ year: Int, _ month: Int, _ day: Int, hour: Int = 12) -> Date {
+        calendar().date(
+            from: DateComponents(year: year, month: month, day: day, hour: hour)) ?? Date()
     }
 
     @Test("七个预设档的档名互不相同，且两种语言都真的翻译过")
@@ -88,7 +92,7 @@ struct UsageStatsFormatTests {
     func axisAndBucketLabelsFollowGranularity() {
         // 钟点的断言用 24 小时制的区域：en_US 会给出「2:00 PM」，那与 14 点对不上。
         let twentyFourHour = Locale(identifier: "en_GB")
-        let afternoon = calendar().date(byAdding: .hour, value: 14, to: day(2026, 9, 20)) ?? Date()
+        let afternoon = day(2026, 9, 20, hour: 14)
 
         let hourAxis = UsageStatsFormat.axisLabel(
             afternoon, granularity: .hour, locale: twentyFourHour)
