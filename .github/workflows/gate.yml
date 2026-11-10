@@ -14,7 +14,11 @@ concurrency:
 
 jobs:
   gate:
-    runs-on: macos-15
+    # 必须是 macOS 26 镜像：工程开了 SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor 与
+    # SWIFT_APPROACHABLE_CONCURRENCY（Swift 6.2 起的编译特性），Xcode 16.4 / Swift 6.1.2
+    # 会忽略这两个设置，于是所有默认 MainActor 的类型都失去主 actor 隔离——实测 52 条诊断
+    # 全是这个原因；另外部署目标 15.6 也高于 macos-15 镜像自带的 15.5 SDK。
+    runs-on: macos-26
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
