@@ -35,24 +35,66 @@ nonisolated final class ProcessTreeBuilder: @unchecked Sendable {
 
     private let lock = NSLock()
     private var cachedTree: [Int: ProcessInfo] = [:]
-    private var cachedAt: Date = .distantPast
+    /// 还没有任何快照时为 nil（首次调用必须同步扫一次，否则调用方拿到空树会误判归属）。
+    private var cachedAt: Date?
+    /// 后台是否已有一轮扫描在跑：多个调用方同时发现快照过期时只该补一次 `ps`。
+    private var refreshing = false
 
     /// 缓存有效期：进程树的变化（起一个新进程）在半秒后可见，足够所有归属判定。
     private let ttl: TimeInterval = 0.5
 
     private init() {}
 
-    /// 进程树（`ttl` 内复用上一份）。
+    /// 进程树（`ttl` 内复用上一份；过期时**先交旧快照、再后台补扫**）。
+    ///
+    /// 为什么不在调用线程上补扫：调用方几乎都在 hook 摄入路径上（会话状态机、进程归属
+    /// 判定），一次 `ps` 是 fork+wait（本机实测 40–135ms）。同步等它会把这条路径上的
+    /// 事件串行化——而这份表只回答「pid 的祖辈是谁」，半秒的陈旧完全无害。
+    /// 只有**首次调用**（还没有任何快照）才同步扫：那时返回空树会让归属判定全部落到
+    /// 错误分支，比多等一次 `ps` 更糟。
     nonisolated func buildTree() -> [Int: ProcessInfo] {
         lock.lock()
-        let fresh = Date().timeIntervalSince(cachedAt) < ttl
         let cached = cachedTree
+        let cachedAt = self.cachedAt
         lock.unlock()
-        if fresh { return cached }
+
+        if let cachedAt, Date().timeIntervalSince(cachedAt) < ttl {
+            return cached
+        }
+        if cachedAt != nil {
+            refreshInBackground()
+            return cached
+        }
 
         let tree = scanTree()
         store(tree)
         return tree
+    }
+
+    /// 后台补扫。`refreshing` 保证同一时刻只有一轮 `ps`。
+    private nonisolated func refreshInBackground() {
+        guard beginRefresh() else { return }
+        Task.detached(priority: .utility) { [self] in
+            let tree = scanTree()
+            store(tree)
+            endRefresh()
+        }
+    }
+
+    /// 抢占「本轮补扫」的名额。加锁动作放在同步函数里：`NSLock.lock()` 在 async 上下文
+    /// 会被判为不安全（Swift 6 起是错误）。
+    private nonisolated func beginRefresh() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if refreshing { return false }
+        refreshing = true
+        return true
+    }
+
+    private nonisolated func endRefresh() {
+        lock.lock()
+        refreshing = false
+        lock.unlock()
     }
 
     private nonisolated func store(_ tree: [Int: ProcessInfo]) {
