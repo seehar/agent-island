@@ -1154,6 +1154,14 @@ class HookSocketServer {
   logger.debug(
    "Received: \(event.event, privacy: .public) for \(event.sessionId.prefix(8), privacy: .public)")
 
+  handleEvent(event, from: clientSocket)
+ }
+
+ /// 按事件类型分派：门口的 Agent 开关 → `tool_use_id` 缓存/回收 → 撤批 → 待批登记或普通事件。
+ ///
+ /// 这些步骤的**先后**是有语义的（见下面 F1 的注释），所以留在同一个函数里；各段自己更长
+ /// 的处理（读帧、登记待批、审计日志）已经单独成函数。
+ private func handleEvent(_ event: HookEvent, from clientSocket: Int32) {
   // 已关闭的 Agent 的事件在门口丢掉（策略见 `shouldIgnore(_:)`）。阻塞型事件要先回一个
   // 显式应答再关连接：`passthrough` 的语义是「闸门不可用」——omp/pi 的扩展据此**按降级档**
   // 裁决（默认放行 + 终端提示），而不是把「服务端主动关闭」读成用户拒绝。hook 脚本型 Agent
@@ -1187,91 +1195,99 @@ class HookSocketServer {
    cleanupSpecificPermission(key: event.sessionKey, toolUseId: toolUseId)
   }
 
-  if event.expectsResponse {
-   // 应用侧兜底：档位外的调用直接回 `allow`，不登记待批（没有卡片，也没有等应答的悬挂连接）。
-   // 判据见 `HookEvent.isAutoAllowedByScope`。
-   if event.isAutoAllowedByScope(AppSettings.approvalAskScope) {
-    autoAllow(event: event, clientSocket: clientSocket)
-    return
-   }
-
-   let toolUseId: String
-   if let eventToolUseId = event.toolUseId {
-    toolUseId = eventToolUseId
-   } else if let cachedToolUseId = popCachedToolUseId(event: event) {
-    toolUseId = cachedToolUseId
-   } else {
-    logger.warning(
-     "Permission request missing tool_use_id for \(event.sessionId.prefix(8), privacy: .public) - no cache hit"
-    )
-    closeClient(clientSocket)
-    eventHandler?(event)
-    return
-   }
-
-   // 用原事件做副本、只替换 toolUseId：保留 agent / sessionFile / 子 Agent 归属。
-   let updatedEvent = event.withToolUseId(toolUseId)
-   let sessionKey = event.sessionKey
-   let pendingKey = PendingPermissionKey(key: sessionKey, toolUseId: toolUseId)
-
-   logger.debug(
-    "Permission request - keeping socket open for \(sessionKey.sessionId.prefix(8), privacy: .public) agent:\(sessionKey.agent.rawValue, privacy: .public) tool:\(toolUseId.prefix(12), privacy: .public)"
-   )
-
-   let pending = PendingPermission(
-    key: sessionKey,
-    toolUseId: toolUseId,
-    clientSocket: clientSocket,
-    event: updatedEvent,
-    receivedAt: Date()
-   )
-   permissionsLock.lock()
-   let replaced = pendingPermissions.updateValue(pending, forKey: pendingKey)
-   let pendingTotal = pendingPermissions.count
-   permissionsLock.unlock()
-
-   if let replaced {
-    // 同键重发（集成重试）：旧 fd 不关会泄漏，且永远等不到应答。
-    logger.warning(
-     "Replacing existing pending permission - agent:\(sessionKey.agent.rawValue, privacy: .public) session:\(sessionKey.sessionId.prefix(8), privacy: .public) tool:\(toolUseId.prefix(12), privacy: .public)"
-    )
-    closeClient(replaced.clientSocket)
-   }
-
-   logger.info(
-    "Pending permission registered - agent:\(sessionKey.agent.rawValue, privacy: .public) session:\(sessionKey.sessionId.prefix(8), privacy: .public) tool:\(toolUseId.prefix(12), privacy: .public) pending:\(pendingTotal, privacy: .public)"
-   )
-
-   // `ask` 工具：登记时把解析出的问题/选项规模记一条，便于在没跑起界面时
-   // 用日志独立核查「信封里的 ask 真的被解析出来了」。
-   if let ask = updatedEvent.ask {
-    let optionCount = ask.questions.reduce(0) { $0 + $1.options.count }
-    let multiCount = ask.questions.filter(\.multiSelect).count
-    let freeTextCount = ask.questions.filter(\.freeText).count
-    logger.info(
-     "Pending ask registered - agent:\(sessionKey.agent.rawValue, privacy: .public) session:\(sessionKey.sessionId.prefix(8), privacy: .public) tool:\(toolUseId.prefix(12), privacy: .public) questions:\(ask.questions.count, privacy: .public) options:\(optionCount, privacy: .public) multi:\(multiCount, privacy: .public) freeText:\(freeTextCount, privacy: .public)"
-    )
-   }
-
-   // 展示档位只在集成真的报了的时候记一条：既是可回溯的审计痕迹，也让
-   // 「危险命令 / 降级放行 / 终端正在询问」在应用侧可被独立核查。
-   if updatedEvent.isCriticalApproval || updatedEvent.isGateDegraded
-    || updatedEvent.ompOwnsApproval == true
-   {
-    logger.info(
-     "Pending approval display - kind:\(updatedEvent.approvalKind ?? "-", privacy: .public) tier:\(updatedEvent.degradation ?? "-", privacy: .public) gate:\(updatedEvent.gateEnabled.map { String($0) } ?? "-", privacy: .public) critical:\(String(updatedEvent.isCriticalApproval), privacy: .public) degraded:\(String(updatedEvent.isGateDegraded), privacy: .public) asking:\(String(updatedEvent.ompOwnsApproval == true), privacy: .public)"
-    )
-   }
-
-   eventHandler?(updatedEvent.withLivePending(hasPendingPermission(key: sessionKey)))
-   return
-  } else {
+  guard event.expectsResponse else {
+   // 普通事件也带上「这条会话此刻有没有待批」：闸门版集成先发闸门信封、后发 PreToolUse，
+   // 那条 PreToolUse 若不带这个事实就会把「等待审批」推回 processing（实测 74ms）。
    closeClient(clientSocket)
+   eventHandler?(event.withLivePending(hasPendingPermission(key: event.sessionKey)))
+   return
   }
 
-  // 普通事件也带上「这条会话此刻有没有待批」：闸门版集成先发闸门信封、后发 PreToolUse，
-  // 那条 PreToolUse 若不带这个事实就会把「等待审批」推回 processing（实测 74ms）。
-  eventHandler?(event.withLivePending(hasPendingPermission(key: event.sessionKey)))
+  registerPendingPermission(for: event, from: clientSocket)
+ }
+
+ /// 登记一条待批：档位外的直接放行 → 解析 `tool_use_id` → 写入待批表（同键重发要关掉旧 fd）
+ /// → 记审计日志 → 把「这条会话有待批」告诉状态机。
+ private func registerPendingPermission(for event: HookEvent, from clientSocket: Int32) {
+  // 应用侧兜底：档位外的调用直接回 `allow`，不登记待批（没有卡片，也没有等应答的悬挂连接）。
+  // 判据见 `HookEvent.isAutoAllowedByScope`。
+  if event.isAutoAllowedByScope(AppSettings.approvalAskScope) {
+   autoAllow(event: event, clientSocket: clientSocket)
+   return
+  }
+
+  guard let toolUseId = resolveToolUseId(for: event) else {
+   logger.warning(
+    "Permission request missing tool_use_id for \(event.sessionId.prefix(8), privacy: .public) - no cache hit"
+   )
+   closeClient(clientSocket)
+   eventHandler?(event)
+   return
+  }
+
+  // 用原事件做副本、只替换 toolUseId：保留 agent / sessionFile / 子 Agent 归属。
+  let updatedEvent = event.withToolUseId(toolUseId)
+  let sessionKey = event.sessionKey
+  let pendingKey = PendingPermissionKey(key: sessionKey, toolUseId: toolUseId)
+
+  logger.debug(
+   "Permission request - keeping socket open for \(sessionKey.sessionId.prefix(8), privacy: .public) agent:\(sessionKey.agent.rawValue, privacy: .public) tool:\(toolUseId.prefix(12), privacy: .public)"
+  )
+
+  let pending = PendingPermission(
+   key: sessionKey,
+   toolUseId: toolUseId,
+   clientSocket: clientSocket,
+   event: updatedEvent,
+   receivedAt: Date()
+  )
+  permissionsLock.lock()
+  let replaced = pendingPermissions.updateValue(pending, forKey: pendingKey)
+  let pendingTotal = pendingPermissions.count
+  permissionsLock.unlock()
+
+  if let replaced {
+   // 同键重发（集成重试）：旧 fd 不关会泄漏，且永远等不到应答。
+   logger.warning(
+    "Replacing existing pending permission - agent:\(sessionKey.agent.rawValue, privacy: .public) session:\(sessionKey.sessionId.prefix(8), privacy: .public) tool:\(toolUseId.prefix(12), privacy: .public)"
+   )
+   closeClient(replaced.clientSocket)
+  }
+
+  logger.info(
+   "Pending permission registered - agent:\(sessionKey.agent.rawValue, privacy: .public) session:\(sessionKey.sessionId.prefix(8), privacy: .public) tool:\(toolUseId.prefix(12), privacy: .public) pending:\(pendingTotal, privacy: .public)"
+  )
+  logPendingAudit(updatedEvent, sessionKey: sessionKey, toolUseId: toolUseId)
+
+  eventHandler?(updatedEvent.withLivePending(hasPendingPermission(key: sessionKey)))
+ }
+
+ /// `tool_use_id`：事件自带就用它；否则取 `PreToolUse` 缓存里的那一条
+ /// （`PermissionRequest` 的信封不带 id，只能靠这条关联）。
+ private func resolveToolUseId(for event: HookEvent) -> String? {
+  if let toolUseId = event.toolUseId { return toolUseId }
+  return popCachedToolUseId(event: event)
+ }
+
+ /// 待批的审计日志：`ask` 的规模与展示档位只在集成真的报了的时候记一条，便于在没跑起界面时
+ /// 用日志独立核查「信封里的东西真的被解析出来了」。
+ private func logPendingAudit(_ event: HookEvent, sessionKey: SessionKey, toolUseId: String) {
+  if let ask = event.ask {
+   let optionCount = ask.questions.reduce(0) { $0 + $1.options.count }
+   let multiCount = ask.questions.filter(\.multiSelect).count
+   let freeTextCount = ask.questions.filter(\.freeText).count
+   logger.info(
+    "Pending ask registered - agent:\(sessionKey.agent.rawValue, privacy: .public) session:\(sessionKey.sessionId.prefix(8), privacy: .public) tool:\(toolUseId.prefix(12), privacy: .public) questions:\(ask.questions.count, privacy: .public) options:\(optionCount, privacy: .public) multi:\(multiCount, privacy: .public) freeText:\(freeTextCount, privacy: .public)"
+   )
+  }
+
+  // 展示档位只在集成真的报了的时候记一条：既是可回溯的审计痕迹，也让
+  // 「危险命令 / 降级放行 / 终端正在询问」在应用侧可被独立核查。
+  if event.isCriticalApproval || event.isGateDegraded || event.ompOwnsApproval == true {
+   logger.info(
+    "Pending approval display - kind:\(event.approvalKind ?? "-", privacy: .public) tier:\(event.degradation ?? "-", privacy: .public) gate:\(event.gateEnabled.map { String($0) } ?? "-", privacy: .public) critical:\(String(event.isCriticalApproval), privacy: .public) degraded:\(String(event.isGateDegraded), privacy: .public) asking:\(String(event.ompOwnsApproval == true), privacy: .public)"
+   )
+  }
  }
 
  /// 档位外的调用：立刻回 `allow` 并关闭连接。
