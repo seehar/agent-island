@@ -343,13 +343,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "While typing in the chat input, only Close or go back and Allow the pending request still work."
+            "value" : "While typing in the chat input, only Close or go back, Allow the pending request, and switching pages still work."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在聊天输入框里打字时，只有「返回或收起」与「批准待处理的请求」仍然生效。"
+            "value" : "在聊天输入框里打字时，只有「返回或收起」「批准待处理的请求」与「切换页面」仍然生效。"
           }
         }
       }
@@ -7695,8 +7695,7 @@
           }
         }
       }
-    }
-    ,
+    },
     "Closed Notch Layout" : {
       "comment" : "行为页「刘海」组的一行：关闭态胶囊允许占掉多少菜单栏",
       "localizations" : {

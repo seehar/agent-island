@@ -77,11 +77,15 @@ nonisolated enum ShortcutAction: String, CaseIterable, Identifiable, Sendable {
 
     /// 输入框聚焦时是否仍然生效。
     ///
-    /// 只有「返回/收起」与「批准」为真：聊天输入框就在同一个面板里，其余按键必须让位给
-    /// 文本编辑（`⌘⌫` 是删到行首、`↑/↓/↩` 是光标与发送）。
+    /// 逐个按「会不会和文本编辑抢键」判定，而不是一律让位：
+    ///   · `dismiss` / `approve`：Esc 与 ⌘↩ 在输入框里本就不是编辑指令；
+    ///   · `toggleStatistics` / `openSettings`：⌃⌘S、⌘, 是**切页**，与编辑无关——
+    ///     漏掉它们时，面板只要恢复成上次的对话（输入框自动获得焦点），统计页的快捷键就
+    ///     会静默失效（实测：面板从对话页展开后按 ⌃⌘S 毫无反应）；
+    ///   · 其余必须让位给文本编辑（`⌘⌫` 是删到行首、`↑/↓/↩` 是光标与发送）。
     var worksWhileTextEditing: Bool {
         switch self {
-        case .dismiss, .approve: return true
+        case .dismiss, .approve, .toggleStatistics, .openSettings: return true
         default: return false
         }
     }

@@ -86,13 +86,12 @@ struct ShortcutResolverTests {
         }
     }
 
-    @Test("输入框聚焦时：只有返回/收起与批准仍然生效")
+    @Test("输入框聚焦时：返回/收起、批准与切页仍然生效，其余让位")
     func textEditingGuard() {
         let bindings = defaultBindings()
-        let allowed: [ShortcutAction] = [.dismiss, .approve]
+        let allowed: [ShortcutAction] = [.dismiss, .approve, .openSettings, .toggleStatistics]
         let blocked: [ShortcutAction] = [
-            .deny, .moveSelectionUp, .moveSelectionDown, .openChat, .focusTerminal, .openSettings,
-            .toggleStatistics,
+            .deny, .moveSelectionUp, .moveSelectionDown, .openChat, .focusTerminal,
         ]
 
         for page in [
