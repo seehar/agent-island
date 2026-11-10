@@ -171,7 +171,8 @@ nonisolated final class OpenCodeTranscriptSchema: AgentTranscriptSchema {
                 }
                 let input = TranscriptParsing.stringifyInput(part.toolInput)
                 blocks.append(.toolUse(ToolUseBlock(id: callId, name: name, input: input)))
-                consumeTool(part, callId: callId, name: name, input: input, state: &state, result: &result)
+                consumeTool(
+                    part, callId: callId, name: name, input: input, state: &state, result: &result)
             default:
                 // compaction（上下文压缩）、patch、file、step-start、step-finish
                 // 都没有用户可见内容。

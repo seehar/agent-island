@@ -62,7 +62,8 @@ nonisolated final class GeminiTranscriptSchema: JSONLTranscriptSchema {
                 // gemini 的工具调用/结果块（模型面协议形状）：`functionCall` / `functionResponse`。
                 if let call = block["functionCall"] as? [String: Any] {
                     let name = call["name"] as? String ?? block["name"] as? String ?? "Tool"
-                    let id = block["id"] as? String
+                    let id =
+                        block["id"] as? String
                         ?? StableHash.hash("gemini-call|\(rawLine)|\(index)")
                     let input = TranscriptParsing.stringifyInput(call["args"] as? [String: Any])
                     let tool = ToolUseBlock(id: id, name: name, input: input)
@@ -104,7 +105,8 @@ nonisolated final class GeminiTranscriptSchema: JSONLTranscriptSchema {
             }
             if let text {
                 state.lastMessage = TranscriptParsing.truncate(text)
-                state.lastMessageRole = isUser ? ChatRole.user.rawValue : ChatRole.assistant.rawValue
+                state.lastMessageRole =
+                    isUser ? ChatRole.user.rawValue : ChatRole.assistant.rawValue
                 state.lastToolName = nil
             }
         }

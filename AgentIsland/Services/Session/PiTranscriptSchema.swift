@@ -69,9 +69,11 @@ final class PiTranscriptSchema: JSONLTranscriptSchema {
             else { return }
             switch role {
             case "user":
-                consumeUserMessage(json, rawLine: rawLine, message: message, state: &state, result: &result)
+                consumeUserMessage(
+                    json, rawLine: rawLine, message: message, state: &state, result: &result)
             case "assistant":
-                consumeAssistantMessage(json, rawLine: rawLine, message: message, state: &state, result: &result)
+                consumeAssistantMessage(
+                    json, rawLine: rawLine, message: message, state: &state, result: &result)
             case "toolResult":
                 consumeToolResult(message: message, state: &state, result: &result)
             case "bashExecution", "pythonExecution":

@@ -279,7 +279,8 @@ nonisolated enum UsageStatsMetrics {
 
     /// 标准档下的格网高度：进面板高度解析式的那一份（窄面板下格网更矮，页面整体只会更短）。
     static var heatmapGridHeight: CGFloat {
-        heatmapGridHeight(forGridWidth: heatmapGridWidth(inPanelWidth: NotchMenuMetrics.panelWidthMax))
+        heatmapGridHeight(
+            forGridWidth: heatmapGridWidth(inPanelWidth: NotchMenuMetrics.panelWidthMax))
     }
 
     /// 悬停命中：把一个点（格网坐标系）换成「第几列第几行」，落在格网外给 `nil`。
@@ -290,13 +291,13 @@ nonisolated enum UsageStatsMetrics {
         // 先卡「点在格网矩形里」：53 列正好铺满格网宽，右边多出来的一条就是卡片内边距，
         // 落在那里不该算成最后一列。
         guard
-          point.x < gridWidth, point.y < heatmapGridHeight(forGridWidth: gridWidth)
+            point.x < gridWidth, point.y < heatmapGridHeight(forGridWidth: gridWidth)
         else { return nil }
         let column = Int(point.x / pitch)
         let row = Int(point.y / pitch)
         guard
-          column >= 0, column < UsageStatsCalendar.heatmapWeekCount,
-          row >= 0, row < UsageStatsCalendar.daysPerWeek
+            column >= 0, column < UsageStatsCalendar.heatmapWeekCount,
+            row >= 0, row < UsageStatsCalendar.daysPerWeek
         else { return nil }
         return (column, row)
     }

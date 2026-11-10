@@ -117,7 +117,8 @@ struct AgentEventRoutingTests {
             #expect(!kind.approval.canDecideRemotely)
             let sessionId = makeSessionId(kind.rawValue)
             let cwd = FileManager.default.temporaryDirectory
-                .appendingPathComponent("island-route-plain-\(kind.rawValue)-\(UUID().uuidString)").path
+                .appendingPathComponent("island-route-plain-\(kind.rawValue)-\(UUID().uuidString)")
+                .path
             let key = SessionKey(agent: kind, sessionId: sessionId)
 
             let event = try decodeEnvelope(

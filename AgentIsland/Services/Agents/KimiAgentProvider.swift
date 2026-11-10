@@ -192,9 +192,10 @@ nonisolated struct KimiAgentProvider: AgentProvider {
     /// 必须缓存：`sessionId` / `cwd` 会被**逐条记录**调用（一轮发现 = O(会话数) 次，
     /// 发现循环 4 秒一轮、用量枚举 60 秒一轮），每次重读整个索引会把一轮变成
     /// O(会话数²) 的解析。指纹里带路径，保证注入不同 home 的用例互不串味。
-    nonisolated(unsafe) private static var indexCache: (
-        signature: IndexSignature, entries: [IndexedSession]
-    )?
+    nonisolated(unsafe) private static var indexCache:
+        (
+            signature: IndexSignature, entries: [IndexedSession]
+        )?
     private static let indexCacheLock = NSLock()
 
     func indexEntries() -> [IndexedSession] {

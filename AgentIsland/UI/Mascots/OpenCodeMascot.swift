@@ -93,17 +93,25 @@ struct OpenCodeMascot: View {
         for row in frameRows {
             let (adjX, adjW) = sx(row.x, w: row.w)
             context.fill(
-                Path(sprite.r(adjX, row.y * squashY + (1 - squashY) * 10, adjW, 0.7 * squashY, dy: dy)),
+                Path(
+                    sprite.r(
+                        adjX, row.y * squashY + (1 - squashY) * 10, adjW, 0.7 * squashY, dy: dy)),
                 with: .color(Self.frameC.opacity(0.6)))
         }
         for y: CGFloat in stride(from: 7, to: 12, by: 1) {
             let (leftX, _) = sx(3, w: 0.7)
             context.fill(
-                Path(sprite.r(leftX, y * squashY + (1 - squashY) * 10, 0.7 * squashX, 1 * squashY, dy: dy)),
+                Path(
+                    sprite.r(
+                        leftX, y * squashY + (1 - squashY) * 10, 0.7 * squashX, 1 * squashY, dy: dy)
+                ),
                 with: .color(Self.frameC.opacity(0.4)))
             let (rightX, _) = sx(11.3, w: 0.7)
             context.fill(
-                Path(sprite.r(rightX, y * squashY + (1 - squashY) * 10, 0.7 * squashX, 1 * squashY, dy: dy)),
+                Path(
+                    sprite.r(
+                        rightX, y * squashY + (1 - squashY) * 10, 0.7 * squashX, 1 * squashY, dy: dy
+                    )),
                 with: .color(Self.frameC.opacity(0.4)))
         }
     }
@@ -131,7 +139,8 @@ struct OpenCodeMascot: View {
 
         // 中间的光标点
         if eyeScale > 0.5 {
-            context.fill(Path(sprite.r(7.1, 9.2, 0.8, 0.8, dy: dy)), with: .color(color.opacity(0.8)))
+            context.fill(
+                Path(sprite.r(7.1, 9.2, 0.8, 0.8, dy: dy)), with: .color(color.opacity(0.8)))
         }
     }
 
@@ -164,7 +173,8 @@ struct OpenCodeMascot: View {
             drawBlock(&context, sprite, dy: float)
             drawFace(&context, sprite, dy: float, color: Self.faceC.opacity(0.4), eyeScale: 0.3)
             // 飘 Z 从趴姿机身顶边（SVG y=5）上方升起。
-            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 5, t: t, size: size, color: Self.sleepZ)
+            MascotDraw.floatingZs(
+                &context, sprite: sprite, bodyTop: 5, t: t, size: size, color: Self.sleepZ)
         }
     }
 
@@ -204,7 +214,9 @@ struct OpenCodeMascot: View {
             let flashColumn = keyPhase % 6
             let flashRow = keyPhase / 3
             context.fill(
-                Path(sprite.r(0.5 + CGFloat(flashColumn) * 2.4, 13.5 + CGFloat(flashRow) * 1.2, 1.8, 0.7)),
+                Path(
+                    sprite.r(
+                        0.5 + CGFloat(flashColumn) * 2.4, 13.5 + CGFloat(flashRow) * 1.2, 1.8, 0.7)),
                 with: .color(Self.kbHi.opacity(0.9)))
 
             // 4. 机身与脸（叠在键盘腿后面，只有上半身露出来）

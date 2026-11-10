@@ -113,12 +113,14 @@ nonisolated struct HookEvent: Codable, Sendable {
     /// Create a copy with updated toolUseId
     init(
         sessionId: String, cwd: String, event: String, status: String, pid: Int?, tty: String?,
-        tool: String?, toolInput: [String: AnyCodable]?, toolUseId: String?, notificationType: String?,
+        tool: String?, toolInput: [String: AnyCodable]?, toolUseId: String?,
+        notificationType: String?,
         message: String?, agent: String? = nil, sessionFile: String? = nil
     ) {
         self.init(
             sessionId: sessionId, cwd: cwd, event: event, status: status, pid: pid, tty: tty,
-            tool: tool, toolInput: toolInput, toolUseId: toolUseId, notificationType: notificationType,
+            tool: tool, toolInput: toolInput, toolUseId: toolUseId,
+            notificationType: notificationType,
             message: message, agent: agent, sessionFile: sessionFile,
             subagentId: nil, subagentAgent: nil, subagentStatus: nil, subagentCurrentTool: nil,
             subagentTask: nil, parentToolCallId: nil, subagentSessionFile: nil,
@@ -128,7 +130,8 @@ nonisolated struct HookEvent: Codable, Sendable {
 
     init(
         sessionId: String, cwd: String, event: String, status: String, pid: Int?, tty: String?,
-        tool: String?, toolInput: [String: AnyCodable]?, toolUseId: String?, notificationType: String?,
+        tool: String?, toolInput: [String: AnyCodable]?, toolUseId: String?,
+        notificationType: String?,
         message: String?, agent: String?, sessionFile: String?, subagentId: String?,
         subagentAgent: String?, subagentStatus: String?, subagentCurrentTool: String?,
         subagentTask: String?, parentToolCallId: String?, subagentSessionFile: String?,
@@ -493,7 +496,8 @@ class HookSocketServer {
     private var acceptSource: DispatchSourceRead?
     private var eventHandler: HookEventHandler?
     private var permissionFailureHandler: PermissionFailureHandler?
-    private let queue = DispatchQueue(label: "com.celestial.AgentIsland.socket", qos: .userInitiated)
+    private let queue = DispatchQueue(
+        label: "com.celestial.AgentIsland.socket", qos: .userInitiated)
 
     /// Pending permission requests indexed by (会话, toolUseId)
     private var pendingPermissions: [PendingPermissionKey: PendingPermission] = [:]
@@ -517,7 +521,8 @@ class HookSocketServer {
     private let pendingTTL: TimeInterval = {
         // 项目内自有 `ProcessInfo`（进程树）会遮蔽 Foundation 的同名类型，故显式限定
         guard
-            let raw = Foundation.ProcessInfo.processInfo.environment["AGENT_ISLAND_PENDING_TTL_SECONDS"],
+            let raw = Foundation.ProcessInfo.processInfo.environment[
+                "AGENT_ISLAND_PENDING_TTL_SECONDS"],
             let seconds = TimeInterval(raw), seconds > 0
         else { return 330 }
         return seconds
@@ -677,7 +682,8 @@ class HookSocketServer {
     ) {
         queue.async { [weak self] in
             self?.sendPermissionResponse(
-                key: key, toolUseId: toolUseId, decision: decision, answers: answers, reason: reason)
+                key: key, toolUseId: toolUseId, decision: decision, answers: answers, reason: reason
+            )
         }
     }
 
@@ -938,7 +944,8 @@ class HookSocketServer {
     private func cacheToolUseId(event: HookEvent) {
         guard let toolUseId = event.toolUseId else { return }
 
-        let key = cacheKey(sessionId: event.sessionId, toolName: event.tool, toolInput: event.toolInput)
+        let key = cacheKey(
+            sessionId: event.sessionId, toolName: event.tool, toolInput: event.toolInput)
 
         cacheLock.lock()
         if toolUseIdCache[key] == nil {
@@ -954,7 +961,8 @@ class HookSocketServer {
 
     /// Pop and return cached tool_use_id for PermissionRequest (FIFO)
     private func popCachedToolUseId(event: HookEvent) -> String? {
-        let key = cacheKey(sessionId: event.sessionId, toolName: event.tool, toolInput: event.toolInput)
+        let key = cacheKey(
+            sessionId: event.sessionId, toolName: event.tool, toolInput: event.toolInput)
 
         cacheLock.lock()
         defer { cacheLock.unlock() }
@@ -1037,7 +1045,8 @@ class HookSocketServer {
     /// 与 `replyGateUnavailable` 同一份语义与编码器，区别只在这里拿不到 `event`（uid 拒绝发生
     /// 在解析之前）。写成独立入口是为了两处的字节形状完全一致——对端据此判「无人可问」。
     private func replyGateUnavailableRaw(clientSocket: Int32) {
-        let response = AskAnswerBuilder.normalized(decision: "passthrough", answers: nil, reason: nil)
+        let response = AskAnswerBuilder.normalized(
+            decision: "passthrough", answers: nil, reason: nil)
         guard let data = try? Self.responseEncoder.encode(response) else { return }
         _ = writeAll(data, to: clientSocket, context: "gate unavailable reply (unparsed)")
     }
@@ -1146,13 +1155,15 @@ class HookSocketServer {
             return
         case .malformed(let data):
             logger.warning(
-                "Failed to parse event: \(String(data: data, encoding: .utf8) ?? "?", privacy: .public)")
+                "Failed to parse event: \(String(data: data, encoding: .utf8) ?? "?", privacy: .public)"
+            )
             closeClient(clientSocket)
             return
         }
 
         logger.debug(
-            "Received: \(event.event, privacy: .public) for \(event.sessionId.prefix(8), privacy: .public)")
+            "Received: \(event.event, privacy: .public) for \(event.sessionId.prefix(8), privacy: .public)"
+        )
 
         handleEvent(event, from: clientSocket)
     }
@@ -1299,7 +1310,8 @@ class HookSocketServer {
     /// 决策字符串由集成侧约定（见 pi 扩展的结局解析）：不阻塞 + 按降级档裁决。写入方式与
     /// `autoAllow` 一致（同一条编码器、同样的 write 兜错）。
     private func replyGateUnavailable(clientSocket: Int32, event: HookEvent) {
-        let response = AskAnswerBuilder.normalized(decision: "passthrough", answers: nil, reason: nil)
+        let response = AskAnswerBuilder.normalized(
+            decision: "passthrough", answers: nil, reason: nil)
         guard let data = try? Self.responseEncoder.encode(response) else { return }
         logger.info(
             "Agent \(event.sessionKey.agent.rawValue, privacy: .public) is disabled - replying passthrough for session \(event.sessionId.prefix(8), privacy: .public) tool \(event.tool ?? "-", privacy: .public)"
@@ -1396,7 +1408,8 @@ nonisolated struct AnyCodable: Codable, @unchecked Sendable {
         } else if let dict = try? container.decode([String: AnyCodable].self) {
             value = dict.mapValues { $0.value }
         } else {
-            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Cannot decode value")
+            throw DecodingError.dataCorruptedError(
+                in: container, debugDescription: "Cannot decode value")
         }
     }
 
@@ -1421,7 +1434,8 @@ nonisolated struct AnyCodable: Codable, @unchecked Sendable {
             try container.encode(dict.mapValues { AnyCodable($0) })
         default:
             throw EncodingError.invalidValue(
-                value, EncodingError.Context(codingPath: [], debugDescription: "Cannot encode value"))
+                value,
+                EncodingError.Context(codingPath: [], debugDescription: "Cannot encode value"))
         }
     }
 }

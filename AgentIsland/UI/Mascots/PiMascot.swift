@@ -165,7 +165,8 @@ struct PiMascot: View {
         Canvas { context, canvas in
             let sprite = MascotSprite(canvas, svgWidth: 16, svgHeight: 12, svgTop: 4)
             drawSleeping(&context, sprite)
-            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 6.4, t: t, size: size, color: palette.shell)
+            MascotDraw.floatingZs(
+                &context, sprite: sprite, bodyTop: 6.4, t: t, size: size, color: palette.shell)
         }
     }
 

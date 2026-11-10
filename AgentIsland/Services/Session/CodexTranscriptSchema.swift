@@ -210,7 +210,8 @@ nonisolated final class CodexTranscriptSchema: JSONLTranscriptSchema {
             input = ["input": raw]
         }
 
-        TranscriptToolLog.started(id: callId, name: name, input: input, state: &state, result: &result)
+        TranscriptToolLog.started(
+            id: callId, name: name, input: input, state: &state, result: &result)
     }
 
     /// 工具结果：登记结果与结构化结果，并上报「工具结束」。
@@ -310,7 +311,8 @@ nonisolated final class CodexTranscriptSchema: JSONLTranscriptSchema {
     private static func isAdjacentDuplicate(
         _ text: String, role: ChatRole, state: TranscriptParseState
     ) -> Bool {
-        state.lastMessageRole == role.rawValue && state.lastMessage == TranscriptParsing.truncate(text)
+        state.lastMessageRole == role.rawValue
+            && state.lastMessage == TranscriptParsing.truncate(text)
     }
 
     private static func intValue(_ value: Any?) -> Int {

@@ -78,7 +78,9 @@ struct HookInstallerWriteTests {
         let json = try #require(
             try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
         #expect(json["hooks"] != nil)
-        #expect(!FileManager.default.fileExists(atPath: file.appendingPathExtension("agent-island-backup").path))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: file.appendingPathExtension("agent-island-backup").path))
     }
 
     @Test("备份是不可重写的原始快照：第二次写入不覆盖它")

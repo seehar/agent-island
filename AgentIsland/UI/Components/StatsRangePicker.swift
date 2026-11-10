@@ -48,7 +48,9 @@ struct StatsRangeControl: View {
             )
             .background(
                 RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous)
-                    .fill(isHovered || viewModel.isRangePickerExpanded ? AppPalette.rowHover : Color.clear)
+                    .fill(
+                        isHovered || viewModel.isRangePickerExpanded
+                            ? AppPalette.rowHover : Color.clear)
             )
             .contentShape(Rectangle())
         }
@@ -261,7 +263,10 @@ struct StatsCalendarView: View {
             Image(systemName: symbol)
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundColor(AppPalette.secondaryText)
-                .frame(width: UsageStatsMetrics.headerActionSize, height: UsageStatsMetrics.headerActionSize)
+                .frame(
+                    width: UsageStatsMetrics.headerActionSize,
+                    height: UsageStatsMetrics.headerActionSize
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(SettingsCompactButtonStyle())
@@ -272,7 +277,9 @@ struct StatsCalendarView: View {
     private var weekdayHeader: some View {
         HStack(spacing: UsageStatsMetrics.calendarCellSpacing) {
             ForEach(
-                Array(UsageStatsFormat.weekdaySymbols(locale: locale, calendar: .current).enumerated()),
+                Array(
+                    UsageStatsFormat.weekdaySymbols(locale: locale, calendar: .current).enumerated()
+                ),
                 id: \.offset
             ) { _, symbol in
                 Text(symbol)
@@ -325,7 +332,9 @@ struct StatsCalendarView: View {
                         RoundedRectangle(
                             cornerRadius: UsageStatsMetrics.calendarCellRadius, style: .continuous
                         )
-                        .fill(state.isSelectable && hoveredDay == day ? AppPalette.rowHover : Color.clear)
+                        .fill(
+                            state.isSelectable && hoveredDay == day
+                                ? AppPalette.rowHover : Color.clear)
                     )
                     .contentShape(Rectangle())
             }
@@ -369,11 +378,13 @@ struct StatsCalendarView: View {
         let to = viewModel.customTo
         if day == from || day == to {
             return DayCellState(
-                fill: AppPalette.segmentedThumb, textColor: AppPalette.primaryText, isSelectable: true)
+                fill: AppPalette.segmentedThumb, textColor: AppPalette.primaryText,
+                isSelectable: true)
         }
         if let from, day >= from, day <= (to ?? from) {
             return DayCellState(
-                fill: AppPalette.segmentedTrack, textColor: AppPalette.primaryText, isSelectable: true)
+                fill: AppPalette.segmentedTrack, textColor: AppPalette.primaryText,
+                isSelectable: true)
         }
         if day == today {
             return DayCellState(fill: .clear, textColor: AppPalette.accent, isSelectable: true)

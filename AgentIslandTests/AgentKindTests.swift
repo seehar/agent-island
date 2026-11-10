@@ -153,7 +153,9 @@ struct AgentKindTests {
                 "\(kind.rawValue) 不该回写决定")
         }
         // 只有 Codex 需要额外打开 config.toml 的 [features] hooks 开关。
-        let withPrerequisites = AgentKind.allCases.filter { !($0.hookSpec?.prerequisites.isEmpty ?? true) }
+        let withPrerequisites = AgentKind.allCases.filter {
+            !($0.hookSpec?.prerequisites.isEmpty ?? true)
+        }
         #expect(withPrerequisites == [.codex])
         // 只有这三个工具用环境变量覆盖配置根目录（Codex 的 `CODEX_HOME`、Grok 的
         // `GROK_HOME`、Hermes 的 `HERMES_HOME`——后者是它 config.yaml / state.db /

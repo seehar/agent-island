@@ -65,7 +65,9 @@ struct SessionLivenessTests {
         var session = SessionState(
             agent: .ohMyPi, sessionId: "s-1", cwd: "/tmp", phase: .processing,
             lastActivity: stale)
-        #expect(SessionLiveness.shouldDemoteProcessing(session: session, transcriptModifiedAt: nil, now: now))
+        #expect(
+            SessionLiveness.shouldDemoteProcessing(
+                session: session, transcriptModifiedAt: nil, now: now))
 
         // 同一份会话，只要工具表里有一条在跑，就不该降级——这是 `inProgress` 的接线判据。
         session.toolTracker.startTool(id: "tool-1", name: "bash")

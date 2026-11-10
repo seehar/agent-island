@@ -13,14 +13,18 @@ struct TerminalVisibilityDetector {
     static func isTerminalVisibleOnCurrentSpace() -> Bool {
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
 
-        guard let windowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
+        guard
+            let windowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID)
+                as? [[String: Any]]
+        else {
             return false
         }
 
         for window in windowList {
             guard let ownerName = window[kCGWindowOwnerName as String] as? String,
-                  let layer = window[kCGWindowLayer as String] as? Int,
-                  layer == 0 else { continue }
+                let layer = window[kCGWindowLayer as String] as? Int,
+                layer == 0
+            else { continue }
 
             if TerminalAppRegistry.isTerminal(ownerName) {
                 return true
@@ -33,7 +37,8 @@ struct TerminalVisibilityDetector {
     /// Check if the frontmost (active) application is a terminal
     static func isTerminalFrontmost() -> Bool {
         guard let frontmostApp = NSWorkspace.shared.frontmostApplication,
-              let bundleId = frontmostApp.bundleIdentifier else {
+            let bundleId = frontmostApp.bundleIdentifier
+        else {
             return false
         }
 
@@ -57,8 +62,11 @@ struct TerminalVisibilityDetector {
             return await TmuxTargetFinder.shared.isSessionPaneActive(claudePid: sessionPid)
         } else {
             // For non-tmux sessions, check if the session's terminal app is frontmost
-            guard let sessionTerminalPid = ProcessTreeBuilder.shared.findTerminalPid(forProcess: sessionPid, tree: tree),
-                  let frontmostApp = NSWorkspace.shared.frontmostApplication else {
+            guard
+                let sessionTerminalPid = ProcessTreeBuilder.shared.findTerminalPid(
+                    forProcess: sessionPid, tree: tree),
+                let frontmostApp = NSWorkspace.shared.frontmostApplication
+            else {
                 return false
             }
 

@@ -31,7 +31,9 @@ nonisolated final class ClaudeTranscriptSchema: JSONLTranscriptSchema {
         }
 
         // 摘要记录（旧版 Claude Code 会追加 summary 行）
-        if json["type"] as? String == "summary", let summary = json["summary"] as? String, !summary.isEmpty {
+        if json["type"] as? String == "summary", let summary = json["summary"] as? String,
+            !summary.isEmpty
+        {
             state.summary = summary
         }
 
@@ -41,19 +43,25 @@ nonisolated final class ClaudeTranscriptSchema: JSONLTranscriptSchema {
             return
         }
 
-        guard let type = json["type"] as? String, type == "user" || type == "assistant" else { return }
+        guard let type = json["type"] as? String, type == "user" || type == "assistant" else {
+            return
+        }
         guard json["isMeta"] as? Bool != true else { return }
 
         updateConversationInfo(json: json, state: &state, result: &result)
 
-        guard let message = parseMessageLine(json, seenToolIds: &state.seenToolIds, toolIdToName: &state.toolIdToName) else { return }
+        guard
+            let message = parseMessageLine(
+                json, seenToolIds: &state.seenToolIds, toolIdToName: &state.toolIdToName)
+        else { return }
         state.messages.append(message)
         result.newMessages.append(message)
 
         // 新出现的工具调用上报为「工具开始」
         for block in message.content {
             if case .toolUse(let tool) = block {
-                result.activity.append(.toolStarted(id: tool.id, name: tool.name, input: tool.input))
+                result.activity.append(
+                    .toolStarted(id: tool.id, name: tool.name, input: tool.input))
             }
         }
     }
@@ -67,7 +75,8 @@ nonisolated final class ClaudeTranscriptSchema: JSONLTranscriptSchema {
         result: inout TranscriptReadResult
     ) {
         guard let messageDict = json["message"] as? [String: Any],
-              let contentArray = messageDict["content"] as? [[String: Any]] else {
+            let contentArray = messageDict["content"] as? [[String: Any]]
+        else {
             return
         }
 
@@ -78,7 +87,8 @@ nonisolated final class ClaudeTranscriptSchema: JSONLTranscriptSchema {
 
         for block in contentArray {
             guard block["type"] as? String == "tool_result",
-                  let toolUseId = block["tool_use_id"] as? String else { continue }
+                let toolUseId = block["tool_use_id"] as? String
+            else { continue }
 
             state.completedToolIds.insert(toolUseId)
             let content = block["content"] as? String
@@ -113,9 +123,12 @@ nonisolated final class ClaudeTranscriptSchema: JSONLTranscriptSchema {
         result: inout TranscriptReadResult
     ) {
         guard let type = json["type"] as? String,
-              let messageDict = json["message"] as? [String: Any] else { return }
+            let messageDict = json["message"] as? [String: Any]
+        else { return }
 
-        let timestamp = (json["timestamp"] as? String).flatMap { TranscriptParsing.isoFormatter.date(from: $0) } ?? Date()
+        let timestamp =
+            (json["timestamp"] as? String).flatMap { TranscriptParsing.isoFormatter.date(from: $0) }
+            ?? Date()
 
         if type == "assistant", let usage = messageDict["usage"] as? [String: Any] {
             state.usage.inputTokens += usage["input_tokens"] as? Int ?? 0
@@ -145,9 +158,10 @@ nonisolated final class ClaudeTranscriptSchema: JSONLTranscriptSchema {
         guard let contentArray = messageDict["content"] as? [[String: Any]] else { return }
 
         if type == "user",
-           let first = contentArray.first(where: { $0["type"] as? String == "text" }),
-           let text = first["text"] as? String,
-           !Self.isInjected(text) {
+            let first = contentArray.first(where: { $0["type"] as? String == "text" }),
+            let text = first["text"] as? String,
+            !Self.isInjected(text)
+        {
             if state.firstUserMessage == nil {
                 state.firstUserMessage = TranscriptParsing.truncate(text, maxLength: 50)
             }
@@ -179,15 +193,18 @@ nonisolated final class ClaudeTranscriptSchema: JSONLTranscriptSchema {
 
     /// Claude Code 注入的伪用户消息（斜杠命令、系统提示）不应参与标题与摘要。
     private static func isInjected(_ text: String) -> Bool {
-        text.hasPrefix("<command-name>") || text.hasPrefix("<local-command") || text.hasPrefix("Caveat:")
+        text.hasPrefix("<command-name>") || text.hasPrefix("<local-command")
+            || text.hasPrefix("Caveat:")
     }
 
     // MARK: - 消息与工具
 
-
-    private func parseMessageLine(_ json: [String: Any], seenToolIds: inout Set<String>, toolIdToName: inout [String: String]) -> ChatMessage? {
+    private func parseMessageLine(
+        _ json: [String: Any], seenToolIds: inout Set<String>, toolIdToName: inout [String: String]
+    ) -> ChatMessage? {
         guard let type = json["type"] as? String,
-              let uuid = json["uuid"] as? String else {
+            let uuid = json["uuid"] as? String
+        else {
             return nil
         }
 
@@ -213,7 +230,9 @@ nonisolated final class ClaudeTranscriptSchema: JSONLTranscriptSchema {
         var blocks: [MessageBlock] = []
 
         if let content = messageDict["content"] as? String {
-            if content.hasPrefix("<command-name>") || content.hasPrefix("<local-command") || content.hasPrefix("Caveat:") {
+            if content.hasPrefix("<command-name>") || content.hasPrefix("<local-command")
+                || content.hasPrefix("Caveat:")
+            {
                 return nil
             }
             if content.hasPrefix("[Request interrupted by user") {
@@ -253,9 +272,11 @@ nonisolated final class ClaudeTranscriptSchema: JSONLTranscriptSchema {
                     case "image":
                         // Claude Code stores inline images as base64 with media_type.
                         if let source = block["source"] as? [String: Any],
-                           let mediaType = source["media_type"] as? String,
-                           let data = source["data"] as? String {
-                            blocks.append(.image(ImageBlock(mediaType: mediaType, base64Data: data)))
+                            let mediaType = source["media_type"] as? String,
+                            let data = source["data"] as? String
+                        {
+                            blocks.append(
+                                .image(ImageBlock(mediaType: mediaType, base64Data: data)))
                         }
                     default:
                         break
@@ -278,7 +299,8 @@ nonisolated final class ClaudeTranscriptSchema: JSONLTranscriptSchema {
 
     private func parseToolUse(_ block: [String: Any]) -> ToolUseBlock? {
         guard let id = block["id"] as? String,
-              let name = block["name"] as? String else {
+            let name = block["name"] as? String
+        else {
             return nil
         }
 
@@ -343,7 +365,9 @@ nonisolated final class ClaudeTranscriptSchema: JSONLTranscriptSchema {
 
     // MARK: - 子 Agent 记录
 
-    nonisolated static func subagentFilePath(sessionId: String, agentId: String, projectDir: String) -> String {
+    nonisolated static func subagentFilePath(sessionId: String, agentId: String, projectDir: String)
+        -> String
+    {
         let base = ClaudePaths.projectsDir.path + "/" + projectDir
         let nested = base + "/" + sessionId + "/subagents/agent-" + agentId + ".jsonl"
         let flat = base + "/agent-" + agentId + ".jsonl"
@@ -357,11 +381,14 @@ nonisolated final class ClaudeTranscriptSchema: JSONLTranscriptSchema {
     func subagentTools(sessionId: String, agentId: String, cwd: String) -> [SubagentToolInfo] {
         guard !agentId.isEmpty else { return [] }
 
-        let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
-        let agentFile = Self.subagentFilePath(sessionId: sessionId, agentId: agentId, projectDir: projectDir)
+        let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(
+            of: ".", with: "-")
+        let agentFile = Self.subagentFilePath(
+            sessionId: sessionId, agentId: agentId, projectDir: projectDir)
 
         guard FileManager.default.fileExists(atPath: agentFile),
-              let content = try? String(contentsOfFile: agentFile, encoding: .utf8) else {
+            let content = try? String(contentsOfFile: agentFile, encoding: .utf8)
+        else {
             return []
         }
 
@@ -371,13 +398,15 @@ nonisolated final class ClaudeTranscriptSchema: JSONLTranscriptSchema {
 
         for line in content.components(separatedBy: "\n") where !line.isEmpty {
             if line.contains("\"tool_result\""),
-               let lineData = line.data(using: .utf8),
-               let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-               let messageDict = json["message"] as? [String: Any],
-               let contentArray = messageDict["content"] as? [[String: Any]] {
+                let lineData = line.data(using: .utf8),
+                let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                let messageDict = json["message"] as? [String: Any],
+                let contentArray = messageDict["content"] as? [[String: Any]]
+            {
                 for block in contentArray {
                     if block["type"] as? String == "tool_result",
-                       let toolUseId = block["tool_use_id"] as? String {
+                        let toolUseId = block["tool_use_id"] as? String
+                    {
                         completedToolIds.insert(toolUseId)
                     }
                 }
@@ -386,18 +415,20 @@ nonisolated final class ClaudeTranscriptSchema: JSONLTranscriptSchema {
 
         for line in content.components(separatedBy: "\n") where !line.isEmpty {
             guard line.contains("\"tool_use\""),
-                  let lineData = line.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-                  let messageDict = json["message"] as? [String: Any],
-                  let contentArray = messageDict["content"] as? [[String: Any]] else {
+                let lineData = line.data(using: .utf8),
+                let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                let messageDict = json["message"] as? [String: Any],
+                let contentArray = messageDict["content"] as? [[String: Any]]
+            else {
                 continue
             }
 
             for block in contentArray {
                 guard block["type"] as? String == "tool_use",
-                      let toolId = block["id"] as? String,
-                      let toolName = block["name"] as? String,
-                      !seenToolIds.contains(toolId) else {
+                    let toolId = block["id"] as? String,
+                    let toolName = block["name"] as? String,
+                    !seenToolIds.contains(toolId)
+                else {
                     continue
                 }
 
@@ -419,13 +450,14 @@ nonisolated final class ClaudeTranscriptSchema: JSONLTranscriptSchema {
                 let isCompleted = completedToolIds.contains(toolId)
                 let timestamp = json["timestamp"] as? String
 
-                tools.append(SubagentToolInfo(
-                    id: toolId,
-                    name: toolName,
-                    input: input,
-                    isCompleted: isCompleted,
-                    timestamp: timestamp
-                ))
+                tools.append(
+                    SubagentToolInfo(
+                        id: toolId,
+                        name: toolName,
+                        input: input,
+                        isCompleted: isCompleted,
+                        timestamp: timestamp
+                    ))
             }
         }
 
@@ -447,11 +479,12 @@ nonisolated enum ClaudeToolResults {
             let parts = String(toolName.dropFirst(5)).components(separatedBy: "__")
             let serverName = parts.first.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
             let mcpToolName = parts.dropFirst().joined(separator: "__")
-            return .mcp(MCPResult(
-                serverName: serverName,
-                toolName: mcpToolName.isEmpty ? toolName : mcpToolName,
-                rawResult: toolUseResult
-            ))
+            return .mcp(
+                MCPResult(
+                    serverName: serverName,
+                    toolName: mcpToolName.isEmpty ? toolName : mcpToolName,
+                    rawResult: toolUseResult
+                ))
         }
 
         switch toolName {
@@ -484,9 +517,9 @@ nonisolated enum ClaudeToolResults {
         case "ExitPlanMode":
             return parseExitPlanModeResult(toolUseResult)
         default:
-            let content = toolUseResult["content"] as? String ??
-                          toolUseResult["stdout"] as? String ??
-                          toolUseResult["result"] as? String
+            let content =
+                toolUseResult["content"] as? String ?? toolUseResult["stdout"] as? String
+                ?? toolUseResult["result"] as? String
             return .generic(GenericResult(rawContent: content, rawData: toolUseResult))
         }
     }
@@ -495,21 +528,23 @@ nonisolated enum ClaudeToolResults {
 
     static func parseReadResult(_ data: [String: Any]) -> ToolResultData {
         if let fileData = data["file"] as? [String: Any] {
-            return .read(ReadResult(
-                filePath: fileData["filePath"] as? String ?? "",
-                content: fileData["content"] as? String ?? "",
-                numLines: fileData["numLines"] as? Int ?? 0,
-                startLine: fileData["startLine"] as? Int ?? 1,
-                totalLines: fileData["totalLines"] as? Int ?? 0
-            ))
+            return .read(
+                ReadResult(
+                    filePath: fileData["filePath"] as? String ?? "",
+                    content: fileData["content"] as? String ?? "",
+                    numLines: fileData["numLines"] as? Int ?? 0,
+                    startLine: fileData["startLine"] as? Int ?? 1,
+                    totalLines: fileData["totalLines"] as? Int ?? 0
+                ))
         }
-        return .read(ReadResult(
-            filePath: data["filePath"] as? String ?? "",
-            content: data["content"] as? String ?? "",
-            numLines: data["numLines"] as? Int ?? 0,
-            startLine: data["startLine"] as? Int ?? 1,
-            totalLines: data["totalLines"] as? Int ?? 0
-        ))
+        return .read(
+            ReadResult(
+                filePath: data["filePath"] as? String ?? "",
+                content: data["content"] as? String ?? "",
+                numLines: data["numLines"] as? Int ?? 0,
+                startLine: data["startLine"] as? Int ?? 1,
+                totalLines: data["totalLines"] as? Int ?? 0
+            ))
     }
 
     static func parseEditResult(_ data: [String: Any]) -> ToolResultData {
@@ -517,10 +552,11 @@ nonisolated enum ClaudeToolResults {
         if let patchArray = data["structuredPatch"] as? [[String: Any]] {
             patches = patchArray.compactMap { patch -> PatchHunk? in
                 guard let oldStart = patch["oldStart"] as? Int,
-                      let oldLines = patch["oldLines"] as? Int,
-                      let newStart = patch["newStart"] as? Int,
-                      let newLines = patch["newLines"] as? Int,
-                      let lines = patch["lines"] as? [String] else {
+                    let oldLines = patch["oldLines"] as? Int,
+                    let newStart = patch["newStart"] as? Int,
+                    let newLines = patch["newLines"] as? Int,
+                    let lines = patch["lines"] as? [String]
+                else {
                     return nil
                 }
                 return PatchHunk(
@@ -533,14 +569,15 @@ nonisolated enum ClaudeToolResults {
             }
         }
 
-        return .edit(EditResult(
-            filePath: data["filePath"] as? String ?? "",
-            oldString: data["oldString"] as? String ?? "",
-            newString: data["newString"] as? String ?? "",
-            replaceAll: data["replaceAll"] as? Bool ?? false,
-            userModified: data["userModified"] as? Bool ?? false,
-            structuredPatch: patches
-        ))
+        return .edit(
+            EditResult(
+                filePath: data["filePath"] as? String ?? "",
+                oldString: data["oldString"] as? String ?? "",
+                newString: data["newString"] as? String ?? "",
+                replaceAll: data["replaceAll"] as? Bool ?? false,
+                userModified: data["userModified"] as? Bool ?? false,
+                structuredPatch: patches
+            ))
     }
 
     static func parseWriteResult(_ data: [String: Any]) -> ToolResultData {
@@ -551,10 +588,11 @@ nonisolated enum ClaudeToolResults {
         if let patchArray = data["structuredPatch"] as? [[String: Any]] {
             patches = patchArray.compactMap { patch -> PatchHunk? in
                 guard let oldStart = patch["oldStart"] as? Int,
-                      let oldLines = patch["oldLines"] as? Int,
-                      let newStart = patch["newStart"] as? Int,
-                      let newLines = patch["newLines"] as? Int,
-                      let lines = patch["lines"] as? [String] else {
+                    let oldLines = patch["oldLines"] as? Int,
+                    let newStart = patch["newStart"] as? Int,
+                    let newLines = patch["newLines"] as? Int,
+                    let lines = patch["lines"] as? [String]
+                else {
                     return nil
                 }
                 return PatchHunk(
@@ -567,23 +605,25 @@ nonisolated enum ClaudeToolResults {
             }
         }
 
-        return .write(WriteResult(
-            type: writeType,
-            filePath: data["filePath"] as? String ?? "",
-            content: data["content"] as? String ?? "",
-            structuredPatch: patches
-        ))
+        return .write(
+            WriteResult(
+                type: writeType,
+                filePath: data["filePath"] as? String ?? "",
+                content: data["content"] as? String ?? "",
+                structuredPatch: patches
+            ))
     }
 
     static func parseBashResult(_ data: [String: Any]) -> ToolResultData {
-        return .bash(BashResult(
-            stdout: data["stdout"] as? String ?? "",
-            stderr: data["stderr"] as? String ?? "",
-            interrupted: data["interrupted"] as? Bool ?? false,
-            isImage: data["isImage"] as? Bool ?? false,
-            returnCodeInterpretation: data["returnCodeInterpretation"] as? String,
-            backgroundTaskId: data["backgroundTaskId"] as? String
-        ))
+        return .bash(
+            BashResult(
+                stdout: data["stdout"] as? String ?? "",
+                stderr: data["stderr"] as? String ?? "",
+                interrupted: data["interrupted"] as? Bool ?? false,
+                isImage: data["isImage"] as? Bool ?? false,
+                returnCodeInterpretation: data["returnCodeInterpretation"] as? String,
+                backgroundTaskId: data["backgroundTaskId"] as? String
+            ))
     }
 
     static func parseGrepResult(_ data: [String: Any]) -> ToolResultData {
@@ -595,23 +635,25 @@ nonisolated enum ClaudeToolResults {
         default: mode = .filesWithMatches
         }
 
-        return .grep(GrepResult(
-            mode: mode,
-            filenames: data["filenames"] as? [String] ?? [],
-            numFiles: data["numFiles"] as? Int ?? 0,
-            content: data["content"] as? String,
-            numLines: data["numLines"] as? Int,
-            appliedLimit: data["appliedLimit"] as? Int
-        ))
+        return .grep(
+            GrepResult(
+                mode: mode,
+                filenames: data["filenames"] as? [String] ?? [],
+                numFiles: data["numFiles"] as? Int ?? 0,
+                content: data["content"] as? String,
+                numLines: data["numLines"] as? Int,
+                appliedLimit: data["appliedLimit"] as? Int
+            ))
     }
 
     static func parseGlobResult(_ data: [String: Any]) -> ToolResultData {
-        return .glob(GlobResult(
-            filenames: data["filenames"] as? [String] ?? [],
-            durationMs: data["durationMs"] as? Int ?? 0,
-            numFiles: data["numFiles"] as? Int ?? 0,
-            truncated: data["truncated"] as? Bool ?? false
-        ))
+        return .glob(
+            GlobResult(
+                filenames: data["filenames"] as? [String] ?? [],
+                durationMs: data["durationMs"] as? Int ?? 0,
+                numFiles: data["numFiles"] as? Int ?? 0,
+                truncated: data["truncated"] as? Bool ?? false
+            ))
     }
 
     static func parseTodoWriteResult(_ data: [String: Any]) -> ToolResultData {
@@ -619,7 +661,8 @@ nonisolated enum ClaudeToolResults {
             guard let array = array else { return [] }
             return array.compactMap { item -> TodoItem? in
                 guard let content = item["content"] as? String,
-                      let status = item["status"] as? String else {
+                    let status = item["status"] as? String
+                else {
                     return nil
                 }
                 return TodoItem(
@@ -630,33 +673,36 @@ nonisolated enum ClaudeToolResults {
             }
         }
 
-        return .todoWrite(TodoWriteResult(
-            oldTodos: parseTodos(data["oldTodos"] as? [[String: Any]]),
-            newTodos: parseTodos(data["newTodos"] as? [[String: Any]])
-        ))
+        return .todoWrite(
+            TodoWriteResult(
+                oldTodos: parseTodos(data["oldTodos"] as? [[String: Any]]),
+                newTodos: parseTodos(data["newTodos"] as? [[String: Any]])
+            ))
     }
 
     static func parseTaskResult(_ data: [String: Any]) -> ToolResultData {
-        return .task(TaskResult(
-            agentId: data["agentId"] as? String ?? "",
-            status: data["status"] as? String ?? "unknown",
-            content: data["content"] as? String ?? "",
-            prompt: data["prompt"] as? String,
-            totalDurationMs: data["totalDurationMs"] as? Int,
-            totalTokens: data["totalTokens"] as? Int,
-            totalToolUseCount: data["totalToolUseCount"] as? Int
-        ))
+        return .task(
+            TaskResult(
+                agentId: data["agentId"] as? String ?? "",
+                status: data["status"] as? String ?? "unknown",
+                content: data["content"] as? String ?? "",
+                prompt: data["prompt"] as? String,
+                totalDurationMs: data["totalDurationMs"] as? Int,
+                totalTokens: data["totalTokens"] as? Int,
+                totalToolUseCount: data["totalToolUseCount"] as? Int
+            ))
     }
 
     static func parseWebFetchResult(_ data: [String: Any]) -> ToolResultData {
-        return .webFetch(WebFetchResult(
-            url: data["url"] as? String ?? "",
-            code: data["code"] as? Int ?? 0,
-            codeText: data["codeText"] as? String ?? "",
-            bytes: data["bytes"] as? Int ?? 0,
-            durationMs: data["durationMs"] as? Int ?? 0,
-            result: data["result"] as? String ?? ""
-        ))
+        return .webFetch(
+            WebFetchResult(
+                url: data["url"] as? String ?? "",
+                code: data["code"] as? Int ?? 0,
+                codeText: data["codeText"] as? String ?? "",
+                bytes: data["bytes"] as? Int ?? 0,
+                durationMs: data["durationMs"] as? Int ?? 0,
+                result: data["result"] as? String ?? ""
+            ))
     }
 
     static func parseWebSearchResult(_ data: [String: Any]) -> ToolResultData {
@@ -664,7 +710,8 @@ nonisolated enum ClaudeToolResults {
         if let resultsArray = data["results"] as? [[String: Any]] {
             results = resultsArray.compactMap { item -> SearchResultItem? in
                 guard let title = item["title"] as? String,
-                      let url = item["url"] as? String else {
+                    let url = item["url"] as? String
+                else {
                     return nil
                 }
                 return SearchResultItem(
@@ -675,11 +722,12 @@ nonisolated enum ClaudeToolResults {
             }
         }
 
-        return .webSearch(WebSearchResult(
-            query: data["query"] as? String ?? "",
-            durationSeconds: data["durationSeconds"] as? Double ?? 0,
-            results: results
-        ))
+        return .webSearch(
+            WebSearchResult(
+                query: data["query"] as? String ?? "",
+                durationSeconds: data["durationSeconds"] as? Double ?? 0,
+                results: results
+            ))
     }
 
     static func parseAskUserQuestionResult(_ data: [String: Any]) -> ToolResultData {
@@ -710,38 +758,42 @@ nonisolated enum ClaudeToolResults {
             answers = answersDict
         }
 
-        return .askUserQuestion(AskUserQuestionResult(
-            questions: questions,
-            answers: answers
-        ))
+        return .askUserQuestion(
+            AskUserQuestionResult(
+                questions: questions,
+                answers: answers
+            ))
     }
 
     static func parseBashOutputResult(_ data: [String: Any]) -> ToolResultData {
-        return .bashOutput(BashOutputResult(
-            shellId: data["shellId"] as? String ?? "",
-            status: data["status"] as? String ?? "",
-            stdout: data["stdout"] as? String ?? "",
-            stderr: data["stderr"] as? String ?? "",
-            stdoutLines: data["stdoutLines"] as? Int ?? 0,
-            stderrLines: data["stderrLines"] as? Int ?? 0,
-            exitCode: data["exitCode"] as? Int,
-            command: data["command"] as? String,
-            timestamp: data["timestamp"] as? String
-        ))
+        return .bashOutput(
+            BashOutputResult(
+                shellId: data["shellId"] as? String ?? "",
+                status: data["status"] as? String ?? "",
+                stdout: data["stdout"] as? String ?? "",
+                stderr: data["stderr"] as? String ?? "",
+                stdoutLines: data["stdoutLines"] as? Int ?? 0,
+                stderrLines: data["stderrLines"] as? Int ?? 0,
+                exitCode: data["exitCode"] as? Int,
+                command: data["command"] as? String,
+                timestamp: data["timestamp"] as? String
+            ))
     }
 
     static func parseKillShellResult(_ data: [String: Any]) -> ToolResultData {
-        return .killShell(KillShellResult(
-            shellId: data["shell_id"] as? String ?? data["shellId"] as? String ?? "",
-            message: data["message"] as? String ?? ""
-        ))
+        return .killShell(
+            KillShellResult(
+                shellId: data["shell_id"] as? String ?? data["shellId"] as? String ?? "",
+                message: data["message"] as? String ?? ""
+            ))
     }
 
     static func parseExitPlanModeResult(_ data: [String: Any]) -> ToolResultData {
-        return .exitPlanMode(ExitPlanModeResult(
-            filePath: data["filePath"] as? String,
-            plan: data["plan"] as? String,
-            isAgent: data["isAgent"] as? Bool ?? false
-        ))
+        return .exitPlanMode(
+            ExitPlanModeResult(
+                filePath: data["filePath"] as? String,
+                plan: data["plan"] as? String,
+                isAgent: data["isAgent"] as? Bool ?? false
+            ))
     }
 }

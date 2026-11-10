@@ -35,7 +35,9 @@ struct ToolCompletionResultTests {
     @Test("没有 stdout/stderr 时回退到 content")
     func contentIsFallback() {
         let payload = ToolResultPayload(content: "只有内容", stdout: nil, stderr: "", isError: false)
-        #expect(ToolCompletionResult.from(parserResult: payload, structuredResult: nil).result == "只有内容")
+        #expect(
+            ToolCompletionResult.from(parserResult: payload, structuredResult: nil).result == "只有内容"
+        )
     }
 
     @Test("失败的调用标记为错误并把 stderr 回显出来")
@@ -57,7 +59,8 @@ struct ToolCompletionResultTests {
     @Test("用户拒绝（user doesn't want to proceed）按中断处理")
     func refusalCountsAsInterrupted() {
         let payload = ToolResultPayload(
-            content: "The user doesn't want to proceed with this tool use.", stdout: nil, stderr: nil,
+            content: "The user doesn't want to proceed with this tool use.", stdout: nil,
+            stderr: nil,
             isError: true)
         #expect(payload.isInterrupted)
         #expect(

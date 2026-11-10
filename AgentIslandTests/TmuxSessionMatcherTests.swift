@@ -31,7 +31,8 @@ struct TmuxSessionMatcherTests {
             to: directory.appendingPathComponent("aaaaaaaa-1111-2222-3333-444444444444.jsonl"),
             atomically: true, encoding: .utf8)
 
-        let matched = await TmuxSessionMatcher.shared.findSessionId(forTarget: target, projectDir: directory)
+        let matched = await TmuxSessionMatcher.shared.findSessionId(
+            forTarget: target, projectDir: directory)
         #expect(matched == nil)
     }
 
@@ -39,7 +40,8 @@ struct TmuxSessionMatcherTests {
     func missingDirectoryYieldsNil() async {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("island-missing-\(UUID().uuidString)", isDirectory: true)
-        let matched = await TmuxSessionMatcher.shared.findSessionId(forTarget: target, projectDir: directory)
+        let matched = await TmuxSessionMatcher.shared.findSessionId(
+            forTarget: target, projectDir: directory)
         #expect(matched == nil)
     }
 }

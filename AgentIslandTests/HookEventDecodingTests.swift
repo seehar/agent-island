@@ -122,7 +122,9 @@ struct HookEventExpectsResponseTests {
     func otherEventsDoNotExpectResponse() throws {
         for event in ["PostToolUse", "PostToolUseFailure", "Stop", "Notification", "SessionEnd"] {
             let decoded = try decode(
-                envelope(event: event, status: "waiting_for_approval", extraKeys: #", "expects_response": true"#))
+                envelope(
+                    event: event, status: "waiting_for_approval",
+                    extraKeys: #", "expects_response": true"#))
             #expect(!decoded.expectsResponse, "\(event) 不该被登记成待批")
         }
     }
@@ -130,7 +132,8 @@ struct HookEventExpectsResponseTests {
     @Test("内存构造（不走 JSON）时缺省同样不登记")
     func memberwiseDefaultDoesNotExpect() {
         let event = HookEvent(
-            sessionId: "expects-test", cwd: "/tmp", event: "ToolApproval", status: "waiting_for_approval",
+            sessionId: "expects-test", cwd: "/tmp", event: "ToolApproval",
+            status: "waiting_for_approval",
             pid: nil, tty: nil, tool: "bash", toolInput: nil, toolUseId: "t1",
             notificationType: nil, message: nil)
         #expect(!event.expectsResponse)

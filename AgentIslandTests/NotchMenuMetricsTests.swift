@@ -500,18 +500,22 @@ struct NotchMenuMetricsTests {
     func everySectionFitsCapWithTallestSingleExpansion() {
         // 每页最高的**单个**展开：档位数从真实枚举推出（不写死数字）。
         let tallestCount: [NotchMenuSection: Int] = [
-            .general: max(AppLanguage.allCases.count, NotchHeightSelector.visibleOptions,
-                          NotchWidthSelector.visibleOptions, TextSizeOption.allCases.count,
-                          PanelSize.allCases.count),
-            .behavior: max(HoverExpand.allCases.count, IdleNotchVisibility.allCases.count,
-                           ClosedCapsuleLayout.allCases.count, SessionRetention.allCases.count,
-                           SessionRowDensity.allCases.count, SessionRowClickAction.allCases.count,
-                           RefreshCadence.allCases.count),
+            .general: max(
+                AppLanguage.allCases.count, NotchHeightSelector.visibleOptions,
+                NotchWidthSelector.visibleOptions, TextSizeOption.allCases.count,
+                PanelSize.allCases.count),
+            .behavior: max(
+                HoverExpand.allCases.count, IdleNotchVisibility.allCases.count,
+                ClosedCapsuleLayout.allCases.count, SessionRetention.allCases.count,
+                SessionRowDensity.allCases.count, SessionRowClickAction.allCases.count,
+                RefreshCadence.allCases.count),
             // 余额提醒那行是**行内输入框**（不展开），因此不进这份「最高展开」的表。
-            .notifications: max(SoundSelector.maxVisibleOptions, QuietHours.allCases.count,
-                                NotificationScope.allCases.count, CompletionBadge.allCases.count),
-            .agents: max(AgentDirSelector.visibleOptions, ApprovalAskScope.allCases.count,
-                         ApprovalDegradation.allCases.count, ApprovalAutoExpand.allCases.count),
+            .notifications: max(
+                SoundSelector.maxVisibleOptions, QuietHours.allCases.count,
+                NotificationScope.allCases.count, CompletionBadge.allCases.count),
+            .agents: max(
+                AgentDirSelector.visibleOptions, ApprovalAskScope.allCases.count,
+                ApprovalDegradation.allCases.count, ApprovalAutoExpand.allCases.count),
             .quota: 0, .statistics: 0, .about: 0, .shortcuts: 0, .animations: 0,
         ]
 
@@ -604,7 +608,8 @@ struct NotchMenuMetricsTests {
                 }
                 #expect(
                     used <= budget,
-                    "\(code) 的「\(label)」用了 \(used)pt，选项行只有 \(budget)pt：要么收短文案，要么改走 PreferencePickerRow.helpText")
+                    "\(code) 的「\(label)」用了 \(used)pt，选项行只有 \(budget)pt：要么收短文案，要么改走 PreferencePickerRow.helpText"
+                )
             }
         }
     }

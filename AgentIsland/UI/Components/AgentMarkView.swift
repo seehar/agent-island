@@ -110,7 +110,9 @@ private enum SVGPath {
                 lastCubicControl = nil
                 lastQuadControl = nil
             case "C":
-                while let a = scanner.nextPoint(), let b = scanner.nextPoint(), let c = scanner.nextPoint() {
+                while let a = scanner.nextPoint(), let b = scanner.nextPoint(),
+                    let c = scanner.nextPoint()
+                {
                     let control1 = relative ? current + a : a
                     let control2 = relative ? current + b : b
                     let target = relative ? current + c : c
@@ -124,7 +126,10 @@ private enum SVGPath {
                 while let b = scanner.nextPoint(), let c = scanner.nextPoint() {
                     let control2 = relative ? current + b : b
                     let target = relative ? current + c : c
-                    let control1 = lastCubicControl.map { CGPoint(x: 2*current.x - $0.x, y: 2*current.y - $0.y) } ?? current
+                    let control1 =
+                        lastCubicControl.map {
+                            CGPoint(x: 2 * current.x - $0.x, y: 2 * current.y - $0.y)
+                        } ?? current
                     path.addCurve(to: target, control1: control1, control2: control2)
                     lastCubicControl = control2
                     lastQuadControl = nil
@@ -144,7 +149,10 @@ private enum SVGPath {
             case "T":
                 while let b = scanner.nextPoint() {
                     let target = relative ? current + b : b
-                    let control = lastQuadControl.map { CGPoint(x: 2*current.x - $0.x, y: 2*current.y - $0.y) } ?? current
+                    let control =
+                        lastQuadControl.map {
+                            CGPoint(x: 2 * current.x - $0.x, y: 2 * current.y - $0.y)
+                        } ?? current
                     path.addQuadCurve(to: target, control: control)
                     lastQuadControl = control
                     lastCubicControl = nil
@@ -190,7 +198,7 @@ private enum SVGPath {
                     return c
                 }
                 if c.isNumber || c == "-" || c == "+" || c == "." {
-                    index += 1          // 落单的数字：跳过，别让后面的命令被静默丢掉
+                    index += 1  // 落单的数字：跳过，别让后面的命令被静默丢掉
                 } else {
                     index += 1
                 }
@@ -245,8 +253,8 @@ private enum SVGPath {
     }
 }
 
-private extension CGPoint {
-    static func + (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
+extension CGPoint {
+    fileprivate static func + (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
         CGPoint(x: lhs.x + rhs.x, y: lhs.y + rhs.y)
     }
 }

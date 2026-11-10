@@ -54,7 +54,8 @@ struct GeminiMascot: View {
             let sprite = MascotSprite(canvas, svgWidth: 15, svgHeight: 12, svgTop: 4)
             drawSleeping(&context, sprite)
             // Z 从趴姿星尖上方升起（星尖 = cy − outerR = 10 − 4.5·0.9），不压到星面上。
-            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 5.95, t: t, size: size, color: Self.sleepZ)
+            MascotDraw.floatingZs(
+                &context, sprite: sprite, bodyTop: 5.95, t: t, size: size, color: Self.sleepZ)
         }
     }
 
@@ -117,7 +118,8 @@ struct GeminiMascot: View {
         context.fill(
             Path(
                 sprite.r(
-                    0.5 + CGFloat(keyPhase % 6) * 2.4, 13.5 + CGFloat(keyPhase / 3) * 1.2, 1.8, 0.7)),
+                    0.5 + CGFloat(keyPhase % 6) * 2.4, 13.5 + CGFloat(keyPhase / 3) * 1.2, 1.8, 0.7)
+            ),
             with: .color(Self.kbHi.opacity(0.9)))
 
         // 4. 星面与脸（整体跟着敲击起伏）
@@ -201,7 +203,8 @@ struct GeminiMascot: View {
         _ context: inout GraphicsContext, _ sprite: MascotSprite, dy: CGFloat,
         scale: CGFloat = 1.0, rotate: CGFloat = 0
     ) {
-        let cx: CGFloat = 7.5, cy: CGFloat = 10.0
+        let cx: CGFloat = 7.5
+        let cy: CGFloat = 10.0
         let outerR: CGFloat = 4.5 * scale
         let innerR: CGFloat = 1.8 * scale
         let rot = rotate * .pi / 180

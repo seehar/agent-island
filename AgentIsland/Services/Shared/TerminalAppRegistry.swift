@@ -27,11 +27,11 @@ nonisolated struct TerminalAppRegistry: Sendable {
         "st",
         "urxvt",
         "xterm",
-        "Code",           // VS Code
+        "Code",  // VS Code
         "Code - Insiders",
         "Cursor",
         "Windsurf",
-        "zed"
+        "zed",
     ]
 
     /// Bundle identifiers for terminal apps (for window enumeration)
@@ -49,7 +49,7 @@ nonisolated struct TerminalAppRegistry: Sendable {
         "com.microsoft.VSCodeInsiders",
         "com.todesktop.230313mzl4w4u92",  // Cursor
         "com.exafunction.windsurf",
-        "dev.zed.Zed"
+        "dev.zed.Zed",
     ]
 
     /// Check if an app name or command path is a known terminal

@@ -141,13 +141,9 @@ nonisolated struct ToolCallItem: Equatable, Sendable {
 
     // Custom Equatable implementation to handle structuredResult
     static func == (lhs: ToolCallItem, rhs: ToolCallItem) -> Bool {
-        lhs.name == rhs.name &&
-        lhs.input == rhs.input &&
-        lhs.status == rhs.status &&
-        lhs.result == rhs.result &&
-        lhs.structuredResult == rhs.structuredResult &&
-        lhs.subagentTools == rhs.subagentTools &&
-        lhs.subagentRuns == rhs.subagentRuns
+        lhs.name == rhs.name && lhs.input == rhs.input && lhs.status == rhs.status
+            && lhs.result == rhs.result && lhs.structuredResult == rhs.structuredResult
+            && lhs.subagentTools == rhs.subagentTools && lhs.subagentRuns == rhs.subagentRuns
     }
 }
 

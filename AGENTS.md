@@ -21,6 +21,11 @@
 ./scripts/gate.sh --with-tests    # 追加跑测试：build-for-testing + test-without-building -only-testing:AgentIslandTests
 # 脚本任一步不达标就 exit 非 0 —— 不要只看日志。派生数据与日志在 ${TMPDIR}/agent-island-gate，
 # 不写用户的 DerivedData，也不改 build/ 与 releases/。
+#
+# 门禁包含三步：本地化守卫（check-localization.py --strict）→ 资源目录卫生 →
+# swift-format lint --strict（配置在仓库根 .swift-format：4 空格缩进 / 100 列 / 保留既有换行）。
+# 改完 Swift 代码先跑 `xcrun swift-format format --in-place --recursive AgentIsland AgentIslandTests`
+# 再跑门禁，否则步骤 1c 会红。
 
 # 单独跑本地化守卫（gate.sh 的第一步：缺键、格式符不一致、绕过自研查表、未引用键）
 python3 scripts/check-localization.py

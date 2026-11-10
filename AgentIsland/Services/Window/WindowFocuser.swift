@@ -18,9 +18,11 @@ actor WindowFocuser {
         guard let yabaiPath = await WindowFinder.shared.getYabaiPath() else { return false }
 
         do {
-            _ = try await ProcessExecutor.shared.run(yabaiPath, arguments: [
-                "-m", "window", "--focus", String(id)
-            ])
+            _ = try await ProcessExecutor.shared.run(
+                yabaiPath,
+                arguments: [
+                    "-m", "window", "--focus", String(id),
+                ])
             return true
         } catch {
             return false
@@ -30,12 +32,16 @@ actor WindowFocuser {
     /// Focus the tmux window for a terminal
     func focusTmuxWindow(terminalPid: Int, windows: [YabaiWindow]) async -> Bool {
         // Try to find actual tmux window
-        if let tmuxWindow = WindowFinder.shared.findTmuxWindow(forTerminalPid: terminalPid, windows: windows) {
+        if let tmuxWindow = WindowFinder.shared.findTmuxWindow(
+            forTerminalPid: terminalPid, windows: windows)
+        {
             return await focusWindow(id: tmuxWindow.id)
         }
 
         // Fall back to any non-Claude window
-        if let window = WindowFinder.shared.findNonClaudeWindow(forTerminalPid: terminalPid, windows: windows) {
+        if let window = WindowFinder.shared.findNonClaudeWindow(
+            forTerminalPid: terminalPid, windows: windows)
+        {
             return await focusWindow(id: window.id)
         }
 

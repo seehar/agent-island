@@ -65,7 +65,8 @@ nonisolated final class CursorTranscriptSchema: JSONLTranscriptSchema {
                 guard let id = block["tool_use_id"] as? String else { continue }
                 let isError = block["is_error"] as? Bool ?? false
                 state.toolResults[id] = ToolResultPayload(
-                    content: block["content"] as? String, stdout: nil, stderr: nil, isError: isError)
+                    content: block["content"] as? String, stdout: nil, stderr: nil, isError: isError
+                )
                 state.completedToolIds.insert(id)
                 toolOutputs.append((id: id, isError: isError))
             default:
@@ -98,7 +99,8 @@ nonisolated final class CursorTranscriptSchema: JSONLTranscriptSchema {
             }
             if let text {
                 state.lastMessage = TranscriptParsing.truncate(text)
-                state.lastMessageRole = isUser ? ChatRole.user.rawValue : ChatRole.assistant.rawValue
+                state.lastMessageRole =
+                    isUser ? ChatRole.user.rawValue : ChatRole.assistant.rawValue
                 state.lastToolName = nil
             }
         }

@@ -58,7 +58,8 @@ nonisolated enum NewAPIBalanceFormat {
         case .usd, .cny:
             let isCNY = currency.displayType == .cny
             let symbol = isCNY ? "¥" : "$"
-            return symbol + Self.money(Self.displayedValue(quota, currency: currency), locale: locale)
+            return symbol
+                + Self.money(Self.displayedValue(quota, currency: currency), locale: locale)
         case .custom:
             let symbol = currency.customSymbol.trimmingCharacters(in: .whitespaces)
             let text = Self.money(

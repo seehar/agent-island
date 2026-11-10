@@ -599,7 +599,9 @@ struct AgentTranscriptUsageScannerTests {
         let size = UInt64(lines.utf8.count)
         let db = scratch.directory.appendingPathComponent("usage.sqlite")
         var handle: OpaquePointer?
-        guard sqlite3_open_v2(db.path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK,
+        guard
+            sqlite3_open_v2(db.path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil)
+                == SQLITE_OK,
             let handle
         else {
             Issue.record("打不开临时统计库")
@@ -726,7 +728,8 @@ struct AgentTranscriptUsageScannerTests {
         let callScratch = try fixtureFile(call + "\n")
         defer { try? FileManager.default.removeItem(at: callScratch.directory) }
         let callRead = TranscriptUsageScanner.read(
-            source: UsageSourceFile(path: callScratch.file.path, agent: .codeBuddy, sessionId: "s1"),
+            source: UsageSourceFile(
+                path: callScratch.file.path, agent: .codeBuddy, sessionId: "s1"),
             previous: nil, calendar: calendar)
         let calls = try #require(
             callRead.deltas.first { $0.tool != "" },

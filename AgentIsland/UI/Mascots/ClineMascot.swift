@@ -57,8 +57,10 @@ struct ClineMascot: View {
     private func drawBody(
         _ context: inout GraphicsContext, _ sprite: MascotSprite, dy: CGFloat, scale: CGFloat = 1.0
     ) {
-        let cx: CGFloat = 7.5, cy: CGFloat = 9.0
-        let width: CGFloat = 9 * scale, height: CGFloat = 7 * scale
+        let cx: CGFloat = 7.5
+        let cy: CGFloat = 9.0
+        let width: CGFloat = 9 * scale
+        let height: CGFloat = 7 * scale
         let radius: CGFloat = 1.8 * scale
         let rect = sprite.r(cx - width / 2, cy - height / 2, width, height, dy: dy)
         context.fill(
@@ -112,7 +114,8 @@ struct ClineMascot: View {
     }
 
     /// 两条腿：只跟机身位移的**三成**——跳起来时腿被拉长，像还踩在地上。
-    private func drawLegs(_ context: inout GraphicsContext, _ sprite: MascotSprite, dy: CGFloat = 0) {
+    private func drawLegs(_ context: inout GraphicsContext, _ sprite: MascotSprite, dy: CGFloat = 0)
+    {
         let legDy = dy * 0.3
         context.fill(
             Path(sprite.r(5.0, 13.5, 1, 2, dy: legDy)), with: .color(Self.bodyDk.opacity(0.7)))
@@ -174,7 +177,9 @@ struct ClineMascot: View {
             let flashRow = keyPhase / 6
             let flashColumn = keyPhase % 6
             context.fill(
-                Path(sprite.r(1.0 + CGFloat(flashColumn) * 2.3, 13.5 + CGFloat(flashRow) * 1.2, 1.8, 0.7)),
+                Path(
+                    sprite.r(
+                        1.0 + CGFloat(flashColumn) * 2.3, 13.5 + CGFloat(flashRow) * 1.2, 1.8, 0.7)),
                 with: .color(Self.kbHi.opacity(0.9)))
 
             // 3. 腿、机身与脸（叠在键盘后面，只有上半身露出来）

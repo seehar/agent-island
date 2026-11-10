@@ -280,7 +280,8 @@ struct ChatView: View {
             Image(systemName: "stop.circle")
                 .appFont(13)
                 .foregroundColor(
-                    canSendMessages ? .white.opacity(isInterruptHovered ? 1.0 : 0.6) : .white.opacity(0.2)
+                    canSendMessages
+                        ? .white.opacity(isInterruptHovered ? 1.0 : 0.6) : .white.opacity(0.2)
                 )
                 .frame(width: 24, height: 24)
                 .contentShape(Rectangle())
@@ -356,20 +357,23 @@ struct ChatView: View {
                             .scaleEffect(x: 1, y: -1)
                             .transition(
                                 .asymmetric(
-                                    insertion: .opacity.combined(with: .scale(scale: 0.95)).combined(with: .offset(y: -4)),
+                                    insertion: .opacity.combined(with: .scale(scale: 0.95))
+                                        .combined(with: .offset(y: -4)),
                                     removal: .opacity
                                 ))
                     }
 
                     ForEach(history.reversed()) { item in
-                        MessageItemView(item: item, agentDescriptions: session.subagentState.agentDescriptions)
-                            .padding(.horizontal, 16)
-                            .scaleEffect(x: 1, y: -1)
-                            .transition(
-                                .asymmetric(
-                                    insertion: .opacity.combined(with: .scale(scale: 0.98)),
-                                    removal: .opacity
-                                ))
+                        MessageItemView(
+                            item: item, agentDescriptions: session.subagentState.agentDescriptions
+                        )
+                        .padding(.horizontal, 16)
+                        .scaleEffect(x: 1, y: -1)
+                        .transition(
+                            .asymmetric(
+                                insertion: .opacity.combined(with: .scale(scale: 0.98)),
+                                removal: .opacity
+                            ))
                     }
                 }
                 .padding(.top, 20)
@@ -516,7 +520,8 @@ struct ChatView: View {
                 Image(systemName: "arrow.up.circle.fill")
                     .appFont(28)
                     .foregroundColor(
-                        !canSendMessages || inputText.isEmpty ? .white.opacity(0.2) : .white.opacity(0.9))
+                        !canSendMessages || inputText.isEmpty
+                            ? .white.opacity(0.2) : .white.opacity(0.9))
             }
             .buttonStyle(.plain)
             .disabled(!canSendMessages || inputText.isEmpty)
@@ -688,8 +693,6 @@ struct ChatView: View {
         return await PaseoCli.shared.sendMessage(
             text, toTerminal: terminalId, cliPath: session.paseoCliPath)
     }
-
-
 
     /// 中断当前会话：先按 tmux pane 发 Ctrl-C，退到 Paseo 托管终端。
     /// 两条通道与「发送消息」同源（都不自解析 pane、不直接跑 tmux 命令），
@@ -981,7 +984,8 @@ struct ToolCallView: View {
 
     /// Whether the tool can be expanded (has result, NOT a subagent container, NOT Edit).
     private var canExpand: Bool {
-        !tool.presentsAsSubagentContainer && !GenericToolResultBuilder.isEditLike(tool.name) && hasResult
+        !tool.presentsAsSubagentContainer && !GenericToolResultBuilder.isEditLike(tool.name)
+            && hasResult
     }
 
     private var showContent: Bool {
@@ -1003,7 +1007,8 @@ struct ToolCallView: View {
                 Circle()
                     .fill(
                         statusColor.opacity(
-                            tool.status == .running || tool.status == .waitingForApproval ? pulseOpacity : 0.6)
+                            tool.status == .running || tool.status == .waitingForApproval
+                                ? pulseOpacity : 0.6)
                     )
                     .frame(width: 6, height: 6)
                     .id(tool.status)  // Forces view recreation, cancelling repeatForever animation
@@ -1561,7 +1566,8 @@ struct ChatApprovalBar: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(MCPToolFormatter.formatToolName(tool))
                         .appFont(12, weight: .medium, design: .monospaced)
-                        .foregroundColor(display?.isCritical == true ? AppPalette.danger : TerminalColors.amber)
+                        .foregroundColor(
+                            display?.isCritical == true ? AppPalette.danger : TerminalColors.amber)
                     if let display, display.isCritical {
                         // 集成侧命中危险命令名单：与普通待批区分开，避免「看不出这次是危险的」
                         Text(l10n.t("Dangerous command"))

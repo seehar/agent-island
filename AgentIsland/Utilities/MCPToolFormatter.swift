@@ -54,8 +54,9 @@ struct MCPToolFormatter {
         guard isMCPTool(toolId) else { return toolId }
 
         // Remove "mcp__" prefix and split by "__"
-        let withoutPrefix = String(toolId.dropFirst(5)) // Drop "mcp__"
-        let parts = withoutPrefix.split(separator: "_", maxSplits: 1, omittingEmptySubsequences: true)
+        let withoutPrefix = String(toolId.dropFirst(5))  // Drop "mcp__"
+        let parts = withoutPrefix.split(
+            separator: "_", maxSplits: 1, omittingEmptySubsequences: true)
 
         guard parts.count >= 1 else { return toolId }
 
@@ -63,7 +64,8 @@ struct MCPToolFormatter {
 
         if parts.count >= 2 {
             // The second part starts with "_" which we need to drop
-            let toolNameRaw = String(parts[1]).hasPrefix("_")
+            let toolNameRaw =
+                String(parts[1]).hasPrefix("_")
                 ? String(String(parts[1]).dropFirst())
                 : String(parts[1])
             let toolName = toTitleCase(toolNameRaw)
@@ -76,7 +78,9 @@ struct MCPToolFormatter {
     /// Formats tool input dictionary for display
     /// e.g., ["repoName": "facebook/react", "question": "How does..."] → `repoName: "facebook/react", question: "How does..."`
     /// Truncates long values and limits number of args shown
-    static func formatArgs(_ input: [String: String], maxValueLength: Int = 30, maxArgs: Int = 3) -> String {
+    static func formatArgs(_ input: [String: String], maxValueLength: Int = 30, maxArgs: Int = 3)
+        -> String
+    {
         guard !input.isEmpty else { return "" }
 
         let sortedKeys = input.keys.sorted()
@@ -105,7 +109,9 @@ struct MCPToolFormatter {
     }
 
     /// Formats tool input from Any dictionary (handles both String and non-String values)
-    static func formatArgs(_ input: [String: Any], maxValueLength: Int = 30, maxArgs: Int = 3) -> String {
+    static func formatArgs(_ input: [String: Any], maxValueLength: Int = 30, maxArgs: Int = 3)
+        -> String
+    {
         guard !input.isEmpty else { return "" }
 
         let sortedKeys = input.keys.sorted()

@@ -93,7 +93,8 @@ struct AskAnswerBuilderTests {
 
     @Test("服务端兜底：answer 带「明确不选」照样发出")
     func explicitNoneSurvivesNormalization() {
-        let response = AskAnswerBuilder.normalized(decision: "answer", answers: ["q1": []], reason: nil)
+        let response = AskAnswerBuilder.normalized(
+            decision: "answer", answers: ["q1": []], reason: nil)
         #expect(response.decision == AskAnswerBuilder.decisionAnswer)
         #expect(response.answers == ["q1": []])
     }
@@ -133,7 +134,8 @@ struct AskSelectionTests {
         let answers = selection.answers(for: questions)
         #expect(answers == ["m1": [], "m2": []])
         // 整单都是零选：仍然是 answer（不是 deny——deny 是「跳过 / 取消」，会终止本轮）
-        #expect(AskAnswerBuilder.response(answers: answers).decision == AskAnswerBuilder.decisionAnswer)
+        #expect(
+            AskAnswerBuilder.response(answers: answers).decision == AskAnswerBuilder.decisionAnswer)
     }
 
     @Test("含未选中的单选时不可提交；选中后即可（多选仍可留零选）")

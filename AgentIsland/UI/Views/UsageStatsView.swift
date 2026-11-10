@@ -74,7 +74,8 @@ struct UsageStatsView: View {
                     .appFont(11, weight: .semibold)
                     .foregroundColor(AppPalette.tertiaryText)
 
-                HStack(alignment: .firstTextBaseline, spacing: UsageStatsMetrics.summaryStatSpacing) {
+                HStack(alignment: .firstTextBaseline, spacing: UsageStatsMetrics.summaryStatSpacing)
+                {
                     Text(tokenText(totals.total))
                         .appFont(
                             UsageStatsMetrics.summaryNumberSize,
@@ -227,7 +228,8 @@ struct UsageStatsView: View {
                 .frame(width: UsageStatsMetrics.modelNameWidth, alignment: .leading)
 
             // 与工具榜同一理由：模型榜不与任何身份绑定，占比条用中性文字色。
-            shareBar(ratio: share(usage.totals.total, of: maxModelTotal), tint: AppPalette.secondaryText)
+            shareBar(
+                ratio: share(usage.totals.total, of: maxModelTotal), tint: AppPalette.secondaryText)
 
             Text(tokenText(usage.totals.total))
                 .appFont(11, weight: .medium, design: .monospaced)

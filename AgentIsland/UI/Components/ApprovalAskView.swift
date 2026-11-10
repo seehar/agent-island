@@ -304,9 +304,11 @@ struct ApprovalAskView: View {
 
             // 顶到上限时说清「后面的字不会再进答案」——否则用户以为全发出去了。
             if selection.reachedFreeTextLimit(for: question.id) {
-                Text(l10n.t("Answers are cut off after %lld characters.", AskSelection.freeTextLimit))
-                    .appFont(10)
-                    .foregroundColor(AppPalette.warning)
+                Text(
+                    l10n.t("Answers are cut off after %lld characters.", AskSelection.freeTextLimit)
+                )
+                .appFont(10)
+                .foregroundColor(AppPalette.warning)
             }
         }
     }

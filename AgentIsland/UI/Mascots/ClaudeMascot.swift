@@ -51,7 +51,8 @@ struct ClaudeMascot: View {
             let sprite = MascotSprite(canvas, svgWidth: 17, svgHeight: 7, svgTop: 9)
             drawSleeping(&context, sprite, breathe: MascotMotion.breathe(t, period: 4.5))
             // 睡眠 Z 从四条腿的上方升起（趴姿的腿尖是全身最高处）。
-            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 8.5, t: t, size: size, color: Self.sleepZ)
+            MascotDraw.floatingZs(
+                &context, sprite: sprite, bodyTop: 8.5, t: t, size: size, color: Self.sleepZ)
         }
     }
 
@@ -285,12 +286,12 @@ struct ClaudeMascot: View {
         context.fill(
             sprite.rotatedRect(
                 x: 0, y: 9, width: 2, height: 2, pivotX: 2, pivotY: 10, angle: armLeft,
-                    dy: rise),
+                dy: rise),
             with: .color(Self.shell))
         context.fill(
             sprite.rotatedRect(
                 x: 13, y: 9, width: 2, height: 2, pivotX: 13, pivotY: 10, angle: armRight,
-                    dy: rise),
+                dy: rise),
             with: .color(Self.shell))
 
         // 惊叹号：在头顶上方，位移只有跳跃的 15%（不会飞出画布）。

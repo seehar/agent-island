@@ -17,14 +17,15 @@ import SQLite3
 /// 是 OpenCode 与 Hermes 共用的，实现在 `SQLiteReadOnlyConnection`；这里只留一个入口，
 /// 让既有调用点与用例保持不变。
 nonisolated enum OpenCodeDatabase {
-  /// 以只读用途打开 OpenCode 的库，并设置忙等超时。
-  ///
-  /// - Parameters:
-  ///   - url: 库文件位置。
-  ///   - busyTimeoutMilliseconds: 忙等超时（OpenCode 正在写时不要立刻失败）。
-  static func openReadOnly(url: URL, busyTimeoutMilliseconds: Int32) throws -> OpaquePointer {
-    try SQLiteReadOnlyConnection.open(url: url, busyTimeoutMilliseconds: busyTimeoutMilliseconds)
-  }
+    /// 以只读用途打开 OpenCode 的库，并设置忙等超时。
+    ///
+    /// - Parameters:
+    ///   - url: 库文件位置。
+    ///   - busyTimeoutMilliseconds: 忙等超时（OpenCode 正在写时不要立刻失败）。
+    static func openReadOnly(url: URL, busyTimeoutMilliseconds: Int32) throws -> OpaquePointer {
+        try SQLiteReadOnlyConnection.open(
+            url: url, busyTimeoutMilliseconds: busyTimeoutMilliseconds)
+    }
 }
 
 /// OpenCode 库「有没有被写过」的指纹：库文件与它的 `-wal` 的 (size, mtime)。
@@ -37,49 +38,49 @@ nonisolated enum OpenCodeDatabase {
 /// WAL 模式下新提交先落在 `-wal` 里、主库文件可能一动不动，所以两个都要看；`-shm` 只
 /// 是 wal-index（每条连接都会动它），不参与判定。
 nonisolated struct OpenCodeDatabaseFingerprint: Equatable {
-  var databaseSize: UInt64
-  var databaseMtime: Double
-  var walSize: UInt64
-  var walMtime: Double
+    var databaseSize: UInt64
+    var databaseMtime: Double
+    var walSize: UInt64
+    var walMtime: Double
 
-  /// 现取一次指纹；库文件不存在时返回 nil（调用方据此照常去扫，别拿它当「没变化」）。
-  static func read(databaseURL: URL) -> OpenCodeDatabaseFingerprint? {
-    guard let database = attributes(of: databaseURL) else { return nil }
-    let wal = attributes(of: URL(fileURLWithPath: databaseURL.path + "-wal"))
-    // 空的（0 字节）`-wal` 一律折算成「没有内容」：我们自己的连接（读写 + `query_only`）
-    // 开合就会不断创建 / 触碰这个空文件——实测它的 mtime 每分钟都在变，算进指纹等于永远
-    // 判定「被写过」，门就永远关不上了。真有人提交时 `-wal` 至少有一个 4 KB 帧，
-    // size > 0，指纹照常跟着变。
-    let walSize = wal?.size ?? 0
-    return OpenCodeDatabaseFingerprint(
-      databaseSize: database.size,
-      databaseMtime: database.mtime,
-      walSize: walSize,
-      walMtime: walSize == 0 ? 0 : (wal?.mtime ?? 0)
-    )
-  }
-
-  private static func attributes(of url: URL) -> (size: UInt64, mtime: Double)? {
-    guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else {
-      return nil
+    /// 现取一次指纹；库文件不存在时返回 nil（调用方据此照常去扫，别拿它当「没变化」）。
+    static func read(databaseURL: URL) -> OpenCodeDatabaseFingerprint? {
+        guard let database = attributes(of: databaseURL) else { return nil }
+        let wal = attributes(of: URL(fileURLWithPath: databaseURL.path + "-wal"))
+        // 空的（0 字节）`-wal` 一律折算成「没有内容」：我们自己的连接（读写 + `query_only`）
+        // 开合就会不断创建 / 触碰这个空文件——实测它的 mtime 每分钟都在变，算进指纹等于永远
+        // 判定「被写过」，门就永远关不上了。真有人提交时 `-wal` 至少有一个 4 KB 帧，
+        // size > 0，指纹照常跟着变。
+        let walSize = wal?.size ?? 0
+        return OpenCodeDatabaseFingerprint(
+            databaseSize: database.size,
+            databaseMtime: database.mtime,
+            walSize: walSize,
+            walMtime: walSize == 0 ? 0 : (wal?.mtime ?? 0)
+        )
     }
-    let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
-    let mtime = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
-    return (size: size, mtime: mtime)
-  }
+
+    private static func attributes(of url: URL) -> (size: UInt64, mtime: Double)? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else {
+            return nil
+        }
+        let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+        let mtime = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        return (size: size, mtime: mtime)
+    }
 }
 
 /// OpenCode 库的失败原因（错误文本来自 SQLite，原样附上）。
 nonisolated enum OpenCodeDatabaseError: Error, CustomStringConvertible {
-  case openFailed(String)
-  case prepareFailed(String)
-  case stepFailed(String)
+    case openFailed(String)
+    case prepareFailed(String)
+    case stepFailed(String)
 
-  var description: String {
-    switch self {
-    case .openFailed(let message): return "打开 OpenCode 库失败：\(message)"
-    case .prepareFailed(let message): return "OpenCode 库语句准备失败：\(message)"
-    case .stepFailed(let message): return "OpenCode 库执行失败：\(message)"
+    var description: String {
+        switch self {
+        case .openFailed(let message): return "打开 OpenCode 库失败：\(message)"
+        case .prepareFailed(let message): return "OpenCode 库语句准备失败：\(message)"
+        case .stepFailed(let message): return "OpenCode 库执行失败：\(message)"
+        }
     }
-  }
 }

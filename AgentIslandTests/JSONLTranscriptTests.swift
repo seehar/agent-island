@@ -102,7 +102,8 @@ struct JSONLTranscriptTests {
     @Test("末尾未写完的行不消费，补齐换行后才解析")
     func partialTrailingLineIsDeferred() throws {
         let firstLine = piUserLine(id: "m1", text: "第一行")
-        var fixture = try TranscriptFixture.create(agent: .ohMyPi, contents: firstLine + #"{"type":"mess"#)
+        var fixture = try TranscriptFixture.create(
+            agent: .ohMyPi, contents: firstLine + #"{"type":"mess"#)
         defer { fixture.cleanup() }
 
         let initial = fixture.read()
@@ -113,7 +114,8 @@ struct JSONLTranscriptTests {
         #expect(fixture.read().newMessages.isEmpty)
 
         try fixture.append(
-            #"age","id":"m2","message":{"role":"user","content":[{"type":"text","text":"第二行"}]}}"# + "\n")
+            #"age","id":"m2","message":{"role":"user","content":[{"type":"text","text":"第二行"}]}}"#
+                + "\n")
         let completed = fixture.read()
         #expect(completed.newMessages.count == 1)
         #expect(firstText(completed) == "第二行")
@@ -159,7 +161,8 @@ struct JSONLTranscriptTests {
 
     @Test("增量读取只产出新增部分")
     func incrementalReadOnlyYieldsNewMessages() throws {
-        var fixture = try TranscriptFixture.create(agent: .ohMyPi, contents: piUserLine(id: "m1", text: "甲"))
+        var fixture = try TranscriptFixture.create(
+            agent: .ohMyPi, contents: piUserLine(id: "m1", text: "甲"))
         defer { fixture.cleanup() }
 
         #expect(fixture.read().newMessages.count == 1)
@@ -203,7 +206,8 @@ struct JSONLTranscriptTests {
 
     @Test("增量读取遇到重置：清空已累积内容并置 pending")
     func resetDuringIncrementalReadSetsPending() throws {
-        var fixture = try TranscriptFixture.create(agent: .ohMyPi, contents: piUserLine(id: "m1", text: "甲"))
+        var fixture = try TranscriptFixture.create(
+            agent: .ohMyPi, contents: piUserLine(id: "m1", text: "甲"))
         defer { fixture.cleanup() }
 
         #expect(fixture.read().newMessages.count == 1)

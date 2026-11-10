@@ -12,30 +12,30 @@ import Foundation
 /// `nonisolated`：它是纯值枚举，播放库与偏好读写都是非隔离代码（工程默认 MainActor 隔离，
 /// 不标注就会在那边报「main actor-isolated property can not be referenced」）。
 nonisolated enum NotificationSound: String, CaseIterable {
-  case none = "None"
-  case pop = "Pop"
-  case ping = "Ping"
-  case tink = "Tink"
-  case glass = "Glass"
-  case blow = "Blow"
-  case bottle = "Bottle"
-  case frog = "Frog"
-  case funk = "Funk"
-  case hero = "Hero"
-  case morse = "Morse"
-  case purr = "Purr"
-  case sosumi = "Sosumi"
-  case submarine = "Submarine"
-  case basso = "Basso"
+    case none = "None"
+    case pop = "Pop"
+    case ping = "Ping"
+    case tink = "Tink"
+    case glass = "Glass"
+    case blow = "Blow"
+    case bottle = "Bottle"
+    case frog = "Frog"
+    case funk = "Funk"
+    case hero = "Hero"
+    case morse = "Morse"
+    case purr = "Purr"
+    case sosumi = "Sosumi"
+    case submarine = "Submarine"
+    case basso = "Basso"
 
-  /// The system sound name to use with NSSound, or nil for no sound
-  var soundName: String? {
-    self == .none ? nil : rawValue
-  }
+    /// The system sound name to use with NSSound, or nil for no sound
+    var soundName: String? {
+        self == .none ? nil : rawValue
+    }
 
-  /// 没设过 / 设的值失效时用的档（改造前就是它）。
-  /// 与 `NotificationSoundLibrary.defaultChoice` 同源，改这里两处一起变。
-  static var defaultSound: NotificationSound { .pop }
+    /// 没设过 / 设的值失效时用的档（改造前就是它）。
+    /// 与 `NotificationSoundLibrary.defaultChoice` 同源，改这里两处一起变。
+    static var defaultSound: NotificationSound { .pop }
 }
 
 /// 应用不可达（AgentIsland 没开）时闸门怎么办。
@@ -43,489 +43,496 @@ nonisolated enum NotificationSound: String, CaseIterable {
 /// 这一档只在「无人可问」时生效；「问了没答」（超时）永远是拒绝——omp 生效的
 /// `approvalMode` 已是 yolo，超时放行等于静默执行任意命令。
 nonisolated enum ApprovalDegradation: String, CaseIterable, PreferenceOption {
-  /// 一律拒绝：把 agent 当生产工具，宁可停下也不误执行。
-  case strict
-  /// 放行 + 记录 + 刘海事后展示；已知危险命令仍然拒绝。（默认）
-  case notifyOnly = "notify-only"
-  /// 只放行只读工具，写 / 执行一律拒绝。
-  ///
-  /// 注意：只读档（read/glob/grep…）在闸门之前就放行了，能走到闸门的都是写 / 执行档，
-  /// 因此实际效果与 `strict` 相同——差别只在与用户心智模型对齐。
-  case readOnlyAllow = "read-only-allow"
+    /// 一律拒绝：把 agent 当生产工具，宁可停下也不误执行。
+    case strict
+    /// 放行 + 记录 + 刘海事后展示；已知危险命令仍然拒绝。（默认）
+    case notifyOnly = "notify-only"
+    /// 只放行只读工具，写 / 执行一律拒绝。
+    ///
+    /// 注意：只读档（read/glob/grep…）在闸门之前就放行了，能走到闸门的都是写 / 执行档，
+    /// 因此实际效果与 `strict` 相同——差别只在与用户心智模型对齐。
+    case readOnlyAllow = "read-only-allow"
 
-  /// 偏好域里的键。与 `AppSettings.Keys.approvalDegradation` 是同一个键——
-  /// 档位既可以走偏好骨架读写，也可以走 AppSettings 的既有入口，两条路径落同一处。
-  static let preferenceKey = "approvalDegradation"
+    /// 偏好域里的键。与 `AppSettings.Keys.approvalDegradation` 是同一个键——
+    /// 档位既可以走偏好骨架读写，也可以走 AppSettings 的既有入口，两条路径落同一处。
+    static let preferenceKey = "approvalDegradation"
 
-  /// 默认档：不打断工作，同时危险命令仍有底线。
-  static var defaultValue: ApprovalDegradation { .notifyOnly }
+    /// 默认档：不打断工作，同时危险命令仍有底线。
+    static var defaultValue: ApprovalDegradation { .notifyOnly }
 }
 
 /// 降级档的设置行载体（`EnumPreference` 的骨架 + 行内展开状态，见 BehaviorPreferences）。
 typealias ApprovalDegradationSelector = EnumPreference<ApprovalDegradation>
 
 nonisolated enum AppSettings {
-  private static let defaults = UserDefaults.standard
+    private static let defaults = UserDefaults.standard
 
-  // MARK: - Keys
+    // MARK: - Keys
 
-  private enum Keys {
-    static let notificationSound = "notificationSound"
-    /// 提示音音量（0…1）。
-    static let notificationVolume = "notificationVolume"
-    /// 角色动效速度档位（键名字面量只写在上面的 `mascotAnimationSpeedKey` 里）。
-    static let mascotAnimationSpeed = AppSettings.mascotAnimationSpeedKey
-    static let claudeDirectoryName = "claudeDirectoryName"
-    static let language = "language"
-    /// 显式启用集合（新口径）：不在集合里就是「关」。
-    static let enabledAgents = "enabledAgents"
-    /// 旧口径的禁用集合：只用于一次性迁移，不再写。
-    static let legacyDisabledAgents = "disabledAgents"
-    /// 逐 Agent 的配置根覆盖：`[AgentKind.rawValue: 绝对路径]`。
-    static let agentRootOverrides = "agentRootOverrides"
-    /// 「启用口径迁移」只做一次的标记。
-    static let enablementMigrationMarker = "didMigrateAgentEnablement"
-    /// 「旧口径 Claude 目录 → 通用覆盖表」迁移只做一次的标记。
-    static let claudeDirMigrationMarker = "didMigrateClaudeDirectoryOverride"
-    static let approvalDegradation = "approvalDegradation"
-    /// 面板展开时是否接管键盘焦点。
-    static let panelTakesFocus = "panelTakesFocus"
-    /// 首次启动的引导是否还没走完（启动那次展开不自动收起，见 `performBootAnimation`）。
-    static let firstRunIntroPending = "firstRunIntroPending"
-    /// omp 闸门等待预算写入失败；扩展可能仍运行，但请求会提前超时。
-    static let ompGateTimeoutSetupFailed = "ompGateTimeoutSetupFailed"
-    /// New API 账号列表（`[NewAPIAccount]` 的 JSON）。
-    static let newAPIAccounts = "newAPIAccounts"
-    /// 额度页当前选中的账号 id。
-    static let newAPISelectedAccountID = "newAPISelectedAccountID"
-    /// 「单账号四键 → 账号列表」迁移只做一次的标记。
-    static let newAPIAccountListMigrationMarker = "didMigrateNewAPIAccounts"
-    /// 旧口径的单账号四键：**只用于一次性迁移**，不再写、不再读。
-    static let newAPIServerURL = "newAPIServerURL"
-    static let newAPIKey = "newAPIKey"
-    static let newAPIAccessToken = "newAPIAccessToken"
-    static let newAPIUserID = "newAPIUserID"
-  }
-
-  // MARK: - Notification Sound
-
-  /// 提示音的持久化取值：内置音效存声音名（与历史偏好完全兼容），
-  /// 用户自带的音效存 `file:<绝对路径>`（见 `NotificationSoundLibrary`）。
-  static var notificationSoundID: String {
-    get {
-      let stored = defaults.string(forKey: Keys.notificationSound) ?? ""
-      return stored.isEmpty ? NotificationSound.defaultSound.rawValue : stored
+    private enum Keys {
+        static let notificationSound = "notificationSound"
+        /// 提示音音量（0…1）。
+        static let notificationVolume = "notificationVolume"
+        /// 角色动效速度档位（键名字面量只写在上面的 `mascotAnimationSpeedKey` 里）。
+        static let mascotAnimationSpeed = AppSettings.mascotAnimationSpeedKey
+        static let claudeDirectoryName = "claudeDirectoryName"
+        static let language = "language"
+        /// 显式启用集合（新口径）：不在集合里就是「关」。
+        static let enabledAgents = "enabledAgents"
+        /// 旧口径的禁用集合：只用于一次性迁移，不再写。
+        static let legacyDisabledAgents = "disabledAgents"
+        /// 逐 Agent 的配置根覆盖：`[AgentKind.rawValue: 绝对路径]`。
+        static let agentRootOverrides = "agentRootOverrides"
+        /// 「启用口径迁移」只做一次的标记。
+        static let enablementMigrationMarker = "didMigrateAgentEnablement"
+        /// 「旧口径 Claude 目录 → 通用覆盖表」迁移只做一次的标记。
+        static let claudeDirMigrationMarker = "didMigrateClaudeDirectoryOverride"
+        static let approvalDegradation = "approvalDegradation"
+        /// 面板展开时是否接管键盘焦点。
+        static let panelTakesFocus = "panelTakesFocus"
+        /// 首次启动的引导是否还没走完（启动那次展开不自动收起，见 `performBootAnimation`）。
+        static let firstRunIntroPending = "firstRunIntroPending"
+        /// omp 闸门等待预算写入失败；扩展可能仍运行，但请求会提前超时。
+        static let ompGateTimeoutSetupFailed = "ompGateTimeoutSetupFailed"
+        /// New API 账号列表（`[NewAPIAccount]` 的 JSON）。
+        static let newAPIAccounts = "newAPIAccounts"
+        /// 额度页当前选中的账号 id。
+        static let newAPISelectedAccountID = "newAPISelectedAccountID"
+        /// 「单账号四键 → 账号列表」迁移只做一次的标记。
+        static let newAPIAccountListMigrationMarker = "didMigrateNewAPIAccounts"
+        /// 旧口径的单账号四键：**只用于一次性迁移**，不再写、不再读。
+        static let newAPIServerURL = "newAPIServerURL"
+        static let newAPIKey = "newAPIKey"
+        static let newAPIAccessToken = "newAPIAccessToken"
+        static let newAPIUserID = "newAPIUserID"
     }
-    set { defaults.set(newValue, forKey: Keys.notificationSound) }
-  }
 
-  /// 解析后的提示音档位：设的值失效（用户删了那个文件）时回退内置默认档，
-  /// 界面显示的就是真正会响的那一个。
-  static var notificationSoundChoice: NotificationSoundChoice {
-    NotificationSoundLibrary.choice(forID: notificationSoundID)
-  }
+    // MARK: - Notification Sound
 
-  // MARK: - Notification Volume
-
-  /// 提示音音量（0…1，默认 1＝与改造前一样满音量）。
-  ///
-  /// **键缺失时取 1**：`double(forKey:)` 对缺失键返回 0，直接用会把用户的通知静音掉。
-  /// 读出时再夹一次范围，防止偏好域里被写进越界值。
-  static func notificationVolume(defaults: UserDefaults = .standard) -> Double {
-    guard let stored = defaults.object(forKey: Keys.notificationVolume) as? Double else { return 1 }
-    return min(max(stored, 0), 1)
-  }
-
-  static func setNotificationVolume(_ value: Double, defaults: UserDefaults = .standard) {
-    defaults.set(min(max(value, 0), 1), forKey: Keys.notificationVolume)
-  }
-
-  // MARK: - 角色动效
-
-  /// 像素角色的动效速度档位：0 = 定格一帧（不建时钟），0.5 / 1 / 2 = 播放倍率。
-  ///
-  /// 键名 `mascotAnimationSpeed`。**缺键时取 1**：`double(forKey:)` 对缺失键返回 0，直接用会
-  /// 把角色静默定格（「角色不动了」是最难查的一类故障）；读出时再夹一次档位，偏好域里可能
-  /// 是手改过的连续值（0.3 这种谁也不认识的速度）。
-  ///
-  /// 档位是**全局**的：头部标记、画廊、「标记动态」的入口缩略图都读它，不只作用在动画页。
-  static var mascotAnimationSpeed: Double {
-    get { mascotAnimationSpeed(defaults: defaults) }
-    set { setMascotAnimationSpeed(newValue, defaults: defaults) }
-  }
-
-  /// 读取入口（`defaults:` 便于用临时偏好域单测，与本文件其余偏好同一约定）。
-  ///
-  /// 用 `NSNumber` 取值而不是 `as? Double`：这个键是**跨切片共用**的，视图里可能以 `Int`
-  /// （或 `@AppStorage<Double>` 之外的窄类型）写入——那种存储下 `as? Double` 会静默失败、
-  /// 直接退回默认档 1，表现成「档位设置了没反应」。
-  static func mascotAnimationSpeed(defaults: UserDefaults = .standard) -> Double {
-    guard let stored = defaults.object(forKey: Keys.mascotAnimationSpeed) as? NSNumber else {
-      return 1
+    /// 提示音的持久化取值：内置音效存声音名（与历史偏好完全兼容），
+    /// 用户自带的音效存 `file:<绝对路径>`（见 `NotificationSoundLibrary`）。
+    static var notificationSoundID: String {
+        get {
+            let stored = defaults.string(forKey: Keys.notificationSound) ?? ""
+            return stored.isEmpty ? NotificationSound.defaultSound.rawValue : stored
+        }
+        set { defaults.set(newValue, forKey: Keys.notificationSound) }
     }
-    return clampedMascotAnimationSpeed(stored.doubleValue)
-  }
 
-  /// 写入入口：先夹档位再落盘，偏好域里因此不会出现非法档位。
-  static func setMascotAnimationSpeed(_ value: Double, defaults: UserDefaults = .standard) {
-    defaults.set(clampedMascotAnimationSpeed(value), forKey: Keys.mascotAnimationSpeed)
-  }
-
-  /// 合法档位（顺序即界面顺序）。
-  static let mascotAnimationSpeedTiers: [Double] = [0, 0.5, 1, 2]
-
-  /// 角色动效速度档位在偏好域里的键名。
-  ///
-  /// 单独公开一份字面量：视图里的 `@AppStorage` 只吃字符串键（`Keys` 是私有的），而同一个
-  /// 键在两处各写一遍字面量迟早会写岔——键名因此只在这一个地方出现，`Keys` 反过来引用它。
-  static let mascotAnimationSpeedKey = "mascotAnimationSpeed"
-
-  /// 把任意值夹到合法档位：取**最接近**的一档（并列时取更小的一档，结果确定）。
-  static func clampedMascotAnimationSpeed(_ value: Double) -> Double {
-    mascotAnimationSpeedTiers.min { abs($0 - value) < abs($1 - value) } ?? 1
-  }
-
-  // MARK: - Language
-
-  /// 界面所用语言，默认跟随系统语言。
-  static var language: AppLanguage {
-    get {
-      guard let rawValue = defaults.string(forKey: Keys.language),
-        let language = AppLanguage(rawValue: rawValue)
-      else {
-        return .system
-      }
-      return language
+    /// 解析后的提示音档位：设的值失效（用户删了那个文件）时回退内置默认档，
+    /// 界面显示的就是真正会响的那一个。
+    static var notificationSoundChoice: NotificationSoundChoice {
+        NotificationSoundLibrary.choice(forID: notificationSoundID)
     }
-    set {
-      defaults.set(newValue.rawValue, forKey: Keys.language)
+
+    // MARK: - Notification Volume
+
+    /// 提示音音量（0…1，默认 1＝与改造前一样满音量）。
+    ///
+    /// **键缺失时取 1**：`double(forKey:)` 对缺失键返回 0，直接用会把用户的通知静音掉。
+    /// 读出时再夹一次范围，防止偏好域里被写进越界值。
+    static func notificationVolume(defaults: UserDefaults = .standard) -> Double {
+        guard let stored = defaults.object(forKey: Keys.notificationVolume) as? Double else {
+            return 1
+        }
+        return min(max(stored, 0), 1)
     }
-  }
 
-  // MARK: - Agents
-
-  /// notch 是否监控某个 Agent CLI。
-  ///
-  /// **默认关闭**：应用不替用户接管任何工具，启用必须是一次显式动作（行内开关，
-  /// 或「智能体」页的「全部启用并安装」）。历史上这里是「默认全开 + 禁用集合」，
-  /// 升级用户由 `migrateAgentEnablementIfNeeded()` 换算一次。
-  static func isAgentEnabled(_ kind: AgentKind) -> Bool {
-    enabledAgents.contains(kind.rawValue)
-  }
-
-  static func setAgent(_ kind: AgentKind, enabled: Bool) {
-    var enabledKinds = enabledAgents
-    if enabled {
-      enabledKinds.insert(kind.rawValue)
-    } else {
-      enabledKinds.remove(kind.rawValue)
+    static func setNotificationVolume(_ value: Double, defaults: UserDefaults = .standard) {
+        defaults.set(min(max(value, 0), 1), forKey: Keys.notificationVolume)
     }
-    enabledAgents = enabledKinds
-  }
 
-  private static var enabledAgents: Set<String> {
-    get { Set(defaults.stringArray(forKey: Keys.enabledAgents) ?? []) }
-    set { defaults.set(Array(newValue).sorted(), forKey: Keys.enabledAgents) }
-  }
+    // MARK: - 角色动效
 
-  // MARK: - 逐 Agent 配置目录
-
-  /// 用户为某个 Agent 指定的配置根目录（绝对路径或 `~/…`）。nil = 自动检测。
-  ///
-  /// 优先级由各 Provider 决定（与环境变量的关系见 `AgentRootOverride`）：环境变量
-  /// 仍然压过这里——那是工具自己的配置方式。
-  static func agentRootOverride(_ kind: AgentKind) -> String? {
-    let path = agentRootOverrides[kind.rawValue]?.trimmingCharacters(in: .whitespaces) ?? ""
-    return path.isEmpty ? nil : path
-  }
-
-  /// 写入/清除某个 Agent 的配置根目录；nil 或空白 = 恢复自动检测。
-  static func setAgentRootOverride(_ kind: AgentKind, path: String?) {
-    var overrides = agentRootOverrides
-    let trimmed = path?.trimmingCharacters(in: .whitespaces) ?? ""
-    if trimmed.isEmpty {
-      overrides.removeValue(forKey: kind.rawValue)
-    } else {
-      overrides[kind.rawValue] = trimmed
+    /// 像素角色的动效速度档位：0 = 定格一帧（不建时钟），0.5 / 1 / 2 = 播放倍率。
+    ///
+    /// 键名 `mascotAnimationSpeed`。**缺键时取 1**：`double(forKey:)` 对缺失键返回 0，直接用会
+    /// 把角色静默定格（「角色不动了」是最难查的一类故障）；读出时再夹一次档位，偏好域里可能
+    /// 是手改过的连续值（0.3 这种谁也不认识的速度）。
+    ///
+    /// 档位是**全局**的：头部标记、画廊、「标记动态」的入口缩略图都读它，不只作用在动画页。
+    static var mascotAnimationSpeed: Double {
+        get { mascotAnimationSpeed(defaults: defaults) }
+        set { setMascotAnimationSpeed(newValue, defaults: defaults) }
     }
-    agentRootOverrides = overrides
 
-    // Claude 的目录有跨线程缓存（`ClaudePaths`），改完必须让它下次重新解析。
-    if kind == .claudeCode { ClaudePaths.invalidateCache() }
-  }
-
-  private static var agentRootOverrides: [String: String] {
-    get { defaults.dictionary(forKey: Keys.agentRootOverrides) as? [String: String] ?? [:] }
-    set { defaults.set(newValue, forKey: Keys.agentRootOverrides) }
-  }
-
-  // MARK: - 启用口径迁移（只做一次）
-
-  /// 把「默认全开 + 禁用集合」的旧口径换算成「显式启用集合」。
-  ///
-  /// 两条都不该发生：① 升级用户原本在监控的 Agent 因为换口径而掉线；② 本特性新接入的
-  /// 那 13 个 Agent 因为「旧口径默认全开」而被动接管用户的机器。因此迁移只保留
-  /// **改口径之前就默认启用**的那几个（`AgentKind.defaultEnabledBeforeOptIn`）里、
-  /// 用户没有显式关掉的那些。
-  ///
-  /// 全新安装（偏好域里没有任何我们的键）什么都不迁：保持「默认关闭」。
-  /// - Parameter hadPreviousInstall: **本机此前是否运行过本应用**（含改名前的版本）。
-  ///   必须由调用方在**任何本次写入之前**判定并传进来——见 `hadPreviousInstallFootprint`。
-  static func migrateAgentEnablementIfNeeded(hadPreviousInstall: Bool) {
-    guard defaults.object(forKey: Keys.enablementMigrationMarker) == nil else { return }
-
-    enabledAgents = enablementAfterMigration(
-      legacyDisabled: defaults.stringArray(forKey: Keys.legacyDisabledAgents) ?? [],
-      isFreshInstall: !hadPreviousInstall
-    )
-    // 旧键到此已经换算完，删掉它：留着会让 `defaults read` 里同时出现「禁用集合（空）」
-    // 与「启用集合」，读起来像是「全都启用」——与新口径正好相反。
-    defaults.removeObject(forKey: Keys.legacyDisabledAgents)
-    // 标记最后写：中途崩掉时宁可下次重新换算，也不要留下「标记已写、集合为空」（那样
-    // 用户会得到一个「全都关着」的既成事实，且再也不会自动换算）。
-    defaults.set(true, forKey: Keys.enablementMigrationMarker)
-  }
-
-  /// 本机此前是否运行过本应用（或其改名前的版本）。
-  ///
-  /// 判据**不能**是「偏好域里有没有键」：
-  /// - 同一次启动里，改名迁移会**无条件**写下 `didMigrateFromLegacyBundle`，所以那个标记
-  ///   出现在域里不代表以前跑过（本仓曾因此把全新安装判成升级，白白接管了 4 个工具）；
-  /// - Sparkle 的 `SU*` 键也不能用：`updater.start()` 在同一个进程里更早就跑过了。
-  ///
-  /// 改用**磁盘上的集成足迹**：上一个版本启动时会装集成（共享脚本 / 扩展 / 插件文件），
-  /// 这些文件才是「跑过」的硬证据。而一个从没装过集成、也没改过设置的旧用户，本来就没有
-  /// 在监控的对象——当作全新安装（什么都不启用）反而是对的。
-  static func hadPreviousInstallFootprint(
-    home: URL = FileManager.default.homeDirectoryForCurrentUser
-  ) -> Bool {
-    if hasInstallFootprintFiles(home: home) { return true }
-    // 改名前的偏好域里有东西也算（老用户可能把集成删了，但设置还在）。
-    guard let legacy = UserDefaults(suiteName: legacyBundleIdentifier),
-      let values = legacy.persistentDomain(forName: legacyBundleIdentifier)
-    else { return false }
-    return !values.isEmpty
-  }
-
-  /// 集成足迹的**纯文件判据**（按给的 home 查，便于用临时目录单测）。
-  static func hasInstallFootprintFiles(home: URL) -> Bool {
-    let footprints = [
-      ".agent-island/hooks/agent-island-state.py",  // 现行的共享脚本
-      ".claude/hooks/agent-island-state.py",  // 旧落点（本批之前）
-      ".claude/hooks/claude-island-state.py",  // 改名前的脚本名
-      ".omp/agent/extensions/agent-island-state.ts",
-      ".pi/agent/extensions/agent-island-state.ts",
-      ".config/opencode/plugins/agent-island-state.js",
-    ]
-    let fm = FileManager.default
-    return footprints.contains { fm.fileExists(atPath: home.appendingPathComponent($0).path) }
-  }
-
-  /// 旧口径的 Claude 配置目录（`claudeDirectoryName`：绝对路径，或家目录下的一个名字）
-  /// 换算成通用覆盖表里的一条。
-  ///
-  /// `.claude`（旧口径的默认值）与空值都等于「自动检测」，因此不进覆盖表——进去了会让
-  /// 界面一直显示「自定义目录」，而它其实只是默认值。
-  static func claudeOverrideAfterMigration(legacyDirectoryName: String) -> String? {
-    let trimmed = legacyDirectoryName.trimmingCharacters(in: .whitespaces)
-    guard !trimmed.isEmpty, trimmed != ".claude" else { return nil }
-    return trimmed.hasPrefix("/") ? trimmed : "~/" + trimmed
-  }
-
-  /// 把旧口径的 Claude 目录搬进通用覆盖表（只做一次）。
-  ///
-  /// 不迁的话，界面行会显示「自动检测」而 `ClaudePaths` 仍按旧键解析到别处——
-  /// 「显示与生效不一致」是这类设置最讨厌的一种 bug。
-  static func migrateClaudeDirectoryOverrideIfNeeded() {
-    guard defaults.object(forKey: Keys.claudeDirMigrationMarker) == nil else { return }
-    defaults.set(true, forKey: Keys.claudeDirMigrationMarker)
-    guard agentRootOverride(.claudeCode) == nil else { return }
-    guard
-      let migrated = claudeOverrideAfterMigration(
-        legacyDirectoryName: defaults.string(forKey: Keys.claudeDirectoryName) ?? "")
-    else { return }
-    setAgentRootOverride(.claudeCode, path: migrated)
-  }
-
-  /// 迁移的**纯函数**部分：旧口径的禁用集合 + 「是否全新安装」→ 新的启用集合。
-  ///
-  /// 抽出来是为了能单测：这条口径一旦算错，用户的监控列表会被静默改掉（升级用户掉线，
-  /// 或全新安装被被动接管）。签名保持纯数据进出，不碰 UserDefaults。
-  static func enablementAfterMigration(legacyDisabled: [String], isFreshInstall: Bool) -> Set<
-    String
-  > {
-    // 全新安装：什么都不启用（「默认关闭」）。
-    guard !isFreshInstall else { return [] }
-    let disabled = Set(legacyDisabled)
-    return Set(
-      AgentKind.defaultEnabledBeforeOptIn
-        .filter { !disabled.contains($0.rawValue) }
-        .map(\.rawValue)
-    )
-  }
-
-  // MARK: - Claude Directory
-
-  /// The name of the Claude config directory under the user's home folder.
-  /// Defaults to ".claude" (standard Claude Code installation).
-  /// Change to ".claude-internal" (or similar) for enterprise/custom distributions.
-  static var claudeDirectoryName: String {
-    get {
-      let value = defaults.string(forKey: Keys.claudeDirectoryName) ?? ""
-      return value.isEmpty ? ".claude" : value
+    /// 读取入口（`defaults:` 便于用临时偏好域单测，与本文件其余偏好同一约定）。
+    ///
+    /// 用 `NSNumber` 取值而不是 `as? Double`：这个键是**跨切片共用**的，视图里可能以 `Int`
+    /// （或 `@AppStorage<Double>` 之外的窄类型）写入——那种存储下 `as? Double` 会静默失败、
+    /// 直接退回默认档 1，表现成「档位设置了没反应」。
+    static func mascotAnimationSpeed(defaults: UserDefaults = .standard) -> Double {
+        guard let stored = defaults.object(forKey: Keys.mascotAnimationSpeed) as? NSNumber else {
+            return 1
+        }
+        return clampedMascotAnimationSpeed(stored.doubleValue)
     }
-    set {
-      defaults.set(newValue.trimmingCharacters(in: .whitespaces), forKey: Keys.claudeDirectoryName)
+
+    /// 写入入口：先夹档位再落盘，偏好域里因此不会出现非法档位。
+    static func setMascotAnimationSpeed(_ value: Double, defaults: UserDefaults = .standard) {
+        defaults.set(clampedMascotAnimationSpeed(value), forKey: Keys.mascotAnimationSpeed)
     }
-  }
 
-  // MARK: - 面板焦点
+    /// 合法档位（顺序即界面顺序）。
+    static let mascotAnimationSpeedTiers: [Double] = [0, 0.5, 1, 2]
 
-  /// 面板展开时是否把键盘焦点拿过来（默认**是**，与改造前一致）。
-  ///
-  /// 关掉它以后，悬停或点击展开不会再把用户正在编辑器里打的字抢走；面板本身仍然可用——
-  /// 它是 `becomesKeyOnlyIfNeeded` 的 NSPanel，点进聊天输入框时自己会变成 key window。
-  static var panelTakesFocus: Bool {
-    get {
-      // 键缺失时取 true：`bool(forKey:)` 对缺失键返回 false，直接用会把默认语义翻过来，
-      // 老用户升级后会突然「不抢焦点」。
-      guard let stored = defaults.object(forKey: Keys.panelTakesFocus) as? Bool else { return true }
-      return stored
+    /// 角色动效速度档位在偏好域里的键名。
+    ///
+    /// 单独公开一份字面量：视图里的 `@AppStorage` 只吃字符串键（`Keys` 是私有的），而同一个
+    /// 键在两处各写一遍字面量迟早会写岔——键名因此只在这一个地方出现，`Keys` 反过来引用它。
+    static let mascotAnimationSpeedKey = "mascotAnimationSpeed"
+
+    /// 把任意值夹到合法档位：取**最接近**的一档（并列时取更小的一档，结果确定）。
+    static func clampedMascotAnimationSpeed(_ value: Double) -> Double {
+        mascotAnimationSpeedTiers.min { abs($0 - value) < abs($1 - value) } ?? 1
     }
-    set { defaults.set(newValue, forKey: Keys.panelTakesFocus) }
-  }
 
-  /// 首次启动的引导是否待做：缺键视为 true（全新安装），用户收起过一次面板后写成 false。
-  ///
-  /// 与 `panelTakesFocus` 同样用 `object(forKey:)` 判「键是否存在」而不是 `bool(forKey:)`——
-  /// 后者对缺失键返回 false，会把默认语义整个翻过来（这里会变成「全新安装没有引导」）。
-  static var firstRunIntroPending: Bool {
-    get {
-      guard let stored = defaults.object(forKey: Keys.firstRunIntroPending) as? Bool else {
-        return true
-      }
-      return stored
+    // MARK: - Language
+
+    /// 界面所用语言，默认跟随系统语言。
+    static var language: AppLanguage {
+        get {
+            guard let rawValue = defaults.string(forKey: Keys.language),
+                let language = AppLanguage(rawValue: rawValue)
+            else {
+                return .system
+            }
+            return language
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: Keys.language)
+        }
     }
-    set { defaults.set(newValue, forKey: Keys.firstRunIntroPending) }
-  }
 
-  // MARK: - New API 额度
+    // MARK: - Agents
 
-  /// 「额度」页的账号列表（可多个实例 / 多个账号）。
-  ///
-  /// 凭据按用户的选择存在偏好域里（**不是**钥匙串）：本应用是 ad-hoc 签名，每次重装都会换
-  /// 代码签名，而钥匙串条目绑在签名上——那会变成「每装一次都要重新授权一次」。这条取舍
-  /// 在「额度」页的脚注里如实写给了用户。
-  ///
-  /// 空列表 = 还没迁移过（见 `migrateNewAPIAccountsIfNeeded()`）；解码失败同样回空列表，
-  /// 界面按「一个空账号」兜底，而不是崩在启动路径上。
-  static func newAPIAccounts(defaults: UserDefaults = .standard) -> [NewAPIAccount] {
-    guard let data = defaults.data(forKey: Keys.newAPIAccounts) else { return [] }
-    return (try? JSONDecoder().decode([NewAPIAccount].self, from: data)) ?? []
-  }
-
-  static func setNewAPIAccounts(
-    _ accounts: [NewAPIAccount], defaults: UserDefaults = .standard
-  ) {
-    guard let data = try? JSONEncoder().encode(accounts) else { return }
-    defaults.set(data, forKey: Keys.newAPIAccounts)
-  }
-
-  /// 额度页当前选中的账号；没存过或存的 id 已经不在列表里时给 nil（界面回落第一个）。
-  static func newAPISelectedAccountID(defaults: UserDefaults = .standard) -> UUID? {
-    guard let raw = defaults.string(forKey: Keys.newAPISelectedAccountID) else { return nil }
-    return UUID(uuidString: raw)
-  }
-
-  static func setNewAPISelectedAccountID(
-    _ id: UUID, defaults: UserDefaults = .standard
-  ) {
-    defaults.set(id.uuidString, forKey: Keys.newAPISelectedAccountID)
-  }
-
-  /// 旧口径的单账号四键搬进账号列表，只做一次。
-  ///
-  /// 「只做一次」是**取舍**：升级 → 降级回旧版本改配置（旧版本只写旧四键）→ 再升级时，
-  /// 标记已在、列表还是第一次迁移的快照，用户会看到降级前的配置。这里不做「列表 vs 旧键」
-  /// 的重比：那份比较分不出「用户在新版里改过列表」与「用户在旧版里改过旧键」，
-  /// 猜错就会把新版里的多个账号覆盖掉——代价比这条窄路径更大。
-  ///
-  /// 升级用户此前只有一个账号，那四项就是他填的全部；不搬的话，升级后额度页会变成
-  /// 一张空表，看起来像「配置丢了」。旧键本身**不删**：降级回旧版本时它们还在。
-  static func migrateNewAPIAccountsIfNeeded(defaults: UserDefaults = .standard) {
-    // 已经写过列表就直接打标记退出：这样「迁移跑过、用户又清空了账号」不会在下一次
-    // 启动时被旧键复活。
-    guard defaults.object(forKey: Keys.newAPIAccountListMigrationMarker) == nil else { return }
-
-    if defaults.data(forKey: Keys.newAPIAccounts) == nil {
-      let legacy = NewAPIConfig(
-        serverURL: defaults.string(forKey: Keys.newAPIServerURL) ?? "",
-        apiKey: defaults.string(forKey: Keys.newAPIKey) ?? "",
-        accessToken: defaults.string(forKey: Keys.newAPIAccessToken) ?? "",
-        userID: defaults.string(forKey: Keys.newAPIUserID) ?? ""
-      )
-      setNewAPIAccounts([NewAPIAccount(config: legacy)], defaults: defaults)
+    /// notch 是否监控某个 Agent CLI。
+    ///
+    /// **默认关闭**：应用不替用户接管任何工具，启用必须是一次显式动作（行内开关，
+    /// 或「智能体」页的「全部启用并安装」）。历史上这里是「默认全开 + 禁用集合」，
+    /// 升级用户由 `migrateAgentEnablementIfNeeded()` 换算一次。
+    static func isAgentEnabled(_ kind: AgentKind) -> Bool {
+        enabledAgents.contains(kind.rawValue)
     }
-    // 标记最后写：中途崩掉时宁可下次重新换算，也不要留下「标记已写、列表为空」。
-    defaults.set(true, forKey: Keys.newAPIAccountListMigrationMarker)
-  }
 
-  // MARK: - 审批闸门策略
-
-  /// 闸门**随启用而来**、不再是独立开关：omp / pi 一旦被监控，就装闸门版扩展并由刘海
-  /// 接管它的工具调用审批（见 `AgentIntegrationInstaller.gateIsActive`）。设置里因此没有
-  /// 「开/关闸门」，只剩下面两个**全局**策略档位；不想被拦住就改「运行前询问什么」。
-  ///
-  /// 闸门问什么（写/执行档要不要阻塞等人点按）；默认「都问」。
-  /// 随扩展文件下发（写进闸门版扩展文件头的标记与策略常量），不写用户的 agent 配置。
-  /// 读写走偏好骨架（`PreferenceStore`），设置行里改档位与本入口落同一处。
-  static var approvalAskScope: ApprovalAskScope {
-    get { PreferenceStore.read(ApprovalAskScope.self, defaults: defaults) }
-    set { PreferenceStore.write(newValue, defaults: defaults) }
-  }
-
-  /// 应用不可达时闸门怎么办；默认 `notify-only`。
-  /// 随扩展文件下发（写进扩展里的策略常量），不写用户的 agent 配置。
-  /// 读写走偏好骨架（`PreferenceStore`），设置行里改档位与本入口落同一处。
-  static var approvalDegradation: ApprovalDegradation {
-    get { PreferenceStore.read(ApprovalDegradation.self, defaults: defaults) }
-    set { PreferenceStore.write(newValue, defaults: defaults) }
-  }
-
-  // MARK: - omp 配置写入
-
-  /// 上次确保 omp 闸门等待预算时是否失败。
-  ///
-  /// 「写入时间 / 原值 / 备份路径」曾经也记在这套 `ompGateConfig*` 键里，但没有任何读取方
-  /// （界面不展示、还原路径已删除），2026-10-10 随「只写不读的状态」一起删掉：排查要看的
-  /// 是备份文件本身（`config.yml.agent-island.bak`）与这条失败标记。
-  static var ompGateTimeoutSetupFailed: Bool {
-    get { defaults.bool(forKey: Keys.ompGateTimeoutSetupFailed) }
-    set { defaults.set(newValue, forKey: Keys.ompGateTimeoutSetupFailed) }
-  }
-
-  // MARK: - 改名迁移
-
-  /// 改名前的 bundle id。偏好域跟着 bundle id 走，改名后是一个全新的空域，
-  /// 因此第一次在新域启动时把旧域里用户设过的键搬过来，否则用户的设置会「丢」。
-  private static let legacyBundleIdentifier = "com.celestial.ClaudeIsland"
-
-  /// 迁移只做一次的标记，写在**新**域里。
-  private static let migrationMarkerKey = "didMigrateFromLegacyBundle"
-
-  /// 把旧 bundle id 域里的用户键搬进当前域（只搬当前域还没有的键，系统键不动）。
-  static func migrateLegacyDefaultsIfNeeded() {
-    guard !defaults.bool(forKey: migrationMarkerKey) else { return }
-    defaults.set(true, forKey: migrationMarkerKey)
-
-    guard let legacy = UserDefaults(suiteName: legacyBundleIdentifier),
-      let legacyValues = legacy.persistentDomain(forName: legacyBundleIdentifier)
-    else { return }
-
-    for (key, value) in legacyValues where defaults.object(forKey: key) == nil {
-      // 系统与 Sparkle 的运行期键不属于用户设置。
-      guard !key.hasPrefix("NS"), !key.hasPrefix("Apple"), !key.hasPrefix("SU") else { continue }
-      defaults.set(value, forKey: key)
+    static func setAgent(_ kind: AgentKind, enabled: Bool) {
+        var enabledKinds = enabledAgents
+        if enabled {
+            enabledKinds.insert(kind.rawValue)
+        } else {
+            enabledKinds.remove(kind.rawValue)
+        }
+        enabledAgents = enabledKinds
     }
-  }
+
+    private static var enabledAgents: Set<String> {
+        get { Set(defaults.stringArray(forKey: Keys.enabledAgents) ?? []) }
+        set { defaults.set(Array(newValue).sorted(), forKey: Keys.enabledAgents) }
+    }
+
+    // MARK: - 逐 Agent 配置目录
+
+    /// 用户为某个 Agent 指定的配置根目录（绝对路径或 `~/…`）。nil = 自动检测。
+    ///
+    /// 优先级由各 Provider 决定（与环境变量的关系见 `AgentRootOverride`）：环境变量
+    /// 仍然压过这里——那是工具自己的配置方式。
+    static func agentRootOverride(_ kind: AgentKind) -> String? {
+        let path = agentRootOverrides[kind.rawValue]?.trimmingCharacters(in: .whitespaces) ?? ""
+        return path.isEmpty ? nil : path
+    }
+
+    /// 写入/清除某个 Agent 的配置根目录；nil 或空白 = 恢复自动检测。
+    static func setAgentRootOverride(_ kind: AgentKind, path: String?) {
+        var overrides = agentRootOverrides
+        let trimmed = path?.trimmingCharacters(in: .whitespaces) ?? ""
+        if trimmed.isEmpty {
+            overrides.removeValue(forKey: kind.rawValue)
+        } else {
+            overrides[kind.rawValue] = trimmed
+        }
+        agentRootOverrides = overrides
+
+        // Claude 的目录有跨线程缓存（`ClaudePaths`），改完必须让它下次重新解析。
+        if kind == .claudeCode { ClaudePaths.invalidateCache() }
+    }
+
+    private static var agentRootOverrides: [String: String] {
+        get { defaults.dictionary(forKey: Keys.agentRootOverrides) as? [String: String] ?? [:] }
+        set { defaults.set(newValue, forKey: Keys.agentRootOverrides) }
+    }
+
+    // MARK: - 启用口径迁移（只做一次）
+
+    /// 把「默认全开 + 禁用集合」的旧口径换算成「显式启用集合」。
+    ///
+    /// 两条都不该发生：① 升级用户原本在监控的 Agent 因为换口径而掉线；② 本特性新接入的
+    /// 那 13 个 Agent 因为「旧口径默认全开」而被动接管用户的机器。因此迁移只保留
+    /// **改口径之前就默认启用**的那几个（`AgentKind.defaultEnabledBeforeOptIn`）里、
+    /// 用户没有显式关掉的那些。
+    ///
+    /// 全新安装（偏好域里没有任何我们的键）什么都不迁：保持「默认关闭」。
+    /// - Parameter hadPreviousInstall: **本机此前是否运行过本应用**（含改名前的版本）。
+    ///   必须由调用方在**任何本次写入之前**判定并传进来——见 `hadPreviousInstallFootprint`。
+    static func migrateAgentEnablementIfNeeded(hadPreviousInstall: Bool) {
+        guard defaults.object(forKey: Keys.enablementMigrationMarker) == nil else { return }
+
+        enabledAgents = enablementAfterMigration(
+            legacyDisabled: defaults.stringArray(forKey: Keys.legacyDisabledAgents) ?? [],
+            isFreshInstall: !hadPreviousInstall
+        )
+        // 旧键到此已经换算完，删掉它：留着会让 `defaults read` 里同时出现「禁用集合（空）」
+        // 与「启用集合」，读起来像是「全都启用」——与新口径正好相反。
+        defaults.removeObject(forKey: Keys.legacyDisabledAgents)
+        // 标记最后写：中途崩掉时宁可下次重新换算，也不要留下「标记已写、集合为空」（那样
+        // 用户会得到一个「全都关着」的既成事实，且再也不会自动换算）。
+        defaults.set(true, forKey: Keys.enablementMigrationMarker)
+    }
+
+    /// 本机此前是否运行过本应用（或其改名前的版本）。
+    ///
+    /// 判据**不能**是「偏好域里有没有键」：
+    /// - 同一次启动里，改名迁移会**无条件**写下 `didMigrateFromLegacyBundle`，所以那个标记
+    ///   出现在域里不代表以前跑过（本仓曾因此把全新安装判成升级，白白接管了 4 个工具）；
+    /// - Sparkle 的 `SU*` 键也不能用：`updater.start()` 在同一个进程里更早就跑过了。
+    ///
+    /// 改用**磁盘上的集成足迹**：上一个版本启动时会装集成（共享脚本 / 扩展 / 插件文件），
+    /// 这些文件才是「跑过」的硬证据。而一个从没装过集成、也没改过设置的旧用户，本来就没有
+    /// 在监控的对象——当作全新安装（什么都不启用）反而是对的。
+    static func hadPreviousInstallFootprint(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> Bool {
+        if hasInstallFootprintFiles(home: home) { return true }
+        // 改名前的偏好域里有东西也算（老用户可能把集成删了，但设置还在）。
+        guard let legacy = UserDefaults(suiteName: legacyBundleIdentifier),
+            let values = legacy.persistentDomain(forName: legacyBundleIdentifier)
+        else { return false }
+        return !values.isEmpty
+    }
+
+    /// 集成足迹的**纯文件判据**（按给的 home 查，便于用临时目录单测）。
+    static func hasInstallFootprintFiles(home: URL) -> Bool {
+        let footprints = [
+            ".agent-island/hooks/agent-island-state.py",  // 现行的共享脚本
+            ".claude/hooks/agent-island-state.py",  // 旧落点（本批之前）
+            ".claude/hooks/claude-island-state.py",  // 改名前的脚本名
+            ".omp/agent/extensions/agent-island-state.ts",
+            ".pi/agent/extensions/agent-island-state.ts",
+            ".config/opencode/plugins/agent-island-state.js",
+        ]
+        let fm = FileManager.default
+        return footprints.contains { fm.fileExists(atPath: home.appendingPathComponent($0).path) }
+    }
+
+    /// 旧口径的 Claude 配置目录（`claudeDirectoryName`：绝对路径，或家目录下的一个名字）
+    /// 换算成通用覆盖表里的一条。
+    ///
+    /// `.claude`（旧口径的默认值）与空值都等于「自动检测」，因此不进覆盖表——进去了会让
+    /// 界面一直显示「自定义目录」，而它其实只是默认值。
+    static func claudeOverrideAfterMigration(legacyDirectoryName: String) -> String? {
+        let trimmed = legacyDirectoryName.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, trimmed != ".claude" else { return nil }
+        return trimmed.hasPrefix("/") ? trimmed : "~/" + trimmed
+    }
+
+    /// 把旧口径的 Claude 目录搬进通用覆盖表（只做一次）。
+    ///
+    /// 不迁的话，界面行会显示「自动检测」而 `ClaudePaths` 仍按旧键解析到别处——
+    /// 「显示与生效不一致」是这类设置最讨厌的一种 bug。
+    static func migrateClaudeDirectoryOverrideIfNeeded() {
+        guard defaults.object(forKey: Keys.claudeDirMigrationMarker) == nil else { return }
+        defaults.set(true, forKey: Keys.claudeDirMigrationMarker)
+        guard agentRootOverride(.claudeCode) == nil else { return }
+        guard
+            let migrated = claudeOverrideAfterMigration(
+                legacyDirectoryName: defaults.string(forKey: Keys.claudeDirectoryName) ?? "")
+        else { return }
+        setAgentRootOverride(.claudeCode, path: migrated)
+    }
+
+    /// 迁移的**纯函数**部分：旧口径的禁用集合 + 「是否全新安装」→ 新的启用集合。
+    ///
+    /// 抽出来是为了能单测：这条口径一旦算错，用户的监控列表会被静默改掉（升级用户掉线，
+    /// 或全新安装被被动接管）。签名保持纯数据进出，不碰 UserDefaults。
+    static func enablementAfterMigration(legacyDisabled: [String], isFreshInstall: Bool) -> Set<
+        String
+    > {
+        // 全新安装：什么都不启用（「默认关闭」）。
+        guard !isFreshInstall else { return [] }
+        let disabled = Set(legacyDisabled)
+        return Set(
+            AgentKind.defaultEnabledBeforeOptIn
+                .filter { !disabled.contains($0.rawValue) }
+                .map(\.rawValue)
+        )
+    }
+
+    // MARK: - Claude Directory
+
+    /// The name of the Claude config directory under the user's home folder.
+    /// Defaults to ".claude" (standard Claude Code installation).
+    /// Change to ".claude-internal" (or similar) for enterprise/custom distributions.
+    static var claudeDirectoryName: String {
+        get {
+            let value = defaults.string(forKey: Keys.claudeDirectoryName) ?? ""
+            return value.isEmpty ? ".claude" : value
+        }
+        set {
+            defaults.set(
+                newValue.trimmingCharacters(in: .whitespaces), forKey: Keys.claudeDirectoryName)
+        }
+    }
+
+    // MARK: - 面板焦点
+
+    /// 面板展开时是否把键盘焦点拿过来（默认**是**，与改造前一致）。
+    ///
+    /// 关掉它以后，悬停或点击展开不会再把用户正在编辑器里打的字抢走；面板本身仍然可用——
+    /// 它是 `becomesKeyOnlyIfNeeded` 的 NSPanel，点进聊天输入框时自己会变成 key window。
+    static var panelTakesFocus: Bool {
+        get {
+            // 键缺失时取 true：`bool(forKey:)` 对缺失键返回 false，直接用会把默认语义翻过来，
+            // 老用户升级后会突然「不抢焦点」。
+            guard let stored = defaults.object(forKey: Keys.panelTakesFocus) as? Bool else {
+                return true
+            }
+            return stored
+        }
+        set { defaults.set(newValue, forKey: Keys.panelTakesFocus) }
+    }
+
+    /// 首次启动的引导是否待做：缺键视为 true（全新安装），用户收起过一次面板后写成 false。
+    ///
+    /// 与 `panelTakesFocus` 同样用 `object(forKey:)` 判「键是否存在」而不是 `bool(forKey:)`——
+    /// 后者对缺失键返回 false，会把默认语义整个翻过来（这里会变成「全新安装没有引导」）。
+    static var firstRunIntroPending: Bool {
+        get {
+            guard let stored = defaults.object(forKey: Keys.firstRunIntroPending) as? Bool else {
+                return true
+            }
+            return stored
+        }
+        set { defaults.set(newValue, forKey: Keys.firstRunIntroPending) }
+    }
+
+    // MARK: - New API 额度
+
+    /// 「额度」页的账号列表（可多个实例 / 多个账号）。
+    ///
+    /// 凭据按用户的选择存在偏好域里（**不是**钥匙串）：本应用是 ad-hoc 签名，每次重装都会换
+    /// 代码签名，而钥匙串条目绑在签名上——那会变成「每装一次都要重新授权一次」。这条取舍
+    /// 在「额度」页的脚注里如实写给了用户。
+    ///
+    /// 空列表 = 还没迁移过（见 `migrateNewAPIAccountsIfNeeded()`）；解码失败同样回空列表，
+    /// 界面按「一个空账号」兜底，而不是崩在启动路径上。
+    static func newAPIAccounts(defaults: UserDefaults = .standard) -> [NewAPIAccount] {
+        guard let data = defaults.data(forKey: Keys.newAPIAccounts) else { return [] }
+        return (try? JSONDecoder().decode([NewAPIAccount].self, from: data)) ?? []
+    }
+
+    static func setNewAPIAccounts(
+        _ accounts: [NewAPIAccount], defaults: UserDefaults = .standard
+    ) {
+        guard let data = try? JSONEncoder().encode(accounts) else { return }
+        defaults.set(data, forKey: Keys.newAPIAccounts)
+    }
+
+    /// 额度页当前选中的账号；没存过或存的 id 已经不在列表里时给 nil（界面回落第一个）。
+    static func newAPISelectedAccountID(defaults: UserDefaults = .standard) -> UUID? {
+        guard let raw = defaults.string(forKey: Keys.newAPISelectedAccountID) else { return nil }
+        return UUID(uuidString: raw)
+    }
+
+    static func setNewAPISelectedAccountID(
+        _ id: UUID, defaults: UserDefaults = .standard
+    ) {
+        defaults.set(id.uuidString, forKey: Keys.newAPISelectedAccountID)
+    }
+
+    /// 旧口径的单账号四键搬进账号列表，只做一次。
+    ///
+    /// 「只做一次」是**取舍**：升级 → 降级回旧版本改配置（旧版本只写旧四键）→ 再升级时，
+    /// 标记已在、列表还是第一次迁移的快照，用户会看到降级前的配置。这里不做「列表 vs 旧键」
+    /// 的重比：那份比较分不出「用户在新版里改过列表」与「用户在旧版里改过旧键」，
+    /// 猜错就会把新版里的多个账号覆盖掉——代价比这条窄路径更大。
+    ///
+    /// 升级用户此前只有一个账号，那四项就是他填的全部；不搬的话，升级后额度页会变成
+    /// 一张空表，看起来像「配置丢了」。旧键本身**不删**：降级回旧版本时它们还在。
+    static func migrateNewAPIAccountsIfNeeded(defaults: UserDefaults = .standard) {
+        // 已经写过列表就直接打标记退出：这样「迁移跑过、用户又清空了账号」不会在下一次
+        // 启动时被旧键复活。
+        guard defaults.object(forKey: Keys.newAPIAccountListMigrationMarker) == nil else { return }
+
+        if defaults.data(forKey: Keys.newAPIAccounts) == nil {
+            let legacy = NewAPIConfig(
+                serverURL: defaults.string(forKey: Keys.newAPIServerURL) ?? "",
+                apiKey: defaults.string(forKey: Keys.newAPIKey) ?? "",
+                accessToken: defaults.string(forKey: Keys.newAPIAccessToken) ?? "",
+                userID: defaults.string(forKey: Keys.newAPIUserID) ?? ""
+            )
+            setNewAPIAccounts([NewAPIAccount(config: legacy)], defaults: defaults)
+        }
+        // 标记最后写：中途崩掉时宁可下次重新换算，也不要留下「标记已写、列表为空」。
+        defaults.set(true, forKey: Keys.newAPIAccountListMigrationMarker)
+    }
+
+    // MARK: - 审批闸门策略
+
+    /// 闸门**随启用而来**、不再是独立开关：omp / pi 一旦被监控，就装闸门版扩展并由刘海
+    /// 接管它的工具调用审批（见 `AgentIntegrationInstaller.gateIsActive`）。设置里因此没有
+    /// 「开/关闸门」，只剩下面两个**全局**策略档位；不想被拦住就改「运行前询问什么」。
+    ///
+    /// 闸门问什么（写/执行档要不要阻塞等人点按）；默认「都问」。
+    /// 随扩展文件下发（写进闸门版扩展文件头的标记与策略常量），不写用户的 agent 配置。
+    /// 读写走偏好骨架（`PreferenceStore`），设置行里改档位与本入口落同一处。
+    static var approvalAskScope: ApprovalAskScope {
+        get { PreferenceStore.read(ApprovalAskScope.self, defaults: defaults) }
+        set { PreferenceStore.write(newValue, defaults: defaults) }
+    }
+
+    /// 应用不可达时闸门怎么办；默认 `notify-only`。
+    /// 随扩展文件下发（写进扩展里的策略常量），不写用户的 agent 配置。
+    /// 读写走偏好骨架（`PreferenceStore`），设置行里改档位与本入口落同一处。
+    static var approvalDegradation: ApprovalDegradation {
+        get { PreferenceStore.read(ApprovalDegradation.self, defaults: defaults) }
+        set { PreferenceStore.write(newValue, defaults: defaults) }
+    }
+
+    // MARK: - omp 配置写入
+
+    /// 上次确保 omp 闸门等待预算时是否失败。
+    ///
+    /// 「写入时间 / 原值 / 备份路径」曾经也记在这套 `ompGateConfig*` 键里，但没有任何读取方
+    /// （界面不展示、还原路径已删除），2026-10-10 随「只写不读的状态」一起删掉：排查要看的
+    /// 是备份文件本身（`config.yml.agent-island.bak`）与这条失败标记。
+    static var ompGateTimeoutSetupFailed: Bool {
+        get { defaults.bool(forKey: Keys.ompGateTimeoutSetupFailed) }
+        set { defaults.set(newValue, forKey: Keys.ompGateTimeoutSetupFailed) }
+    }
+
+    // MARK: - 改名迁移
+
+    /// 改名前的 bundle id。偏好域跟着 bundle id 走，改名后是一个全新的空域，
+    /// 因此第一次在新域启动时把旧域里用户设过的键搬过来，否则用户的设置会「丢」。
+    private static let legacyBundleIdentifier = "com.celestial.ClaudeIsland"
+
+    /// 迁移只做一次的标记，写在**新**域里。
+    private static let migrationMarkerKey = "didMigrateFromLegacyBundle"
+
+    /// 把旧 bundle id 域里的用户键搬进当前域（只搬当前域还没有的键，系统键不动）。
+    static func migrateLegacyDefaultsIfNeeded() {
+        guard !defaults.bool(forKey: migrationMarkerKey) else { return }
+        defaults.set(true, forKey: migrationMarkerKey)
+
+        guard let legacy = UserDefaults(suiteName: legacyBundleIdentifier),
+            let legacyValues = legacy.persistentDomain(forName: legacyBundleIdentifier)
+        else { return }
+
+        for (key, value) in legacyValues where defaults.object(forKey: key) == nil {
+            // 系统与 Sparkle 的运行期键不属于用户设置。
+            guard !key.hasPrefix("NS"), !key.hasPrefix("Apple"), !key.hasPrefix("SU") else {
+                continue
+            }
+            defaults.set(value, forKey: key)
+        }
+    }
 }

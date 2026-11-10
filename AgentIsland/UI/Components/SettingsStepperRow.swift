@@ -48,7 +48,10 @@ struct SettingsStepperRow: View {
                 systemName: "minus",
                 label: l10n.t("Decrease"),
                 isEnabled: value > minimum,
-                action: { endEditingForStepping(); decrease() }
+                action: {
+                    endEditingForStepping()
+                    decrease()
+                }
             )
 
             valueField
@@ -57,7 +60,10 @@ struct SettingsStepperRow: View {
                 systemName: "plus",
                 label: l10n.t("Increase"),
                 isEnabled: value < maximum,
-                action: { endEditingForStepping(); increase() }
+                action: {
+                    endEditingForStepping()
+                    increase()
+                }
             )
         }
         .padding(.horizontal, NotchMenuMetrics.optionHorizontalPadding)

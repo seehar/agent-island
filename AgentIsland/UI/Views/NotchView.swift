@@ -48,7 +48,8 @@ struct NotchView: View {
     @ObservedObject private var l10n = LocalizationManager.shared
     @State private var previousPendingIds: Set<String> = []
     @State private var previousWaitingForInputIds: Set<String> = []
-    @State private var waitingForInputTimestamps: [String: Date] = [:]  // sessionId -> when it entered waitingForInput
+    /// sessionId → 它进入「等待输入」的时刻。
+    @State private var waitingForInputTimestamps: [String: Date] = [:]
     @State private var isVisible: Bool = false
     @State private var isHovering: Bool = false
     @State private var isBouncing: Bool = false
@@ -185,12 +186,14 @@ struct NotchView: View {
     /// 展开 / 收起的弹簧。
     private var openAnimation: Animation {
         AppMotion.pick(
-            .spring(response: 0.42, dampingFraction: 0.8, blendDuration: 0), reduceMotion: reduceMotion)
+            .spring(response: 0.42, dampingFraction: 0.8, blendDuration: 0),
+            reduceMotion: reduceMotion)
     }
 
     private var closeAnimation: Animation {
         AppMotion.pick(
-            .spring(response: 0.45, dampingFraction: 1.0, blendDuration: 0), reduceMotion: reduceMotion)
+            .spring(response: 0.45, dampingFraction: 1.0, blendDuration: 0),
+            reduceMotion: reduceMotion)
     }
 
     /// 合入减动效档位的曲线：视图里所有弹簧/脉冲都从这一道过。
@@ -215,22 +218,29 @@ struct NotchView: View {
                         )
                         .padding(
                             .leading,
-                            viewModel.status == .opened ? openedCardHeaderInset : closedCapsulePlan.leadingPadding
+                            viewModel.status == .opened
+                                ? openedCardHeaderInset : closedCapsulePlan.leadingPadding
                         )
                         .padding(
                             .trailing,
-                            viewModel.status == .opened ? openedCardHeaderInset : closedCapsulePlan.trailingPadding
+                            viewModel.status == .opened
+                                ? openedCardHeaderInset : closedCapsulePlan.trailingPadding
                         )
-                        .padding([.horizontal, .bottom], viewModel.status == .opened ? openedCardSideInset : 0)
+                        .padding(
+                            [.horizontal, .bottom],
+                            viewModel.status == .opened ? openedCardSideInset : 0)
                 }
                 .shadow(
-                    color: (viewModel.status == .opened || isHovering) ? .black.opacity(0.7) : .clear,
+                    color: (viewModel.status == .opened || isHovering)
+                        ? .black.opacity(0.7) : .clear,
                     radius: 6
                 )
                 .animation(
-                    viewModel.status == .opened ? openAnimation : closeAnimation, value: viewModel.status
+                    viewModel.status == .opened ? openAnimation : closeAnimation,
+                    value: viewModel.status
                 )
-                .animation(openAnimation, value: notchSize)  // Animate container size changes between content types
+                // 内容类型切换时容器尺寸要跟着动。
+                .animation(openAnimation, value: notchSize)
                 .animation(motion(.smooth), value: activityCoordinator.expandingActivity)
                 .animation(motion(.smooth), value: hasPendingPermission)
                 .animation(motion(.smooth), value: hasWaitingForInput)
@@ -324,7 +334,8 @@ struct NotchView: View {
             // Main content only when opened
             if viewModel.status == .opened {
                 contentView
-                    .frame(width: notchSize.width - 2 * openedCardSideInset)  // Fixed width to prevent reflow
+                    // 固定宽度：否则内容一长就会重排，整个面板跟着抖。
+                    .frame(width: notchSize.width - 2 * openedCardSideInset)
                     .transition(
                         .asymmetric(
                             insertion: .scale(scale: 0.8, anchor: .top)
@@ -355,7 +366,8 @@ struct NotchView: View {
             guard let rank = attentionRank(session) else { continue }
             if let current = best,
                 current.rank < rank
-                    || (current.rank == rank && current.session.lastActivity >= session.lastActivity)
+                    || (current.rank == rank
+                        && current.session.lastActivity >= session.lastActivity)
             {
                 continue
             }
@@ -401,7 +413,8 @@ struct NotchView: View {
     private var headerRow: some View {
         HStack(spacing: 0) {
             // 左侧 - Agent 标记 + 可选审批指示（处理中、待审批、等待输入时可见）
-            if showClosedActivity && (viewModel.status == .opened || closedCapsulePlan.showsMascot) {
+            if showClosedActivity && (viewModel.status == .opened || closedCapsulePlan.showsMascot)
+            {
                 HStack(spacing: 4) {
                     headerLogo(isSource: showClosedActivity)
 
@@ -412,14 +425,16 @@ struct NotchView: View {
                     if hasPendingPermission {
                         PermissionIndicatorIcon(size: 14, color: TerminalColors.amber)
                             .matchedGeometryEffect(
-                                id: "status-indicator", in: activityNamespace, isSource: showClosedActivity)
+                                id: "status-indicator", in: activityNamespace,
+                                isSource: showClosedActivity)
                     }
                 }
                 .frame(
                     width: viewModel.status == .opened
                         ? nil
                         : closedCapsulePlan.earWidth
-                            + (hasPendingPermission ? NotchClosedMetrics.Capsule.permissionIndicator : 0)
+                            + (hasPendingPermission
+                                ? NotchClosedMetrics.Capsule.permissionIndicator : 0)
                 )
                 .padding(.leading, viewModel.status == .opened ? 8 : 0)
             }
@@ -511,10 +526,12 @@ struct NotchView: View {
     private func countAccessibilityLabel(for label: NotchClosedMetrics.Label) -> String {
         if let subagents = label.subagents, let total = label.totalSessions {
             return l10n.t(
-                "Active sessions %lld of %lld, %lld subagents running", label.activeSessions, total, subagents)
+                "Active sessions %lld of %lld, %lld subagents running", label.activeSessions, total,
+                subagents)
         }
         if let subagents = label.subagents {
-            return l10n.t("Active sessions %lld, %lld subagents running", label.activeSessions, subagents)
+            return l10n.t(
+                "Active sessions %lld, %lld subagents running", label.activeSessions, subagents)
         }
         if let total = label.totalSessions {
             return l10n.t("Active sessions %lld of %lld", label.activeSessions, total)
@@ -666,7 +683,8 @@ struct NotchView: View {
                 .environment(\.appTextScale, textSizeSelector.scale)
             }
         }
-        .frame(width: notchSize.width - 2 * openedCardSideInset)  // Fixed width to prevent text reflow
+        // 固定宽度：避免文本重排带来的抖动。
+        .frame(width: notchSize.width - 2 * openedCardSideInset)
     }
 
     // MARK: - Event Handlers
@@ -690,7 +708,8 @@ struct NotchView: View {
     /// 其余档在档位给的延时后隐藏；非刘海屏始终保留（用户需要一个可点的目标）。
     private func scheduleIdleHide() {
         let visibility = idleVisibility.option
-        guard visibility.hidesWhenIdle, viewModel.status == .closed, viewModel.hasPhysicalNotch else {
+        guard visibility.hidesWhenIdle, viewModel.status == .closed, viewModel.hasPhysicalNotch
+        else {
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + visibility.lingerWindow) {
@@ -820,7 +839,9 @@ struct NotchView: View {
         // Bounce the notch when a session newly enters waitingForInput state
         if !newWaitingIds.isEmpty {
             // Get the sessions that just entered waitingForInput
-            let newlyWaitingSessions = waitingForInputSessions.filter { newWaitingIds.contains($0.stableId) }
+            let newlyWaitingSessions = waitingForInputSessions.filter {
+                newWaitingIds.contains($0.stableId)
+            }
 
             playNotificationSound(for: newlyWaitingSessions)
 

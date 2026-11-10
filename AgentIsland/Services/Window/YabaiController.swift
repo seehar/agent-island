@@ -36,9 +36,12 @@ actor YabaiController {
 
     // MARK: - Private Implementation
 
-    private func focusTmuxInstance(claudePid: Int, tree: [Int: ProcessInfo], windows: [YabaiWindow]) async -> Bool {
+    private func focusTmuxInstance(claudePid: Int, tree: [Int: ProcessInfo], windows: [YabaiWindow])
+        async -> Bool
+    {
         // Find the tmux target for this Claude process
-        guard let target = await TmuxController.shared.findTmuxTarget(forClaudePid: claudePid) else {
+        guard let target = await TmuxController.shared.findTmuxTarget(forClaudePid: claudePid)
+        else {
             return false
         }
 
@@ -46,8 +49,11 @@ actor YabaiController {
         _ = await TmuxController.shared.switchToPane(target: target)
 
         // Find terminal for this specific tmux session
-        if let terminalPid = await findTmuxClientTerminal(forSession: target.session, tree: tree, windows: windows) {
-            return await WindowFocuser.shared.focusTmuxWindow(terminalPid: terminalPid, windows: windows)
+        if let terminalPid = await findTmuxClientTerminal(
+            forSession: target.session, tree: tree, windows: windows)
+        {
+            return await WindowFocuser.shared.focusTmuxWindow(
+                terminalPid: terminalPid, windows: windows)
         }
 
         return false
@@ -62,14 +68,18 @@ actor YabaiController {
 
     // MARK: - Tmux Helpers
 
-    private func findTmuxClientTerminal(forSession session: String, tree: [Int: ProcessInfo], windows: [YabaiWindow]) async -> Int? {
+    private func findTmuxClientTerminal(
+        forSession session: String, tree: [Int: ProcessInfo], windows: [YabaiWindow]
+    ) async -> Int? {
         guard let tmuxPath = await TmuxPathFinder.shared.getTmuxPath() else { return nil }
 
         do {
             // Get clients attached to this specific session
-            let output = try await ProcessExecutor.shared.run(tmuxPath, arguments: [
-                "list-clients", "-t", session, "-F", "#{client_pid}"
-            ])
+            let output = try await ProcessExecutor.shared.run(
+                tmuxPath,
+                arguments: [
+                    "list-clients", "-t", session, "-F", "#{client_pid}",
+                ])
 
             let clientPids = output.components(separatedBy: "\n")
                 .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
@@ -95,17 +105,24 @@ actor YabaiController {
 
     /// Check if command is a terminal (nonisolated helper to avoid MainActor access)
     private nonisolated func isTerminalProcess(_ command: String) -> Bool {
-        let terminalCommands = ["Terminal", "iTerm", "iTerm2", "Alacritty", "kitty", "WezTerm", "wezterm-gui", "Hyper"]
+        let terminalCommands = [
+            "Terminal", "iTerm", "iTerm2", "Alacritty", "kitty", "WezTerm", "wezterm-gui", "Hyper",
+        ]
         return terminalCommands.contains { command.contains($0) }
     }
 
-    private func focusTmuxPane(forWorkingDir workingDir: String, tree: [Int: ProcessInfo], windows: [YabaiWindow]) async -> Bool {
+    private func focusTmuxPane(
+        forWorkingDir workingDir: String, tree: [Int: ProcessInfo], windows: [YabaiWindow]
+    ) async -> Bool {
         guard let tmuxPath = await TmuxPathFinder.shared.getTmuxPath() else { return false }
 
         do {
-            let panesOutput = try await ProcessExecutor.shared.run(tmuxPath, arguments: [
-                "list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index}|#{pane_pid}"
-            ])
+            let panesOutput = try await ProcessExecutor.shared.run(
+                tmuxPath,
+                arguments: [
+                    "list-panes", "-a", "-F",
+                    "#{session_name}:#{window_index}.#{pane_index}|#{pane_pid}",
+                ])
 
             for entry in TmuxPaneList.entries(panesOutput, separator: "|") {
                 guard let panePid = Int(entry.value) else { continue }
@@ -113,20 +130,25 @@ actor YabaiController {
 
                 // Check if this pane has a Claude child with matching cwd
                 for (pid, info) in tree {
-                    let isChild = ProcessTreeBuilder.shared.isDescendant(targetPid: pid, ofAncestor: panePid, tree: tree)
+                    let isChild = ProcessTreeBuilder.shared.isDescendant(
+                        targetPid: pid, ofAncestor: panePid, tree: tree)
                     let isClaude = info.command.lowercased().contains("claude")
 
                     guard isChild, isClaude else { continue }
 
                     guard let cwd = ProcessTreeBuilder.shared.getWorkingDirectory(forPid: pid),
-                          cwd == workingDir else { continue }
+                        cwd == workingDir
+                    else { continue }
 
                     // Found matching pane - switch to it
                     _ = await TmuxController.shared.switchToPane(target: target)
 
                     // Focus the terminal window for this session
-                    if let terminalPid = await findTmuxClientTerminal(forSession: target.session, tree: tree, windows: windows) {
-                        return await WindowFocuser.shared.focusTmuxWindow(terminalPid: terminalPid, windows: windows)
+                    if let terminalPid = await findTmuxClientTerminal(
+                        forSession: target.session, tree: tree, windows: windows)
+                    {
+                        return await WindowFocuser.shared.focusTmuxWindow(
+                            terminalPid: terminalPid, windows: windows)
                     }
                     return true
                 }

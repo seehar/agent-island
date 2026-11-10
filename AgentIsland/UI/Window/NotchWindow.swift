@@ -157,7 +157,7 @@ class NotchPanel: NSPanel {
             .fullScreenAuxiliary,
             .stationary,
             .canJoinAllSpaces,
-            .ignoresCycle
+            .ignoresCycle,
         ]
 
         // Above the menu bar

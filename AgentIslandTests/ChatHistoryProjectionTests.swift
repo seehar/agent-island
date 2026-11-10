@@ -23,7 +23,8 @@ struct ChatHistoryProjectionTests {
     {
         let nested = subagentToolIDs.map { subagentID in
             SubagentToolCall(
-                id: subagentID, name: "Read", input: [:], status: .success, timestamp: Date(timeIntervalSince1970: 0))
+                id: subagentID, name: "Read", input: [:], status: .success,
+                timestamp: Date(timeIntervalSince1970: 0))
         }
         return item(
             id,
@@ -50,7 +51,9 @@ struct ChatHistoryProjectionTests {
 
     @Test("没有子 Agent 容器时原样返回")
     func keepsEverythingWithoutContainers() {
-        let chatItems = [item("m1", .user("a")), toolItem("t1", name: "Bash"), item("m2", .assistant("b"))]
+        let chatItems = [
+            item("m1", .user("a")), toolItem("t1", name: "Bash"), item("m2", .assistant("b")),
+        ]
 
         #expect(ChatHistoryProjection.items(from: chatItems).map(\.id) == ["m1", "t1", "m2"])
         #expect(ChatHistoryProjection.items(from: []).isEmpty)

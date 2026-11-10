@@ -73,7 +73,7 @@ class ClaudeSessionMonitor: ObservableObject {
                 // 并带上同一个 `tool_use_id`）。两种终态都按 tool_use_id 收敛——只认
                 // 成功那条会让失败分支的 pending 一直挂到 TTL 到期。Claude 本来也会发
                 // `PostToolUseFailure`，因此这里的既有语义不变。
-                if (event.event == "PostToolUse" || event.event == "PostToolUseFailure"),
+                if event.event == "PostToolUse" || event.event == "PostToolUseFailure",
                     let toolUseId = event.toolUseId
                 {
                     HookSocketServer.shared.cancelPendingPermission(
@@ -104,7 +104,8 @@ class ClaudeSessionMonitor: ObservableObject {
     func approvePermission(key: SessionKey) {
         Task {
             guard let session = await SessionStore.shared.session(for: key),
-                  let permission = session.activePermission else {
+                let permission = session.activePermission
+            else {
                 return
             }
 
@@ -126,7 +127,8 @@ class ClaudeSessionMonitor: ObservableObject {
     func denyPermission(key: SessionKey, reason: String?) {
         Task {
             guard let session = await SessionStore.shared.session(for: key),
-                  let permission = session.activePermission else {
+                let permission = session.activePermission
+            else {
                 return
             }
 
@@ -167,7 +169,8 @@ class ClaudeSessionMonitor: ObservableObject {
     func answerPermission(key: SessionKey, answers: [String: [String]]) {
         Task {
             guard let session = await SessionStore.shared.session(for: key),
-                  let permission = session.activePermission else {
+                let permission = session.activePermission
+            else {
                 return
             }
 

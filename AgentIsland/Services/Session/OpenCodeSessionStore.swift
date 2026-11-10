@@ -415,7 +415,8 @@ nonisolated enum OpenCodeSessionStore {
         var grouped: [String: [OpenCodePartRecord]] = [:]
         var offset = 0
         while offset < messageIds.count {
-            let chunk = Array(messageIds[offset..<min(offset + parameterChunkSize, messageIds.count)])
+            let chunk = Array(
+                messageIds[offset..<min(offset + parameterChunkSize, messageIds.count)])
             offset += parameterChunkSize
 
             let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ",")
@@ -432,7 +433,10 @@ nonisolated enum OpenCodeSessionStore {
                     let created = sqlite3_column_int64(statement, 1)
                     let type = text(statement, 2) ?? ""
                     let json = text(statement, 3).flatMap(Self.jsonObject(from:)) ?? [:]
-                    return (id, created, Self.partsV2(from: json, type: type, messageId: id, created: created))
+                    return (
+                        id, created,
+                        Self.partsV2(from: json, type: type, messageId: id, created: created)
+                    )
                 }
             }
             guard let records else { return nil }
@@ -500,7 +504,8 @@ nonisolated enum OpenCodeSessionStore {
         var grouped: [String: [OpenCodePartRecord]] = [:]
         var offset = 0
         while offset < messageIds.count {
-            let chunk = Array(messageIds[offset..<min(offset + parameterChunkSize, messageIds.count)])
+            let chunk = Array(
+                messageIds[offset..<min(offset + parameterChunkSize, messageIds.count)])
             offset += parameterChunkSize
 
             // 占位符个数由本文件常量决定；id 值一律走绑定参数。
@@ -619,7 +624,8 @@ nonisolated enum OpenCodeSessionStore {
                     continue
                 }
                 // 旧版分片没有自身时间戳时，用文件修改时间代替（写入顺序即创建顺序）。
-                let fallback = TranscriptFileReader.modificationDate(of: file)
+                let fallback =
+                    TranscriptFileReader.modificationDate(of: file)
                     .map { milliseconds(of: $0) } ?? 0
                 records.append(
                     OpenCodePartRecord(

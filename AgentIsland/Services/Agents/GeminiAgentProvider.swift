@@ -165,7 +165,9 @@ nonisolated struct GeminiAgentProvider: AgentProvider {
 
     private func sessionFiles(in chatsDirectory: URL) -> [URL] {
         let fm = FileManager.default
-        guard let entries = try? fm.contentsOfDirectory(at: chatsDirectory, includingPropertiesForKeys: nil)
+        guard
+            let entries = try? fm.contentsOfDirectory(
+                at: chatsDirectory, includingPropertiesForKeys: nil)
         else { return [] }
         return entries.filter { isTranscriptFile($0.path) }
     }
@@ -183,7 +185,8 @@ nonisolated struct GeminiAgentProvider: AgentProvider {
     }
 
     private func projectRootMarker(inDirectory directory: String) -> String? {
-        let marker = recordsRoot.appendingPathComponent(directory).appendingPathComponent(".project_root")
+        let marker = recordsRoot.appendingPathComponent(directory).appendingPathComponent(
+            ".project_root")
         guard let text = try? String(contentsOf: marker, encoding: .utf8) else { return nil }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed

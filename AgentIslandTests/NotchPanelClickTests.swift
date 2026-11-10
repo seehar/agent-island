@@ -242,7 +242,8 @@ struct NotchPanelClickTests {
         for y in 0..<height {
             for x in 0..<width {
                 let offset = (y * width + x) * 4
-                guard !(pixels[offset] > 240 && pixels[offset + 1] > 240 && pixels[offset + 2] > 240)
+                guard
+                    !(pixels[offset] > 240 && pixels[offset + 1] > 240 && pixels[offset + 2] > 240)
                 else { continue }
                 if !declared.contains(CGPoint(x: x, y: y)) { outsideInk += 1 }
                 minX = min(minX, x)
@@ -256,7 +257,8 @@ struct NotchPanelClickTests {
             CGRect(
                 x: CGFloat(minX), y: CGFloat(minY), width: CGFloat(maxX - minX + 1),
                 height: CGFloat(maxY - minY + 1)),
-            outsideInk)
+            outsideInk
+        )
     }
 }
 

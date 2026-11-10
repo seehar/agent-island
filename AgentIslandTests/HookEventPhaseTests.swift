@@ -34,7 +34,9 @@ struct HookEventPhaseTests {
 
     @Test("压缩事件优先于审批与状态：一律映射为压缩中")
     func preCompactAlwaysWins() {
-        #expect(hook("PreCompact", status: "waiting_for_input").determinePhase() == SessionPhase.compacting)
+        #expect(
+            hook("PreCompact", status: "waiting_for_input").determinePhase()
+                == SessionPhase.compacting)
         #expect(
             hook("PreCompact", status: "waiting_for_approval", tool: "Bash", toolUseId: "t1")
                 .determinePhase() == SessionPhase.compacting)
@@ -42,7 +44,8 @@ struct HookEventPhaseTests {
 
     @Test("权限请求映射为待审批并带上工具上下文")
     func permissionRequestMapsToApproval() {
-        let event = hook("PermissionRequest", status: "waiting_for_approval", tool: "Bash", toolUseId: "t1")
+        let event = hook(
+            "PermissionRequest", status: "waiting_for_approval", tool: "Bash", toolUseId: "t1")
         #expect(event.expectsResponse)
 
         let phase = event.determinePhase()
@@ -65,10 +68,12 @@ struct HookEventPhaseTests {
     @Test("来自 pi/omp/opencode 的审批事件用占位工具名兜底")
     func toolApprovalUsesPlaceholderName() {
         #expect(
-            approvalToolName(hook("ToolApproval", status: "waiting_for_approval").determinePhase()) == "Tool")
+            approvalToolName(hook("ToolApproval", status: "waiting_for_approval").determinePhase())
+                == "Tool")
         #expect(
             approvalToolName(
-                hook("ToolApproval", status: "waiting_for_approval", tool: "bash").determinePhase()) == "bash")
+                hook("ToolApproval", status: "waiting_for_approval", tool: "bash").determinePhase())
+                == "bash")
     }
 
     @Test("idle_prompt 通知映射为空闲，且优先于 status")
@@ -90,7 +95,9 @@ struct HookEventPhaseTests {
 
     @Test("等待输入状态映射为等待输入")
     func waitingForInputStatusMaps() {
-        #expect(hook("Stop", status: "waiting_for_input").determinePhase() == SessionPhase.waitingForInput)
+        #expect(
+            hook("Stop", status: "waiting_for_input").determinePhase()
+                == SessionPhase.waitingForInput)
     }
 
     @Test("未知事件与未知状态映射为空闲且不崩")
@@ -101,7 +108,8 @@ struct HookEventPhaseTests {
 
     @Test("最小事件能解码，缺省字段按 Claude 处理")
     func minimalEventDecodesAsClaude() throws {
-        let json = #"{"session_id":"s1","cwd":"/tmp/x","event":"Stop","status":"waiting_for_input"}"#
+        let json =
+            #"{"session_id":"s1","cwd":"/tmp/x","event":"Stop","status":"waiting_for_input"}"#
         let event = try JSONDecoder().decode(HookEvent.self, from: Data(json.utf8))
 
         #expect(event.sessionId == "s1")
@@ -118,7 +126,8 @@ struct HookEventPhaseTests {
     func unknownAgentFallsBackToClaude() {
         let event = HookEvent(
             sessionId: "s2", cwd: "/tmp/x", event: "Stop", status: "waiting_for_input", pid: nil,
-            tty: nil, tool: nil, toolInput: nil, toolUseId: nil, notificationType: nil, message: nil,
+            tty: nil, tool: nil, toolInput: nil, toolUseId: nil, notificationType: nil,
+            message: nil,
             agent: "some-future-agent", sessionFile: nil)
         #expect(event.agentKind == AgentKind.claudeCode)
     }
@@ -126,7 +135,8 @@ struct HookEventPhaseTests {
     @Test("只有会改变记录的事件才触发记录同步")
     func shouldSyncFileWhitelist() {
         for name in [
-            "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "ToolApproval", "Stop",
+            "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "ToolApproval",
+            "Stop",
         ] {
             #expect(hook(name, status: "processing").shouldSyncFile, "\(name) 应触发记录同步")
         }

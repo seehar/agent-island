@@ -10,7 +10,8 @@ import os.log
 
 nonisolated struct HookInstaller {
     /// 失败原因走日志而不是界面：界面上「是否已装」由集成状态表达，日志里才写得下原因。
-    private static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "Integration")
+    private static let logger = Logger(
+        subsystem: "com.celestial.AgentIsland", category: "Integration")
 
     /// hook 脚本文件名。**只有一处事实源**（`AgentHookScript.fileName`）：脚本落点、
     /// 各工具配置里引用的路径、以及卸载时的判据都从那里取，避免两处常量各自漂移。
@@ -42,7 +43,8 @@ nonisolated struct HookInstaller {
                 withIntermediateDirectories: true
             )
         } catch {
-            logger.error("创建 hooks 目录失败，跳过 Claude 集成安装：\(error.localizedDescription, privacy: .public)")
+            logger.error(
+                "创建 hooks 目录失败，跳过 Claude 集成安装：\(error.localizedDescription, privacy: .public)")
             return
         }
 
@@ -71,7 +73,8 @@ nonisolated struct HookInstaller {
                 ofItemAtPath: pythonScript.path
             )
         } catch {
-            logger.error("写入 hook 脚本失败，本次不改 settings.json：\(error.localizedDescription, privacy: .public)")
+            logger.error(
+                "写入 hook 脚本失败，本次不改 settings.json：\(error.localizedDescription, privacy: .public)")
             return
         }
 
@@ -82,7 +85,9 @@ nonisolated struct HookInstaller {
     ///
     /// - Parameter includingCurrentName: 迁移期用：旧落点上还留着**当前文件名**的副本。
     ///   只允许对 Claude 自己的 hooks 目录传 true——共享落点上那份是正在用的脚本。
-    private static func removeLegacyHookScripts(in hooksDir: URL, includingCurrentName: Bool = false) {
+    private static func removeLegacyHookScripts(
+        in hooksDir: URL, includingCurrentName: Bool = false
+    ) {
         var names = Self.legacyHookScriptNames
         if includingCurrentName { names.append(Self.hookScriptName) }
         for legacy in names {
@@ -126,7 +131,9 @@ nonisolated struct HookInstaller {
             fileExists: fileExists
         )
         if let refusal = loaded.refusalReason {
-            logger.error("settings.json 不可安全写入（\(refusal, privacy: .public)），本次跳过 hook 安装：\(settingsURL.path, privacy: .public)")
+            logger.error(
+                "settings.json 不可安全写入（\(refusal, privacy: .public)），本次跳过 hook 安装：\(settingsURL.path, privacy: .public)"
+            )
             return
         }
 
@@ -134,7 +141,8 @@ nonisolated struct HookInstaller {
             from: loaded.settings,
             isOwnCommand: isOwnHookCommand
         )
-        let merged = HookSettingsMerger.appending(hookEvents: hookEvents(python: python), to: stripped)
+        let merged = HookSettingsMerger.appending(
+            hookEvents: hookEvents(python: python), to: stripped)
 
         guard
             let data = try? JSONSerialization.data(
@@ -250,13 +258,13 @@ nonisolated struct HookInstaller {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
         let range = NSRange(text.startIndex..., in: text)
         guard let match = regex.firstMatch(in: text, range: range),
-              match.numberOfRanges == 4,
-              let majorRange = Range(match.range(at: 1), in: text),
-              let minorRange = Range(match.range(at: 2), in: text),
-              let patchRange = Range(match.range(at: 3), in: text),
-              let major = Int(text[majorRange]),
-              let minor = Int(text[minorRange]),
-              let patch = Int(text[patchRange])
+            match.numberOfRanges == 4,
+            let majorRange = Range(match.range(at: 1), in: text),
+            let minorRange = Range(match.range(at: 2), in: text),
+            let patchRange = Range(match.range(at: 3), in: text),
+            let major = Int(text[majorRange]),
+            let minor = Int(text[minorRange]),
+            let patch = Int(text[patchRange])
         else { return nil }
         return ClaudeCodeVersion(major: major, minor: minor, patch: patch)
     }
@@ -317,8 +325,9 @@ nonisolated struct HookInstaller {
         let settings = ClaudePaths.settingsFile
 
         guard let data = try? Data(contentsOf: settings),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let hooks = json["hooks"] as? [String: Any] else {
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let hooks = json["hooks"] as? [String: Any]
+        else {
             return false
         }
 
@@ -328,7 +337,8 @@ nonisolated struct HookInstaller {
                     if let entryHooks = entry["hooks"] as? [[String: Any]] {
                         for hook in entryHooks {
                             if let cmd = hook["command"] as? String,
-                               Self.isOwnHookCommand(cmd) {
+                                Self.isOwnHookCommand(cmd)
+                            {
                                 return true
                             }
                         }

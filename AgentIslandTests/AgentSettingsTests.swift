@@ -16,7 +16,8 @@ import Testing
 struct AgentEnablementTests {
     @Test("全新安装：一个都不启用（默认关闭）")
     func freshInstallEnablesNothing() {
-        #expect(AppSettings.enablementAfterMigration(legacyDisabled: [], isFreshInstall: true).isEmpty)
+        #expect(
+            AppSettings.enablementAfterMigration(legacyDisabled: [], isFreshInstall: true).isEmpty)
         // 即使旧域里带着一堆禁用项，全新安装也不该反过来启用任何东西。
         #expect(
             AppSettings.enablementAfterMigration(
@@ -26,7 +27,8 @@ struct AgentEnablementTests {
 
     @Test("升级：保留改口径之前就默认启用、且用户没显式关掉的那些")
     func upgradeKeepsLegacyDefaultsOnly() {
-        let upgraded = AppSettings.enablementAfterMigration(legacyDisabled: [], isFreshInstall: false)
+        let upgraded = AppSettings.enablementAfterMigration(
+            legacyDisabled: [], isFreshInstall: false)
         #expect(upgraded == Set(AgentKind.defaultEnabledBeforeOptIn.map(\.rawValue)))
         // 本特性新接入的 Agent 不在其中：它们是「旧口径默认全开」的副作用，不是用户的选择。
         for kind in [AgentKind.codex, .gemini, .cursor, .kimi, .cline, .trae, .deepSeekHarness] {

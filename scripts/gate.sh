@@ -10,6 +10,8 @@
 #   步骤 1  check-localization.py --strict：0 错误、0 警告
 #   步骤 1b 资源目录卫生：AgentIsland/Resources 下不得有 __pycache__ / *.pyc / .DS_Store /
 #           其它生成物或子目录（同步资源组会把它们原样拷进 app 包）
+#   步骤 1c 格式守卫：swift-format lint 0 条（配置在仓库根的 .swift-format：
+#           4 空格缩进、100 列、保留既有换行）
 #   步骤 2  编译出现 ** BUILD SUCCEEDED **，且 ": error:" / ": warning:" 诊断数为 0
 #   步骤 3  --with-tests 时追加测试（Debug，独立派生目录，build-for-testing +
 #           test-without-building，只跑 AgentIslandTests）：** TEST SUCCEEDED **
@@ -96,6 +98,30 @@ if [ -n "$STRAY" ]; then
     exit 1
 fi
 echo "资源目录干净"
+echo ""
+
+# ============================================
+# 步骤 1c: 格式守卫（swift-format lint）
+# ============================================
+echo "=== 步骤 1c: 格式守卫（swift-format lint） ==="
+if xcrun --find swift-format >/dev/null 2>&1; then
+    FORMAT_LOG="$GATE_DIR/format.log"
+    set +e
+    xcrun swift-format lint --strict --recursive --configuration "$PROJECT_DIR/.swift-format" \
+        "$PROJECT_DIR/AgentIsland" "$PROJECT_DIR/AgentIslandTests" >"$FORMAT_LOG" 2>&1
+    FORMAT_EXIT=$?
+    set -e
+    if [ "$FORMAT_EXIT" -ne 0 ]; then
+        echo ""
+        echo "ERROR: 门禁未通过 —— 有文件不符合 .swift-format（完整输出：$FORMAT_LOG）"
+        head -20 "$FORMAT_LOG" | sed 's/^/  /'
+        echo "  处理：xcrun swift-format format --in-place --recursive AgentIsland AgentIslandTests"
+        exit 1
+    fi
+    echo "格式干净（0 条 lint 提示）"
+else
+    echo "跳过：这台机器没有 swift-format（需要 Xcode 工具链）"
+fi
 echo ""
 
 # ============================================

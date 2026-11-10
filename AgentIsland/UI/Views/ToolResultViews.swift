@@ -135,7 +135,8 @@ struct EditResultContent: View {
         VStack(alignment: .leading, spacing: 6) {
             // Always use SimpleDiffView for consistent styling (no @@ headers)
             if !oldString.isEmpty || !newString.isEmpty {
-                SimpleDiffView(oldString: oldString, newString: newString, filename: result.filename)
+                SimpleDiffView(
+                    oldString: oldString, newString: newString, filename: result.filename)
             }
 
             if result.userModified {
@@ -219,7 +220,9 @@ struct BashResultContent: View {
             }
 
             // Empty state
-            if !result.hasOutput && result.backgroundTaskId == nil && result.returnCodeInterpretation == nil {
+            if !result.hasOutput && result.backgroundTaskId == nil
+                && result.returnCodeInterpretation == nil
+            {
                 Text(l10n.t("(No content)"))
                     .appFont(11, design: .monospaced)
                     .foregroundColor(AppPalette.subtleText)
@@ -308,7 +311,10 @@ struct TodoWriteResultContent: View {
 
                     Text(todo.content)
                         .appFont(11)
-                        .foregroundColor(todo.status == "completed" ? AppPalette.tertiaryText : AppPalette.primaryText)
+                        .foregroundColor(
+                            todo.status == "completed"
+                                ? AppPalette.tertiaryText : AppPalette.primaryText
+                        )
                         .strikethrough(todo.status == "completed")
                         .lineLimit(2)
                 }
@@ -540,9 +546,12 @@ struct KillShellResultContent: View {
                 .appFont(11)
                 .foregroundColor(AppPalette.danger)
 
-            Text(result.message.isEmpty ? l10n.t("Shell %@ terminated", result.shellId) : result.message)
-                .appFont(11, design: .monospaced)
-                .foregroundColor(AppPalette.secondaryText)
+            Text(
+                result.message.isEmpty
+                    ? l10n.t("Shell %@ terminated", result.shellId) : result.message
+            )
+            .appFont(11, design: .monospaced)
+            .foregroundColor(AppPalette.secondaryText)
         }
     }
 }
@@ -585,8 +594,10 @@ struct MCPResultContent: View {
             HStack(spacing: 4) {
                 Image(systemName: "puzzlepiece")
                     .appFont(10)
-                Text("\(MCPToolFormatter.toTitleCase(result.serverName)) - \(MCPToolFormatter.toTitleCase(result.toolName))")
-                    .appFont(10, design: .monospaced)
+                Text(
+                    "\(MCPToolFormatter.toTitleCase(result.serverName)) - \(MCPToolFormatter.toTitleCase(result.toolName))"
+                )
+                .appFont(10, design: .monospaced)
             }
             .foregroundColor(.purple.opacity(0.7))
 
@@ -798,11 +809,13 @@ struct FileCodeView: View {
     }
 
     private var visibleLineCount: Int {
-        ToolOutputWindow.visibleLineCount(total: lines.count, limit: maxLines, isExpanded: isExpanded)
+        ToolOutputWindow.visibleLineCount(
+            total: lines.count, limit: maxLines, isExpanded: isExpanded)
     }
 
     private var hiddenLineCount: Int {
-        ToolOutputWindow.hiddenLineCount(total: lines.count, limit: maxLines, isExpanded: isExpanded)
+        ToolOutputWindow.hiddenLineCount(
+            total: lines.count, limit: maxLines, isExpanded: isExpanded)
     }
 
     private var isTruncated: Bool {
@@ -887,7 +900,8 @@ struct FileCodeView: View {
                 .padding(.leading, 46)
                 .padding(.vertical, 3)
                 .background(AppPalette.cardFill)
-                .clipShape(RoundedCorner(radius: AppRadius.control, corners: [.bottomLeft, .bottomRight]))
+                .clipShape(
+                    RoundedCorner(radius: AppRadius.control, corners: [.bottomLeft, .bottomRight]))
             }
         }
     }
@@ -930,7 +944,9 @@ struct FileCodeView: View {
             .padding(.trailing, 4)
             .padding(.vertical, 2)
             .background(AppPalette.cardFill)
-            .clipShape(RoundedCorner(radius: AppRadius.control, corners: isLast ? [.bottomLeft, .bottomRight] : []))
+            .clipShape(
+                RoundedCorner(
+                    radius: AppRadius.control, corners: isLast ? [.bottomLeft, .bottomRight] : []))
         }
     }
 }
@@ -947,11 +963,13 @@ struct CodePreview: View {
     }
 
     private var visibleLineCount: Int {
-        ToolOutputWindow.visibleLineCount(total: lines.count, limit: maxLines, isExpanded: isExpanded)
+        ToolOutputWindow.visibleLineCount(
+            total: lines.count, limit: maxLines, isExpanded: isExpanded)
     }
 
     private var hiddenLineCount: Int {
-        ToolOutputWindow.hiddenLineCount(total: lines.count, limit: maxLines, isExpanded: isExpanded)
+        ToolOutputWindow.hiddenLineCount(
+            total: lines.count, limit: maxLines, isExpanded: isExpanded)
     }
 
     private var isTruncated: Bool {
@@ -1048,9 +1066,11 @@ struct DiffView: View {
             ForEach(Array(patches.prefix(3).enumerated()), id: \.offset) { _, patch in
                 VStack(alignment: .leading, spacing: 1) {
                     // Hunk header
-                    Text("@@ -\(patch.oldStart),\(patch.oldLines) +\(patch.newStart),\(patch.newLines) @@")
-                        .appFont(10, design: .monospaced)
-                        .foregroundColor(.cyan.opacity(0.7))
+                    Text(
+                        "@@ -\(patch.oldStart),\(patch.oldLines) +\(patch.newStart),\(patch.newLines) @@"
+                    )
+                    .appFont(10, design: .monospaced)
+                    .foregroundColor(.cyan.opacity(0.7))
 
                     // Lines
                     ForEach(Array(patch.lines.prefix(10).enumerated()), id: \.offset) { _, line in
@@ -1145,11 +1165,13 @@ struct SimpleDiffView: View {
 
             if oldIdx < oldLines.count && (lcsLine == nil || oldLines[oldIdx] != lcsLine) {
                 // Line in old but not in LCS - removed
-                result.append(DiffLine(text: oldLines[oldIdx], type: .removed, lineNumber: oldIdx + 1))
+                result.append(
+                    DiffLine(text: oldLines[oldIdx], type: .removed, lineNumber: oldIdx + 1))
                 oldIdx += 1
             } else if newIdx < newLines.count && (lcsLine == nil || newLines[newIdx] != lcsLine) {
                 // Line in new but not in LCS - added
-                result.append(DiffLine(text: newLines[newIdx], type: .added, lineNumber: newIdx + 1))
+                result.append(
+                    DiffLine(text: newLines[newIdx], type: .added, lineNumber: newIdx + 1))
                 newIdx += 1
             } else {
                 // Matching line in LCS - skip (context)
@@ -1182,7 +1204,8 @@ struct SimpleDiffView: View {
 
         // Backtrack to find LCS
         var lcs: [String] = []
-        var i = m, j = n
+        var i = m
+        var j = n
         while i > 0 && j > 0 {
             if a[i - 1] == b[j - 1] {
                 lcs.append(a[i - 1])
@@ -1228,7 +1251,10 @@ struct SimpleDiffView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .background(AppPalette.cardFill)
-                .clipShape(RoundedCorner(radius: AppRadius.control, corners: [.topLeft, .topRight] as RoundedCorner.RectCorner))
+                .clipShape(
+                    RoundedCorner(
+                        radius: AppRadius.control,
+                        corners: [.topLeft, .topRight] as RoundedCorner.RectCorner))
             }
 
             // Top overflow indicator
@@ -1240,7 +1266,12 @@ struct SimpleDiffView: View {
                     .padding(.leading, 46)
                     .padding(.vertical, 3)
                     .background(AppPalette.cardFill)
-                    .clipShape(RoundedCorner(radius: AppRadius.control, corners: filename == nil ? [.topLeft, .topRight] as RoundedCorner.RectCorner : [] as RoundedCorner.RectCorner))
+                    .clipShape(
+                        RoundedCorner(
+                            radius: AppRadius.control,
+                            corners: filename == nil
+                                ? [.topLeft, .topRight] as RoundedCorner.RectCorner
+                                : [] as RoundedCorner.RectCorner))
             }
 
             // Diff lines
@@ -1265,7 +1296,10 @@ struct SimpleDiffView: View {
                     .padding(.leading, 46)
                     .padding(.vertical, 3)
                     .background(AppPalette.cardFill)
-                    .clipShape(RoundedCorner(radius: AppRadius.control, corners: [.bottomLeft, .bottomRight] as RoundedCorner.RectCorner))
+                    .clipShape(
+                        RoundedCorner(
+                            radius: AppRadius.control,
+                            corners: [.bottomLeft, .bottomRight] as RoundedCorner.RectCorner))
             }
         }
     }
@@ -1349,23 +1383,27 @@ struct RoundedCorner: Shape {
         path.move(to: CGPoint(x: rect.minX + tl, y: rect.minY))
         path.addLine(to: CGPoint(x: rect.maxX - tr, y: rect.minY))
         if tr > 0 {
-            path.addArc(center: CGPoint(x: rect.maxX - tr, y: rect.minY + tr),
-                       radius: tr, startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false)
+            path.addArc(
+                center: CGPoint(x: rect.maxX - tr, y: rect.minY + tr),
+                radius: tr, startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false)
         }
         path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - br))
         if br > 0 {
-            path.addArc(center: CGPoint(x: rect.maxX - br, y: rect.maxY - br),
-                       radius: br, startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
+            path.addArc(
+                center: CGPoint(x: rect.maxX - br, y: rect.maxY - br),
+                radius: br, startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
         }
         path.addLine(to: CGPoint(x: rect.minX + bl, y: rect.maxY))
         if bl > 0 {
-            path.addArc(center: CGPoint(x: rect.minX + bl, y: rect.maxY - bl),
-                       radius: bl, startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
+            path.addArc(
+                center: CGPoint(x: rect.minX + bl, y: rect.maxY - bl),
+                radius: bl, startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
         }
         path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + tl))
         if tl > 0 {
-            path.addArc(center: CGPoint(x: rect.minX + tl, y: rect.minY + tl),
-                       radius: tl, startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+            path.addArc(
+                center: CGPoint(x: rect.minX + tl, y: rect.minY + tl),
+                radius: tl, startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
         }
         path.closeSubpath()
 

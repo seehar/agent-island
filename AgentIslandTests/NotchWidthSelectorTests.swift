@@ -68,12 +68,14 @@ struct NotchWidthSelectorTests {
 
     @Test("有物理刘海时下限抬到挖孔宽度，没有刘海时就是微调范围下限")
     func lowerBoundFollowsNotch() {
-        #expect(NotchWidthSelector.lowerBound(notchHeight: 0, notchWidth: 224)
-            == NotchWidthSelector.minimumWidth)
+        #expect(
+            NotchWidthSelector.lowerBound(notchHeight: 0, notchWidth: 224)
+                == NotchWidthSelector.minimumWidth)
         #expect(NotchWidthSelector.lowerBound(notchHeight: 38, notchWidth: 200) == 200)
         // 挖孔比微调范围下限还窄时仍取下限，避免出现比范围更小的值
-        #expect(NotchWidthSelector.lowerBound(notchHeight: 38, notchWidth: 100)
-            == NotchWidthSelector.minimumWidth)
+        #expect(
+            NotchWidthSelector.lowerBound(notchHeight: 38, notchWidth: 100)
+                == NotchWidthSelector.minimumWidth)
     }
 
     @Test("夹紧：落进微调范围，且不窄于刘海宽度")
@@ -142,7 +144,6 @@ struct NotchWidthSelectorTests {
         #expect(floor == 200)
         #expect(NotchWidthSelector.clamped(120, lowerBound: floor) == 200)
     }
-
 
     @Test("标称宽度只加长胶囊中间那段：胶囊宽度随它 1:1 增长，两侧耳位完全不参与")
     func nominalWidthOnlyLengthensTheMiddleSection() {

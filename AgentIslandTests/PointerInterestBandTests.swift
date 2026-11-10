@@ -16,55 +16,55 @@ import Testing
 
 @Suite("指针兴趣区边界事件")
 struct PointerInterestBandTests {
-  private let band = CGRect(x: 0, y: 0, width: 100, height: 20)
+    private let band = CGRect(x: 0, y: 0, width: 100, height: 20)
 
-  @Test("未接线（nil）时保持旧语义：每次都发")
-  func unboundBandPublishesEveryEvent() {
-    let outcome = EventMonitors.shouldPublish(
-      interestRect: nil, wasInside: false, at: CGPoint(x: 999, y: 999))
-    #expect(outcome.publish)
-  }
+    @Test("未接线（nil）时保持旧语义：每次都发")
+    func unboundBandPublishesEveryEvent() {
+        let outcome = EventMonitors.shouldPublish(
+            interestRect: nil, wasInside: false, at: CGPoint(x: 999, y: 999))
+        #expect(outcome.publish)
+    }
 
-  @Test("跨进发一次")
-  func enteringPublishes() {
-    let outcome = EventMonitors.shouldPublish(
-      interestRect: band, wasInside: false, at: CGPoint(x: 50, y: 10))
-    #expect(outcome.publish)
-    #expect(outcome.isInside)
-  }
+    @Test("跨进发一次")
+    func enteringPublishes() {
+        let outcome = EventMonitors.shouldPublish(
+            interestRect: band, wasInside: false, at: CGPoint(x: 50, y: 10))
+        #expect(outcome.publish)
+        #expect(outcome.isInside)
+    }
 
-  @Test("区内继续移动不发")
-  func movingInsideStaysSilent() {
-    let outcome = EventMonitors.shouldPublish(
-      interestRect: band, wasInside: true, at: CGPoint(x: 80, y: 18))
-    #expect(outcome.publish == false)
-    #expect(outcome.isInside)
-  }
+    @Test("区内继续移动不发")
+    func movingInsideStaysSilent() {
+        let outcome = EventMonitors.shouldPublish(
+            interestRect: band, wasInside: true, at: CGPoint(x: 80, y: 18))
+        #expect(outcome.publish == false)
+        #expect(outcome.isInside)
+    }
 
-  @Test("跨出发一次")
-  func leavingPublishes() {
-    let outcome = EventMonitors.shouldPublish(
-      interestRect: band, wasInside: true, at: CGPoint(x: 400, y: 10))
-    #expect(outcome.publish)
-    #expect(outcome.isInside == false)
-  }
+    @Test("跨出发一次")
+    func leavingPublishes() {
+        let outcome = EventMonitors.shouldPublish(
+            interestRect: band, wasInside: true, at: CGPoint(x: 400, y: 10))
+        #expect(outcome.publish)
+        #expect(outcome.isInside == false)
+    }
 
-  @Test("区外继续移动不发")
-  func movingOutsideStaysSilent() {
-    let outcome = EventMonitors.shouldPublish(
-      interestRect: band, wasInside: false, at: CGPoint(x: 400, y: 10))
-    #expect(outcome.publish == false)
-    #expect(outcome.isInside == false)
-  }
+    @Test("区外继续移动不发")
+    func movingOutsideStaysSilent() {
+        let outcome = EventMonitors.shouldPublish(
+            interestRect: band, wasInside: false, at: CGPoint(x: 400, y: 10))
+        #expect(outcome.publish == false)
+        #expect(outcome.isInside == false)
+    }
 
-  @Test("兴趣区换了一块（面板收起 / 展开、胶囊变宽）后按新矩形的在否重判")
-  func rebasedBandReEvaluates() {
-    // 指针没动、还停在旧矩形里；换成新矩形后它已经在外面 ⇒ 必须补发一次，否则
-    // 「面板刚收起、指针明明已不在卡片里」这一段会一直被认为还在区内。
-    let moved = CGRect(x: 500, y: 0, width: 100, height: 20)
-    let outcome = EventMonitors.shouldPublish(
-      interestRect: moved, wasInside: true, at: CGPoint(x: 50, y: 10))
-    #expect(outcome.publish)
-    #expect(outcome.isInside == false)
-  }
+    @Test("兴趣区换了一块（面板收起 / 展开、胶囊变宽）后按新矩形的在否重判")
+    func rebasedBandReEvaluates() {
+        // 指针没动、还停在旧矩形里；换成新矩形后它已经在外面 ⇒ 必须补发一次，否则
+        // 「面板刚收起、指针明明已不在卡片里」这一段会一直被认为还在区内。
+        let moved = CGRect(x: 500, y: 0, width: 100, height: 20)
+        let outcome = EventMonitors.shouldPublish(
+            interestRect: moved, wasInside: true, at: CGPoint(x: 50, y: 10))
+        #expect(outcome.publish)
+        #expect(outcome.isInside == false)
+    }
 }

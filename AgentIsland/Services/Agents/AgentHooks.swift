@@ -133,7 +133,7 @@ nonisolated extension AgentKind {
                     // Gemini 的 timeout 单位是毫秒；BeforeTool 是阻塞审批（工具执行前）。
                     AgentHookEvent("SessionStart", 10000),
                     AgentHookEvent("SessionEnd", 10000),
-                    AgentHookEvent("BeforeTool", 86400000, blocking: true),
+                    AgentHookEvent("BeforeTool", 86_400_000, blocking: true),
                     AgentHookEvent("AfterTool", 10000),
                     AgentHookEvent("BeforeAgent", 10000),
                     AgentHookEvent("AfterAgent", 10000),

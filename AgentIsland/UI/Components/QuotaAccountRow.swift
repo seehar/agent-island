@@ -128,14 +128,16 @@ struct QuotaAccountRow: View {
             Image(systemName: "trash")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(
-                    isRemoveHovered ? AppPalette.hoverForeground : AppPalette.secondaryText)
+                    isRemoveHovered ? AppPalette.hoverForeground : AppPalette.secondaryText
+                )
                 .frame(width: 24, height: 22)
                 .background(
                     RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous)
                         .fill(isRemoveHovered ? AppPalette.rowHover : Color.clear)
                 )
                 .frame(
-                    minWidth: Self.minimumHitTarget, minHeight: Self.minimumHitTarget)
+                    minWidth: Self.minimumHitTarget, minHeight: Self.minimumHitTarget
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(SettingsCompactButtonStyle())

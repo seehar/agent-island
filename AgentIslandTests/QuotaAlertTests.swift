@@ -351,16 +351,17 @@ struct QuotaAlertWiringTests {
 
     /// 两个账号（各自的桩响应一样：账户 $1.98、Key $2.00）。
     private func makeTwoAccountModel(defaults: UserDefaults) throws -> NewAPIBalanceViewModel {
-        try makeModelBody(accounts: [
-            NewAPIAccount(
-                label: "a",
-                config: NewAPIConfig(
-                    serverURL: "https://a.example.com", apiKey: "sk-a", accessToken: "tok")),
-            NewAPIAccount(
-                label: "b",
-                config: NewAPIConfig(
-                    serverURL: "https://b.example.com", apiKey: "sk-b", accessToken: "tok")),
-        ], defaults: defaults)
+        try makeModelBody(
+            accounts: [
+                NewAPIAccount(
+                    label: "a",
+                    config: NewAPIConfig(
+                        serverURL: "https://a.example.com", apiKey: "sk-a", accessToken: "tok")),
+                NewAPIAccount(
+                    label: "b",
+                    config: NewAPIConfig(
+                        serverURL: "https://b.example.com", apiKey: "sk-b", accessToken: "tok")),
+            ], defaults: defaults)
     }
 
     @Test("多个账号同轮跌破：一轮只弹一条（列表顺序即优先级），另一条在后续轮次补上")

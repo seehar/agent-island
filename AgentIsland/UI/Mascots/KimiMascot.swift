@@ -58,7 +58,8 @@ struct KimiMascot: View {
             let sprite = MascotSprite(canvas, svgWidth: 15, svgHeight: 12, svgTop: 4)
             drawSleeping(&context, sprite)
             MascotDraw.floatingZs(
-                &context, sprite: sprite, bodyTop: Self.sleepBodyTop, t: t, size: size, color: Self.sleepZ)
+                &context, sprite: sprite, bodyTop: Self.sleepBodyTop, t: t, size: size,
+                color: Self.sleepZ)
         }
     }
 

@@ -15,12 +15,15 @@ import Testing
 struct SessionPhaseTests {
     private var approval: SessionPhase {
         .waitingForApproval(
-            PermissionContext(toolUseId: "t1", toolName: "Bash", toolInput: nil, receivedAt: Date()))
+            PermissionContext(toolUseId: "t1", toolName: "Bash", toolInput: nil, receivedAt: Date())
+        )
     }
 
     @Test("结束态是终态：转不到任何相位")
     func endedIsTerminal() {
-        for phase in [SessionPhase.idle, .processing, .waitingForInput, .compacting, .ended, approval] {
+        for phase in [
+            SessionPhase.idle, .processing, .waitingForInput, .compacting, .ended, approval,
+        ] {
             #expect(!SessionPhase.ended.canTransition(to: phase))
         }
     }
@@ -41,7 +44,8 @@ struct SessionPhaseTests {
     @Test("待审批可以换成另一个待审批（多个工具同时等审批）")
     func approvalCanReplaceApproval() {
         let next = SessionPhase.waitingForApproval(
-            PermissionContext(toolUseId: "t2", toolName: "Write", toolInput: nil, receivedAt: Date()))
+            PermissionContext(
+                toolUseId: "t2", toolName: "Write", toolInput: nil, receivedAt: Date()))
         #expect(approval.canTransition(to: next))
     }
 
@@ -123,9 +127,12 @@ struct SessionPhaseTests {
     @Test("审批上下文只按工具 id、工具名与到达时间比较")
     func approvalContextIdentity() {
         let receivedAt = Date()
-        let first = PermissionContext(toolUseId: "t1", toolName: "Bash", toolInput: nil, receivedAt: receivedAt)
-        let same = PermissionContext(toolUseId: "t1", toolName: "Bash", toolInput: nil, receivedAt: receivedAt)
-        let other = PermissionContext(toolUseId: "t2", toolName: "Bash", toolInput: nil, receivedAt: receivedAt)
+        let first = PermissionContext(
+            toolUseId: "t1", toolName: "Bash", toolInput: nil, receivedAt: receivedAt)
+        let same = PermissionContext(
+            toolUseId: "t1", toolName: "Bash", toolInput: nil, receivedAt: receivedAt)
+        let other = PermissionContext(
+            toolUseId: "t2", toolName: "Bash", toolInput: nil, receivedAt: receivedAt)
 
         #expect(first == same)
         #expect(first != other)

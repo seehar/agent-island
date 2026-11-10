@@ -144,8 +144,10 @@ struct QuotaAccountRowTests {
         for value in [unlimited, limited] {
             let compact = QuotaReadingSelection.compactUsage(
                 value, currency: .rawQuota, locale: locale, l10n: l10n)
-            #expect(compact.contains(NewAPIBalanceFormat.display(
-                value.used, currency: .rawQuota, locale: locale)))
+            #expect(
+                compact.contains(
+                    NewAPIBalanceFormat.display(
+                        value.used, currency: .rawQuota, locale: locale)))
             #expect(compact.contains("总额") == false && compact.contains(" of ") == false)
         }
     }

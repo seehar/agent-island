@@ -31,10 +31,11 @@ struct NotificationSoundLibraryTests {
         #expect(builtIns.map(\.id) == NotificationSound.allCases.map(\.rawValue))
         // 「无」档不出声，其余都是 `NSSound(named:)` 的键。
         #expect(builtIns.filter(\.isSilent).map(\.id) == [NotificationSound.none.rawValue])
-        #expect(builtIns.filter { !$0.isSilent }.allSatisfy { choice in
-            if case .named = choice.playback { return true }
-            return false
-        })
+        #expect(
+            builtIns.filter { !$0.isSilent }.allSatisfy { choice in
+                if case .named = choice.playback { return true }
+                return false
+            })
     }
 
     @Test("默认档与改造前一致（Pop），且解析不到内置名时也回退到它")
@@ -42,7 +43,8 @@ struct NotificationSoundLibraryTests {
         #expect(NotificationSound.defaultSound == .pop)
         #expect(NotificationSoundLibrary.defaultChoice.id == "Pop")
 
-        let unknown = NotificationSoundLibrary.choice(forID: "file:/nope/missing.wav", directories: [])
+        let unknown = NotificationSoundLibrary.choice(
+            forID: "file:/nope/missing.wav", directories: [])
         #expect(unknown.id == "Pop", "失效的 id 回退到默认档，而不是留下播不出来的一档")
         #expect(NotificationSoundLibrary.choice(forID: "", directories: []).id == "Pop")
     }
@@ -56,8 +58,9 @@ struct NotificationSoundLibraryTests {
         #expect(choices.map(\.title) == ["alpha", "Beta"], "按文件名排序，跳过 notes.txt")
         #expect(choices.allSatisfy { $0.id.hasPrefix("file:") })
         #expect(choices.allSatisfy { $0.sourceLabel != nil }, "用户音效要标出来源目录")
-        #expect(NotificationSoundLibrary.choices(directories: [directory]).count
-            == NotificationSoundLibrary.builtInChoices.count + 2)
+        #expect(
+            NotificationSoundLibrary.choices(directories: [directory]).count
+                == NotificationSoundLibrary.builtInChoices.count + 2)
     }
 
     @Test("同一目录重复给出时不重复列出（按真实路径去重）")

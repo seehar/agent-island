@@ -60,7 +60,8 @@ struct QoderMascot: View {
             let sprite = MascotSprite(canvas, svgWidth: 15, svgHeight: 12, svgTop: 4)
             drawSleeping(&context, sprite, float: float)
             // Z 从气泡顶边（行表最上面一行 y=5）上方升起，不压到脸上。
-            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 5, t: t, size: size, color: Self.sleepZ)
+            MascotDraw.floatingZs(
+                &context, sprite: sprite, bodyTop: 5, t: t, size: size, color: Self.sleepZ)
         }
     }
 

@@ -184,7 +184,9 @@ struct TraeMascot: View {
         let flashRow = keyPhase / 3
         let flashColumn = keyPhase % 6
         context.fill(
-            Path(sprite.r(0.5 + CGFloat(flashColumn) * 2.4, 13.5 + CGFloat(flashRow) * 1.2, 1.8, 0.7)),
+            Path(
+                sprite.r(0.5 + CGFloat(flashColumn) * 2.4, 13.5 + CGFloat(flashRow) * 1.2, 1.8, 0.7)
+            ),
             with: .color(Self.kbFlash.opacity(0.9)))
 
         drawBody(&context, sprite, dy: bounce)

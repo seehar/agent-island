@@ -14,127 +14,133 @@ import Testing
 
 @Suite("统计页的展示格式化")
 struct UsageStatsFormatTests {
-  private let english = Locale(identifier: "en_US")
-  private let chinese = Locale(identifier: "zh-Hans")
+    private let english = Locale(identifier: "en_US")
+    private let chinese = Locale(identifier: "zh-Hans")
 
-  private func calendar(firstWeekday: Int = 2) -> Calendar {
-    var calendar = Calendar(identifier: .gregorian)
-    calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .gmt
-    calendar.firstWeekday = firstWeekday
-    return calendar
-  }
-
-  private func day(_ year: Int, _ month: Int, _ day: Int) -> Date {
-    calendar().date(from: DateComponents(year: year, month: month, day: day)) ?? Date()
-  }
-
-  @Test("七个预设档的档名互不相同，且两种语言都真的翻译过")
-  func presetTitlesCoverEveryRange() {
-    // 入口显式吃语言代码，因此这里能分别断言两侧：解析不到时 `localizedString` 会回落成
-    // 键本身，那样「中文 == 英文」就会被抓出来。
-    let english = StatsRange.allCases.map {
-      UsageStatsFormat.presetTitle($0, languageCode: "en")
-    }
-    #expect(english.count == StatsRange.allCases.count)
-    #expect(Set(english).count == english.count, "七个档名必须互不相同：\(english)")
-
-    for range in StatsRange.allCases {
-      let translated = UsageStatsFormat.presetTitle(range, languageCode: "zh-Hans")
-      #expect(
-        translated != UsageStatsFormat.presetTitle(range, languageCode: "en"),
-        "\(range.rawValue) 没有中文文案（回落成了英文）")
-      #expect(!translated.isEmpty)
-    }
-  }
-
-  @Test("自选范围的读数按界面语言：英语给「月份 + 日」，中文给「几月几日」")
-  func customRangeDiffersByLanguage() {
-    let from = day(2026, 9, 1)
-    let to = day(2026, 9, 20)
-
-    let englishTitle = UsageStatsFormat.customRange(from: from, to: to, locale: english)
-    let chineseTitle = UsageStatsFormat.customRange(from: from, to: to, locale: chinese)
-
-    #expect(englishTitle == "Sep 1 – Sep 20")
-    #expect(chineseTitle.contains("月"))
-    #expect(chineseTitle.contains("20"))
-    #expect(englishTitle.contains("–") && chineseTitle.contains("–"))
-  }
-
-  @Test("跨年的自选范围两端都带年份（否则看不出跨了年）")
-  func customRangeCarriesYearsWhenCrossingNewYear() {
-    let title = UsageStatsFormat.customRange(
-      from: day(2025, 12, 28), to: day(2026, 1, 3), locale: english)
-    #expect(title.contains("2025"))
-    #expect(title.contains("2026"))
-  }
-
-  @Test("窗口标题：预设给档名，自选给范围读数")
-  func windowTitleFollowsWindowKind() {
-    for range in StatsRange.allCases {
-      #expect(
-        UsageStatsFormat.windowTitle(.preset(range), locale: english)
-          == UsageStatsFormat.presetTitle(range))
+    private func calendar(firstWeekday: Int = 2) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .gmt
+        calendar.firstWeekday = firstWeekday
+        return calendar
     }
 
-    let custom = StatsWindow.custom(from: day(2026, 9, 1), to: day(2026, 9, 20))
-    #expect(
-      UsageStatsFormat.windowTitle(custom, locale: english)
-        == UsageStatsFormat.customRange(from: day(2026, 9, 1), to: day(2026, 9, 20), locale: english))
-  }
+    private func day(_ year: Int, _ month: Int, _ day: Int) -> Date {
+        calendar().date(from: DateComponents(year: year, month: month, day: day)) ?? Date()
+    }
 
-  @Test("横轴刻度与桶标签：小时粒度给钟点，日粒度只有日期")
-  func axisAndBucketLabelsFollowGranularity() {
-    // 钟点的断言用 24 小时制的区域：en_US 会给出「2:00 PM」，那与 14 点对不上。
-    let twentyFourHour = Locale(identifier: "en_GB")
-    let afternoon = calendar().date(byAdding: .hour, value: 14, to: day(2026, 9, 20)) ?? Date()
+    @Test("七个预设档的档名互不相同，且两种语言都真的翻译过")
+    func presetTitlesCoverEveryRange() {
+        // 入口显式吃语言代码，因此这里能分别断言两侧：解析不到时 `localizedString` 会回落成
+        // 键本身，那样「中文 == 英文」就会被抓出来。
+        let english = StatsRange.allCases.map {
+            UsageStatsFormat.presetTitle($0, languageCode: "en")
+        }
+        #expect(english.count == StatsRange.allCases.count)
+        #expect(Set(english).count == english.count, "七个档名必须互不相同：\(english)")
 
-    let hourAxis = UsageStatsFormat.axisLabel(afternoon, granularity: .hour, locale: twentyFourHour)
-    #expect(hourAxis == "14:00")
-    #expect(UsageStatsFormat.axisLabel(day(2026, 9, 20), granularity: .day, locale: english) == "Sep 20")
+        for range in StatsRange.allCases {
+            let translated = UsageStatsFormat.presetTitle(range, languageCode: "zh-Hans")
+            #expect(
+                translated != UsageStatsFormat.presetTitle(range, languageCode: "en"),
+                "\(range.rawValue) 没有中文文案（回落成了英文）")
+            #expect(!translated.isEmpty)
+        }
+    }
 
-    // 桶标签：小时粒度要带上日期（跨天的窗口里只给「14:00」分不清是哪天）。
-    let hourBucket = UsageStatsFormat.bucketLabel(
-      afternoon, granularity: .hour, locale: twentyFourHour)
-    #expect(hourBucket.contains("14:00"))
-    #expect(hourBucket.contains("Sep"))
-    #expect(hourBucket.contains("20"))
-    #expect(UsageStatsFormat.bucketLabel(day(2026, 9, 20), granularity: .day, locale: english) == "Sep 20")
-  }
+    @Test("自选范围的读数按界面语言：英语给「月份 + 日」，中文给「几月几日」")
+    func customRangeDiffersByLanguage() {
+        let from = day(2026, 9, 1)
+        let to = day(2026, 9, 20)
 
-  @Test("月历月名：英语「September 2026」、中文「2026年9月」")
-  func monthTitleFollowsLanguage() {
-    let title = day(2026, 9, 20)
-    #expect(UsageStatsFormat.monthTitle(title, locale: english) == "September 2026")
+        let englishTitle = UsageStatsFormat.customRange(from: from, to: to, locale: english)
+        let chineseTitle = UsageStatsFormat.customRange(from: from, to: to, locale: chinese)
 
-    let chineseTitle = UsageStatsFormat.monthTitle(title, locale: chinese)
-    #expect(chineseTitle.contains("2026"))
-    #expect(chineseTitle.contains("9"))
-    #expect(chineseTitle.contains("月"))
-  }
+        #expect(englishTitle == "Sep 1 – Sep 20")
+        #expect(chineseTitle.contains("月"))
+        #expect(chineseTitle.contains("20"))
+        #expect(englishTitle.contains("–") && chineseTitle.contains("–"))
+    }
 
-  @Test("周标题跟着周起始日轮转，语言取界面语言")
-  func weekdaySymbolsFollowFirstWeekday() {
-    let mondayFirst = UsageStatsFormat.weekdaySymbols(
-      locale: english, calendar: calendar(firstWeekday: 2))
-    #expect(mondayFirst.count == 7)
-    #expect(mondayFirst.first == "Mon")
+    @Test("跨年的自选范围两端都带年份（否则看不出跨了年）")
+    func customRangeCarriesYearsWhenCrossingNewYear() {
+        let title = UsageStatsFormat.customRange(
+            from: day(2025, 12, 28), to: day(2026, 1, 3), locale: english)
+        #expect(title.contains("2025"))
+        #expect(title.contains("2026"))
+    }
 
-    let sundayFirst = UsageStatsFormat.weekdaySymbols(
-      locale: english, calendar: calendar(firstWeekday: 1))
-    #expect(sundayFirst.first == "Sun")
+    @Test("窗口标题：预设给档名，自选给范围读数")
+    func windowTitleFollowsWindowKind() {
+        for range in StatsRange.allCases {
+            #expect(
+                UsageStatsFormat.windowTitle(.preset(range), locale: english)
+                    == UsageStatsFormat.presetTitle(range))
+        }
 
-    // 中文的短名（周一…）：第一格必须是「一」，不能落到「日」。
-    let chineseMondayFirst = UsageStatsFormat.weekdaySymbols(
-      locale: chinese, calendar: calendar(firstWeekday: 2))
-    #expect(chineseMondayFirst.count == 7)
-    #expect(chineseMondayFirst.first?.contains("一") == true)
-    #expect(chineseMondayFirst != mondayFirst)
-  }
+        let custom = StatsWindow.custom(from: day(2026, 9, 1), to: day(2026, 9, 20))
+        #expect(
+            UsageStatsFormat.windowTitle(custom, locale: english)
+                == UsageStatsFormat.customRange(
+                    from: day(2026, 9, 1), to: day(2026, 9, 20), locale: english))
+    }
 
-  @Test("月历格子的日号只给数字（不带「日」这类后缀）")
-  func dayNumberIsNumeric() {
-    #expect(UsageStatsFormat.dayNumber(day(2026, 9, 1), locale: english) == "1")
-    #expect(UsageStatsFormat.dayNumber(day(2026, 9, 20), locale: chinese) == "20")
-  }
+    @Test("横轴刻度与桶标签：小时粒度给钟点，日粒度只有日期")
+    func axisAndBucketLabelsFollowGranularity() {
+        // 钟点的断言用 24 小时制的区域：en_US 会给出「2:00 PM」，那与 14 点对不上。
+        let twentyFourHour = Locale(identifier: "en_GB")
+        let afternoon = calendar().date(byAdding: .hour, value: 14, to: day(2026, 9, 20)) ?? Date()
+
+        let hourAxis = UsageStatsFormat.axisLabel(
+            afternoon, granularity: .hour, locale: twentyFourHour)
+        #expect(hourAxis == "14:00")
+        #expect(
+            UsageStatsFormat.axisLabel(day(2026, 9, 20), granularity: .day, locale: english)
+                == "Sep 20")
+
+        // 桶标签：小时粒度要带上日期（跨天的窗口里只给「14:00」分不清是哪天）。
+        let hourBucket = UsageStatsFormat.bucketLabel(
+            afternoon, granularity: .hour, locale: twentyFourHour)
+        #expect(hourBucket.contains("14:00"))
+        #expect(hourBucket.contains("Sep"))
+        #expect(hourBucket.contains("20"))
+        #expect(
+            UsageStatsFormat.bucketLabel(day(2026, 9, 20), granularity: .day, locale: english)
+                == "Sep 20")
+    }
+
+    @Test("月历月名：英语「September 2026」、中文「2026年9月」")
+    func monthTitleFollowsLanguage() {
+        let title = day(2026, 9, 20)
+        #expect(UsageStatsFormat.monthTitle(title, locale: english) == "September 2026")
+
+        let chineseTitle = UsageStatsFormat.monthTitle(title, locale: chinese)
+        #expect(chineseTitle.contains("2026"))
+        #expect(chineseTitle.contains("9"))
+        #expect(chineseTitle.contains("月"))
+    }
+
+    @Test("周标题跟着周起始日轮转，语言取界面语言")
+    func weekdaySymbolsFollowFirstWeekday() {
+        let mondayFirst = UsageStatsFormat.weekdaySymbols(
+            locale: english, calendar: calendar(firstWeekday: 2))
+        #expect(mondayFirst.count == 7)
+        #expect(mondayFirst.first == "Mon")
+
+        let sundayFirst = UsageStatsFormat.weekdaySymbols(
+            locale: english, calendar: calendar(firstWeekday: 1))
+        #expect(sundayFirst.first == "Sun")
+
+        // 中文的短名（周一…）：第一格必须是「一」，不能落到「日」。
+        let chineseMondayFirst = UsageStatsFormat.weekdaySymbols(
+            locale: chinese, calendar: calendar(firstWeekday: 2))
+        #expect(chineseMondayFirst.count == 7)
+        #expect(chineseMondayFirst.first?.contains("一") == true)
+        #expect(chineseMondayFirst != mondayFirst)
+    }
+
+    @Test("月历格子的日号只给数字（不带「日」这类后缀）")
+    func dayNumberIsNumeric() {
+        #expect(UsageStatsFormat.dayNumber(day(2026, 9, 1), locale: english) == "1")
+        #expect(UsageStatsFormat.dayNumber(day(2026, 9, 20), locale: chinese) == "20")
+    }
 }

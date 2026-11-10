@@ -17,11 +17,12 @@ nonisolated enum UsageStatsCalendar {
     /// 两个自然日之间含首尾的天数（顺序颠倒时按交换后算）。
     static func dayCount(from: Date, to: Date, calendar: Calendar = .current) -> Int {
         let range = normalized(from, to)
-        let days = calendar.dateComponents(
-            [.day],
-            from: calendar.startOfDay(for: range.from),
-            to: calendar.startOfDay(for: range.to)
-        ).day ?? 0
+        let days =
+            calendar.dateComponents(
+                [.day],
+                from: calendar.startOfDay(for: range.from),
+                to: calendar.startOfDay(for: range.to)
+            ).day ?? 0
         return days + 1
     }
 

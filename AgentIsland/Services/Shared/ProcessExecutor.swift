@@ -22,7 +22,8 @@ enum ProcessExecutorError: Error, LocalizedError {
             // 原实现里字面量 `, stderr: ` 前缀原样保留在 key 内（面向开发的字段标签）；
             // 无 stderr 时沿用两段文案，与改造前的输出逐字相同。
             guard let stderr else {
-                return LocalizationManager.t("Command '%@' failed with exit code %lld", command, Int(exitCode))
+                return LocalizationManager.t(
+                    "Command '%@' failed with exit code %lld", command, Int(exitCode))
             }
             return LocalizationManager.t(
                 "Command '%@' failed with exit code %lld, stderr: %@",
@@ -32,7 +33,8 @@ enum ProcessExecutorError: Error, LocalizedError {
         case .commandNotFound(let command):
             return LocalizationManager.t("Command not found: %@", command)
         case .launchFailed(let command, let underlying):
-            return LocalizationManager.t("Failed to launch '%@': %@", command, underlying.localizedDescription)
+            return LocalizationManager.t(
+                "Failed to launch '%@': %@", command, underlying.localizedDescription)
         }
     }
 }
@@ -49,7 +51,9 @@ struct ProcessResult: Sendable {
 /// Protocol for executing shell commands (enables testing)
 nonisolated protocol ProcessExecuting: Sendable {
     func run(_ executable: String, arguments: [String]) async throws -> String
-    func runWithResult(_ executable: String, arguments: [String]) async -> Result<ProcessResult, ProcessExecutorError>
+    func runWithResult(_ executable: String, arguments: [String]) async -> Result<
+        ProcessResult, ProcessExecutorError
+    >
     func runSync(_ executable: String, arguments: [String]) -> Result<String, ProcessExecutorError>
 }
 
@@ -59,7 +63,8 @@ actor ProcessExecutor: ProcessExecuting {
     static let shared = ProcessExecutor()
 
     /// Logger for process execution (nonisolated static for cross-context access)
-    nonisolated static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "ProcessExecutor")
+    nonisolated static let logger = Logger(
+        subsystem: "com.celestial.AgentIsland", category: "ProcessExecutor")
 
     private init() {}
 
@@ -75,7 +80,9 @@ actor ProcessExecutor: ProcessExecuting {
     }
 
     /// Run a command asynchronously and return a full Result with exit code and stderr
-    func runWithResult(_ executable: String, arguments: [String]) async -> Result<ProcessResult, ProcessExecutorError> {
+    func runWithResult(_ executable: String, arguments: [String]) async -> Result<
+        ProcessResult, ProcessExecutorError
+    > {
         await withCheckedContinuation { continuation in
             let process = Process()
             let stdoutPipe = Pipe()
@@ -105,31 +112,43 @@ actor ProcessExecutor: ProcessExecuting {
                 if process.terminationStatus == 0 {
                     continuation.resume(returning: .success(result))
                 } else {
-                    Self.logger.warning("Command failed: \(executable) \(arguments.joined(separator: " "), privacy: .public) - exit code \(process.terminationStatus)")
-                    continuation.resume(returning: .failure(.executionFailed(
-                        command: executable,
-                        exitCode: process.terminationStatus,
-                        stderr: stderr
-                    )))
+                    Self.logger.warning(
+                        "Command failed: \(executable) \(arguments.joined(separator: " "), privacy: .public) - exit code \(process.terminationStatus)"
+                    )
+                    continuation.resume(
+                        returning: .failure(
+                            .executionFailed(
+                                command: executable,
+                                exitCode: process.terminationStatus,
+                                stderr: stderr
+                            )))
                 }
             } catch let error as NSError {
                 if error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
                     Self.logger.error("Command not found: \(executable, privacy: .public)")
                     continuation.resume(returning: .failure(.commandNotFound(executable)))
                 } else {
-                    Self.logger.error("Failed to launch command: \(executable, privacy: .public) - \(error.localizedDescription, privacy: .public)")
-                    continuation.resume(returning: .failure(.launchFailed(command: executable, underlying: error)))
+                    Self.logger.error(
+                        "Failed to launch command: \(executable, privacy: .public) - \(error.localizedDescription, privacy: .public)"
+                    )
+                    continuation.resume(
+                        returning: .failure(.launchFailed(command: executable, underlying: error)))
                 }
             } catch {
-                Self.logger.error("Failed to launch command: \(executable, privacy: .public) - \(error.localizedDescription, privacy: .public)")
-                continuation.resume(returning: .failure(.launchFailed(command: executable, underlying: error)))
+                Self.logger.error(
+                    "Failed to launch command: \(executable, privacy: .public) - \(error.localizedDescription, privacy: .public)"
+                )
+                continuation.resume(
+                    returning: .failure(.launchFailed(command: executable, underlying: error)))
             }
         }
     }
 
     /// Run a command synchronously (for use in nonisolated contexts)
     /// Returns Result instead of optional for better error handling
-    nonisolated func runSync(_ executable: String, arguments: [String]) -> Result<String, ProcessExecutorError> {
+    nonisolated func runSync(_ executable: String, arguments: [String]) -> Result<
+        String, ProcessExecutorError
+    > {
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -151,23 +170,30 @@ actor ProcessExecutor: ProcessExecuting {
             if process.terminationStatus == 0 {
                 return .success(stdout)
             } else {
-                Self.logger.warning("Sync command failed: \(executable, privacy: .public) - exit code \(process.terminationStatus)")
-                return .failure(.executionFailed(
-                    command: executable,
-                    exitCode: process.terminationStatus,
-                    stderr: stderr
-                ))
+                Self.logger.warning(
+                    "Sync command failed: \(executable, privacy: .public) - exit code \(process.terminationStatus)"
+                )
+                return .failure(
+                    .executionFailed(
+                        command: executable,
+                        exitCode: process.terminationStatus,
+                        stderr: stderr
+                    ))
             }
         } catch let error as NSError {
             if error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
                 Self.logger.error("Command not found: \(executable, privacy: .public)")
                 return .failure(.commandNotFound(executable))
             } else {
-                Self.logger.error("Sync command launch failed: \(executable, privacy: .public) - \(error.localizedDescription, privacy: .public)")
+                Self.logger.error(
+                    "Sync command launch failed: \(executable, privacy: .public) - \(error.localizedDescription, privacy: .public)"
+                )
                 return .failure(.launchFailed(command: executable, underlying: error))
             }
         } catch {
-            Self.logger.error("Sync command launch failed: \(executable, privacy: .public) - \(error.localizedDescription, privacy: .public)")
+            Self.logger.error(
+                "Sync command launch failed: \(executable, privacy: .public) - \(error.localizedDescription, privacy: .public)"
+            )
             return .failure(.launchFailed(command: executable, underlying: error))
         }
     }

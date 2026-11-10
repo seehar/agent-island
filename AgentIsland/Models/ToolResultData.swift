@@ -144,7 +144,7 @@ nonisolated struct TodoWriteResult: Equatable, Sendable {
 
 nonisolated struct TodoItem: Equatable, Sendable {
     let content: String
-    let status: String // "pending", "in_progress", "completed"
+    let status: String  // "pending", "in_progress", "completed"
     let activeForm: String?
 }
 
@@ -240,9 +240,8 @@ nonisolated struct MCPResult: Equatable, @unchecked Sendable {
     let rawResult: [String: Any]
 
     static func == (lhs: MCPResult, rhs: MCPResult) -> Bool {
-        lhs.serverName == rhs.serverName &&
-        lhs.toolName == rhs.toolName &&
-        NSDictionary(dictionary: lhs.rawResult).isEqual(to: rhs.rawResult)
+        lhs.serverName == rhs.serverName && lhs.toolName == rhs.toolName
+            && NSDictionary(dictionary: lhs.rawResult).isEqual(to: rhs.rawResult)
     }
 }
 
@@ -284,12 +283,14 @@ nonisolated struct ToolStatusDisplay {
             return ToolStatusDisplay(text: LocalizationManager.t("Running..."), isRunning: true)
         case "Grep", "Glob":
             if let pattern = input["pattern"] {
-                return ToolStatusDisplay(text: LocalizationManager.t("Searching: %@", pattern), isRunning: true)
+                return ToolStatusDisplay(
+                    text: LocalizationManager.t("Searching: %@", pattern), isRunning: true)
             }
             return ToolStatusDisplay(text: LocalizationManager.t("Searching..."), isRunning: true)
         case "WebSearch":
             if let query = input["query"] {
-                return ToolStatusDisplay(text: LocalizationManager.t("Searching: %@", query), isRunning: true)
+                return ToolStatusDisplay(
+                    text: LocalizationManager.t("Searching: %@", query), isRunning: true)
             }
             return ToolStatusDisplay(text: LocalizationManager.t("Searching..."), isRunning: true)
         case "WebFetch":
@@ -298,13 +299,17 @@ nonisolated struct ToolStatusDisplay {
             if let desc = input["description"], !desc.isEmpty {
                 return ToolStatusDisplay(text: desc, isRunning: true)
             }
-            return ToolStatusDisplay(text: LocalizationManager.t("Running agent..."), isRunning: true)
+            return ToolStatusDisplay(
+                text: LocalizationManager.t("Running agent..."), isRunning: true)
         case "TodoWrite":
-            return ToolStatusDisplay(text: LocalizationManager.t("Updating todos..."), isRunning: true)
+            return ToolStatusDisplay(
+                text: LocalizationManager.t("Updating todos..."), isRunning: true)
         case "EnterPlanMode":
-            return ToolStatusDisplay(text: LocalizationManager.t("Entering plan mode..."), isRunning: true)
+            return ToolStatusDisplay(
+                text: LocalizationManager.t("Entering plan mode..."), isRunning: true)
         case "ExitPlanMode":
-            return ToolStatusDisplay(text: LocalizationManager.t("Exiting plan mode..."), isRunning: true)
+            return ToolStatusDisplay(
+                text: LocalizationManager.t("Exiting plan mode..."), isRunning: true)
         default:
             return ToolStatusDisplay(text: LocalizationManager.t("Running..."), isRunning: true)
         }
@@ -318,21 +323,29 @@ nonisolated struct ToolStatusDisplay {
 
         switch result {
         case .read(let r):
-            let lineText = r.totalLines > r.numLines
+            let lineText =
+                r.totalLines > r.numLines
                 ? LocalizationManager.t("%lld+ lines", r.numLines)
                 : LocalizationManager.t("%lld lines", r.numLines)
-            return ToolStatusDisplay(text: LocalizationManager.t("Read %@ (%@)", r.filename, lineText), isRunning: false)
+            return ToolStatusDisplay(
+                text: LocalizationManager.t("Read %@ (%@)", r.filename, lineText), isRunning: false)
 
         case .edit(let r):
-            return ToolStatusDisplay(text: LocalizationManager.t("Edited %@", r.filename), isRunning: false)
+            return ToolStatusDisplay(
+                text: LocalizationManager.t("Edited %@", r.filename), isRunning: false)
 
         case .write(let r):
-            let action = r.type == .create ? LocalizationManager.t("Created %@", r.filename) : LocalizationManager.t("Wrote %@", r.filename)
+            let action =
+                r.type == .create
+                ? LocalizationManager.t("Created %@", r.filename)
+                : LocalizationManager.t("Wrote %@", r.filename)
             return ToolStatusDisplay(text: action, isRunning: false)
 
         case .bash(let r):
             if let bgId = r.backgroundTaskId {
-                return ToolStatusDisplay(text: LocalizationManager.t("Running in background (%@)", bgId), isRunning: false)
+                return ToolStatusDisplay(
+                    text: LocalizationManager.t("Running in background (%@)", bgId),
+                    isRunning: false)
             }
             if let interpretation = r.returnCodeInterpretation {
                 return ToolStatusDisplay(text: interpretation, isRunning: false)
@@ -345,7 +358,8 @@ nonisolated struct ToolStatusDisplay {
 
         case .glob(let r):
             if r.numFiles == 0 {
-                return ToolStatusDisplay(text: LocalizationManager.t("No files found"), isRunning: false)
+                return ToolStatusDisplay(
+                    text: LocalizationManager.t("No files found"), isRunning: false)
             }
             return ToolStatusDisplay(
                 text: LocalizationManager.t("Found %lld files", r.numFiles), isRunning: false)
@@ -360,17 +374,20 @@ nonisolated struct ToolStatusDisplay {
             return ToolStatusDisplay(text: "\(r.code) \(r.codeText)", isRunning: false)
 
         case .webSearch(let r):
-            let time = r.durationSeconds >= 1 ?
-                LocalizationManager.t("%llds", Int(r.durationSeconds)) :
-                LocalizationManager.t("%lldms", Int(r.durationSeconds * 1000))
+            let time =
+                r.durationSeconds >= 1
+                ? LocalizationManager.t("%llds", Int(r.durationSeconds))
+                : LocalizationManager.t("%lldms", Int(r.durationSeconds * 1000))
             // 一次 WebSearch 调用；`results` 是命中条数，不是搜索次数
-            return ToolStatusDisplay(text: LocalizationManager.t("Did 1 search in %@", time), isRunning: false)
+            return ToolStatusDisplay(
+                text: LocalizationManager.t("Did 1 search in %@", time), isRunning: false)
 
         case .askUserQuestion:
             return ToolStatusDisplay(text: LocalizationManager.t("Answered"), isRunning: false)
 
         case .bashOutput(let r):
-            return ToolStatusDisplay(text: LocalizationManager.t("Status: %@", r.status), isRunning: false)
+            return ToolStatusDisplay(
+                text: LocalizationManager.t("Status: %@", r.status), isRunning: false)
 
         case .killShell:
             return ToolStatusDisplay(text: LocalizationManager.t("Terminated"), isRunning: false)

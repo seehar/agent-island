@@ -5,8 +5,8 @@
 //  Models for conversation messages parsed from JSONL
 //
 
-import Foundation
 import CryptoKit
+import Foundation
 
 /// Produces a stable hex hash string that is consistent across app launches.
 /// Swift's hashValue is randomized per process, making it unsuitable for identifiers.

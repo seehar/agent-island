@@ -48,7 +48,8 @@ struct GrokMascot: View {
     private static let sleepBodyTop: CGFloat = 15 - sleepSide * markAspect
 
     /// 起跳截顶的入参：静息顶边就是标记落在接地线上时的顶边（`15 - 16 × markScale × markAspect`）。
-    static let alertSpec = MascotAlertSpec(maxRise: 8, bodyTop: 15 - 16 * markScale * markAspect, svgTop: 3)
+    static let alertSpec = MascotAlertSpec(
+        maxRise: 8, bodyTop: 15 - 16 * markScale * markAspect, svgTop: 3)
 
     var body: some View {
         MascotSceneStage(
@@ -64,7 +65,8 @@ struct GrokMascot: View {
             drawSleeping(&context, sprite)
             // 飘 Z 从标记顶边（趴姿身体主体的顶边）上方升起。
             MascotDraw.floatingZs(
-                &context, sprite: sprite, bodyTop: Self.sleepBodyTop, t: t, size: size, color: Self.sleepZ)
+                &context, sprite: sprite, bodyTop: Self.sleepBodyTop, t: t, size: size,
+                color: Self.sleepZ)
         }
     }
 

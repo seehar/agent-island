@@ -108,7 +108,10 @@ class UpdateManager: NSObject, ObservableObject {
 
     // MARK: - Internal state updates (called by NotchUserDriver)
 
-    func updateFound(version: String, releaseNotes: String?, installHandler: @escaping (SPUUserUpdateChoice) -> Void) {
+    func updateFound(
+        version: String, releaseNotes: String?,
+        installHandler: @escaping (SPUUserUpdateChoice) -> Void
+    ) {
         self.currentVersion = version
         self.installHandler = installHandler
         self.state = .found(version: version, releaseNotes: releaseNotes)
@@ -194,7 +197,9 @@ class NotchUserDriver: NSObject, SPUUserDriver {
 
     // MARK: - Update Found
 
-    func show(_ request: SPUUpdatePermissionRequest, reply: @escaping (SUUpdatePermissionResponse) -> Void) {
+    func show(
+        _ request: SPUUpdatePermissionRequest, reply: @escaping (SUUpdatePermissionResponse) -> Void
+    ) {
         // Auto-approve update checks
         reply(SUUpdatePermissionResponse(automaticUpdateChecks: true, sendSystemProfile: false))
     }
@@ -205,12 +210,16 @@ class NotchUserDriver: NSObject, SPUUserDriver {
         }
     }
 
-    func showUpdateFound(with appcastItem: SUAppcastItem, state: SPUUserUpdateState, reply: @escaping (SPUUserUpdateChoice) -> Void) {
+    func showUpdateFound(
+        with appcastItem: SUAppcastItem, state: SPUUserUpdateState,
+        reply: @escaping (SPUUserUpdateChoice) -> Void
+    ) {
         let version = appcastItem.displayVersionString
         let releaseNotes = appcastItem.itemDescription
 
         Task { @MainActor in
-            UpdateManager.shared.updateFound(version: version, releaseNotes: releaseNotes, installHandler: reply)
+            UpdateManager.shared.updateFound(
+                version: version, releaseNotes: releaseNotes, installHandler: reply)
         }
     }
 
@@ -274,13 +283,17 @@ class NotchUserDriver: NSObject, SPUUserDriver {
         }
     }
 
-    func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
+    func showInstallingUpdate(
+        withApplicationTerminated applicationTerminated: Bool,
+        retryTerminatingApplication: @escaping () -> Void
+    ) {
         Task { @MainActor in
             UpdateManager.shared.installing()
         }
     }
 
-    func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
+    func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void)
+    {
         Task { @MainActor in
             UpdateManager.shared.installed(relaunched: relaunched)
         }
@@ -299,12 +312,18 @@ class NotchUserDriver: NSObject, SPUUserDriver {
         // Could expand notch here if desired
     }
 
-    func showResumableUpdateFound(with appcastItem: SUAppcastItem, state: SPUUserUpdateState, reply: @escaping (SPUUserUpdateChoice) -> Void) {
+    func showResumableUpdateFound(
+        with appcastItem: SUAppcastItem, state: SPUUserUpdateState,
+        reply: @escaping (SPUUserUpdateChoice) -> Void
+    ) {
         // Resumable update - treat same as regular update found
         showUpdateFound(with: appcastItem, state: state, reply: reply)
     }
 
-    func showInformationalUpdateFound(with appcastItem: SUAppcastItem, state: SPUUserUpdateState, reply: @escaping (SPUUserUpdateChoice) -> Void) {
+    func showInformationalUpdateFound(
+        with appcastItem: SUAppcastItem, state: SPUUserUpdateState,
+        reply: @escaping (SPUUserUpdateChoice) -> Void
+    ) {
         // Informational only - dismiss for now
         reply(.dismiss)
     }

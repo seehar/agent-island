@@ -12,7 +12,8 @@ import Foundation
 import os.log
 
 nonisolated enum LegacyArtifacts {
-    private static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "Integration")
+    private static let logger = Logger(
+        subsystem: "com.celestial.AgentIsland", category: "Integration")
 
     /// 改名前的 Unix socket：新版本绑的是 /tmp/agent-island.sock。
     static let legacySocketPaths = ["/tmp/claude-island.sock", "/tmp/claude-island.socket"]

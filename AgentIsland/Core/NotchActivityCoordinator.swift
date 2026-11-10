@@ -49,7 +49,7 @@ class NotchActivityCoordinator: ObservableObject {
     }
 
     /// Duration before auto-hiding the activity
-    var activityDuration: TimeInterval = 0 // 0 = manual control (won't auto-hide)
+    var activityDuration: TimeInterval = 0  // 0 = manual control (won't auto-hide)
 
     // MARK: - Private
 

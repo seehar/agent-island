@@ -167,13 +167,15 @@ extension HookEvent {
 
     /// Whether this is a tool-related event
     nonisolated var isToolEvent: Bool {
-        event == "PreToolUse" || event == "PostToolUse" || event == "PermissionRequest" || event == "ToolApproval"
+        event == "PreToolUse" || event == "PostToolUse" || event == "PermissionRequest"
+            || event == "ToolApproval"
     }
 
     /// Whether this event should trigger a file sync
     nonisolated var shouldSyncFile: Bool {
         switch event {
-        case "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "ToolApproval", "Stop":
+        case "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "ToolApproval",
+            "Stop":
             return true
         default:
             return false

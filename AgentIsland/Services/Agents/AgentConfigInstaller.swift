@@ -49,7 +49,8 @@ import Foundation
 import os.log
 
 nonisolated enum AgentConfigInstaller {
-    private static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "Integration")
+    private static let logger = Logger(
+        subsystem: "com.celestial.AgentIsland", category: "Integration")
 
     /// Copilot / Trae IDE 的 schema 版本号：我们只在用户自己没设过时种下它，卸载时又按
     /// 「顶层只剩这一个我们种的键」判空 —— 种什么、判什么必须是同一个值，因此放在一处。
@@ -78,7 +79,8 @@ nonisolated enum AgentConfigInstaller {
         guard let location = location(for: kind, spec: spec, home: home) else { return true }
         // 解释器只探一次：`which` 会真起一个进程，而事件表最多有 14 个事件
         guard let interpreter else {
-            logger.error("未找到 python3，跳过 \(kind.rawValue, privacy: .public) 的集成安装：hook 命令需要它，写进去只会在每个事件上失败")
+            logger.error(
+                "未找到 python3，跳过 \(kind.rawValue, privacy: .public) 的集成安装：hook 命令需要它，写进去只会在每个事件上失败")
             return false
         }
 
@@ -162,16 +164,16 @@ nonisolated enum AgentConfigInstaller {
                 return HookInstaller.isOwnHookCommand(text)
             }
         case .kimi:
-            guard case let .text(contents) = readText(at: location.configFile) else { return false }
+            guard case .text(let contents) = readText(at: location.configFile) else { return false }
             return AgentConfigMerger.containsAllKimiHooks(events, in: contents)
         case .traecli:
-            guard case let .text(contents) = readText(at: location.configFile) else { return false }
+            guard case .text(let contents) = readText(at: location.configFile) else { return false }
             return AgentConfigMerger.containsTraecliHook(in: contents)
         case .hermes:
-            guard case let .text(contents) = readText(at: location.configFile) else { return false }
+            guard case .text(let contents) = readText(at: location.configFile) else { return false }
             return AgentConfigMerger.containsHermesHook(in: contents)
         case .claude, .nested, .flat, .traeIDE, .copilot:
-            guard case let .dictionary(root) = loadEventTable(at: location.configFile) else {
+            guard case .dictionary(let root) = loadEventTable(at: location.configFile) else {
                 return false
             }
             return AgentConfigMerger.containsAllOwnEvents(
@@ -200,30 +202,36 @@ nonisolated enum AgentConfigInstaller {
         var files: [URL] = []
         switch spec.format {
         case .cline:
-            files.append(contentsOf: spec.events.compactMap { event in
-                let file = location.configFile.appendingPathComponent(event.name)
-                guard let text = textContents(of: file),
-                      HookInstaller.isOwnHookCommand(text) else { return nil }
-                return file
-            })
+            files.append(
+                contentsOf: spec.events.compactMap { event in
+                    let file = location.configFile.appendingPathComponent(event.name)
+                    guard let text = textContents(of: file),
+                        HookInstaller.isOwnHookCommand(text)
+                    else { return nil }
+                    return file
+                })
         case .kimi:
-            if case let .text(contents) = readText(at: location.configFile),
-               AgentConfigMerger.containsAnyKimiHook(in: contents) {
+            if case .text(let contents) = readText(at: location.configFile),
+                AgentConfigMerger.containsAnyKimiHook(in: contents)
+            {
                 files.append(location.configFile)
             }
         case .traecli:
-            if case let .text(contents) = readText(at: location.configFile),
-               AgentConfigMerger.containsTraecliHook(in: contents) {
+            if case .text(let contents) = readText(at: location.configFile),
+                AgentConfigMerger.containsTraecliHook(in: contents)
+            {
                 files.append(location.configFile)
             }
         case .hermes:
-            if case let .text(contents) = readText(at: location.configFile),
-               AgentConfigMerger.containsHermesHook(in: contents) {
+            if case .text(let contents) = readText(at: location.configFile),
+                AgentConfigMerger.containsHermesHook(in: contents)
+            {
                 files.append(location.configFile)
             }
         case .claude, .nested, .flat, .traeIDE, .copilot:
-            if case let .dictionary(root) = loadEventTable(at: location.configFile),
-               AgentConfigMerger.containsAnyOwnEntry(in: root, configKey: spec.configKey) {
+            if case .dictionary(let root) = loadEventTable(at: location.configFile),
+                AgentConfigMerger.containsAnyOwnEntry(in: root, configKey: spec.configKey)
+            {
                 files.append(location.configFile)
             }
         }
@@ -314,7 +322,9 @@ nonisolated enum AgentConfigInstaller {
     ) -> Bool {
         let load = loadEventTable(at: location.configFile)
         if let refusal = load.refusalReason {
-            logger.error("\(kind.rawValue, privacy: .public) 的配置不可安全写入（\(refusal, privacy: .public)），本次跳过：\(location.configFile.path, privacy: .public)")
+            logger.error(
+                "\(kind.rawValue, privacy: .public) 的配置不可安全写入（\(refusal, privacy: .public)），本次跳过：\(location.configFile.path, privacy: .public)"
+            )
             return false
         }
 
@@ -322,9 +332,11 @@ nonisolated enum AgentConfigInstaller {
             let command = command(
                 kind: kind, format: spec.format, event: event.name, home: home,
                 interpreter: interpreter)
-            guard let entry = AgentConfigMerger.eventTableEntry(
-                format: spec.format, command: command, timeout: event.timeout
-            ) else { return nil }
+            guard
+                let entry = AgentConfigMerger.eventTableEntry(
+                    format: spec.format, command: command, timeout: event.timeout
+                )
+            else { return nil }
             return (event.name, entry)
         }
 
@@ -334,13 +346,16 @@ nonisolated enum AgentConfigInstaller {
             entries, to: root, configKey: spec.configKey)
         // Copilot / Trae IDE 的 schema 版本号：用户自己设过就别动（他可能是为工具升级预留的）
         if spec.format == .copilot || spec.format == .traeIDE,
-           root[seededVersionKey] == nil {
+            root[seededVersionKey] == nil
+        {
             root[seededVersionKey] = seededVersionValue
         }
 
-        guard let data = try? JSONSerialization.data(
-            withJSONObject: root, options: [.prettyPrinted, .sortedKeys]
-        ) else {
+        guard
+            let data = try? JSONSerialization.data(
+                withJSONObject: root, options: [.prettyPrinted, .sortedKeys]
+            )
+        else {
             logger.error("序列化 \(kind.rawValue, privacy: .public) 的配置失败，本次跳过")
             return false
         }
@@ -358,11 +373,13 @@ nonisolated enum AgentConfigInstaller {
         guard let existing = existingText(at: location.configFile, kind: kind) else { return false }
 
         let hooks: [(event: String, command: String, timeout: Int)] = spec.events.map { event in
-            (event.name,
-             command(
-                kind: kind, format: spec.format, event: event.name, home: home,
-                interpreter: interpreter),
-             event.timeout)
+            (
+                event.name,
+                command(
+                    kind: kind, format: spec.format, event: event.name, home: home,
+                    interpreter: interpreter),
+                event.timeout
+            )
         }
         let merged = AgentConfigMerger.mergingKimiHooks(into: existing, hooks: hooks)
         return write(Data(merged.utf8), to: location.configFile)
@@ -393,7 +410,9 @@ nonisolated enum AgentConfigInstaller {
             return write(Data(text.utf8), to: location.configFile)
         case .refused(let reason):
             // 行手术保不住这份文件：宁可这次不装，也不写出解析不了的 YAML
-            logger.error("traecli.yaml 无法安全行手术（\(reason, privacy: .public)），本次跳过：\(location.configFile.path, privacy: .public)")
+            logger.error(
+                "traecli.yaml 无法安全行手术（\(reason, privacy: .public)），本次跳过：\(location.configFile.path, privacy: .public)"
+            )
             return false
         }
     }
@@ -429,7 +448,9 @@ nonisolated enum AgentConfigInstaller {
             return write(Data(text.utf8), to: location.configFile)
         case .refused(let reason):
             // 行手术保不住这份文件：宁可这次不装，也不写出 Hermes 读不了的 YAML
-            logger.error("Hermes 的 config.yaml 无法安全行手术（\(reason, privacy: .public)），本次跳过：\(location.configFile.path, privacy: .public)")
+            logger.error(
+                "Hermes 的 config.yaml 无法安全行手术（\(reason, privacy: .public)），本次跳过：\(location.configFile.path, privacy: .public)"
+            )
             return false
         }
     }
@@ -453,7 +474,9 @@ nonisolated enum AgentConfigInstaller {
             // 用户自己写的同名 hook 一律不碰：顶掉它，卸载时也会因为「内容里没有我们的脚本」
             // 认不出那是他的，他的 hook 就只剩一个 Cline 不会执行的备份文件。
             if let existing = textContents(of: file), !HookInstaller.isOwnHookCommand(existing) {
-                logger.error("Cline 的 \(event.name, privacy: .public) 事件文件已被用户占用，跳过该事件：\(file.path, privacy: .public)")
+                logger.error(
+                    "Cline 的 \(event.name, privacy: .public) 事件文件已被用户占用，跳过该事件：\(file.path, privacy: .public)"
+                )
                 ok = false
                 continue
             }
@@ -536,8 +559,8 @@ nonisolated enum AgentConfigInstaller {
     ///     文件不存在），整份删掉——不给用户留下我们造出来的空壳文件。
     private static func disableCodexHooks(location: Location) {
         let configFile = codexConfigFile(location: location)
-        guard case let .text(existing) = readText(at: configFile) else { return }
-        guard case let .text(original) = readText(at: AgentConfigBackup.url(for: configFile)) else {
+        guard case .text(let existing) = readText(at: configFile) else { return }
+        guard case .text(let original) = readText(at: AgentConfigBackup.url(for: configFile)) else {
             return
         }
         guard let updated = restoringCodexHooksKey(from: existing, to: original) else { return }
@@ -552,7 +575,8 @@ nonisolated enum AgentConfigInstaller {
     ///
     /// 返回 nil 表示无需改动（当前没有可还原的那一行）。表内其它键、`[features]` 之外
     /// 的内容、注释与 CRLF 全部原样保留：这里只做**行级**替换 / 删除。
-    private static func restoringCodexHooksKey(from current: String, to original: String) -> String? {
+    private static func restoringCodexHooksKey(from current: String, to original: String) -> String?
+    {
         var lines = current.components(separatedBy: "\n")
         guard let featuresIndex = lines.firstIndex(where: isFeaturesTable),
             let hooksIndex = codexHooksLineIndex(in: lines, after: featuresIndex)
@@ -658,9 +682,12 @@ nonisolated enum AgentConfigInstaller {
         shellQuoted: Bool = false
     ) -> String {
         let script = AgentHookScript.shellPath(home: home)
-        var parts = shellQuoted
-            ? [AgentConfigMerger.shellSingleQuoted(interpreter),
-               AgentConfigMerger.shellSingleQuoted(script)]
+        var parts =
+            shellQuoted
+            ? [
+                AgentConfigMerger.shellSingleQuoted(interpreter),
+                AgentConfigMerger.shellSingleQuoted(script),
+            ]
             : ["\(interpreter) \(script)"]
         parts.append("--source \(kind.rawValue)")
         if let event, needsEventArgument(format) {
@@ -835,12 +862,15 @@ nonisolated enum AgentConfigInstaller {
             // 首次启动会往**每个检测到的工具**的配置里写条目，所以「改了哪个文件、
             // 备份在哪」必须在日志里看得见（notice 级：debug 不会被持久化）。
             let backupFile = AgentConfigBackup.url(for: file)
-            let origin = FileManager.default.fileExists(atPath: backupFile.path)
+            let origin =
+                FileManager.default.fileExists(atPath: backupFile.path)
                 ? "备份 \(backupFile.path)" : "无备份（文件原本不存在）"
             logger.notice("已写入 \(file.path, privacy: .public)（\(origin, privacy: .public)）")
             return true
         } catch {
-            logger.error("写入失败：\(file.path, privacy: .public) — \(error.localizedDescription, privacy: .public)")
+            logger.error(
+                "写入失败：\(file.path, privacy: .public) — \(error.localizedDescription, privacy: .public)"
+            )
             return false
         }
     }
@@ -850,7 +880,7 @@ nonisolated enum AgentConfigInstaller {
     /// 卸载对称性：这个文件原本不存在（无备份）、摘完后只剩空白或我们建出来的空容器键
     /// （traecli 的 `hooks:`）⇒ 整份删掉；用户自己写过任何键、注释或列表项就保留。
     private static func removeTextHooks(at file: URL, _ transform: (String) -> String) {
-        guard case let .text(original) = readText(at: file) else { return }
+        guard case .text(let original) = readText(at: file) else { return }
         let updated = transform(original)
         guard updated != original else { return }
         if wasCreatedByUs(file), isEffectivelyEmpty(updated) {
@@ -888,7 +918,9 @@ nonisolated enum AgentConfigInstaller {
             try FileManager.default.removeItem(at: file)
             logger.notice("已删除 \(file.path, privacy: .public)（\(reason, privacy: .public)）")
         } catch {
-            logger.error("删除失败：\(file.path, privacy: .public) — \(error.localizedDescription, privacy: .public)")
+            logger.error(
+                "删除失败：\(file.path, privacy: .public) — \(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
@@ -896,11 +928,15 @@ nonisolated enum AgentConfigInstaller {
     private static func removeEventTable(spec: AgentHookSpec, location: Location) {
         let load = loadEventTable(at: location.configFile)
         if let refusal = load.refusalReason {
-            logger.error("卸载时配置不可安全改写（\(refusal, privacy: .public)），跳过清理：\(location.configFile.path, privacy: .public)")
+            logger.error(
+                "卸载时配置不可安全改写（\(refusal, privacy: .public)），跳过清理：\(location.configFile.path, privacy: .public)"
+            )
             return
         }
-        guard AgentConfigMerger.containsAnyOwnEntry(
-            in: load.settings, configKey: spec.configKey) else { return }
+        guard
+            AgentConfigMerger.containsAnyOwnEntry(
+                in: load.settings, configKey: spec.configKey)
+        else { return }
 
         let stripped = AgentConfigMerger.strippingOwnEntries(
             from: load.settings, configKey: spec.configKey)
@@ -911,9 +947,11 @@ nonisolated enum AgentConfigInstaller {
             removeCreatedFile(location.configFile, reason: "卸载后已无内容")
             return
         }
-        guard let data = try? JSONSerialization.data(
-            withJSONObject: stripped, options: [.prettyPrinted, .sortedKeys]
-        ) else {
+        guard
+            let data = try? JSONSerialization.data(
+                withJSONObject: stripped, options: [.prettyPrinted, .sortedKeys]
+            )
+        else {
             logger.error("卸载时序列化失败，跳过清理：\(location.configFile.path, privacy: .public)")
             return
         }
@@ -925,7 +963,8 @@ nonisolated enum AgentConfigInstaller {
         for event in spec.events {
             let file = location.configFile.appendingPathComponent(event.name)
             guard let text = textContents(of: file),
-                  HookInstaller.isOwnHookCommand(text) else { continue }
+                HookInstaller.isOwnHookCommand(text)
+            else { continue }
             do {
                 try FileManager.default.removeItem(at: file)
             } catch {
@@ -946,12 +985,13 @@ nonisolated enum AgentConfigInstaller {
     private static func readText(at file: URL) -> TextLoad {
         guard FileManager.default.fileExists(atPath: file.path) else { return .absent }
         guard let data = try? Data(contentsOf: file),
-              let text = String(data: data, encoding: .utf8) else { return .unreadable }
+            let text = String(data: data, encoding: .utf8)
+        else { return .unreadable }
         return .text(text)
     }
 
     private static func textContents(of file: URL) -> String? {
-        guard case let .text(contents) = readText(at: file) else { return nil }
+        guard case .text(let contents) = readText(at: file) else { return nil }
         return contents
     }
 
@@ -963,7 +1003,9 @@ nonisolated enum AgentConfigInstaller {
         case .text(let contents):
             return contents
         case .unreadable:
-            logger.error("\(kind.rawValue, privacy: .public) 的配置读不出来（IO 或非 UTF-8），本次跳过：\(file.path, privacy: .public)")
+            logger.error(
+                "\(kind.rawValue, privacy: .public) 的配置读不出来（IO 或非 UTF-8），本次跳过：\(file.path, privacy: .public)"
+            )
             return nil
         }
     }
@@ -987,7 +1029,9 @@ nonisolated enum AgentConfigInstaller {
             try fm.createDirectory(at: directory, withIntermediateDirectories: true)
             return true
         } catch {
-            logger.error("创建目录失败：\(directory.path, privacy: .public) — \(error.localizedDescription, privacy: .public)")
+            logger.error(
+                "创建目录失败：\(directory.path, privacy: .public) — \(error.localizedDescription, privacy: .public)"
+            )
             return false
         }
     }
@@ -1005,7 +1049,9 @@ nonisolated enum AgentConfigInstaller {
                 [.posixPermissions: 0o755], ofItemAtPath: file.path)
             return true
         } catch {
-            logger.error("设置可执行位失败：\(file.path, privacy: .public) — \(error.localizedDescription, privacy: .public)")
+            logger.error(
+                "设置可执行位失败：\(file.path, privacy: .public) — \(error.localizedDescription, privacy: .public)"
+            )
             return false
         }
     }

@@ -68,7 +68,8 @@ struct ApprovalScopeEnforcementTests {
     @Test("Claude 的 PermissionRequest 不放行：档位只约定闸门类 Agent")
     func claudePermissionRequestNotAutoAllowed() {
         for scope in ApprovalAskScope.allCases {
-            #expect(gate(kind: "exec", event: "PermissionRequest").isAutoAllowedByScope(scope) == false)
+            #expect(
+                gate(kind: "exec", event: "PermissionRequest").isAutoAllowedByScope(scope) == false)
         }
     }
 

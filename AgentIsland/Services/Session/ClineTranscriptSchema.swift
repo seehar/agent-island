@@ -97,7 +97,8 @@ nonisolated class ClineTranscriptSchema: AgentTranscriptSchema {
                         content.append(.thinking(thinking))
                     }
                 case "tool_use":
-                    guard let id = block["id"] as? String, let name = block["name"] as? String else {
+                    guard let id = block["id"] as? String, let name = block["name"] as? String
+                    else {
                         continue
                     }
                     let input = TranscriptParsing.stringifyInput(block["input"] as? [String: Any])

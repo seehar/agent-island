@@ -23,107 +23,110 @@ import Foundation
 ///   · **日历窗口**（今天 / 本周 / 本月）从本地自然日的边界起算，桶数随当前时刻
 ///     在窗口中的位置变化；末尾是「全部」（不限起点，柱图按 `trendDayLimit` 截断）。
 nonisolated enum StatsRange: String, CaseIterable, Identifiable, Sendable {
-  /// 最近 24 小时（含当前小时，按整点对齐）。
-  case lastDay
-  /// 最近 7 天（含今天）。
-  case lastWeek
-  /// 最近 30 天（含今天）。
-  case lastMonth
-  /// 今天（本地时区自然日）。
-  case today
-  /// 本周（起点跟随系统「周起始日」设置）。
-  case week
-  /// 本月（当月 1 日 00:00 起）。
-  case month
-  /// 全部历史。
-  case all
+    /// 最近 24 小时（含当前小时，按整点对齐）。
+    case lastDay
+    /// 最近 7 天（含今天）。
+    case lastWeek
+    /// 最近 30 天（含今天）。
+    case lastMonth
+    /// 今天（本地时区自然日）。
+    case today
+    /// 本周（起点跟随系统「周起始日」设置）。
+    case week
+    /// 本月（当月 1 日 00:00 起）。
+    case month
+    /// 全部历史。
+    case all
 
-  var id: String { rawValue }
+    var id: String { rawValue }
 
-  /// 范围芯片的显示顺序：今天 / 近 24 小时 / 本周 / 近 7 天 / 本月 / 近 30 天 / 全部
-  /// （日历窗口在前、滚动窗口紧随；末尾由视图补一格「自定义…」）。
-  /// 视图与布局测试都读这里，排序因此只有一份。
-  static let chipOrder: [StatsRange] = [.today, .lastDay, .week, .lastWeek, .month, .lastMonth, .all]
+    /// 范围芯片的显示顺序：今天 / 近 24 小时 / 本周 / 近 7 天 / 本月 / 近 30 天 / 全部
+    /// （日历窗口在前、滚动窗口紧随；末尾由视图补一格「自定义…」）。
+    /// 视图与布局测试都读这里，排序因此只有一份。
+    static let chipOrder: [StatsRange] = [
+        .today, .lastDay, .week, .lastWeek, .month, .lastMonth, .all,
+    ]
 
-  /// 趋势粒度：一天以内的窗口按小时，其余按天。
-  var trendGranularity: TrendGranularity {
-    switch self {
-    case .lastDay, .today:
-      return .hour
-    case .lastWeek, .lastMonth, .week, .month, .all:
-      return .day
+    /// 趋势粒度：一天以内的窗口按小时，其余按天。
+    var trendGranularity: TrendGranularity {
+        switch self {
+        case .lastDay, .today:
+            return .hour
+        case .lastWeek, .lastMonth, .week, .month, .all:
+            return .day
+        }
     }
-  }
 
-  /// 窗口起点；`nil` 表示不限起点（仅「全部」）。
-  ///
-  /// 「近 X」的起点落在整桶上（小时窗口对齐到整点、天窗口对齐到零点），因此首桶
-  /// 总是完整的——对齐到当前分钟会让柱图多出一根只有半截数据的柱子。
-  func start(now: Date = Date(), calendar: Calendar = .current) -> Date? {
-    switch self {
-    case .all:
-      return nil
-    case .lastDay:
-      // 24 个整点桶：首桶是 23 小时前的那一小时。
-      return calendar.date(byAdding: .hour, value: -23, to: Self.hourStart(now, calendar: calendar))
-    case .lastWeek:
-      // 7 个自然日（含今天）：首日是 6 天前。
-      return calendar.date(byAdding: .day, value: -6, to: calendar.startOfDay(for: now))
-    case .lastMonth:
-      // 30 个自然日（含今天）：首日是 29 天前。
-      return calendar.date(byAdding: .day, value: -29, to: calendar.startOfDay(for: now))
-    case .today:
-      return calendar.startOfDay(for: now)
-    case .week:
-      return calendar.dateInterval(of: .weekOfYear, for: now)?.start
-    case .month:
-      return calendar.dateInterval(of: .month, for: now)?.start
+    /// 窗口起点；`nil` 表示不限起点（仅「全部」）。
+    ///
+    /// 「近 X」的起点落在整桶上（小时窗口对齐到整点、天窗口对齐到零点），因此首桶
+    /// 总是完整的——对齐到当前分钟会让柱图多出一根只有半截数据的柱子。
+    func start(now: Date = Date(), calendar: Calendar = .current) -> Date? {
+        switch self {
+        case .all:
+            return nil
+        case .lastDay:
+            // 24 个整点桶：首桶是 23 小时前的那一小时。
+            return calendar.date(
+                byAdding: .hour, value: -23, to: Self.hourStart(now, calendar: calendar))
+        case .lastWeek:
+            // 7 个自然日（含今天）：首日是 6 天前。
+            return calendar.date(byAdding: .day, value: -6, to: calendar.startOfDay(for: now))
+        case .lastMonth:
+            // 30 个自然日（含今天）：首日是 29 天前。
+            return calendar.date(byAdding: .day, value: -29, to: calendar.startOfDay(for: now))
+        case .today:
+            return calendar.startOfDay(for: now)
+        case .week:
+            return calendar.dateInterval(of: .weekOfYear, for: now)?.start
+        case .month:
+            return calendar.dateInterval(of: .month, for: now)?.start
+        }
     }
-  }
 
-  /// 趋势的桶计划（粒度 + 首尾桶）。视图的柱子数就是计划里的桶数。
-  ///
-  /// 首尾桶都落在粒度边界上；「全部」只回溯 `trendDayLimit` 天（几百根柱子看不出
-  /// 形状，更早的数据仍计入总量与各 Agent 拆分，只是不进柱图）。
-  func trendPlan(now: Date = Date(), calendar: Calendar = .current) -> TrendPlan {
-    let day = calendar.startOfDay(for: now)
+    /// 趋势的桶计划（粒度 + 首尾桶）。视图的柱子数就是计划里的桶数。
+    ///
+    /// 首尾桶都落在粒度边界上；「全部」只回溯 `trendDayLimit` 天（几百根柱子看不出
+    /// 形状，更早的数据仍计入总量与各 Agent 拆分，只是不进柱图）。
+    func trendPlan(now: Date = Date(), calendar: Calendar = .current) -> TrendPlan {
+        let day = calendar.startOfDay(for: now)
 
-    let first: Date
-    let last: Date
-    switch self {
-    case .lastDay:
-      // 到当前小时为止的 24 个小时桶：右端跟着时钟走。
-      let hour = Self.hourStart(now, calendar: calendar)
-      first = calendar.date(byAdding: .hour, value: -23, to: hour) ?? hour
-      last = hour
-    case .today:
-      // 画满一整天（未来的钟点留空柱）：柱子数与横轴两端不随时钟漂移。
-      first = day
-      last = UsageStatsCalendar.lastHourStart(ofDayStartingAt: day, calendar: calendar)
-    case .lastWeek:
-      first = calendar.date(byAdding: .day, value: -6, to: day) ?? day
-      last = day
-    case .lastMonth:
-      first = calendar.date(byAdding: .day, value: -29, to: day) ?? day
-      last = day
-    case .week, .month:
-      let windowStart = start(now: now, calendar: calendar) ?? day
-      first = calendar.startOfDay(for: windowStart)
-      last = day
-    case .all:
-      first = calendar.date(byAdding: .day, value: -(Self.trendDayLimit - 1), to: day) ?? day
-      last = day
+        let first: Date
+        let last: Date
+        switch self {
+        case .lastDay:
+            // 到当前小时为止的 24 个小时桶：右端跟着时钟走。
+            let hour = Self.hourStart(now, calendar: calendar)
+            first = calendar.date(byAdding: .hour, value: -23, to: hour) ?? hour
+            last = hour
+        case .today:
+            // 画满一整天（未来的钟点留空柱）：柱子数与横轴两端不随时钟漂移。
+            first = day
+            last = UsageStatsCalendar.lastHourStart(ofDayStartingAt: day, calendar: calendar)
+        case .lastWeek:
+            first = calendar.date(byAdding: .day, value: -6, to: day) ?? day
+            last = day
+        case .lastMonth:
+            first = calendar.date(byAdding: .day, value: -29, to: day) ?? day
+            last = day
+        case .week, .month:
+            let windowStart = start(now: now, calendar: calendar) ?? day
+            first = calendar.startOfDay(for: windowStart)
+            last = day
+        case .all:
+            first = calendar.date(byAdding: .day, value: -(Self.trendDayLimit - 1), to: day) ?? day
+            last = day
+        }
+        return TrendPlan(granularity: trendGranularity, firstBucket: first, lastBucket: last)
     }
-    return TrendPlan(granularity: trendGranularity, firstBucket: first, lastBucket: last)
-  }
 
-  /// 日粒度柱图最多回溯的天数（含今天）。再往前的数据只有总量与拆分看得到。
-  static let trendDayLimit = 60
+    /// 日粒度柱图最多回溯的天数（含今天）。再往前的数据只有总量与拆分看得到。
+    static let trendDayLimit = 60
 
-  /// 当前小时桶的起点。
-  private static func hourStart(_ now: Date, calendar: Calendar) -> Date {
-    calendar.dateInterval(of: .hour, for: now)?.start ?? now
-  }
+    /// 当前小时桶的起点。
+    private static func hourStart(_ now: Date, calendar: Calendar) -> Date {
+        calendar.dateInterval(of: .hour, for: now)?.start ?? now
+    }
 }
 
 // MARK: - 统计窗口
@@ -134,248 +137,251 @@ nonisolated enum StatsRange: String, CaseIterable, Identifiable, Sendable {
 /// 按「次日零点」半开（`hour_key < 次日零点的小时键`），与预设档「只卡左端」等价——
 /// 预设档的右端是「现在」，未来的桶本来就没有数据。
 nonisolated enum StatsWindow: Equatable, Sendable {
-  /// 预设档（近一天 / 近一周 / 近一月 / 今天 / 本周 / 本月 / 全部）。
-  case preset(StatsRange)
-  /// 用户自选的起止自然日（`from <= to`，由 `UsageStatsCalendar.normalized` 归一）。
-  case custom(from: Date, to: Date)
+    /// 预设档（近一天 / 近一周 / 近一月 / 今天 / 本周 / 本月 / 全部）。
+    case preset(StatsRange)
+    /// 用户自选的起止自然日（`from <= to`，由 `UsageStatsCalendar.normalized` 归一）。
+    case custom(from: Date, to: Date)
 
-  /// 进曲线图的天粒度桶上限：最多画到「末桶那天往前 366 天」。
-  ///
-  /// 与 `.all` 的 `trendDayLimit` 同一个语义：更早的数据仍计入总量与各 Agent 拆分，
-  /// 只是不进曲线（几百个点挤在 400pt 宽里读不出形状）。
-  static let customTrendDayLimit = 366
+    /// 进曲线图的天粒度桶上限：最多画到「末桶那天往前 366 天」。
+    ///
+    /// 与 `.all` 的 `trendDayLimit` 同一个语义：更早的数据仍计入总量与各 Agent 拆分，
+    /// 只是不进曲线（几百个点挤在 400pt 宽里读不出形状）。
+    static let customTrendDayLimit = 366
 
-  /// 预设档对应的枚举值；自选范围给 `nil`。
-  var presetRange: StatsRange? {
-    if case .preset(let range) = self { return range }
-    return nil
-  }
-
-  /// 趋势粒度：预设档看自家定义；自选范围按跨度——不超过 2 个自然日按小时，
-  /// 否则按天（跨 3 天以上按小时会画出几十上百个桶）。
-  func granularity(calendar: Calendar = .current) -> TrendGranularity {
-    switch self {
-    case .preset(let range):
-      return range.trendGranularity
-    case .custom(let from, let to):
-      return UsageStatsCalendar.dayCount(from: from, to: to, calendar: calendar) <= 2 ? .hour : .day
+    /// 预设档对应的枚举值；自选范围给 `nil`。
+    var presetRange: StatsRange? {
+        if case .preset(let range) = self { return range }
+        return nil
     }
-  }
 
-  /// 窗口的查询边界（本地时区）：`start` 含、`end` 不含；`nil` 表示该侧不限。
-  func bounds(now: Date = Date(), calendar: Calendar = .current) -> (start: Date?, end: Date?) {
-    switch self {
-    case .preset(let range):
-      return (range.start(now: now, calendar: calendar), nil)
-    case .custom(let from, let to):
-      let start = UsageStatsCalendar.startOfDay(from, calendar: calendar)
-      let end = calendar.date(
-        byAdding: .day, value: 1, to: UsageStatsCalendar.startOfDay(to, calendar: calendar))
-      return (start, end)
+    /// 趋势粒度：预设档看自家定义；自选范围按跨度——不超过 2 个自然日按小时，
+    /// 否则按天（跨 3 天以上按小时会画出几十上百个桶）。
+    func granularity(calendar: Calendar = .current) -> TrendGranularity {
+        switch self {
+        case .preset(let range):
+            return range.trendGranularity
+        case .custom(let from, let to):
+            return UsageStatsCalendar.dayCount(from: from, to: to, calendar: calendar) <= 2
+                ? .hour : .day
+        }
     }
-  }
 
-  /// 边界的小时键（`usage_bucket.hour_key` 的形状）：可直接做 SQL 字符串比较。
-  func keyBounds(now: Date = Date(), calendar: Calendar = .current) -> (
-    start: String?, end: String?
-  ) {
-    let bounds = bounds(now: now, calendar: calendar)
-    return (
-      bounds.start.map { UsageStatsKey.hour(for: $0, calendar: calendar) },
-      bounds.end.map { UsageStatsKey.hour(for: $0, calendar: calendar) }
-    )
-  }
-
-  /// 趋势桶计划：粒度 + 首尾桶（都落在粒度边界上）。
-  func trendPlan(now: Date = Date(), calendar: Calendar = .current) -> TrendPlan {
-    switch self {
-    case .preset(let range):
-      return range.trendPlan(now: now, calendar: calendar)
-    case .custom(let from, let to):
-      let start = UsageStatsCalendar.startOfDay(from, calendar: calendar)
-      let end = UsageStatsCalendar.startOfDay(to, calendar: calendar)
-      switch granularity(calendar: calendar) {
-      case .hour:
-        // 范围是按天选的，因此小时粒度要覆盖**整个末日**（含当地最后那一个小时）。
-        let last = UsageStatsCalendar.lastHourStart(ofDayStartingAt: end, calendar: calendar)
-        return TrendPlan(granularity: .hour, firstBucket: start, lastBucket: last)
-      case .day:
-        // 首桶给自选的起点，超上限由 `bucketLimit` 从末桶往回截——末桶永远是自选的末日。
-        return TrendPlan(
-          granularity: .day, firstBucket: start, lastBucket: end,
-          bucketLimit: Self.customTrendDayLimit)
-      }
+    /// 窗口的查询边界（本地时区）：`start` 含、`end` 不含；`nil` 表示该侧不限。
+    func bounds(now: Date = Date(), calendar: Calendar = .current) -> (start: Date?, end: Date?) {
+        switch self {
+        case .preset(let range):
+            return (range.start(now: now, calendar: calendar), nil)
+        case .custom(let from, let to):
+            let start = UsageStatsCalendar.startOfDay(from, calendar: calendar)
+            let end = calendar.date(
+                byAdding: .day, value: 1, to: UsageStatsCalendar.startOfDay(to, calendar: calendar))
+            return (start, end)
+        }
     }
-  }
+
+    /// 边界的小时键（`usage_bucket.hour_key` 的形状）：可直接做 SQL 字符串比较。
+    func keyBounds(now: Date = Date(), calendar: Calendar = .current) -> (
+        start: String?, end: String?
+    ) {
+        let bounds = bounds(now: now, calendar: calendar)
+        return (
+            bounds.start.map { UsageStatsKey.hour(for: $0, calendar: calendar) },
+            bounds.end.map { UsageStatsKey.hour(for: $0, calendar: calendar) }
+        )
+    }
+
+    /// 趋势桶计划：粒度 + 首尾桶（都落在粒度边界上）。
+    func trendPlan(now: Date = Date(), calendar: Calendar = .current) -> TrendPlan {
+        switch self {
+        case .preset(let range):
+            return range.trendPlan(now: now, calendar: calendar)
+        case .custom(let from, let to):
+            let start = UsageStatsCalendar.startOfDay(from, calendar: calendar)
+            let end = UsageStatsCalendar.startOfDay(to, calendar: calendar)
+            switch granularity(calendar: calendar) {
+            case .hour:
+                // 范围是按天选的，因此小时粒度要覆盖**整个末日**（含当地最后那一个小时）。
+                let last = UsageStatsCalendar.lastHourStart(
+                    ofDayStartingAt: end, calendar: calendar)
+                return TrendPlan(granularity: .hour, firstBucket: start, lastBucket: last)
+            case .day:
+                // 首桶给自选的起点，超上限由 `bucketLimit` 从末桶往回截——末桶永远是自选的末日。
+                return TrendPlan(
+                    granularity: .day, firstBucket: start, lastBucket: end,
+                    bucketLimit: Self.customTrendDayLimit)
+            }
+        }
+    }
 }
 
 /// 曲线图上的一路序列（可切换显示的维度）。
 nonisolated enum StatsSeries: String, CaseIterable, Identifiable, Sendable {
-  /// 总 token（输入 + 输出 + 缓存读 + 缓存写）。
-  case total
-  case input
-  case output
-  case cacheRead
-  case cacheWrite
+    /// 总 token（输入 + 输出 + 缓存读 + 缓存写）。
+    case total
+    case input
+    case output
+    case cacheRead
+    case cacheWrite
 
-  var id: String { rawValue }
+    var id: String { rawValue }
 
-  /// 默认显示的三路：总量、输入、输出——缓存读/写通常比前三者小一个量级，
-  /// 默认画上去会把曲线压到贴近底边，因此留在图例里等用户点开。
-  static let defaultVisible: Set<StatsSeries> = [.total, .input, .output]
+    /// 默认显示的三路：总量、输入、输出——缓存读/写通常比前三者小一个量级，
+    /// 默认画上去会把曲线压到贴近底边，因此留在图例里等用户点开。
+    static let defaultVisible: Set<StatsSeries> = [.total, .input, .output]
 
-  /// 图例的档位数：布局预算与测试同源（见 `UsageStatsLayoutTests`）。
-  static let visibleOptions = allCases.count
+    /// 图例的档位数：布局预算与测试同源（见 `UsageStatsLayoutTests`）。
+    static let visibleOptions = allCases.count
 }
 
 /// 趋势桶的计划：粒度（小时 / 天）+ 首尾桶（都落在粒度边界上）+ 可选的桶数上限。
 nonisolated struct TrendPlan: Equatable, Sendable {
-  var granularity: TrendGranularity
-  var firstBucket: Date
-  var lastBucket: Date
-  /// 桶数上限（`nil` = 不限）。超长的自选范围只画最近的这些桶，更早的数据仍计入总量。
-  var bucketLimit: Int? = nil
+    var granularity: TrendGranularity
+    var firstBucket: Date
+    var lastBucket: Date
+    /// 桶数上限（`nil` = 不限）。超长的自选范围只画最近的这些桶，更早的数据仍计入总量。
+    var bucketLimit: Int? = nil
 
-  /// 桶起点序列（升序、含空桶）——数据层据此补空桶，视图直接画。
-  ///
-  /// 从末桶**往回**走，而不是从首桶按「+24 小时 / +1 小时」正推：日粒度下正推过午夜发生
-  /// 夏令时跳变的那天之后，每个落点都晚一小时，走到末桶之前就退出——曲线丢掉窗口最后
-  /// 一天，而总量把它算进去了（America/Santiago 实测：总量 200，曲线只有 19 个桶）。
-  /// 往回走时每一步用「前一秒所在的桶起点」，跳变日与不存在的当地时刻都不会踩空。
-  ///
-  /// 桶按**键**去重：秋令时回拨的那一小时会出现两个同分钟的桶（如 `T00` 两次），而 SQL
-  /// 也是按键分组的，它们本来就是同一个桶。
-  func bucketStarts(calendar: Calendar = .current) -> [Date] {
-    let unit: Calendar.Component = granularity == .hour ? .hour : .day
-    let lastStart = bucketStart(containing: lastBucket, unit: unit, calendar: calendar)
-    let firstStart = bucketStart(containing: firstBucket, unit: unit, calendar: calendar)
+    /// 桶起点序列（升序、含空桶）——数据层据此补空桶，视图直接画。
+    ///
+    /// 从末桶**往回**走，而不是从首桶按「+24 小时 / +1 小时」正推：日粒度下正推过午夜发生
+    /// 夏令时跳变的那天之后，每个落点都晚一小时，走到末桶之前就退出——曲线丢掉窗口最后
+    /// 一天，而总量把它算进去了（America/Santiago 实测：总量 200，曲线只有 19 个桶）。
+    /// 往回走时每一步用「前一秒所在的桶起点」，跳变日与不存在的当地时刻都不会踩空。
+    ///
+    /// 桶按**键**去重：秋令时回拨的那一小时会出现两个同分钟的桶（如 `T00` 两次），而 SQL
+    /// 也是按键分组的，它们本来就是同一个桶。
+    func bucketStarts(calendar: Calendar = .current) -> [Date] {
+        let unit: Calendar.Component = granularity == .hour ? .hour : .day
+        let lastStart = bucketStart(containing: lastBucket, unit: unit, calendar: calendar)
+        let firstStart = bucketStart(containing: firstBucket, unit: unit, calendar: calendar)
 
-    var starts: [Date] = []
-    var seen = Set<String>()
-    var cursor = lastStart
-    while cursor >= firstStart {
-      let key = UsageStatsKey.bucket(for: cursor, granularity: granularity, calendar: calendar)
-      if seen.insert(key).inserted { starts.append(cursor) }
-      if let bucketLimit, starts.count >= bucketLimit { break }
-      guard let previous = previousBucketStart(before: cursor, unit: unit, calendar: calendar)
-      else { break }
-      cursor = previous
+        var starts: [Date] = []
+        var seen = Set<String>()
+        var cursor = lastStart
+        while cursor >= firstStart {
+            let key = UsageStatsKey.bucket(
+                for: cursor, granularity: granularity, calendar: calendar)
+            if seen.insert(key).inserted { starts.append(cursor) }
+            if let bucketLimit, starts.count >= bucketLimit { break }
+            guard let previous = previousBucketStart(before: cursor, unit: unit, calendar: calendar)
+            else { break }
+            cursor = previous
+        }
+        return starts.reversed()
     }
-    return starts.reversed()
-  }
 
-  /// 某个时刻所在桶的起点。
-  private func bucketStart(containing date: Date, unit: Calendar.Component, calendar: Calendar)
-    -> Date
-  {
-    calendar.dateInterval(of: unit, for: date)?.start ?? date
-  }
+    /// 某个时刻所在桶的起点。
+    private func bucketStart(containing date: Date, unit: Calendar.Component, calendar: Calendar)
+        -> Date
+    {
+        calendar.dateInterval(of: unit, for: date)?.start ?? date
+    }
 
-  /// 上一个桶的起点：从「前一秒」所在的桶取（不用 `date(byAdding:)` 直接减去一整天——
-  /// 夏令时跳变日的当地零点可能不存在，加减一天的行为不保证落在相邻的那一天）。
-  private func previousBucketStart(
-    before date: Date, unit: Calendar.Component, calendar: Calendar
-  ) -> Date? {
-    let start = bucketStart(
-      containing: date.addingTimeInterval(-1), unit: unit, calendar: calendar)
-    return start < date ? start : nil
-  }
+    /// 上一个桶的起点：从「前一秒」所在的桶取（不用 `date(byAdding:)` 直接减去一整天——
+    /// 夏令时跳变日的当地零点可能不存在，加减一天的行为不保证落在相邻的那一天）。
+    private func previousBucketStart(
+        before date: Date, unit: Calendar.Component, calendar: Calendar
+    ) -> Date? {
+        let start = bucketStart(
+            containing: date.addingTimeInterval(-1), unit: unit, calendar: calendar)
+        return start < date ? start : nil
+    }
 }
 
 /// 趋势图的粒度。
 nonisolated enum TrendGranularity: Sendable {
-  case hour
-  case day
+    case hour
+    case day
 }
 
 /// 一个窗口内的汇总用量。
 nonisolated struct UsageTotals: Equatable, Sendable {
-  var input = 0
-  var output = 0
-  var cacheRead = 0
-  var cacheWrite = 0
-  /// 窗口内的会话数（去重，不含子代理会话）。
-  var sessions = 0
-  /// 窗口内的工具调用次数。
-  var calls = 0
+    var input = 0
+    var output = 0
+    var cacheRead = 0
+    var cacheWrite = 0
+    /// 窗口内的会话数（去重，不含子代理会话）。
+    var sessions = 0
+    /// 窗口内的工具调用次数。
+    var calls = 0
 
-  /// 总 token = 输入 + 输出 + 缓存读 + 缓存写。
-  var total: Int { input + output + cacheRead + cacheWrite }
+    /// 总 token = 输入 + 输出 + 缓存读 + 缓存写。
+    var total: Int { input + output + cacheRead + cacheWrite }
 
-  /// 缓存命中率 = 缓存读 / (输入 + 缓存读 + 缓存写)；分母为 0 时无意义。
-  var cacheHitRate: Double? {
-    let promptTokens = input + cacheRead + cacheWrite
-    guard promptTokens > 0 else { return nil }
-    return Double(cacheRead) / Double(promptTokens)
-  }
+    /// 缓存命中率 = 缓存读 / (输入 + 缓存读 + 缓存写)；分母为 0 时无意义。
+    var cacheHitRate: Double? {
+        let promptTokens = input + cacheRead + cacheWrite
+        guard promptTokens > 0 else { return nil }
+        return Double(cacheRead) / Double(promptTokens)
+    }
 
-  /// 是否一条记录都没有（用于空态判断）。
-  var isEmpty: Bool { total == 0 && calls == 0 && sessions == 0 }
+    /// 是否一条记录都没有（用于空态判断）。
+    var isEmpty: Bool { total == 0 && calls == 0 && sessions == 0 }
 
-  static func + (lhs: UsageTotals, rhs: UsageTotals) -> UsageTotals {
-    var sum = lhs
-    sum.input += rhs.input
-    sum.output += rhs.output
-    sum.cacheRead += rhs.cacheRead
-    sum.cacheWrite += rhs.cacheWrite
-    sum.calls += rhs.calls
-    sum.sessions += rhs.sessions
-    return sum
-  }
+    static func + (lhs: UsageTotals, rhs: UsageTotals) -> UsageTotals {
+        var sum = lhs
+        sum.input += rhs.input
+        sum.output += rhs.output
+        sum.cacheRead += rhs.cacheRead
+        sum.cacheWrite += rhs.cacheWrite
+        sum.calls += rhs.calls
+        sum.sessions += rhs.sessions
+        return sum
+    }
 }
 
 /// 单个 Agent 在窗口内的用量。
 nonisolated struct AgentUsage: Identifiable, Equatable, Sendable {
-  let agent: AgentKind
-  var totals: UsageTotals
+    let agent: AgentKind
+    var totals: UsageTotals
 
-  var id: String { agent.rawValue }
+    var id: String { agent.rawValue }
 }
 
 /// 单个工具在窗口内的调用次数。
 nonisolated struct ToolUsage: Identifiable, Equatable, Sendable {
-  /// 归一化后的工具名（入库前已去大小写与 `mcp__` 前缀）。
-  let name: String
-  let calls: Int
+    /// 归一化后的工具名（入库前已去大小写与 `mcp__` 前缀）。
+    let name: String
+    let calls: Int
 
-  var id: String { name }
+    var id: String { name }
 }
 
 /// 单个模型在窗口内的用量。
 nonisolated struct ModelUsage: Identifiable, Equatable, Sendable {
-  /// 记录里的模型标识（`message.model` / `modelID`）；提供方不参与分组。
-  let name: String
-  var totals: UsageTotals
+    /// 记录里的模型标识（`message.model` / `modelID`）；提供方不参与分组。
+    let name: String
+    var totals: UsageTotals
 
-  var id: String { name }
+    var id: String { name }
 }
 
 /// 趋势图上的一个点（一个时间桶）。四路 token 各自成列，曲线按需选路画。
 nonisolated struct TrendPoint: Identifiable, Equatable, Sendable {
-  /// 桶起点（本地时区）。
-  let start: Date
-  let input: Int
-  let output: Int
-  let cacheRead: Int
-  let cacheWrite: Int
-  /// 桶内的工具调用次数。
-  let calls: Int
+    /// 桶起点（本地时区）。
+    let start: Date
+    let input: Int
+    let output: Int
+    let cacheRead: Int
+    let cacheWrite: Int
+    /// 桶内的工具调用次数。
+    let calls: Int
 
-  var id: Double { start.timeIntervalSince1970 }
+    var id: Double { start.timeIntervalSince1970 }
 
-  /// 桶内的总 token（与 `UsageTotals.total` 同口径：四路之和）。
-  var total: Int { input + output + cacheRead + cacheWrite }
+    /// 桶内的总 token（与 `UsageTotals.total` 同口径：四路之和）。
+    var total: Int { input + output + cacheRead + cacheWrite }
 
-  /// 某一路序列在这个桶里的值。
-  func value(for series: StatsSeries) -> Int {
-    switch series {
-    case .total: return total
-    case .input: return input
-    case .output: return output
-    case .cacheRead: return cacheRead
-    case .cacheWrite: return cacheWrite
+    /// 某一路序列在这个桶里的值。
+    func value(for series: StatsSeries) -> Int {
+        switch series {
+        case .total: return total
+        case .input: return input
+        case .output: return output
+        case .cacheRead: return cacheRead
+        case .cacheWrite: return cacheWrite
+        }
     }
-  }
 }
 
 /// 热力图上的一天：某个本地自然日的两个读数（token 总量与工具调用次数）。
@@ -384,58 +390,58 @@ nonisolated struct TrendPoint: Identifiable, Equatable, Sendable {
 /// 视图拿它与 `UsageStatsCalendar.heatmapWeeks` 的每一格对齐。查询只返回**有记录的日子**
 /// （没有记录的日子由视图按 0 画），因此数组是稀疏、升序的。
 nonisolated struct DayUsage: Identifiable, Equatable, Sendable {
-  /// 本地自然日键（`2026-09-20`）。
-  let dayKey: String
-  /// 当日总量（输入 + 输出 + 缓存读 + 缓存写，与总览卡同口径）。
-  let total: Int
-  /// 当日的工具调用次数（与工具榜同口径）。
-  let calls: Int
+    /// 本地自然日键（`2026-09-20`）。
+    let dayKey: String
+    /// 当日总量（输入 + 输出 + 缓存读 + 缓存写，与总览卡同口径）。
+    let total: Int
+    /// 当日的工具调用次数（与工具榜同口径）。
+    let calls: Int
 
-  var id: String { dayKey }
+    var id: String { dayKey }
 
-  /// 按当前显示的量取值（热力图的深浅与汇总行都读它）。
-  func value(for metric: StatsHeatmapMetric) -> Int {
-    switch metric {
-    case .tokens: return total
-    case .calls: return calls
+    /// 按当前显示的量取值（热力图的深浅与汇总行都读它）。
+    func value(for metric: StatsHeatmapMetric) -> Int {
+        switch metric {
+        case .tokens: return total
+        case .calls: return calls
+        }
     }
-  }
 }
 
 /// 热力图按哪个量上色（右上角的两档切换）。
 nonisolated enum StatsHeatmapMetric: String, CaseIterable, Identifiable, Sendable {
-  /// 当日 token 总量（与总览卡同一份口径）。
-  case tokens
-  /// 当日工具调用次数（与工具榜同一份口径）。
-  case calls
+    /// 当日 token 总量（与总览卡同一份口径）。
+    case tokens
+    /// 当日工具调用次数（与工具榜同一份口径）。
+    case calls
 
-  var id: String { rawValue }
+    var id: String { rawValue }
 }
 
 /// 一次查询的完整结果，视图只消费这个值。
 nonisolated struct UsageStatsSnapshot: Equatable, Sendable {
-  /// 这次查询的窗口（视图据它取粒度与横轴刻度）。
-  var window: StatsWindow = .preset(.today)
-  var totals = UsageTotals()
-  /// 各 Agent 的用量，按总 token 降序。
-  var agents: [AgentUsage] = []
-  /// 各模型的用量，按总 token 降序（同名模型跨来源合并、不含模型标识为空的桶）。
-  var models: [ModelUsage] = []
-  /// 工具榜，按调用次数降序（视图自行截断）。
-  var tools: [ToolUsage] = []
-  /// 趋势，按时间升序且**含空桶**（视图可直接画）。
-  var trend: [TrendPoint] = []
-  /// 热力图用的每日总量：近 `UsageStatsCalendar.heatmapWeekCount` 周、升序且稀疏（见 `DayUsage`）。
-  ///
-  /// 它是**固定窗口**、不跟着 `window` 变（热力图要的是近半年的每日节律，理由见
-  /// `UsageStatsCalendar.heatmapWeekCount`）。
-  var daily: [DayUsage] = []
-  /// 最近一次索引完成时间。
-  var indexedAt: Date?
-  /// 是否正在做首次回填 / 增量扫描。
-  var isIndexing = false
+    /// 这次查询的窗口（视图据它取粒度与横轴刻度）。
+    var window: StatsWindow = .preset(.today)
+    var totals = UsageTotals()
+    /// 各 Agent 的用量，按总 token 降序。
+    var agents: [AgentUsage] = []
+    /// 各模型的用量，按总 token 降序（同名模型跨来源合并、不含模型标识为空的桶）。
+    var models: [ModelUsage] = []
+    /// 工具榜，按调用次数降序（视图自行截断）。
+    var tools: [ToolUsage] = []
+    /// 趋势，按时间升序且**含空桶**（视图可直接画）。
+    var trend: [TrendPoint] = []
+    /// 热力图用的每日总量：近 `UsageStatsCalendar.heatmapWeekCount` 周、升序且稀疏（见 `DayUsage`）。
+    ///
+    /// 它是**固定窗口**、不跟着 `window` 变（热力图要的是近半年的每日节律，理由见
+    /// `UsageStatsCalendar.heatmapWeekCount`）。
+    var daily: [DayUsage] = []
+    /// 最近一次索引完成时间。
+    var indexedAt: Date?
+    /// 是否正在做首次回填 / 增量扫描。
+    var isIndexing = false
 
-  static let empty = UsageStatsSnapshot()
+    static let empty = UsageStatsSnapshot()
 }
 
 // MARK: - 数值短格式
@@ -496,45 +502,45 @@ nonisolated enum UsageTokenFormat {
 
 /// 聚合键的构造与解析。全部按**本地时区**分桶，键形如 `2026-09-20T14`。
 nonisolated enum UsageStatsKey {
-  /// 本地时区的「小时」键。
-  static func hour(for date: Date, calendar: Calendar = .current) -> String {
-    formatter(for: calendar).string(from: date)
-  }
-
-  /// 从小时键取出「天」部分（`2026-09-20T14` → `2026-09-20`）。
-  static func day(of hourKey: String) -> String {
-    String(hourKey.prefix(10))
-  }
-
-  /// 趋势用的桶键：小时粒度给 `2026-09-20T14`，天粒度给 `2026-09-20`。
-  /// 统计库的分组表达式（`hour_key` / `substr(hour_key, 1, 10)`）与此一一对应。
-  static func bucket(
-    for date: Date, granularity: TrendGranularity, calendar: Calendar = .current
-  ) -> String {
-    let hourKey = hour(for: date, calendar: calendar)
-    switch granularity {
-    case .hour:
-      return hourKey
-    case .day:
-      return day(of: hourKey)
+    /// 本地时区的「小时」键。
+    static func hour(for date: Date, calendar: Calendar = .current) -> String {
+        formatter(for: calendar).string(from: date)
     }
-  }
 
-  private static var cachedFormatter: DateFormatter?
-  private static var cachedTimeZoneIdentifier: String?
-
-  /// 按日历时区取格式化器；时区变了就重建（用户切换时区后键要跟着走）。
-  private static func formatter(for calendar: Calendar) -> DateFormatter {
-    let identifier = calendar.timeZone.identifier
-    if let cachedFormatter, cachedTimeZoneIdentifier == identifier {
-      return cachedFormatter
+    /// 从小时键取出「天」部分（`2026-09-20T14` → `2026-09-20`）。
+    static func day(of hourKey: String) -> String {
+        String(hourKey.prefix(10))
     }
-    let formatter = DateFormatter()
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = calendar.timeZone
-    formatter.dateFormat = "yyyy-MM-dd'T'HH"
-    cachedFormatter = formatter
-    cachedTimeZoneIdentifier = identifier
-    return formatter
-  }
+
+    /// 趋势用的桶键：小时粒度给 `2026-09-20T14`，天粒度给 `2026-09-20`。
+    /// 统计库的分组表达式（`hour_key` / `substr(hour_key, 1, 10)`）与此一一对应。
+    static func bucket(
+        for date: Date, granularity: TrendGranularity, calendar: Calendar = .current
+    ) -> String {
+        let hourKey = hour(for: date, calendar: calendar)
+        switch granularity {
+        case .hour:
+            return hourKey
+        case .day:
+            return day(of: hourKey)
+        }
+    }
+
+    private static var cachedFormatter: DateFormatter?
+    private static var cachedTimeZoneIdentifier: String?
+
+    /// 按日历时区取格式化器；时区变了就重建（用户切换时区后键要跟着走）。
+    private static func formatter(for calendar: Calendar) -> DateFormatter {
+        let identifier = calendar.timeZone.identifier
+        if let cachedFormatter, cachedTimeZoneIdentifier == identifier {
+            return cachedFormatter
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd'T'HH"
+        cachedFormatter = formatter
+        cachedTimeZoneIdentifier = identifier
+        return formatter
+    }
 }

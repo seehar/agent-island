@@ -53,7 +53,8 @@ nonisolated enum AppLanguage: String, CaseIterable, Identifiable {
     /// （zh-Hant 不在支持列表里，按平台语义回退到英语）。自己按主语言子标签兜底会
     /// 让繁体用户拿到简体，而同一界面上由平台解析的部分仍是英语，两种语言混排。
     static func systemCode(for preferredLanguages: [String]) -> String {
-        Bundle.preferredLocalizations(from: availableCodes, forPreferences: preferredLanguages).first
+        Bundle.preferredLocalizations(from: availableCodes, forPreferences: preferredLanguages)
+            .first
             ?? "en"
     }
 }
@@ -95,7 +96,8 @@ final class LocalizationManager: ObservableObject {
         var bundles: [String: Bundle] = [:]
         for code in AppLanguage.availableCodes {
             guard let path = Bundle.main.path(forResource: code, ofType: "lproj"),
-                  let bundle = Bundle(path: path) else { continue }
+                let bundle = Bundle(path: path)
+            else { continue }
             bundles[code] = bundle
         }
         return bundles

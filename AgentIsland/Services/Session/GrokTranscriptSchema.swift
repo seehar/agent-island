@@ -63,7 +63,8 @@ nonisolated final class GrokTranscriptSchema: JSONLTranscriptSchema {
                 guard let id = block["tool_use_id"] as? String else { continue }
                 let isError = block["is_error"] as? Bool ?? false
                 state.toolResults[id] = ToolResultPayload(
-                    content: block["content"] as? String, stdout: nil, stderr: nil, isError: isError)
+                    content: block["content"] as? String, stdout: nil, stderr: nil, isError: isError
+                )
                 state.completedToolIds.insert(id)
                 toolOutputs.append((id: id, isError: isError))
             default:
@@ -128,7 +129,8 @@ nonisolated final class GrokTranscriptSchema: JSONLTranscriptSchema {
 
     /// 角色：`type`（增量读取器用的字段）或 `role`（记录里另一处可能出现的位置）。
     private static func role(json: [String: Any], message: [String: Any]) -> ChatRole? {
-        let raw = (json["type"] as? String) ?? (json["role"] as? String)
+        let raw =
+            (json["type"] as? String) ?? (json["role"] as? String)
             ?? (message["role"] as? String)
         switch raw?.lowercased() {
         case "user", "user_input": return .user

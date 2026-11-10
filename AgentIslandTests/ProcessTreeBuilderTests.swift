@@ -13,10 +13,13 @@ import Testing
 
 @Suite("进程树遍历")
 struct ProcessTreeBuilderTests {
-    private func tree(_ rows: [(pid: Int, ppid: Int, command: String)]) -> [Int: AgentIsland.ProcessInfo] {
+    private func tree(_ rows: [(pid: Int, ppid: Int, command: String)]) -> [Int: AgentIsland
+        .ProcessInfo]
+    {
         var result: [Int: AgentIsland.ProcessInfo] = [:]
         for row in rows {
-            result[row.pid] = AgentIsland.ProcessInfo(pid: row.pid, ppid: row.ppid, command: row.command, tty: nil)
+            result[row.pid] = AgentIsland.ProcessInfo(
+                pid: row.pid, ppid: row.ppid, command: row.command, tty: nil)
         }
         return result
     }
@@ -68,7 +71,9 @@ struct ProcessTreeBuilderTests {
 
     @Test("isInTmux 沿父链命中 tmux，且大小写不敏感")
     func isInTmuxDetectsAncestor() {
-        let processTree = tree([(600, 500, "zsh"), (500, 400, "TMUX"), (400, 1, "login"), (700, 1, "zsh")])
+        let processTree = tree([
+            (600, 500, "zsh"), (500, 400, "TMUX"), (400, 1, "login"), (700, 1, "zsh"),
+        ])
         let builder = ProcessTreeBuilder.shared
 
         #expect(builder.isInTmux(pid: 600, tree: processTree))
@@ -85,7 +90,9 @@ struct ProcessTreeBuilderTests {
         }
         rows.append((1025, 1, "tmux"))
         let far = tree(rows)
-        let near = tree([(1000, 1001, "zsh"), (1001, 1002, "zsh"), (1002, 1003, "zsh"), (1003, 1, "tmux")])
+        let near = tree([
+            (1000, 1001, "zsh"), (1001, 1002, "zsh"), (1002, 1003, "zsh"), (1003, 1, "tmux"),
+        ])
         let builder = ProcessTreeBuilder.shared
 
         #expect(builder.isInTmux(pid: 1000, tree: near))
@@ -105,7 +112,8 @@ struct ProcessTreeBuilderTests {
     @Test("findTerminalPid 从终端自身出发返回自身")
     func findTerminalPidReturnsSelfForTerminal() {
         let processTree = tree([(600, 1, "Terminal")])
-        #expect(ProcessTreeBuilder.shared.findTerminalPid(forProcess: 600, tree: processTree) == 600)
+        #expect(
+            ProcessTreeBuilder.shared.findTerminalPid(forProcess: 600, tree: processTree) == 600)
     }
 
     @Test("findAncestor 按调用方给的判定找祖先，并支持从自身出发")
@@ -127,7 +135,8 @@ struct ProcessTreeBuilderTests {
             } == 500)
         // 谁都不匹配时返回 nil，而不是硬走到根。
         #expect(
-            builder.findAncestor(fromProcess: 800, tree: processTree) { $0.command == "nope" } == nil)
+            builder.findAncestor(fromProcess: 800, tree: processTree) { $0.command == "nope" }
+                == nil)
     }
 
     @Test("findAncestor 的深度上限与 findTerminalPid 同源：超过 20 层不再上溯")

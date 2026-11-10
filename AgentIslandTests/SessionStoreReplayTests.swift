@@ -11,11 +11,11 @@
 import Foundation
 import Testing
 
+@testable import AgentIsland
+
 //  说明：审批相关用例（approvalFlow / denialMarksToolError）暂时没有收录——
 //  审批语义正被另一条并行改动线重做（待决许可的持有者从 SessionStore 移到 socket 层，
 //  事件与键的形状都在变）。等那轮落定后按新语义补回来，好过现在把一套会过期的期望钉住。
-
-@testable import AgentIsland
 
 //  注意：`endedSessionHonoursRetentionWindow` 必须动 standard 偏好域（SessionStore 只读它），
 //  因此本套件串行执行，避免与同套件里断言「结束即移除」的用例互相干扰。
@@ -93,7 +93,8 @@ struct SessionStoreReplayTests {
         let key = SessionKey(agent: .claudeCode, sessionId: sessionId)
 
         await SessionStore.shared.process(
-            .hookReceived(hook(sessionId: sessionId, cwd: cwd, event: "SessionStart", status: "starting")))
+            .hookReceived(
+                hook(sessionId: sessionId, cwd: cwd, event: "SessionStart", status: "starting")))
 
         let session = await SessionStore.shared.session(for: key)
         #expect(session != nil)
@@ -134,7 +135,8 @@ struct SessionStoreReplayTests {
         let key = SessionKey(agent: .claudeCode, sessionId: sessionId)
 
         await SessionStore.shared.process(
-            .hookReceived(hook(sessionId: sessionId, cwd: cwd, event: "SessionStart", status: "starting")))
+            .hookReceived(
+                hook(sessionId: sessionId, cwd: cwd, event: "SessionStart", status: "starting")))
         await SessionStore.shared.process(
             .hookReceived(
                 hook(
@@ -149,7 +151,8 @@ struct SessionStoreReplayTests {
         await SessionStore.shared.process(
             .hookReceived(
                 hook(
-                    sessionId: sessionId, cwd: cwd, event: "PostToolUse", status: "waiting_for_input",
+                    sessionId: sessionId, cwd: cwd, event: "PostToolUse",
+                    status: "waiting_for_input",
                     tool: "Bash", toolUseId: "tool-1")))
 
         session = await SessionStore.shared.session(for: key)
@@ -160,8 +163,6 @@ struct SessionStoreReplayTests {
         await SessionStore.shared.process(.sessionEnded(key: key))
     }
 
-
-
     @Test("Stop 事件把会话置为等待输入")
     func stopEventMarksWaitingForInput() async {
         let sessionId = makeSessionId("stop")
@@ -169,9 +170,11 @@ struct SessionStoreReplayTests {
         let key = SessionKey(agent: .claudeCode, sessionId: sessionId)
 
         await SessionStore.shared.process(
-            .hookReceived(hook(sessionId: sessionId, cwd: cwd, event: "SessionStart", status: "starting")))
+            .hookReceived(
+                hook(sessionId: sessionId, cwd: cwd, event: "SessionStart", status: "starting")))
         await SessionStore.shared.process(
-            .hookReceived(hook(sessionId: sessionId, cwd: cwd, event: "Stop", status: "waiting_for_input")))
+            .hookReceived(
+                hook(sessionId: sessionId, cwd: cwd, event: "Stop", status: "waiting_for_input")))
 
         let session = await SessionStore.shared.session(for: key)
         #expect(phaseEquals(session, .waitingForInput))
@@ -187,7 +190,8 @@ struct SessionStoreReplayTests {
 
         // 会话刚建出来是空闲态，空闲 -> 等待输入不在合法转移表里，因此相位保持空闲
         await SessionStore.shared.process(
-            .hookReceived(hook(sessionId: sessionId, cwd: cwd, event: "Stop", status: "waiting_for_input")))
+            .hookReceived(
+                hook(sessionId: sessionId, cwd: cwd, event: "Stop", status: "waiting_for_input")))
 
         let session = await SessionStore.shared.session(for: key)
         #expect(session != nil)
@@ -209,12 +213,14 @@ struct SessionStoreReplayTests {
         let key = SessionKey(agent: .claudeCode, sessionId: sessionId)
 
         await SessionStore.shared.process(
-            .hookReceived(hook(sessionId: sessionId, cwd: cwd, event: "SessionStart", status: "starting")))
+            .hookReceived(
+                hook(sessionId: sessionId, cwd: cwd, event: "SessionStart", status: "starting")))
         let afterStart = await SessionStore.shared.session(for: key)
         #expect(afterStart != nil)
 
         await SessionStore.shared.process(
-            .hookReceived(hook(sessionId: sessionId, cwd: cwd, event: "SessionEnd", status: "ended")))
+            .hookReceived(
+                hook(sessionId: sessionId, cwd: cwd, event: "SessionEnd", status: "ended")))
 
         let session = await SessionStore.shared.session(for: key)
         #expect(session == nil)
@@ -232,9 +238,11 @@ struct SessionStoreReplayTests {
         defer { PreferenceStore.write(original, defaults: .standard) }
 
         await SessionStore.shared.process(
-            .hookReceived(hook(sessionId: sessionId, cwd: cwd, event: "SessionStart", status: "starting")))
+            .hookReceived(
+                hook(sessionId: sessionId, cwd: cwd, event: "SessionStart", status: "starting")))
         await SessionStore.shared.process(
-            .hookReceived(hook(sessionId: sessionId, cwd: cwd, event: "SessionEnd", status: "ended")))
+            .hookReceived(
+                hook(sessionId: sessionId, cwd: cwd, event: "SessionEnd", status: "ended")))
 
         let ended = await SessionStore.shared.session(for: key)
         #expect(ended != nil)
@@ -263,15 +271,19 @@ struct SessionStoreReplayTests {
         defer { PreferenceStore.write(original, defaults: .standard) }
 
         await SessionStore.shared.process(
-            .hookReceived(hook(sessionId: sessionId, cwd: cwd, event: "SessionStart", status: "starting")))
+            .hookReceived(
+                hook(sessionId: sessionId, cwd: cwd, event: "SessionStart", status: "starting")))
         await SessionStore.shared.process(
-            .hookReceived(hook(sessionId: sessionId, cwd: cwd, event: "SessionEnd", status: "ended")))
+            .hookReceived(
+                hook(sessionId: sessionId, cwd: cwd, event: "SessionEnd", status: "ended")))
         #expect(phaseEquals(await SessionStore.shared.session(for: key), .ended))
 
         // 同一会话 id 又有活动：不能被终态卡住，要回到处理中
         await SessionStore.shared.process(
             .hookReceived(
-                hook(sessionId: sessionId, cwd: cwd, event: "UserPromptSubmit", status: "processing")))
+                hook(
+                    sessionId: sessionId, cwd: cwd, event: "UserPromptSubmit", status: "processing")
+            ))
         let revived = await SessionStore.shared.session(for: key)
         #expect(revived != nil)
         #expect(phaseEquals(revived, .processing))
@@ -296,7 +308,8 @@ struct SessionStoreReplayTests {
                 phase: .ended, lastActivity: longAgo, retention: .immediate, now: now))
         #expect(
             SessionStore.shouldDropEndedSession(
-                phase: .processing, lastActivity: longAgo, retention: .tenMinutes, now: now) == false)
+                phase: .processing, lastActivity: longAgo, retention: .tenMinutes, now: now)
+                == false)
     }
 
     @Test("记录新增的消息进入会话历史")
@@ -306,7 +319,8 @@ struct SessionStoreReplayTests {
         let key = SessionKey(agent: .claudeCode, sessionId: sessionId)
 
         await SessionStore.shared.process(
-            .hookReceived(hook(sessionId: sessionId, cwd: cwd, event: "SessionStart", status: "starting")))
+            .hookReceived(
+                hook(sessionId: sessionId, cwd: cwd, event: "SessionStart", status: "starting")))
         #expect(chatItemCount(await SessionStore.shared.session(for: key)) == 0)
 
         let message = ChatMessage(id: "m1", role: .user, timestamp: Date(), content: [.text("你好")])
@@ -329,7 +343,8 @@ struct SessionStoreReplayTests {
         let key = SessionKey(agent: .claudeCode, sessionId: sessionId)
 
         await SessionStore.shared.process(
-            .hookReceived(hook(sessionId: sessionId, cwd: cwd, event: "SessionStart", status: "starting")))
+            .hookReceived(
+                hook(sessionId: sessionId, cwd: cwd, event: "SessionStart", status: "starting")))
         await SessionStore.shared.process(
             .hookReceived(
                 hook(
@@ -339,7 +354,8 @@ struct SessionStoreReplayTests {
         await SessionStore.shared.process(
             .toolCompleted(
                 key: key, toolUseId: "tool-1",
-                result: ToolCompletionResult(status: .error, result: "boom", structuredResult: nil)))
+                result: ToolCompletionResult(status: .error, result: "boom", structuredResult: nil))
+        )
 
         var session = await SessionStore.shared.session(for: key)
         #expect(toolStatus(session, id: "tool-1") == ToolStatus.error)
@@ -349,7 +365,8 @@ struct SessionStoreReplayTests {
         await SessionStore.shared.process(
             .toolCompleted(
                 key: key, toolUseId: "tool-1",
-                result: ToolCompletionResult(status: .success, result: "ok", structuredResult: nil)))
+                result: ToolCompletionResult(status: .success, result: "ok", structuredResult: nil))
+        )
 
         session = await SessionStore.shared.session(for: key)
         #expect(toolStatus(session, id: "tool-1") == ToolStatus.error)

@@ -141,8 +141,9 @@ struct AppMotionTests {
         #expect(ink(spinnerFirst) > 0, "0 档的转轮帧是空白")
         // 跨过帧节拍（转轮 0.15s、角色忙碌档 0.05s）再看：还在走时钟的话，两帧都会变。
         Thread.sleep(forTimeInterval: 0.4)
-        guard let spinnerLater = render(spinner), let frozenLater = render(
-            AgentMascot(agent: .claudeCode, status: status, size: 64))
+        guard let spinnerLater = render(spinner),
+            let frozenLater = render(
+                AgentMascot(agent: .claudeCode, status: status, size: 64))
         else {
             Issue.record("第二次渲染失败")
             return

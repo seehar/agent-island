@@ -64,7 +64,8 @@ nonisolated struct CodexAgentProvider: AgentProvider {
     /// `<会话 id>.jsonl` 后缀扫目录找回。
     func transcriptFile(sessionId: String, cwd: String) -> URL? {
         // 记忆：这里的查找最多四层目录遍历，而本函数在每次增量读取时都会被调一次。
-        if let memoized = TranscriptPathMemo.shared.lookup(root: sessionsRoot, sessionId: sessionId) {
+        if let memoized = TranscriptPathMemo.shared.lookup(root: sessionsRoot, sessionId: sessionId)
+        {
             return memoized
         }
         guard let resolved = searchTranscriptFile(sessionId: sessionId) else { return nil }
@@ -76,7 +77,8 @@ nonisolated struct CodexAgentProvider: AgentProvider {
     private func searchTranscriptFile(sessionId: String) -> URL? {
         let fm = FileManager.default
         guard
-            let years = try? fm.contentsOfDirectory(at: sessionsRoot, includingPropertiesForKeys: nil)
+            let years = try? fm.contentsOfDirectory(
+                at: sessionsRoot, includingPropertiesForKeys: nil)
         else { return nil }
 
         for year in years {

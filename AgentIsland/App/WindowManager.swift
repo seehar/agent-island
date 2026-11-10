@@ -33,8 +33,9 @@ class WindowManager {
 
         // Skip recreation if screen hasn't meaningfully changed
         if let existingController = windowController,
-           let existingFrame = currentScreenFrame,
-           existingFrame == screen.frame {
+            let existingFrame = currentScreenFrame,
+            existingFrame == screen.frame
+        {
             logger.debug("Screen unchanged, skipping window recreation")
             return existingController
         }

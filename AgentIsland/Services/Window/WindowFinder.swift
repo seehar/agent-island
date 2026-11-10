@@ -18,7 +18,8 @@ struct YabaiWindow: Sendable {
 
     nonisolated init?(from dict: [String: Any]) {
         guard let id = dict["id"] as? Int,
-              let pid = dict["pid"] as? Int else { return nil }
+            let pid = dict["pid"] as? Int
+        else { return nil }
 
         self.id = id
         self.pid = pid
@@ -65,9 +66,11 @@ actor WindowFinder {
         guard isYabaiAvailable(), let path = yabaiPath else { return [] }
 
         do {
-            let output = try await ProcessExecutor.shared.run(path, arguments: ["-m", "query", "--windows"])
+            let output = try await ProcessExecutor.shared.run(
+                path, arguments: ["-m", "query", "--windows"])
             guard let data = output.data(using: .utf8),
-                  let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+                let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+            else {
                 return []
             }
             return jsonArray.compactMap { YabaiWindow(from: $0) }
@@ -87,12 +90,15 @@ actor WindowFinder {
     }
 
     /// Find tmux window (title contains "tmux")
-    nonisolated func findTmuxWindow(forTerminalPid pid: Int, windows: [YabaiWindow]) -> YabaiWindow? {
+    nonisolated func findTmuxWindow(forTerminalPid pid: Int, windows: [YabaiWindow]) -> YabaiWindow?
+    {
         windows.first { $0.pid == pid && $0.title.lowercased().contains("tmux") }
     }
 
     /// Find any non-Claude window for a terminal
-    nonisolated func findNonClaudeWindow(forTerminalPid pid: Int, windows: [YabaiWindow]) -> YabaiWindow? {
+    nonisolated func findNonClaudeWindow(forTerminalPid pid: Int, windows: [YabaiWindow])
+        -> YabaiWindow?
+    {
         windows.first { $0.pid == pid && !$0.title.contains("✳") }
     }
 }

@@ -61,7 +61,8 @@ struct CursorMascot: View {
             let sprite = MascotSprite(canvas, svgWidth: 15, svgHeight: 12, svgTop: 4)
             drawSleeping(&context, sprite, float: float)
             // Z 从宝石顶顶点（cy - ry = 5.5）上方升起，不压到身上。
-            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 5.5, t: t, size: size, color: Self.sleepZ)
+            MascotDraw.floatingZs(
+                &context, sprite: sprite, bodyTop: 5.5, t: t, size: size, color: Self.sleepZ)
         }
     }
 
@@ -261,7 +262,8 @@ struct CursorMascot: View {
         outline.addLine(to: botL)
         outline.addLine(to: topL)
         outline.closeSubpath()
-        context.stroke(outline, with: .color(Self.lightC.opacity(0.35)), lineWidth: sprite.block * 0.5)
+        context.stroke(
+            outline, with: .color(Self.lightC.opacity(0.35)), lineWidth: sprite.block * 0.5)
     }
 
     /// 两只眼睛：贴在宝石面上的两个点，大小随眨眼 / 瞪眼缩放，颜色可换（警报时闪红）。

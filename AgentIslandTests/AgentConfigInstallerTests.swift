@@ -137,7 +137,8 @@ struct AgentConfigInstallerTests {
     func installIsIdempotentAndUninstallRestores() throws {
         let home = try makeHome()
         let file = home.appendingPathComponent(".qoder/settings.json")
-        let originalText = #"{"model":"opus","hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"/usr/local/bin/other-hook.sh","timeout":5}]}]}}"#
+        let originalText =
+            #"{"model":"opus","hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"/usr/local/bin/other-hook.sh","timeout":5}]}]}}"#
         try write(originalText, to: file)
         let originalObject = try JSONSerialization.jsonObject(with: Data(originalText.utf8))
         let original = try #require(originalObject as? [String: Any])
@@ -167,8 +168,9 @@ struct AgentConfigInstallerTests {
 
         let uninstalled = try json(file)
         #expect(uninstalled["model"] as? String == "opus")
-        #expect(eventEntries(uninstalled, "hooks", "PreToolUse").flatMap(commands)
-            == ["/usr/local/bin/other-hook.sh"])
+        #expect(
+            eventEntries(uninstalled, "hooks", "PreToolUse").flatMap(commands)
+                == ["/usr/local/bin/other-hook.sh"])
         // 除排版外，内容与原始一模一样
         let uninstalledCanonical = try canonical(uninstalled)
         let originalCanonical = try canonical(original)
@@ -185,7 +187,8 @@ struct AgentConfigInstallerTests {
         // WorkBuddy 自己的配置里还住着沙箱等键，以及别人写的事件条目；深合并只加我们的
         // `hooks` 子键，其余必须原样留着。
         let file = home.appendingPathComponent(".workbuddy/settings.json")
-        let originalText = #"{"sandbox":{"enabled":true},"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"/usr/local/bin/other-hook.sh","timeout":5}]}]}}"#
+        let originalText =
+            #"{"sandbox":{"enabled":true},"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"/usr/local/bin/other-hook.sh","timeout":5}]}]}}"#
         try write(originalText, to: file)
         let originalObject = try JSONSerialization.jsonObject(with: Data(originalText.utf8))
         let original = try #require(originalObject as? [String: Any])
@@ -264,7 +267,8 @@ struct AgentConfigInstallerTests {
     func cursorFlatShapeAndCRLF() throws {
         let home = try makeHome()
         let file = home.appendingPathComponent(".cursor/hooks.json")
-        let original = "{\r\n    \"theme\": \"dark\",\r\n    \"hooks\": {\r\n        \"beforeSubmitPrompt\": [\r\n            { \"command\": \"/usr/local/bin/other.sh\" }\r\n        ]\r\n    }\r\n}\r\n"
+        let original =
+            "{\r\n    \"theme\": \"dark\",\r\n    \"hooks\": {\r\n        \"beforeSubmitPrompt\": [\r\n            { \"command\": \"/usr/local/bin/other.sh\" }\r\n        ]\r\n    }\r\n}\r\n"
         try write(original, to: file)
 
         #expect(AgentConfigInstaller.install(.cursor, home: home))
@@ -284,8 +288,9 @@ struct AgentConfigInstallerTests {
 
         AgentConfigInstaller.uninstall(.cursor, home: home)
         let uninstalled = try json(file)
-        #expect(eventEntries(uninstalled, "hooks", "beforeSubmitPrompt").flatMap(commands)
-            == ["/usr/local/bin/other.sh"])
+        #expect(
+            eventEntries(uninstalled, "hooks", "beforeSubmitPrompt").flatMap(commands)
+                == ["/usr/local/bin/other.sh"])
         #expect(uninstalled["theme"] as? String == "dark")
     }
 
@@ -361,19 +366,26 @@ struct AgentConfigInstallerTests {
             #expect(AgentConfigInstaller.install(.codex, home: home))
         }
         let fallbackRoot = home.appendingPathComponent(".codex")
-        #expect(FileManager.default.fileExists(atPath: fallbackRoot.appendingPathComponent("hooks.json").path))
+        #expect(
+            FileManager.default.fileExists(
+                atPath: fallbackRoot.appendingPathComponent("hooks.json").path))
         let seeded = try text(fallbackRoot.appendingPathComponent("config.toml"))
         #expect(seeded.contains("[features]"))
         #expect(seeded.contains("hooks = true"))
-        #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent("hooks.json").path))
+        #expect(
+            !FileManager.default.fileExists(atPath: home.appendingPathComponent("hooks.json").path))
 
         // 情形二：$CODEX_HOME 有值 → 一切都在它下面；hooks = false 就地翻成 true（保留注释与其它键）
         let envRoot = home.appendingPathComponent("codex-env")
-        try write("[features]\nhooks = false # 手改过\nmodel = \"gpt\"\n", to: envRoot.appendingPathComponent("config.toml"))
+        try write(
+            "[features]\nhooks = false # 手改过\nmodel = \"gpt\"\n",
+            to: envRoot.appendingPathComponent("config.toml"))
         withEnvironment("CODEX_HOME", envRoot.path) {
             #expect(AgentConfigInstaller.install(.codex, home: home))
         }
-        #expect(FileManager.default.fileExists(atPath: envRoot.appendingPathComponent("hooks.json").path))
+        #expect(
+            FileManager.default.fileExists(
+                atPath: envRoot.appendingPathComponent("hooks.json").path))
         let flipped = try text(envRoot.appendingPathComponent("config.toml"))
         #expect(flipped.contains("hooks = true # 手改过"))
         #expect(flipped.contains("model = \"gpt\""))
@@ -418,8 +430,9 @@ struct AgentConfigInstallerTests {
         withEnvironment("GROK_HOME", nil) {
             #expect(AgentConfigInstaller.install(.grok, home: home))
         }
-        #expect(FileManager.default.fileExists(
-            atPath: home.appendingPathComponent(".grok/hooks/agent-island.json").path))
+        #expect(
+            FileManager.default.fileExists(
+                atPath: home.appendingPathComponent(".grok/hooks/agent-island.json").path))
         #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent("hooks").path))
     }
 
@@ -430,7 +443,8 @@ struct AgentConfigInstallerTests {
         let home = try makeHome()
 
         #expect(AgentConfigInstaller.install(.gemini, home: home))
-        #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent(".gemini").path))
+        #expect(
+            !FileManager.default.fileExists(atPath: home.appendingPathComponent(".gemini").path))
         #expect(!AgentConfigInstaller.isInstalled(.gemini, home: home))
         #expect(AgentConfigInstaller.installedFiles(.gemini, home: home).isEmpty)
     }
@@ -507,9 +521,9 @@ struct AgentConfigInstallerTests {
     @Test("kimi：无结尾换行 / 两个尾部空行 / CRLF 三种文件都逐字节往返")
     func kimiTrailingBytesRoundTrip() throws {
         let fixtures = [
-            "# kimi\nmodel = \"k2\"",              // 结尾没有换行
-            "# kimi\nmodel = \"k2\"\n\n\n",        // 两个尾部空行
-            "# kimi\r\nmodel = \"k2\"\r\n",        // CRLF 行尾
+            "# kimi\nmodel = \"k2\"",  // 结尾没有换行
+            "# kimi\nmodel = \"k2\"\n\n\n",  // 两个尾部空行
+            "# kimi\r\nmodel = \"k2\"\r\n",  // CRLF 行尾
         ]
         for original in fixtures {
             let home = try makeHome()
@@ -563,15 +577,15 @@ struct AgentConfigInstallerTests {
         let home = try makeHome()
         let file = home.appendingPathComponent(".trae/traecli.yaml")
         let original = """
-        # traecli 配置
-        theme: dark
-        hooks:
-          - type: command
-            command: '/usr/local/bin/other-hook.sh'
-            timeout: '5s'
-        # 结尾注释
+            # traecli 配置
+            theme: dark
+            hooks:
+              - type: command
+                command: '/usr/local/bin/other-hook.sh'
+                timeout: '5s'
+            # 结尾注释
 
-        """
+            """
         try write(original, to: file)
 
         #expect(AgentConfigInstaller.install(.traeCli, home: home))
@@ -580,7 +594,8 @@ struct AgentConfigInstallerTests {
         #expect(installed.contains("--source traecli"))
         #expect(installed.contains("      - event: permission_request"))
         #expect(installed.contains("timeout: '86400s'"))
-        #expect(installed.contains("  - type: command\n    command: '/usr/local/bin/other-hook.sh'"))
+        #expect(
+            installed.contains("  - type: command\n    command: '/usr/local/bin/other-hook.sh'"))
         #expect(installed.contains("# 结尾注释"))
         #expect(AgentConfigInstaller.isInstalled(.traeCli, home: home))
 
@@ -639,13 +654,13 @@ struct AgentConfigInstallerTests {
         let home = try makeHome()
         let file = home.appendingPathComponent(".trae/traecli.yaml")
         let original = """
-        theme: dark
-        hooks:
-        - type: command
-          command: '/usr/local/bin/other.sh'
-          timeout: '5s'
+            theme: dark
+            hooks:
+            - type: command
+              command: '/usr/local/bin/other.sh'
+              timeout: '5s'
 
-        """
+            """
         try write(original, to: file)
 
         #expect(AgentConfigInstaller.install(.traeCli, home: home))
@@ -734,10 +749,12 @@ struct AgentConfigInstallerTests {
         #expect((try text(file)).hasPrefix("hooks:\n"))
         #expect(AgentConfigInstaller.isInstalled(.hermes, home: home))
         // 我们创建的文件不落备份：「没有备份」正是「这个文件是我们造的」的判据
-        #expect(!FileManager.default.fileExists(
-            atPath: file.appendingPathExtension("agent-island-backup").path))
-        #expect(AgentConfigInstaller.installedFiles(.hermes, home: home)
-            .map { $0.resolvingSymlinksInPath() } == [file.resolvingSymlinksInPath()])
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: file.appendingPathExtension("agent-island-backup").path))
+        #expect(
+            AgentConfigInstaller.installedFiles(.hermes, home: home)
+                .map { $0.resolvingSymlinksInPath() } == [file.resolvingSymlinksInPath()])
 
         AgentConfigInstaller.uninstall(.hermes, home: home)
         #expect(!FileManager.default.fileExists(atPath: file.path))
@@ -751,29 +768,31 @@ struct AgentConfigInstallerTests {
         // 用户文件：顶层别的键（含与 `hooks` 同前缀的 `hooks_auto_accept`）、hooks 下自己的键、
         // 注释与尾部空行 —— 安装只该在映射末尾插我们的键
         let original = """
-        # Hermes 配置（用户自己写的注释）
-        model: claude-sonnet-4
-        hooks_auto_accept: false
-        hooks:
-          # 用户自己的条目：我们要与它共存
-          pre_approval_request: [{command: '/usr/local/bin/user-hook.sh', timeout: 30}]
+            # Hermes 配置（用户自己写的注释）
+            model: claude-sonnet-4
+            hooks_auto_accept: false
+            hooks:
+              # 用户自己的条目：我们要与它共存
+              pre_approval_request: [{command: '/usr/local/bin/user-hook.sh', timeout: 30}]
 
-        # 结尾注释
+            # 结尾注释
 
-        """
+            """
         try write(original, to: file)
 
         #expect(AgentConfigInstaller.install(.hermes, home: home))
         let installed = try text(file)
-        #expect(installed.hasPrefix("""
-        # Hermes 配置（用户自己写的注释）
-        model: claude-sonnet-4
-        hooks_auto_accept: false
-        hooks:
-          # 用户自己的条目：我们要与它共存
-          pre_approval_request: [{command: '/usr/local/bin/user-hook.sh', timeout: 30}]
-          pre_tool_call: [{command: '
-        """))
+        #expect(
+            installed.hasPrefix(
+                """
+                # Hermes 配置（用户自己写的注释）
+                model: claude-sonnet-4
+                hooks_auto_accept: false
+                hooks:
+                  # 用户自己的条目：我们要与它共存
+                  pre_approval_request: [{command: '/usr/local/bin/user-hook.sh', timeout: 30}]
+                  pre_tool_call: [{command: '
+                """))
         #expect(installed.hasSuffix("\n\n# 结尾注释\n"))
         // 我们的键沿用映射已有的缩进（同一个映射里混缩进会让整个文件解析失败）
         #expect(installed.contains("\n  pre_tool_call: [{command: '"))
@@ -824,8 +843,10 @@ struct AgentConfigInstallerTests {
         #expect(AgentConfigInstaller.install(.hermes, home: home))
         let installed = try text(file)
         let line = installed.components(separatedBy: "\n").first { $0.contains("pre_tool_call:") }
-        #expect(line?.hasPrefix(
-            "  pre_tool_call: [{command: '/usr/local/bin/user.sh', timeout: 30}, {command: '") == true)
+        #expect(
+            line?.hasPrefix(
+                "  pre_tool_call: [{command: '/usr/local/bin/user.sh', timeout: 30}, {command: '")
+                == true)
         #expect(line?.hasSuffix("--event pre_tool_call', timeout: 5}]  # 用户自己的") == true)
         #expect(line?.contains(AgentHookScript.shellPath(home: home)) == true)
         // 只在那一行里追加一条我们的（别的 7 个事件补在映射末尾，没有重复的键）
@@ -845,17 +866,18 @@ struct AgentConfigInstallerTests {
 
         // 事件键下挂着块序列（YAML 往返写入器那类形状）—— 行手术删一条会留下孤立的 `timeout:`
         let nestedBlock = """
-        hooks:
-          pre_tool_call:
-          - command: 'python3 /usr/local/bin/other.py --source hermes'
-            timeout: 5
+            hooks:
+              pre_tool_call:
+              - command: 'python3 /usr/local/bin/other.py --source hermes'
+                timeout: 5
 
-        """
+            """
         try write(nestedBlock, to: file)
         #expect(AgentConfigInstaller.install(.hermes, home: home) == false)
         #expect(try Data(contentsOf: file) == Data(nestedBlock.utf8))
-        #expect(!FileManager.default.fileExists(
-            atPath: file.appendingPathExtension("agent-island-backup").path))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: file.appendingPathExtension("agent-island-backup").path))
         #expect(!AgentConfigInstaller.isInstalled(.hermes, home: home))
         #expect(AgentConfigInstaller.installedFiles(.hermes, home: home).isEmpty)
 
@@ -876,7 +898,8 @@ struct AgentConfigInstallerTests {
         let home = try makeHome()
         // `~/.hermes` 不存在 ⇒ 用户没装 Hermes：跳过（返回 true），一个字节都不写
         #expect(AgentConfigInstaller.install(.hermes, home: home))
-        #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent(".hermes").path))
+        #expect(
+            !FileManager.default.fileExists(atPath: home.appendingPathComponent(".hermes").path))
         #expect(!AgentConfigInstaller.isInstalled(.hermes, home: home))
 
         let envRoot = home.appendingPathComponent("env-hermes")
@@ -905,25 +928,26 @@ struct AgentConfigInstallerTests {
         let file = try makeHermesHome(home)
         let script = AgentHookScript.shellPath(home: home)
         let original = """
-        # 用户文件
-        hooks:
-          pre_tool_call:
-          - command: 'python3 \(script) --source hermes --event pre_tool_call'
-            timeout: 5
-          post_tool_call: [{command: '/usr/local/bin/user.sh', timeout: 30}]
+            # 用户文件
+            hooks:
+              pre_tool_call:
+              - command: 'python3 \(script) --source hermes --event pre_tool_call'
+                timeout: 5
+              post_tool_call: [{command: '/usr/local/bin/user.sh', timeout: 30}]
 
-        """
+            """
         try write(original, to: file)
         #expect(AgentConfigInstaller.isInstalled(.hermes, home: home))
 
         AgentConfigInstaller.uninstall(.hermes, home: home)
         // 我们的条目（含它的续行 `timeout:`）整项摘掉；摘空的键一起删；别人的键留着
-        #expect(try text(file) == """
-        # 用户文件
-        hooks:
-          post_tool_call: [{command: '/usr/local/bin/user.sh', timeout: 30}]
+        #expect(
+            try text(file) == """
+                # 用户文件
+                hooks:
+                  post_tool_call: [{command: '/usr/local/bin/user.sh', timeout: 30}]
 
-        """)
+                """)
         #expect(!AgentConfigInstaller.isInstalled(.hermes, home: home))
     }
 
@@ -951,10 +975,10 @@ struct AgentConfigInstallerTests {
 
         // 用户自己条目的**别的键**里恰好写着我们的脚本路径：卸载一个字节都不该动它
         let foreign = """
-        hooks:
-          pre_tool_call: [{command: '/usr/local/bin/user.sh', name: '\(script)', timeout: 30}]
+            hooks:
+              pre_tool_call: [{command: '/usr/local/bin/user.sh', name: '\(script)', timeout: 30}]
 
-        """
+            """
         try write(foreign, to: file)
         AgentConfigInstaller.uninstall(.hermes, home: home)
         #expect(try text(file) == foreign)
@@ -998,8 +1022,12 @@ struct AgentConfigInstallerTests {
 
         AgentConfigInstaller.uninstall(.cline, home: home)
         #expect(!AgentConfigInstaller.isInstalled(.cline, home: home))
-        #expect(!FileManager.default.fileExists(atPath: hooksDir.appendingPathComponent("PreToolUse").path))
-        #expect(FileManager.default.fileExists(atPath: hooksDir.appendingPathComponent("UserOwnHook").path))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: hooksDir.appendingPathComponent("PreToolUse").path))
+        #expect(
+            FileManager.default.fileExists(
+                atPath: hooksDir.appendingPathComponent("UserOwnHook").path))
     }
 
     @Test("cline：用户自己写的同名事件文件不被顶掉（跳过该事件并返回 false）")
@@ -1014,8 +1042,9 @@ struct AgentConfigInstallerTests {
         #expect(AgentConfigInstaller.install(.cline, home: home) == false)
         let untouched = try text(userEvent)
         #expect(untouched == userScript)
-        #expect(!FileManager.default.fileExists(
-            atPath: userEvent.appendingPathExtension("agent-island-backup").path))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: userEvent.appendingPathExtension("agent-island-backup").path))
 
         // 卸载只删我们写的那些事件文件，用户的那个原样留着
         AgentConfigInstaller.uninstall(.cline, home: home)
@@ -1038,8 +1067,9 @@ struct AgentConfigInstallerTests {
         try makeDirectory(home.appendingPathComponent("Documents/Cline"))
         #expect(AgentConfigInstaller.install(.cline, home: home))
         #expect(AgentConfigInstaller.isInstalled(.cline, home: home))
-        #expect(FileManager.default.fileExists(
-            atPath: hooksDir.appendingPathComponent("PreToolUse").path))
+        #expect(
+            FileManager.default.fileExists(
+                atPath: hooksDir.appendingPathComponent("PreToolUse").path))
     }
 
     // MARK: - installedFiles / 脚本落点
@@ -1189,7 +1219,9 @@ struct AgentConfigInstallerTests {
             #expect(allCommands.count == 2)
             #expect(ownCommands(installed, "hooks", "SessionStart").count == 1)
             // 默认根（~/.gemini）一个字节都不该出现
-            #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent(".gemini").path))
+            #expect(
+                !FileManager.default.fileExists(atPath: home.appendingPathComponent(".gemini").path)
+            )
 
             AgentConfigInstaller.uninstall(.gemini, home: home)
             #expect(!AgentConfigInstaller.isInstalled(.gemini, home: home))
@@ -1218,7 +1250,9 @@ struct AgentConfigInstallerTests {
             let contents = try text(event)
             #expect(contents.contains("--source cline"))
             // 默认位置（~/Documents/Cline）一个字节都不写
-            #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent("Documents").path))
+            #expect(
+                !FileManager.default.fileExists(
+                    atPath: home.appendingPathComponent("Documents").path))
 
             AgentConfigInstaller.uninstall(.cline, home: home)
             #expect(!AgentConfigInstaller.isInstalled(.cline, home: home))

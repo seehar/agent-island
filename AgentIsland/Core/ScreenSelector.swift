@@ -11,7 +11,7 @@ import Foundation
 
 /// Strategy for selecting which screen to use
 enum ScreenSelectionMode: String, Codable {
-    case automatic       // Prefer built-in display, fall back to main
+    case automatic  // Prefer built-in display, fall back to main
     case specificScreen  // User selected a specific screen
 }
 
@@ -22,7 +22,9 @@ struct ScreenIdentifier: Codable, Equatable, Hashable {
 
     /// Create identifier from NSScreen
     init(screen: NSScreen) {
-        if let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID {
+        if let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")]
+            as? CGDirectDisplayID
+        {
             self.displayID = screenNumber
         } else {
             self.displayID = nil
@@ -32,7 +34,10 @@ struct ScreenIdentifier: Codable, Equatable, Hashable {
 
     /// Check if this identifier matches a given screen
     func matches(_ screen: NSScreen) -> Bool {
-        guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else {
+        guard
+            let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")]
+                as? CGDirectDisplayID
+        else {
             return localizedName == screen.localizedName
         }
         // Primary match: displayID (most reliable when connected)
@@ -119,7 +124,8 @@ class ScreenSelector: ObservableObject {
         case .specificScreen:
             // Try to find the saved screen
             if let identifier = savedIdentifier,
-               let match = availableScreens.first(where: { identifier.matches($0) }) {
+                let match = availableScreens.first(where: { identifier.matches($0) })
+            {
                 return match
             }
             // Saved screen not found - fall back to automatic
@@ -129,12 +135,14 @@ class ScreenSelector: ObservableObject {
 
     private func loadPreferences() {
         if let modeString = UserDefaults.standard.string(forKey: modeKey),
-           let mode = ScreenSelectionMode(rawValue: modeString) {
+            let mode = ScreenSelectionMode(rawValue: modeString)
+        {
             selectionMode = mode
         }
 
         if let data = UserDefaults.standard.data(forKey: screenIdentifierKey),
-           let identifier = try? JSONDecoder().decode(ScreenIdentifier.self, from: data) {
+            let identifier = try? JSONDecoder().decode(ScreenIdentifier.self, from: data)
+        {
             savedIdentifier = identifier
         }
     }
@@ -143,7 +151,8 @@ class ScreenSelector: ObservableObject {
         UserDefaults.standard.set(selectionMode.rawValue, forKey: modeKey)
 
         if let identifier = savedIdentifier,
-           let data = try? JSONEncoder().encode(identifier) {
+            let data = try? JSONEncoder().encode(identifier)
+        {
             UserDefaults.standard.set(data, forKey: screenIdentifierKey)
         } else {
             UserDefaults.standard.removeObject(forKey: screenIdentifierKey)

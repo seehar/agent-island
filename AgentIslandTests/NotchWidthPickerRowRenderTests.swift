@@ -41,7 +41,8 @@ struct NotchWidthPickerRowRenderTests {
             at: probeDirectory, withIntermediateDirectories: true)
 
         let suiteName = "agent-island-width-row-render-\(UUID().uuidString)"
-        let selector = NotchWidthSelector(defaults: try #require(UserDefaults(suiteName: suiteName)))
+        let selector = NotchWidthSelector(
+            defaults: try #require(UserDefaults(suiteName: suiteName)))
         selector.setWidth(200, on: nil)
         selector.isPickerExpanded = true
 

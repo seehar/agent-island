@@ -59,7 +59,8 @@ struct DeepSeekHarnessMascot: View {
             let sprite = MascotSprite(canvas, svgWidth: 15, svgHeight: 12, svgTop: 4)
             drawSleeping(&context, sprite, breathe: MascotMotion.breathe(t, period: 4.5))
             // 睡眠 Z 从机身顶盖上方升起（趴姿的机身顶边随呼吸在 8.7…9.5 之间）。
-            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 8, t: t, size: size, color: Self.sleepZ)
+            MascotDraw.floatingZs(
+                &context, sprite: sprite, bodyTop: 8, t: t, size: size, color: Self.sleepZ)
         }
     }
 

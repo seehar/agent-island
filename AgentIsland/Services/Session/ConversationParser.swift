@@ -120,7 +120,8 @@ actor ConversationParser {
     static let shared = ConversationParser()
 
     /// 跨上下文使用的日志器。
-    nonisolated static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "Session")
+    nonisolated static let logger = Logger(
+        subsystem: "com.celestial.AgentIsland", category: "Session")
 
     /// 解析状态缓存保留的会话数上限。
     ///

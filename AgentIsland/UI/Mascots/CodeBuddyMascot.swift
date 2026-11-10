@@ -161,7 +161,8 @@ struct CodeBuddyMascot: View {
         Canvas { context, canvas in
             let sprite = MascotSprite(canvas, svgWidth: 15, svgHeight: 13, svgTop: 3)
             drawSleeping(&context, sprite)
-            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 6, t: t, size: size, color: Self.sleepZ)
+            MascotDraw.floatingZs(
+                &context, sprite: sprite, bodyTop: 6, t: t, size: size, color: Self.sleepZ)
         }
     }
 

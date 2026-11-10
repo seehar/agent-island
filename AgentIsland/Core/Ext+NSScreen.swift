@@ -55,7 +55,10 @@ extension NSScreen {
 
     /// Whether this is the built-in display
     var isBuiltinDisplay: Bool {
-        guard let screenNumber = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else {
+        guard
+            let screenNumber = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")]
+                as? CGDirectDisplayID
+        else {
             return false
         }
         return CGDisplayIsBuiltin(screenNumber) != 0

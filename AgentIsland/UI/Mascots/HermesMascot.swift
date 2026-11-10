@@ -55,7 +55,8 @@ struct HermesMascot: View {
             drawSleeping(&context, sprite)
             // Z 从趴姿兜帽尖上方升起（兜帽尖 = cy − 6·0.9/2 − 3·0.9 = 10.5 − 2.7 − 2.7），
             // 不压到兜帽与机身上。
-            MascotDraw.floatingZs(&context, sprite: sprite, bodyTop: 5.1, t: t, size: size, color: Self.sleepZ)
+            MascotDraw.floatingZs(
+                &context, sprite: sprite, bodyTop: 5.1, t: t, size: size, color: Self.sleepZ)
         }
     }
 
@@ -114,7 +115,8 @@ struct HermesMascot: View {
         context.fill(
             Path(
                 sprite.r(
-                    0.5 + CGFloat(keyPhase % 6) * 2.4, 13.5 + CGFloat(keyPhase / 3) * 1.2, 1.8, 0.7)),
+                    0.5 + CGFloat(keyPhase % 6) * 2.4, 13.5 + CGFloat(keyPhase / 3) * 1.2, 1.8, 0.7)
+            ),
             with: .color(Self.kbHi.opacity(0.9)))
 
         // 4. 机身与脸（整体跟着敲击起伏）
@@ -200,12 +202,14 @@ struct HermesMascot: View {
         _ context: inout GraphicsContext, _ sprite: MascotSprite, dy: CGFloat,
         scale: CGFloat = 1.0
     ) {
-        let cx: CGFloat = 7.5, cy: CGFloat = 10.5
+        let cx: CGFloat = 7.5
+        let cy: CGFloat = 10.5
         let bodyWidth: CGFloat = 9 * scale
         let bodyHeight: CGFloat = 6 * scale
 
         // 机身
-        let bodyRect = sprite.r(cx - bodyWidth / 2, cy - bodyHeight / 2 + 1, bodyWidth, bodyHeight, dy: dy)
+        let bodyRect = sprite.r(
+            cx - bodyWidth / 2, cy - bodyHeight / 2 + 1, bodyWidth, bodyHeight, dy: dy)
         context.fill(
             Path(roundedRect: bodyRect, cornerRadius: 1.5 * sprite.block),
             with: .color(Self.bodyC))

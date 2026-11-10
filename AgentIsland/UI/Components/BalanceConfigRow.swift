@@ -130,7 +130,8 @@ struct BalanceConfigRow: View {
                 .foregroundColor(AppPalette.tertiaryText)
                 .frame(width: 16, height: 16)
                 .frame(
-                    minWidth: Self.revealHitTarget, minHeight: Self.revealHitTarget)
+                    minWidth: Self.revealHitTarget, minHeight: Self.revealHitTarget
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(SettingsCompactButtonStyle())

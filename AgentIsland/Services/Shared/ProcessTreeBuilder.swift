@@ -64,7 +64,10 @@ nonisolated final class ProcessTreeBuilder: @unchecked Sendable {
 
     /// 真正跑一次 `ps` 并把输出解析成树。
     private nonisolated func scanTree() -> [Int: ProcessInfo] {
-        guard let output = ProcessExecutor.shared.runSyncOrNil("/bin/ps", arguments: ["-eo", "pid,ppid,tty,comm"]) else {
+        guard
+            let output = ProcessExecutor.shared.runSyncOrNil(
+                "/bin/ps", arguments: ["-eo", "pid,ppid,tty,comm"])
+        else {
             return [:]
         }
 
@@ -76,8 +79,9 @@ nonisolated final class ProcessTreeBuilder: @unchecked Sendable {
                 .filter { !$0.isEmpty }
 
             guard parts.count >= 4,
-                  let pid = Int(parts[0]),
-                  let ppid = Int(parts[1]) else { continue }
+                let pid = Int(parts[0]),
+                let ppid = Int(parts[1])
+            else { continue }
 
             let tty = parts[2] == "??" ? nil : parts[2]
             let command = parts[3...].joined(separator: " ")
@@ -137,7 +141,9 @@ nonisolated final class ProcessTreeBuilder: @unchecked Sendable {
     }
 
     /// Check if targetPid is a descendant of ancestorPid
-    nonisolated func isDescendant(targetPid: Int, ofAncestor ancestorPid: Int, tree: [Int: ProcessInfo]) -> Bool {
+    nonisolated func isDescendant(
+        targetPid: Int, ofAncestor ancestorPid: Int, tree: [Int: ProcessInfo]
+    ) -> Bool {
         var current = targetPid
         var depth = 0
 
@@ -173,7 +179,10 @@ nonisolated final class ProcessTreeBuilder: @unchecked Sendable {
 
     /// Get working directory for a process using lsof
     nonisolated func getWorkingDirectory(forPid pid: Int) -> String? {
-        guard let output = ProcessExecutor.shared.runSyncOrNil("/usr/sbin/lsof", arguments: ["-p", String(pid), "-Fn"]) else {
+        guard
+            let output = ProcessExecutor.shared.runSyncOrNil(
+                "/usr/sbin/lsof", arguments: ["-p", String(pid), "-Fn"])
+        else {
             return nil
         }
 

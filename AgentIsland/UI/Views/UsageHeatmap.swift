@@ -81,7 +81,8 @@ struct UsageHeatmap: View {
                 .padding(
                     .leading,
                     UsageStatsMetrics.heatmapWeekdayGutterWidth
-                        + UsageStatsMetrics.heatmapWeekdayLabelGap)
+                        + UsageStatsMetrics.heatmapWeekdayLabelGap
+                )
                 .padding(.bottom, UsageStatsMetrics.heatmapMonthLabelGap)
 
             HStack(alignment: .top, spacing: UsageStatsMetrics.heatmapWeekdayLabelGap) {

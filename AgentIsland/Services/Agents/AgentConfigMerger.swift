@@ -173,7 +173,8 @@ nonisolated enum AgentConfigMerger {
     ) -> String {
         let text = commentingLegacyKimiScalar(in: removingKimiHooks(from: contents))
         var lines = text.components(separatedBy: "\n")
-        let blockLines = hooks
+        let blockLines =
+            hooks
             .map { kimiBlock(event: $0.event, command: $0.command, timeout: $0.timeout) }
             .joined(separator: "\n\n")
             .components(separatedBy: "\n")
@@ -319,7 +320,8 @@ nonisolated enum AgentConfigMerger {
             }
             let end = traecliItemEnd(in: lines, from: index)
             if let command = traecliCommand(in: lines[index..<end]),
-               HookInstaller.isOwnHookCommand(command) {
+                HookInstaller.isOwnHookCommand(command)
+            {
                 didRemove = true
                 index = end
                 continue
@@ -342,7 +344,8 @@ nonisolated enum AgentConfigMerger {
             }
             let end = traecliItemEnd(in: lines, from: index)
             if let command = traecliCommand(in: lines[index..<end]),
-               HookInstaller.isOwnHookCommand(command) {
+                HookInstaller.isOwnHookCommand(command)
+            {
                 return true
             }
             index = end
@@ -422,14 +425,16 @@ nonisolated enum AgentConfigMerger {
         // `hooks:` 行内写着的空值（`[]` / `{}` / `null` / `~`）与「没写」等价：就地换成裸键，
         // 否则我们的映射键会挂在 `hooks: []` 后面（那种写法 Hermes 直接解析失败）。
         if let mapping, let hooksValue = hermesHooksValue(of: lines[mapping.key]),
-           hooksValue.isEmpty == false {
+            hooksValue.isEmpty == false
+        {
             guard emptyHermesInlineValues.contains(hooksValue) else {
                 return .refused("hooks 的行内值是 \(hooksValue)，行手术保不住它")
             }
             lines[mapping.key] = replacingHermesValue(of: lines[mapping.key], with: "")
         }
 
-        let keyIndent = mapping.flatMap { hermesMappingKeyIndent(in: lines, body: $0.body) }
+        let keyIndent =
+            mapping.flatMap { hermesMappingKeyIndent(in: lines, body: $0.body) }
             ?? defaultHermesKeyIndent
         let pad = String(repeating: " ", count: keyIndent)
 
@@ -440,9 +445,11 @@ nonisolated enum AgentConfigMerger {
         for event in events {
             let seconds = event.timeout > 0 ? event.timeout : timeout
             let entry = "{command: '\(quoted) --event \(event.name)', timeout: \(seconds)}"
-            guard let index = hermesEventKeyIndex(
-                in: lines, name: event.name, body: mapping?.body, indent: keyIndent
-            ) else {
+            guard
+                let index = hermesEventKeyIndex(
+                    in: lines, name: event.name, body: mapping?.body, indent: keyIndent
+                )
+            else {
                 newLines.append("\(pad)\(event.name): [\(entry)]")
                 continue
             }
@@ -508,7 +515,8 @@ nonisolated enum AgentConfigMerger {
                     dropped.formUnion(index..<end)
                     // 无缩进序列的 `- ` 与键行同缩进，因此用 <=（它是该键的子行）
                     if let key = lastKeyIndex,
-                       leadingSpaces(of: lines[key]) <= leadingSpaces(of: lines[index]) {
+                        leadingSpaces(of: lines[key]) <= leadingSpaces(of: lines[index])
+                    {
                         keysWithDroppedChildren.insert(key)
                     }
                     didRemove = true
@@ -521,7 +529,9 @@ nonisolated enum AgentConfigMerger {
                 continue
             }
             lastKeyIndex = index
-            if let stripped = strippingOwnEntries(fromInlineSequence: hermesInlineValue(of: lines[index]) ?? "") {
+            if let stripped = strippingOwnEntries(
+                fromInlineSequence: hermesInlineValue(of: lines[index]) ?? "")
+            {
                 didRemove = true
                 if stripped.isEmpty {
                     dropped.insert(index)
@@ -580,7 +590,9 @@ nonisolated enum AgentConfigMerger {
         guard let colon = body.firstIndex(of: ":") else { return nil }
         guard body[body.startIndex..<colon] == "hooks" else { return nil }
         var value = String(body[body.index(after: colon)...])
-        if let hash = value.range(of: "#") { value = String(value[value.startIndex..<hash.lowerBound]) }
+        if let hash = value.range(of: "#") {
+            value = String(value[value.startIndex..<hash.lowerBound])
+        }
         return value.trimmingCharacters(in: .whitespaces)
     }
 
@@ -626,7 +638,9 @@ nonisolated enum AgentConfigMerger {
         let body = lineBody(of: line)
         guard let colon = body.firstIndex(of: ":") else { return nil }
         var value = String(body[body.index(after: colon)...])
-        if let hash = value.range(of: "#") { value = String(value[value.startIndex..<hash.lowerBound]) }
+        if let hash = value.range(of: "#") {
+            value = String(value[value.startIndex..<hash.lowerBound])
+        }
         return value.trimmingCharacters(in: .whitespaces)
     }
 
@@ -752,7 +766,8 @@ nonisolated enum AgentConfigMerger {
         }
         guard kept.count < elements.count else { return nil }
         guard kept.isEmpty == false else { return "" }
-        return "[" + kept.map { value[$0].trimmingCharacters(in: .whitespaces) }
+        return "["
+            + kept.map { value[$0].trimmingCharacters(in: .whitespaces) }
             .joined(separator: ", ") + "]"
     }
 
@@ -839,7 +854,8 @@ nonisolated enum AgentConfigMerger {
         let commentStart =
             body.range(of: "#", range: valueStart..<body.endIndex)?.lowerBound ?? body.endIndex
         // 注释前原有的空白留着（`]  # 注释` 那两个空格不是我们该动的）
-        let keptSpaces = String(body[valueStart..<commentStart].reversed().prefix { $0 == " " }.reversed())
+        let keptSpaces = String(
+            body[valueStart..<commentStart].reversed().prefix { $0 == " " }.reversed())
         let rewritten =
             String(body[..<valueStart])
             + (value.isEmpty ? "" : " \(value)")
@@ -862,7 +878,8 @@ nonisolated enum AgentConfigMerger {
         }
 
         let lines = contents.components(separatedBy: "\n")
-        guard let featuresIndex = lines.firstIndex(where: { isTomlTable($0, named: "features") }) else {
+        guard let featuresIndex = lines.firstIndex(where: { isTomlTable($0, named: "features") })
+        else {
             var appended = lines
             if let last = appended.last, !last.trimmingCharacters(in: .whitespaces).isEmpty {
                 appended.append("")
@@ -875,7 +892,8 @@ nonisolated enum AgentConfigMerger {
         var updated = lines
         let sectionEnd = nextTomlTableIndex(in: lines, after: featuresIndex)
         if let hooksIndex = ((featuresIndex + 1)..<sectionEnd)
-            .first(where: { isTomlKey(lines[$0], named: "hooks") }) {
+            .first(where: { isTomlKey(lines[$0], named: "hooks") })
+        {
             guard !isTomlBooleanTrue(lines[hooksIndex]) else { return nil }
             let comment = trailingComment(of: lines[hooksIndex])
             updated[hooksIndex] = "hooks = true" + (comment.map { " \($0)" } ?? "")
@@ -919,7 +937,8 @@ nonisolated enum AgentConfigMerger {
 
     /// 一个事件的 `[[hooks]]` 块（TOML 基本字符串里的反斜杠与引号要转义）。
     private static func kimiBlock(event: String, command: String, timeout: Int) -> String {
-        let escaped = command
+        let escaped =
+            command
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
         var lines = [
@@ -996,7 +1015,8 @@ nonisolated enum AgentConfigMerger {
                 return line
             }
             guard !seenTableHeader, leadingSpaces(of: line) == 0,
-                  trimmed.hasPrefix("hooks =") else { return line }
+                trimmed.hasPrefix("hooks =")
+            else { return line }
             return "\(kimiLegacyScalarMarker)\n# \(line)"
         }.joined(separator: "\n")
     }
@@ -1008,11 +1028,13 @@ nonisolated enum AgentConfigMerger {
         while index < lines.count {
             let line = lines[index]
             if line.trimmingCharacters(in: .whitespaces) == kimiLegacyScalarMarker,
-               index + 1 < lines.count {
+                index + 1 < lines.count
+            {
                 let next = lines[index + 1]
                 let content = next.hasPrefix("# ") ? String(next.dropFirst(2)) : ""
                 if !content.isEmpty, leadingSpaces(of: content) == 0,
-                   content.trimmingCharacters(in: .whitespaces).hasPrefix("hooks =") {
+                    content.trimmingCharacters(in: .whitespaces).hasPrefix("hooks =")
+                {
                     restored.append(content)
                     index += 2
                     continue
@@ -1129,7 +1151,9 @@ nonisolated enum AgentConfigMerger {
         guard body == body.trimmingCharacters(in: .whitespaces) else { return nil }
         guard body.hasPrefix("hooks:") else { return nil }
         var value = String(body.dropFirst("hooks:".count))
-        if let hash = value.range(of: "#") { value = String(value[value.startIndex..<hash.lowerBound]) }
+        if let hash = value.range(of: "#") {
+            value = String(value[value.startIndex..<hash.lowerBound])
+        }
         return value.trimmingCharacters(in: .whitespaces)
     }
 
@@ -1177,7 +1201,9 @@ nonisolated enum AgentConfigMerger {
     private static func isTomlBooleanTrue(_ line: String) -> Bool {
         guard let equals = line.firstIndex(of: "=") else { return false }
         var value = String(line[line.index(after: equals)...])
-        if let hash = value.range(of: "#") { value = String(value[value.startIndex..<hash.lowerBound]) }
+        if let hash = value.range(of: "#") {
+            value = String(value[value.startIndex..<hash.lowerBound])
+        }
         return value.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
     }
 

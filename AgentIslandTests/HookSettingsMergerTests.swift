@@ -63,9 +63,11 @@ struct HookSettingsMergerTests {
 
     @Test("坏 JSON 与顶层不是对象时拒绝写入")
     func malformedFileIsRefused() {
-        #expect(HookSettingsMerger.load(data: Data("{".utf8), fileExists: true).refusalReason != nil)
         #expect(
-            HookSettingsMerger.load(data: Data("[1, 2]".utf8), fileExists: true).refusalReason != nil)
+            HookSettingsMerger.load(data: Data("{".utf8), fileExists: true).refusalReason != nil)
+        #expect(
+            HookSettingsMerger.load(data: Data("[1, 2]".utf8), fileExists: true).refusalReason
+                != nil)
         // 手改时留下注释的 JSON 解析同样失败 —— 也必须拒绝写入，而不是把配置清零
         #expect(
             HookSettingsMerger.load(data: Data("{\"a\":1,//note\n}".utf8), fileExists: true)
@@ -75,10 +77,12 @@ struct HookSettingsMergerTests {
     @Test("合并只动 hooks，其它键一个不丢")
     func mergePreservesUnrelatedKeys() {
         let merged = HookSettingsMerger.appending(
-            hookEvents: [(
-                event: "SessionStart",
-                entries: [["hooks": [["type": "command", "command": "python3 new-hook.py"]]]]
-            )],
+            hookEvents: [
+                (
+                    event: "SessionStart",
+                    entries: [["hooks": [["type": "command", "command": "python3 new-hook.py"]]]]
+                )
+            ],
             to: HookSettingsMerger.strippingOwnHooks(from: userSettings, isOwnCommand: isOwn)
         )
 
@@ -104,7 +108,9 @@ struct HookSettingsMergerTests {
     func strippingRemovesEmptyHooksKey() {
         let onlyOwn: [String: Any] = [
             "hooks": [
-                "Stop": [["hooks": [["type": "command", "command": "python3 agent-island-state.py"]]]]
+                "Stop": [
+                    ["hooks": [["type": "command", "command": "python3 agent-island-state.py"]]]
+                ]
             ]
         ]
         let stripped = HookSettingsMerger.strippingOwnHooks(from: onlyOwn, isOwnCommand: isOwn)

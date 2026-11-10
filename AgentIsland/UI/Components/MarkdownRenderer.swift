@@ -25,7 +25,8 @@ private final class DocumentCache: @unchecked Sendable {
             return cached
         }
         // Enable strikethrough and other extended syntax
-        let doc = Markdown.Document(parsing: text, options: [.parseBlockDirectives, .parseSymbolLinks])
+        let doc = Markdown.Document(
+            parsing: text, options: [.parseBlockDirectives, .parseSymbolLinks])
         if cache.count >= maxSize {
             cache.removeAll()
         }
@@ -89,9 +90,11 @@ private struct BlockRenderer: View {
     @ViewBuilder
     private var content: some View {
         if let paragraph = markup as? Paragraph {
-            InlineRenderer(children: Array(paragraph.inlineChildren), baseColor: baseColor, fontSize: fontSize)
-                .lineSpacing(4)
-                .fixedSize(horizontal: false, vertical: true)
+            InlineRenderer(
+                children: Array(paragraph.inlineChildren), baseColor: baseColor, fontSize: fontSize
+            )
+            .lineSpacing(4)
+            .fixedSize(horizontal: false, vertical: true)
         } else if let heading = markup as? Heading {
             headingView(heading)
         } else if let codeBlock = markup as? CodeBlock {
@@ -113,7 +116,9 @@ private struct BlockRenderer: View {
 
     @ViewBuilder
     private func headingView(_ heading: Heading) -> some View {
-        let text = InlineRenderer(children: Array(heading.inlineChildren), baseColor: baseColor, fontSize: fontSize).asText()
+        let text = InlineRenderer(
+            children: Array(heading.inlineChildren), baseColor: baseColor, fontSize: fontSize
+        ).asText()
         switch heading.level {
         case 1: text.bold().italic().underline()
         case 2: text.bold()
@@ -131,9 +136,12 @@ private struct BlockRenderer: View {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(blockQuote.children.enumerated()), id: \.offset) { _, child in
                     if let para = child as? Paragraph {
-                        InlineRenderer(children: Array(para.inlineChildren), baseColor: baseColor.opacity(0.7), fontSize: fontSize)
-                            .asText()
-                            .italic()
+                        InlineRenderer(
+                            children: Array(para.inlineChildren), baseColor: baseColor.opacity(0.7),
+                            fontSize: fontSize
+                        )
+                        .asText()
+                        .italic()
                     }
                 }
             }
@@ -154,9 +162,12 @@ private struct BlockRenderer: View {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(Array(item.children.enumerated()), id: \.offset) { _, child in
                             if let para = child as? Paragraph {
-                                InlineRenderer(children: Array(para.inlineChildren), baseColor: baseColor, fontSize: fontSize)
+                                InlineRenderer(
+                                    children: Array(para.inlineChildren), baseColor: baseColor,
+                                    fontSize: fontSize)
                             } else {
-                                BlockRenderer(markup: child, baseColor: baseColor, fontSize: fontSize)
+                                BlockRenderer(
+                                    markup: child, baseColor: baseColor, fontSize: fontSize)
                             }
                         }
                     }
@@ -178,9 +189,12 @@ private struct BlockRenderer: View {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(Array(item.children.enumerated()), id: \.offset) { _, child in
                             if let para = child as? Paragraph {
-                                InlineRenderer(children: Array(para.inlineChildren), baseColor: baseColor, fontSize: fontSize)
+                                InlineRenderer(
+                                    children: Array(para.inlineChildren), baseColor: baseColor,
+                                    fontSize: fontSize)
                             } else {
-                                BlockRenderer(markup: child, baseColor: baseColor, fontSize: fontSize)
+                                BlockRenderer(
+                                    markup: child, baseColor: baseColor, fontSize: fontSize)
                             }
                         }
                     }

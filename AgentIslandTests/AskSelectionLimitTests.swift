@@ -15,34 +15,34 @@ import Testing
 
 @Suite("作答自由文本的长度上限")
 struct AskSelectionLimitTests {
-  @Test("未到上限时原样保留")
-  func keepsTextBelowLimit() {
-    var selection = AskSelection()
-    let text = String(repeating: "a", count: AskSelection.freeTextLimit - 1)
+    @Test("未到上限时原样保留")
+    func keepsTextBelowLimit() {
+        var selection = AskSelection()
+        let text = String(repeating: "a", count: AskSelection.freeTextLimit - 1)
 
-    selection.setFreeText(text, for: "q1")
+        selection.setFreeText(text, for: "q1")
 
-    #expect(selection.freeText(for: "q1") == text)
-    #expect(selection.reachedFreeTextLimit(for: "q1") == false)
-  }
+        #expect(selection.freeText(for: "q1") == text)
+        #expect(selection.reachedFreeTextLimit(for: "q1") == false)
+    }
 
-  @Test("超过上限时截断，并标记「已顶到上限」")
-  func truncatesTextAboveLimit() {
-    var selection = AskSelection()
-    let text = String(repeating: "a", count: AskSelection.freeTextLimit + 500)
+    @Test("超过上限时截断，并标记「已顶到上限」")
+    func truncatesTextAboveLimit() {
+        var selection = AskSelection()
+        let text = String(repeating: "a", count: AskSelection.freeTextLimit + 500)
 
-    selection.setFreeText(text, for: "q1")
+        selection.setFreeText(text, for: "q1")
 
-    #expect(selection.freeText(for: "q1").count == AskSelection.freeTextLimit)
-    #expect(selection.reachedFreeTextLimit(for: "q1"))
-  }
+        #expect(selection.freeText(for: "q1").count == AskSelection.freeTextLimit)
+        #expect(selection.reachedFreeTextLimit(for: "q1"))
+    }
 
-  @Test("上限本身是「已顶到」：正好等于上限时就要提示")
-  func flagsExactLimit() {
-    var selection = AskSelection()
+    @Test("上限本身是「已顶到」：正好等于上限时就要提示")
+    func flagsExactLimit() {
+        var selection = AskSelection()
 
-    selection.setFreeText(String(repeating: "a", count: AskSelection.freeTextLimit), for: "q1")
+        selection.setFreeText(String(repeating: "a", count: AskSelection.freeTextLimit), for: "q1")
 
-    #expect(selection.reachedFreeTextLimit(for: "q1"))
-  }
+        #expect(selection.reachedFreeTextLimit(for: "q1"))
+    }
 }

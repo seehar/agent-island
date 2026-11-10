@@ -182,10 +182,12 @@ class NotchWindowController: NSWindowController {
                 .sink { [weak self] _ in self?.refreshFullScreenGuard() }
                 .store(in: &cancellables)
         }
-        NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.refreshFullScreenGuard() }
-            .store(in: &cancellables)
+        NotificationCenter.default.publisher(
+            for: NSApplication.didChangeScreenParametersNotification
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in self?.refreshFullScreenGuard() }
+        .store(in: &cancellables)
 
         // Perform boot animation after a brief delay (only on initial launch)
         if animateOnLaunch {

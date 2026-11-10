@@ -32,11 +32,13 @@ actor TmuxSessionMatcher {
             return nil
         }
 
-        guard let sessionFiles = try? FileManager.default.contentsOfDirectory(
-            at: projectDir,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ).filter({ $0.pathExtension == "jsonl" && !$0.lastPathComponent.hasPrefix("agent-") }) else {
+        guard
+            let sessionFiles = try? FileManager.default.contentsOfDirectory(
+                at: projectDir,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ).filter({ $0.pathExtension == "jsonl" && !$0.lastPathComponent.hasPrefix("agent-") })
+        else {
             return nil
         }
 
@@ -62,9 +64,11 @@ actor TmuxSessionMatcher {
 
     private func capturePaneContent(tmuxPath: String, target: TmuxTarget) async -> String? {
         do {
-            let output = try await ProcessExecutor.shared.run(tmuxPath, arguments: [
-                "capture-pane", "-t", target.targetString, "-p", "-S", "-500"
-            ])
+            let output = try await ProcessExecutor.shared.run(
+                tmuxPath,
+                arguments: [
+                    "capture-pane", "-t", target.targetString, "-p", "-S", "-500",
+                ])
             return output.isEmpty ? nil : output
         } catch {
             return nil
@@ -123,7 +127,8 @@ actor TmuxSessionMatcher {
         }
 
         guard let data = try? handle.readToEnd(),
-              let content = String(data: data, encoding: .utf8) else {
+            let content = String(data: data, encoding: .utf8)
+        else {
             return 0
         }
 

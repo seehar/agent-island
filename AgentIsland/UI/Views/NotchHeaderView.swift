@@ -20,11 +20,11 @@ struct PermissionIndicatorIcon: View {
 
     // Visible pixel positions from the SVG (at 30x30 scale)
     private let pixels: [(CGFloat, CGFloat)] = [
-        (7, 7), (7, 11),           // Left column
-        (11, 3),                    // Top left
-        (15, 3), (15, 19), (15, 27), // Center column
-        (19, 3), (19, 15),          // Right of center
-        (23, 7), (23, 11)           // Right column
+        (7, 7), (7, 11),  // Left column
+        (11, 3),  // Top left
+        (15, 3), (15, 19), (15, 27),  // Center column
+        (19, 3), (19, 15),  // Right of center
+        (23, 7), (23, 11),  // Right column
     ]
 
     var body: some View {

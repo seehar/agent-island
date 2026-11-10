@@ -211,7 +211,9 @@ struct AccessibilityRow: View {
             }
         }
         .settingsRowSeparator(false)
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+        .onReceive(
+            NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+        ) { _ in
             refreshTrigger.toggle()
         }
     }

@@ -50,7 +50,9 @@ class NotchViewController: NSViewController {
     override func loadView() {
         // 界面只有这一个宿主视图：环境 locale 在这里注入，平台驱动的格式化才跟随界面语言
         hostingView = PassThroughHostingView(
-            rootView: LocalizedRoot { NotchView(viewModel: viewModel, sessionMonitor: sessionMonitor) })
+            rootView: LocalizedRoot {
+                NotchView(viewModel: viewModel, sessionMonitor: sessionMonitor)
+            })
 
         // 命中范围就是**画出来的那一块**（宿主视图坐标系），两个状态都取自视图模型那套
         // 同源矩形（见 `NotchGeometry`）。

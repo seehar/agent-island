@@ -390,7 +390,8 @@ struct AgentMascotRenderTests {
             }
             #expect(
                 reloaded.pixelsWide == sheet.width && reloaded.pixelsHigh == sheet.height,
-                "\(name) 落盘尺寸 \(reloaded.pixelsWide)×\(reloaded.pixelsHigh) 与渲染的 \(sheet.width)×\(sheet.height) 不符")
+                "\(name) 落盘尺寸 \(reloaded.pixelsWide)×\(reloaded.pixelsHigh) 与渲染的 \(sheet.width)×\(sheet.height) 不符"
+            )
             print("[标记动态] 接触表 \(url.path) \(sheet.width)×\(sheet.height)")
         }
     }

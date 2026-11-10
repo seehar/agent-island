@@ -183,7 +183,8 @@ nonisolated final class CodeBuddyTranscriptSchema: JSONLTranscriptSchema {
         guard let callId = json["callId"] as? String, !callId.isEmpty else { return false }
         let input = TranscriptParsing.stringifyInput(
             json["arguments"] as? [String: Any])
-        TranscriptToolLog.started(id: callId, name: name, input: input, state: &state, result: &result)
+        TranscriptToolLog.started(
+            id: callId, name: name, input: input, state: &state, result: &result)
         return true
     }
 

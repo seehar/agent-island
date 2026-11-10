@@ -12,7 +12,8 @@ import os.log
 /// Manages debounced file sync operations for session data
 actor FileSyncScheduler {
     /// Logger for file sync (nonisolated static for cross-context access)
-    nonisolated static let logger = Logger(subsystem: "com.celestial.AgentIsland", category: "FileSync")
+    nonisolated static let logger = Logger(
+        subsystem: "com.celestial.AgentIsland", category: "FileSync")
 
     /// Pending sync tasks keyed by sessionId
     private var pendingSyncs: [String: Task<Void, Never>] = [:]
@@ -46,7 +47,8 @@ actor FileSyncScheduler {
     func cancel(sessionId: String) {
         if let existing = pendingSyncs.removeValue(forKey: sessionId) {
             existing.cancel()
-            Self.logger.debug("Cancelled pending sync for session \(sessionId.prefix(8), privacy: .public)")
+            Self.logger.debug(
+                "Cancelled pending sync for session \(sessionId.prefix(8), privacy: .public)")
         }
     }
 

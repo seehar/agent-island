@@ -44,25 +44,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // `AppEnvironment.isRunningTests`），跑一次单测不该改写用户的 agent 配置，也不该往用户
         // 的偏好域里塞迁移标记。测试要验的都是按临时目录/home 注入的，不依赖这段。
         if !AppEnvironment.isRunningTests {
-                // 「本机此前是否跑过本应用」必须在**任何本次写入之前**判定：改名迁移会无条件写下
-                // 它自己的标记，拿偏好域当判据会把全新安装判成升级（见 `hadPreviousInstallFootprint`）。
-                let hadPreviousInstall = AppSettings.hadPreviousInstallFootprint()
+            // 「本机此前是否跑过本应用」必须在**任何本次写入之前**判定：改名迁移会无条件写下
+            // 它自己的标记，拿偏好域当判据会把全新安装判成升级（见 `hadPreviousInstallFootprint`）。
+            let hadPreviousInstall = AppSettings.hadPreviousInstallFootprint()
 
-                // 偏好域跟着 bundle id 走，改名后要先搬旧域的设置，再读任何配置。
-                AppSettings.migrateLegacyDefaultsIfNeeded()
-                // 顺序有讲究：先把改名前的域搬过来，再换算启用口径——否则老用户存在旧域里的
-                // 禁用集合还没搬进来，迁移会把它当成「全新安装」而什么都不保留。
-                AppSettings.migrateAgentEnablementIfNeeded(hadPreviousInstall: hadPreviousInstall)
-                // 旧口径的 Claude 目录（`claudeDirectoryName`）搬进通用覆盖表：不然界面显示
-                // 「自动检测」而实际解析到别处。
-                AppSettings.migrateClaudeDirectoryOverrideIfNeeded()
-                // 旧口径的单账号四键（服务器地址 / Key / 访问令牌 / 用户 ID）搬进账号列表。
-                AppSettings.migrateNewAPIAccountsIfNeeded()
+            // 偏好域跟着 bundle id 走，改名后要先搬旧域的设置，再读任何配置。
+            AppSettings.migrateLegacyDefaultsIfNeeded()
+            // 顺序有讲究：先把改名前的域搬过来，再换算启用口径——否则老用户存在旧域里的
+            // 禁用集合还没搬进来，迁移会把它当成「全新安装」而什么都不保留。
+            AppSettings.migrateAgentEnablementIfNeeded(hadPreviousInstall: hadPreviousInstall)
+            // 旧口径的 Claude 目录（`claudeDirectoryName`）搬进通用覆盖表：不然界面显示
+            // 「自动检测」而实际解析到别处。
+            AppSettings.migrateClaudeDirectoryOverrideIfNeeded()
+            // 旧口径的单账号四键（服务器地址 / Key / 访问令牌 / 用户 ID）搬进账号列表。
+            AppSettings.migrateNewAPIAccountsIfNeeded()
 
-                // 改名遗留的旧 socket 文件：老客户端会继续往一个无人监听的地址发状态，清一次。
-                LegacyArtifacts.removeLegacySockets()
+            // 改名遗留的旧 socket 文件：老客户端会继续往一个无人监听的地址发状态，清一次。
+            LegacyArtifacts.removeLegacySockets()
 
-                AgentIntegrationInstaller.installIfNeeded()
+            AgentIntegrationInstaller.installIfNeeded()
         }
         NSApplication.shared.setActivationPolicy(.accessory)
 
@@ -88,7 +88,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             updater.checkForUpdates()
         }
 
-        updateCheckTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+        updateCheckTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) {
+            [weak self] _ in
             guard let updater = self?.updater,
                 updater.canCheckForUpdates,
                 updater.automaticallyChecksForUpdates

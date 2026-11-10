@@ -27,7 +27,8 @@ class JSONLInterruptWatcher {
     private var didReportReadFailure = false
     private let key: SessionKey
     private let filePath: String
-    private let queue = DispatchQueue(label: "com.celestial.AgentIsland.interruptwatcher", qos: .userInteractive)
+    private let queue = DispatchQueue(
+        label: "com.celestial.AgentIsland.interruptwatcher", qos: .userInteractive)
 
     weak var delegate: JSONLInterruptWatcherDelegate?
 
@@ -37,13 +38,15 @@ class JSONLInterruptWatcher {
         "Interrupted by user",
         "interrupted by user",
         "user doesn't want to proceed",
-        "[Request interrupted by user"
+        "[Request interrupted by user",
     ]
 
     /// `transcriptPath` 由调用方（会话状态）提供；缺省时按 Agent 的目录规则推导。
     init(key: SessionKey, cwd: String, transcriptPath: String?) {
         self.key = key
-        let resolved = transcriptPath ?? AgentRegistry.provider(for: key.agent)
+        let resolved =
+            transcriptPath
+            ?? AgentRegistry.provider(for: key.agent)
             .transcriptFile(sessionId: key.sessionId, cwd: cwd)?
             .path
         self.filePath = resolved ?? ""
@@ -74,7 +77,8 @@ class JSONLInterruptWatcher {
         guard !filePath.isEmpty else { return }
 
         guard FileManager.default.fileExists(atPath: filePath),
-              let handle = FileHandle(forReadingAtPath: filePath) else {
+            let handle = FileHandle(forReadingAtPath: filePath)
+        else {
             logger.warning("无法打开会话记录，中断监听未建立：\(self.filePath, privacy: .public)")
             return
         }
@@ -177,8 +181,9 @@ class JSONLInterruptWatcher {
 
     private func isInterruptLine(_ line: String) -> Bool {
         if line.contains("\"type\":\"user\"") {
-            if line.contains("[Request interrupted by user]") ||
-               line.contains("[Request interrupted by user for tool use]") {
+            if line.contains("[Request interrupted by user]")
+                || line.contains("[Request interrupted by user for tool use]")
+            {
                 return true
             }
         }

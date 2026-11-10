@@ -19,9 +19,14 @@ actor TmuxTargetFinder {
             return nil
         }
 
-        guard let output = await runTmuxCommand(tmuxPath: tmuxPath, args: [
-            "list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index} #{pane_pid}"
-        ]) else {
+        guard
+            let output = await runTmuxCommand(
+                tmuxPath: tmuxPath,
+                args: [
+                    "list-panes", "-a", "-F",
+                    "#{session_name}:#{window_index}.#{pane_index} #{pane_pid}",
+                ])
+        else {
             return nil
         }
 
@@ -45,9 +50,14 @@ actor TmuxTargetFinder {
             return nil
         }
 
-        guard let output = await runTmuxCommand(tmuxPath: tmuxPath, args: [
-            "list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index} #{pane_current_path}"
-        ]) else {
+        guard
+            let output = await runTmuxCommand(
+                tmuxPath: tmuxPath,
+                args: [
+                    "list-panes", "-a", "-F",
+                    "#{session_name}:#{window_index}.#{pane_index} #{pane_current_path}",
+                ])
+        else {
             return nil
         }
 
@@ -67,9 +77,13 @@ actor TmuxTargetFinder {
             return []
         }
 
-        guard let output = await runTmuxCommand(tmuxPath: tmuxPath, args: [
-            "list-clients", "-t", session, "-F", "#{client_pid}"
-        ]) else {
+        guard
+            let output = await runTmuxCommand(
+                tmuxPath: tmuxPath,
+                args: [
+                    "list-clients", "-t", session, "-F", "#{client_pid}",
+                ])
+        else {
             return []
         }
 
@@ -89,9 +103,13 @@ actor TmuxTargetFinder {
         }
 
         // Get the currently active pane
-        guard let output = await runTmuxCommand(tmuxPath: tmuxPath, args: [
-            "display-message", "-p", "#{session_name}:#{window_index}.#{pane_index}"
-        ]) else {
+        guard
+            let output = await runTmuxCommand(
+                tmuxPath: tmuxPath,
+                args: [
+                    "display-message", "-p", "#{session_name}:#{window_index}.#{pane_index}",
+                ])
+        else {
             return false
         }
 

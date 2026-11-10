@@ -56,11 +56,13 @@ struct TranscriptPathMemoTests {
         let root = url("/tmp/memo-test/capacity/sessions")
 
         for index in 0..<(TranscriptPathMemoTests.capacity + 16) {
-            memo.store(url("/tmp/memo-test/capacity/\(index).jsonl"), root: root, sessionId: "s\(index)")
+            memo.store(
+                url("/tmp/memo-test/capacity/\(index).jsonl"), root: root, sessionId: "s\(index)")
         }
         let last = url("/tmp/memo-test/capacity/\(TranscriptPathMemoTests.capacity + 15).jsonl")
         memo.store(last, root: root, sessionId: "s\(TranscriptPathMemoTests.capacity + 15)")
-        #expect(memo.lookup(root: root, sessionId: "s\(TranscriptPathMemoTests.capacity + 15)") == last)
+        #expect(
+            memo.lookup(root: root, sessionId: "s\(TranscriptPathMemoTests.capacity + 15)") == last)
     }
 
     /// 上限值（与实现里的 `capacity` 同量级；这里用一个足够大的数只为把表填满一次）。
