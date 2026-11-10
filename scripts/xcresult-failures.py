@@ -36,13 +36,22 @@ def _collect_cases(node: dict, out: list) -> None:
 
 
 def _failure_texts(detail: dict) -> list:
-    """把 `testRuns[].failures[]` 里的可读文本都捞出来（字段名随 Xcode 版本变，按值取）。"""
+    """把失败节点的可读信息都捞出来。
+
+    字段名随 Xcode 版本/结果格式变（`failureText`、`Issue` 节点的 `name`、表达式树里的
+    `Test Value`），因此不按固定键取，而是把失败子树里所有 `name`/`details` 按顺序摊开：
+    形如 `abs((a - b) - c) : 53.0` 与 `2 : 2.0`，足以看清「期望 vs 实际」。
+    """
     texts: list = []
 
     def walk(value):
         if isinstance(value, dict):
             for key, child in value.items():
                 if key in ("failureText", "message", "failureMessage") and isinstance(child, str):
+                    texts.append(child.strip())
+                elif key == "name" and isinstance(child, str):
+                    texts.append(child.strip())
+                elif key == "details" and isinstance(child, str) and child.strip():
                     texts.append(child.strip())
                 else:
                     walk(child)
@@ -51,8 +60,16 @@ def _failure_texts(detail: dict) -> list:
                 walk(child)
 
     for run in detail.get("testRuns", []) or []:
-        walk(run.get("failures", []) or [])
-    return [text for text in texts if text]
+        walk(run)
+    # 去重但保序：同一个表达式节点会在 children 与 results 里各出现一次
+    seen: set = set()
+    unique: list = []
+    for text in texts:
+        if text in seen:
+            continue
+        seen.add(text)
+        unique.append(text)
+    return unique
 
 
 def main(path: str) -> int:

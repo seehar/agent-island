@@ -89,14 +89,16 @@ struct AgentSettingsLayoutTests {
     func directoryExpansionGrowsPageByEditorHeight() {
         withExpandedKind(nil) {
             let collapsed = pageSize(width: standardContentWidth)
-            let collapsedInk = inkBox(
-                of: NSHostingViewProbe.raster(agentsPage(width: standardContentWidth)))
+            let collapsedInk = hostedInk(
+                NSHostingViewProbe.raster(agentsPage(width: standardContentWidth)),
+                width: standardContentWidth)
 
             withExpandedKind(.codex) {
                 let editorHeight = AgentDirSelector.shared.expandedPickerHeight
                 let expanded = pageSize(width: standardContentWidth)
-                let expandedInk = inkBox(
-                    of: NSHostingViewProbe.raster(agentsPage(width: standardContentWidth)))
+                let expandedInk = hostedInk(
+                    NSHostingViewProbe.raster(agentsPage(width: standardContentWidth)),
+                    width: standardContentWidth)
 
                 print(
                     "[展开] 页面 收起 \(collapsed) → 展开 \(expanded)（增量 \(expanded.height - collapsed.height)）"
@@ -182,14 +184,16 @@ struct AgentSettingsLayoutTests {
         var editorHeight: CGFloat = 0
         withExpandedKind(nil) {
             collapsedPage = pageSize(width: standardContentWidth)
-            collapsedInk = inkBox(
-                of: NSHostingViewProbe.raster(agentsPage(width: standardContentWidth)))
+            collapsedInk = hostedInk(
+                NSHostingViewProbe.raster(agentsPage(width: standardContentWidth)),
+                width: standardContentWidth)
         }
         withExpandedKind(.codex) {
             editorHeight = AgentDirSelector.shared.expandedPickerHeight
             expandedPage = pageSize(width: standardContentWidth)
-            expandedInk = inkBox(
-                of: NSHostingViewProbe.raster(agentsPage(width: standardContentWidth)))
+            expandedInk = hostedInk(
+                NSHostingViewProbe.raster(agentsPage(width: standardContentWidth)),
+                width: standardContentWidth)
             report.append(
                 "- expandedPickerHeight = \(editorHeight)pt"
                     + "（卡片窗口按它撑高；`AgentDirSelector.visibleOptions` = \(AgentDirSelector.visibleOptions) 行）"
@@ -223,7 +227,8 @@ struct AgentSettingsLayoutTests {
                 let rendered = NSHostingViewProbe.raster(agentsPage(width: standardContentWidth))
                 #expect(rendered != nil, "\(state) 的 cacheDisplay 没有产出位图")
                 guard let image = rendered else { return }
-                let ink = inkBox(of: image)
+                let scale = CGFloat(image.width) / standardContentWidth
+                let ink = inkBox(of: image, scale: scale)
                 let file = probeDirectory.appendingPathComponent("\(state).png")
                 // 先删掉上一轮的图：下面的存在性判据才是「这一轮真的写出来了」，而不是遗留文件冒充。
                 try? FileManager.default.removeItem(at: file)
@@ -241,7 +246,7 @@ struct AgentSettingsLayoutTests {
                 #expect(ink.pixels > 0, "\(state) 渲染图是空白的")
 
                 let describe =
-                    "- \(state).png：像素 \(image.width)×\(image.height)（\(CGFloat(image.width) / 2)×\(CGFloat(image.height) / 2)pt）"
+                    "- \(state).png：像素 \(image.width)×\(image.height)（\(CGFloat(image.width) / scale)×\(CGFloat(image.height) / scale)pt）"
                     + "，墨迹 左 \(ink.left) 上 \(ink.top) 右 \(ink.right) 下 \(ink.bottom)（高 \(ink.height)），"
                     + "md5 \(ImageWriter.md5(image))"
                 pngNotes.append("\(file.path) \(describe)")
@@ -296,6 +301,13 @@ struct AgentSettingsLayoutTests {
         AgentsSettingsPage(onOpenAnimations: {})
             .frame(width: width)
             .background(Color.black)
+    }
+
+    /// `cacheDisplay` 出的图按「已知页面宽度（pt）」反推倍率后再量墨迹。
+    @MainActor
+    private func hostedInk(_ image: CGImage?, width: CGFloat) -> InkBox {
+        guard let image, image.width > 0 else { return InkBox() }
+        return inkBox(of: image, scale: CGFloat(image.width) / width)
     }
 
     /// 页面的渲染尺寸（`ImageRenderer` 按内容自然高度出图）。
@@ -405,7 +417,10 @@ private func inkMask(_ image: CGImage) -> (width: Int, height: Int, hasInk: (Int
 }
 
 /// 图像里全部墨迹的包围盒（pt）。
-func inkBox(of image: CGImage?) -> InkBox {
+/// 墨迹包围盒。`scale` = 每 pt 多少像素：`ImageRenderer` 固定 2×，而
+/// `NSHostingView.cacheDisplay` 的倍率取决于宿主视图的 backing scale —— 没有窗口时
+/// 是 1×（CI 上就是这样，按 2 除会把左缘与高度全部折半，判据凭空失败）。
+func inkBox(of image: CGImage?, scale: CGFloat = 2) -> InkBox {
     guard let image else { return InkBox() }
     let (width, height, hasInk) = inkMask(image)
     var box = InkBox(pixels: 0)
@@ -423,10 +438,10 @@ func inkBox(of image: CGImage?) -> InkBox {
         }
     }
     guard box.pixels > 0 else { return InkBox() }
-    box.left = CGFloat(minX) / 2
-    box.top = CGFloat(minY) / 2
-    box.right = CGFloat(maxX) / 2
-    box.bottom = CGFloat(maxY) / 2
+    box.left = CGFloat(minX) / scale
+    box.top = CGFloat(minY) / scale
+    box.right = CGFloat(maxX) / scale
+    box.bottom = CGFloat(maxY) / scale
     return box
 }
 
@@ -468,11 +483,13 @@ func meanLuminance(of image: CGImage?, in rect: CGRect) -> CGFloat {
 }
 
 /// 指定 y 带内按列切出的墨迹簇（pt 区间）。
-func inkClusters(of image: CGImage?, in band: ClosedRange<CGFloat>) -> [ClosedRange<CGFloat>] {
+func inkClusters(
+    of image: CGImage?, in band: ClosedRange<CGFloat>, scale: CGFloat = 2
+) -> [ClosedRange<CGFloat>] {
     guard let image else { return [] }
     let (width, height, hasInk) = inkMask(image)
-    let lower = max(0, Int(band.lowerBound * 2))
-    let upper = min(height - 1, Int(band.upperBound * 2))
+    let lower = max(0, Int(band.lowerBound * scale))
+    let upper = min(height - 1, Int(band.upperBound * scale))
     guard lower <= upper else { return [] }
 
     var clusters: [ClosedRange<CGFloat>] = []
@@ -486,10 +503,12 @@ func inkClusters(of image: CGImage?, in band: ClosedRange<CGFloat>) -> [ClosedRa
         if columnInk {
             if runStart == nil { runStart = x }
         } else if let start = runStart {
-            clusters.append(CGFloat(start) / 2...CGFloat(x - 1) / 2)
+            clusters.append(CGFloat(start) / scale...CGFloat(x - 1) / scale)
             runStart = nil
         }
     }
-    if let start = runStart { clusters.append(CGFloat(start) / 2...CGFloat(width - 1) / 2) }
+    if let start = runStart {
+        clusters.append(CGFloat(start) / scale...CGFloat(width - 1) / scale)
+    }
     return clusters
 }

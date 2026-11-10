@@ -33,6 +33,15 @@ jobs:
           TMPDIR: ${{ runner.temp }}
         run: ./scripts/gate.sh --with-tests
 
+      - name: 导出测试附件（失败时）
+        if: failure()
+        run: |
+          XCR=$(ls -dt "$TMPDIR"/agent-island-gate/tests/Logs/Test/*.xcresult 2>/dev/null | head -1 || true)
+          if [ -n "${XCR:-}" ]; then
+            xcrun xcresulttool export attachments --path "$XCR" \
+              --output-path "$TMPDIR/probe-attachments" || true
+          fi
+
       - name: 失败时上传日志
         if: failure()
         uses: actions/upload-artifact@v5
@@ -41,4 +50,5 @@ jobs:
           # 只传日志：门禁目录里还有整份派生数据（产物 + 索引），全传会变成几百 MB
           path: |
             ${{ runner.temp }}/agent-island-gate/*.log
+            ${{ runner.temp }}/probe-attachments
           if-no-files-found: ignore
