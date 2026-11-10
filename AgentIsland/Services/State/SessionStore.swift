@@ -688,38 +688,79 @@ actor SessionStore {
         )
         session.conversationInfo = conversationInfo
 
-        // Handle /clear reconciliation - remove items that no longer exist in parser state
         if session.needsClearReconciliation {
-            // Build set of valid IDs from the payload messages
-            var validIds = Set<String>()
-            for message in payload.messages {
-                for (blockIndex, block) in message.content.enumerated() {
-                    switch block {
-                    case .toolUse(let tool):
-                        validIds.insert(tool.id)
-                    case .text, .thinking, .image, .interrupted:
-                        let itemId = "\(message.id)-\(block.typePrefix)-\(blockIndex)"
-                        validIds.insert(itemId)
-                    }
-                }
-            }
-
-            // Filter chatItems to only keep valid items OR items that are very recent
-            // (within last 2 seconds - these are hook-created placeholders for post-clear tools)
-            let cutoffTime = Date().addingTimeInterval(-2)
-            let previousCount = session.chatItems.count
-            session.chatItems = session.chatItems.filter { item in
-                validIds.contains(item.id) || item.timestamp > cutoffTime
-            }
-
-            // Also reset tool tracker
-            session.toolTracker = ToolTracker()
-            session.subagentState = SubagentState()
-
-            session.needsClearReconciliation = false
-            Self.logger.debug("Clear reconciliation: kept \(session.chatItems.count) of \(previousCount) items")
+            reconcileAfterClear(&session, messages: payload.messages)
         }
 
+        applyMessagesToHistory(payload, session: &session)
+
+        // 全量同步（记录被重写或首次读取）要按时间重排；增量追加天然有序，不必排。
+        if !payload.isIncremental {
+            session.chatItems.sort { $0.timestamp < $1.timestamp }
+        }
+
+        session.toolTracker.lastSyncTime = Date()
+
+        await populateSubagentToolsFromAgentFiles(
+            key: payload.key,
+            session: &session,
+            structuredResults: payload.structuredResults
+        )
+
+        populateSubagentRunsFromTaskResults(session: &session)
+
+        sessions[payload.key] = session
+
+        await emitToolCompletionEvents(
+            key: payload.key,
+            session: session,
+            completedToolIds: payload.completedToolIds,
+            toolResults: payload.toolResults,
+            structuredResults: payload.structuredResults
+        )
+    }
+
+    /// `/clear` 之后的对账：只保留「记录里还在的条目」与「最近 2 秒内刚建的占位条目」
+    /// （`/clear` 之后立刻发生的新工具调用由 hook 先建占位，记录稍后才写到）。
+    private func reconcileAfterClear(_ session: inout SessionState, messages: [ChatMessage]) {
+        // /clear 之后的对账：只保留「记录里还在的条目」与「最近 2 秒内刚建的占位条目」
+        // （/clear 之后立刻发生的新工具调用由 hook 先建占位，记录稍后才写到）。
+        // Build set of valid IDs from the payload messages
+        var validIds = Set<String>()
+        for message in messages {
+            for (blockIndex, block) in message.content.enumerated() {
+                switch block {
+                case .toolUse(let tool):
+                    validIds.insert(tool.id)
+                case .text, .thinking, .image, .interrupted:
+                    let itemId = "\(message.id)-\(block.typePrefix)-\(blockIndex)"
+                    validIds.insert(itemId)
+                }
+            }
+        }
+
+        // Filter chatItems to only keep valid items OR items that are very recent
+        // (within last 2 seconds - these are hook-created placeholders for post-clear tools)
+        let cutoffTime = Date().addingTimeInterval(-2)
+        let previousCount = session.chatItems.count
+        session.chatItems = session.chatItems.filter { item in
+            validIds.contains(item.id) || item.timestamp > cutoffTime
+        }
+
+        // Also reset tool tracker
+        session.toolTracker = ToolTracker()
+        session.subagentState = SubagentState()
+
+        session.needsClearReconciliation = false
+        // `Logger` 的插值是 autoclosure：直接在里面读 `inout` 参数会被拒（escaping autoclosure
+        // captures 'inout' parameter），先取出来再打。
+        let keptCount = session.chatItems.count
+        Self.logger.debug("Clear reconciliation: kept \(keptCount) of \(previousCount) items")
+    }
+
+    /// 把本轮读到的消息并入 `chatItems`：已存在的工具行保留其状态/结果，只刷新名字与入参；
+    /// 其余块按 `createChatItem` 的规则新建。全量同步要按时间重排，增量追加天然有序。
+    private func applyMessagesToHistory(_ payload: FileUpdatePayload, session: inout SessionState) {
         let existingIds = Set(session.chatItems.map { $0.id })
 
         for message in payload.messages {
@@ -761,31 +802,6 @@ actor SessionStore {
                 }
             }
         }
-
-        // 全量同步（记录被重写或首次读取）要按时间重排；增量追加天然有序，不必排。
-        if !payload.isIncremental {
-            session.chatItems.sort { $0.timestamp < $1.timestamp }
-        }
-
-        session.toolTracker.lastSyncTime = Date()
-
-        await populateSubagentToolsFromAgentFiles(
-            key: payload.key,
-            session: &session,
-            structuredResults: payload.structuredResults
-        )
-
-        populateSubagentRunsFromTaskResults(session: &session)
-
-        sessions[payload.key] = session
-
-        await emitToolCompletionEvents(
-            key: payload.key,
-            session: session,
-            completedToolIds: payload.completedToolIds,
-            toolResults: payload.toolResults,
-            structuredResults: payload.structuredResults
-        )
     }
 
     /// 用子 Agent 自己的记录补齐 Task/Agent 工具内部的工具调用列表
